@@ -1,0 +1,13 @@
+{
+  "kind": "repository-configuration-recovery",
+  "mode": "auto",
+  "planId": "sha256:22af4a0922819d702084c956fbb53bbc7e53653e06b0c5d67debc7bbccbb60fc",
+  "repositoryIdentity": "sha256:690221c02124c2adec1d5da7a775ca7f90d26e6b39425b294c0cc64b51463ee1",
+  "schemaVersion": 1,
+  "sourceDigest": "sha256:7f0193fe1541b8f36077c7b05477c6215c9724a9ce65c2e4eaf478fc6abdc7d8",
+  "state": {
+    "branch": "state",
+    "commit": null,
+    "sourceCommit": null
+  }
+}

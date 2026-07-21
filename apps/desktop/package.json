@@ -1,0 +1,58 @@
+{
+  "name": "singularity-flow-desktop",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Visual workflow, approval, persona, artifact-template, and evidence studio for Singularity Flow.",
+  "author": "Ashok Raj",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "node electron/dev.mjs",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "monaco-editor": "^0.52.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "43.1.1",
+    "electron-builder": "^26.0.12",
+    "vite": "^8.1.5"
+  },
+  "build": {
+    "appId": "dev.singularityflow.desktop",
+    "productName": "Singularity Flow",
+    "icon": "build/icon.png",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../../bin", "to": "cli/bin" },
+      { "from": "../../src", "to": "cli/src" },
+      { "from": "../../node_modules/yaml", "to": "cli/node_modules/yaml" },
+      { "from": "../../package.json", "to": "cli/package.json" }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "category": "Development",
+      "target": ["AppImage", "deb"]
+    }
+  }
+}

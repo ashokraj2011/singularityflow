@@ -5,6 +5,7 @@ Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A reposi
 The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
+- A secure Electron desktop studio for visual workflow, persona, approval, template, progress, and document management.
 - A skills-only GitHub Copilot plugin.
 - Editable feature, bugfix, and chore profiles.
 - Editable persona prompts and artifact templates.
@@ -247,6 +248,18 @@ npm test
 npm run check
 npm pack --dry-run
 ```
+
+### Desktop studio
+
+The Electron app is a visual control plane over the same CLI and Git-backed state. It does not maintain a second workflow database or write runtime state directly.
+
+```bash
+npm run desktop:dev
+npm run desktop:build
+npm run desktop:dist
+```
+
+Open an initialized repository from the app. The studio provides a progress dashboard, visual phase graph, persona and approval-rule inspection, validated YAML editing, artifact-template source/preview, supporting-document upload/view, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
 
 Install the personal Copilot plugin with:
 

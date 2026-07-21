@@ -3,3 +3,5 @@
 node_modules/
 *.tgz
 coverage/
+apps/desktop/dist/
+apps/desktop/release/

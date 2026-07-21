@@ -39,6 +39,11 @@ export async function selectWorkType(definition) {
 
 export async function selectPersona(root, definition, actor, workId = null) {
   const persona = await choose('persona', Object.entries(definition.personas));
+  return setPersonaSession(root, definition, actor, persona, workId);
+}
+
+export async function setPersonaSession(root, definition, actor, persona, workId = null) {
+  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown persona '${persona}'.`);
   const record = { persona, actor, workId, selectedAt: nowIso() };
   await mkdir(path.dirname(sessionPath(root)), { recursive: true });
   await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);

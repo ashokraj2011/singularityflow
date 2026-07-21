@@ -76,6 +76,12 @@ Suggested personas improve discoverability but do not authorize phase access. An
 
 Completion is the number of approved phases divided by the immutable total phase count. Awaiting approval and in-progress phases are not assigned guessed fractional credit. The progress view also exposes current position, generations, approval thresholds, document count, and token totals.
 
+## Desktop control plane
+
+`apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, persona sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
+
+The app may visualize repository state and edit workflow, template, and persona source text, but it does not write `workflow.json`, approvals, generated metadata, or other runtime state directly. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, or template unresolved.
+
 ## Transaction and publication model
 
 Each generation, submission, approval, rejection, or advancement is one local state transaction followed by one commit and one normal push. Generation subjects use:

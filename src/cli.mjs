@@ -9,20 +9,23 @@ import {
   requirePositional,
   table
 } from './util.mjs';
-import { assertClean, branch, checkout, repoRoot } from './git.mjs';
+import { assertClean, branch, checkout, identity, repoRoot } from './git.mjs';
 import {
   approvePhase,
+  commitAndPublish,
   CONFIG_PATH,
   createWorkflow,
   currentPhase,
   loadConfig,
   loadWorkflow,
   preparePhase,
+  publishGeneration,
   registerArtifact,
   rejectPhase,
   saveWorkflow,
   scanArtifacts,
   submitPhase,
+  syncPublication,
   validateId,
   validateWorkflow
 } from './state.mjs';
@@ -30,8 +33,11 @@ import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs'
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
+import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
+import { selectPersona, selectWorkType } from './session.mjs';
+import { readJson } from './util.mjs';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -43,11 +49,14 @@ Usage:
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow prepare [PHASE]
+  singularity-flow phase publish [PHASE] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
   singularity-flow artifact scan [--phase PHASE]
   singularity-flow submit [--phase PHASE] [--skip-checks]
-  singularity-flow approve [--phase PHASE] [--by NAME] [--commit] [--message TEXT] [--yes]
-  singularity-flow reject --reason TEXT [--by NAME]
+  singularity-flow approve [WORK-ID] [--fetch] [--phase PHASE] [--yes]
+  singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+  singularity-flow sync
+  singularity-flow migrate-config
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal]
   singularity-flow wm init
@@ -72,10 +81,10 @@ Optional Jira environment:
 
 Typical flow:
   singularity-flow start ENG-142
-  singularity-flow prepare requirements
-  singularity-flow artifact scan
+  singularity-flow prepare intake
+  singularity-flow phase publish intake
   singularity-flow submit
-  singularity-flow approve --yes --commit
+  singularity-flow approve --yes
 `;
 
 function summary(workflow) {
@@ -91,6 +100,12 @@ function summary(workflow) {
   }
 }
 
+function actionActor(root) {
+  return process.env.SINGULARITY_FLOW_GITHUB_ACTOR
+    ? { name: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, login: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, email: null }
+    : identity(root);
+}
+
 async function confirm(phase) {
   if (!input.isTTY || !output.isTTY) throw new SingularityFlowError('Approval needs an interactive terminal or the explicit --yes flag.');
   const io = readline.createInterface({ input, output });
@@ -104,16 +119,18 @@ async function confirm(phase) {
 
 async function initCommand() {
   const root = repoRoot();
-  await loadConfig(root, { create: true });
+  const wrote = await initializeDefinition(root);
   await worldModelCommand(root, ['wm', 'init'], {});
-  console.log(`Created or verified ${CONFIG_PATH}`);
+  console.log(wrote.length ? `Created ${wrote.join(', ')}` : `Verified ${WORKFLOW_PATH} and repository templates.`);
 }
 
 async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
-  let config = await loadConfig(root);
+  const config = await loadConfig(root);
   validateId(config, id);
+  const workType = await selectWorkType(config);
+  const selectedPersona = await selectPersona(root, config, actionActor(root), id);
 
   const source = optionBoolean(options, 'jira')
     ? await getIssue(id)
@@ -130,15 +147,18 @@ async function startCommand(positionals, options) {
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const base = optionString(options, 'base', config.defaultBaseBranch);
   checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
-  config = await loadConfig(root, { create: true });
   const workflow = await createWorkflow(root, config, {
     id,
     title: optionString(options, 'title', source.title || id),
     source,
-    baseBranch: base
+    baseBranch: base,
+    workType,
+    persona: selectedPersona.persona,
+    resolved: resolveWorkType(config, workType)
   });
+  await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
   summary(workflow);
-  console.log('\nNext in Copilot: /singularity-flow:requirements');
+  console.log('\nNext in Copilot: /singularity-flow:phase');
 }
 
 async function resumeCommand(positionals, options) {
@@ -150,7 +170,9 @@ async function resumeCommand(positionals, options) {
   checkout(root, id, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, id);
+  const session = await selectPersona(root, config, actionActor(root), id);
   summary(workflow);
+  console.log(`Active persona: ${session.persona}`);
   const active = currentPhase(workflow);
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
@@ -177,6 +199,8 @@ async function statusCommand(positionals, options) {
     { key: 'status', label: 'STATUS' },
     { key: 'artifacts', label: 'ARTIFACTS' }
   ])}`);
+  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'} as ${item.persona}`));
+  if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
 }
 
 async function prepareCommand(positionals) {
@@ -184,6 +208,16 @@ async function prepareCommand(positionals) {
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
+}
+
+async function phaseCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'phase subcommand');
+  if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
+  const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
+  const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
+  console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
 }
 
 async function artifactCommand(positionals, options) {
@@ -219,33 +253,60 @@ async function submitCommand(options) {
     phaseId: optionString(options, 'phase'),
     runChecks: !optionBoolean(options, 'skip-checks')
   });
+  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, phase.artifacts.map((item) => item.path));
   console.log(`Phase ${phase.id} is awaiting approval with ${phase.artifacts.length} artifact(s).`);
   console.log('Next in Copilot: /singularity-flow:approve');
 }
 
-async function approveCommand(options) {
+async function decisionWorkflow(positionals, options) {
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const requestedId = positionals[1];
+  let config = await loadConfig(root);
+  const workId = requestedId ?? branch(root);
+  if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  config = await loadConfig(root); const workflow = await loadWorkflow(root, config, workId);
+  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
+  return { root, config, workflow, session };
+}
+
+async function approveCommand(positionals, options) {
+  const { root, config, workflow, session } = await decisionWorkflow(positionals, options);
   const phase = currentPhase(workflow);
   if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
+  const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
+  console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id} as ${session.persona}`);
+  console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
+  console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
+  console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
+  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? 'unknown'} as ${item.persona} (${item.decision})`).join(', ') || 'none'}`);
+  if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (!optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const result = await approvePhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
-    by: optionString(options, 'by'),
-    createCommit: optionBoolean(options, 'commit'),
-    message: optionString(options, 'message')
+    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal'
   });
+  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy}.`);
+  if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
 }
 
-async function rejectCommand(options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
-  const phase = await rejectPhase(root, config, workflow, { reason: optionString(options, 'reason'), by: optionString(options, 'by') });
-  console.log(`Rejected ${phase.id}; it is back in progress.`);
+async function rejectCommand(positionals, options) {
+  const { root, config, workflow, session } = await decisionWorkflow(positionals, options); const current = currentPhase(workflow);
+  const target = optionString(options, 'to') ?? current.id;
+  console.log(`Rejecting ${current.id} to ${target} as ${session.persona}; approvals from ${target} onward will be invalidated.`);
+  const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
+  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
+  console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
+}
+
+async function syncCommand() {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+}
+
+async function migrateConfigCommand() {
+  const root = repoRoot(); const result = await migrateLegacyConfig(root); console.log(result.migrated ? `Migrated configuration to ${result.path}; upgraded ${result.migratedWorkItems} work item(s)${result.movedStateRoot ? ' and moved the previous state root to .singularity/' : ''}.` : result.reason);
 }
 
 async function validateCommand(options) {
@@ -334,10 +395,13 @@ export async function main(argv) {
     case 'resume': return resumeCommand(positionals, options);
     case 'status': return statusCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
+    case 'phase': return phaseCommand(positionals, options);
     case 'artifact': return artifactCommand(positionals, options);
     case 'submit': return submitCommand(options);
-    case 'approve': return approveCommand(options);
-    case 'reject': return rejectCommand(options);
+    case 'approve': return approveCommand(positionals, options);
+    case 'reject': return rejectCommand(positionals, options);
+    case 'sync': return syncCommand();
+    case 'migrate-config': return migrateConfigCommand();
     case 'validate': return validateCommand(options);
     case 'gate': return gateCommand(options);
     case 'wm': return worldModelCommand(repoRoot(), positionals, options);

@@ -5,9 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { head } from './git.mjs';
 import { SingularityFlowError, optionBoolean, optionString, run } from './util.mjs';
+import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadSession } from './session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configRelative = '.sdlc/worldmodel.json';
+const configRelative = '.singularity/worldmodel.json';
 
 function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
@@ -25,6 +27,28 @@ function requireText(file) {
 }
 
 async function load(root) {
+  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+    const definition = await loadDefinition(root);
+    const session = await loadSession(root, { required: false });
+    const activeId = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+    const activeStatePath = path.join(root, definition.workItemRoot ?? '.singularity/work-items', activeId, 'workflow.json');
+    const activeState = existsSync(activeStatePath) ? JSON.parse(await readFile(activeStatePath, 'utf8')) : null;
+    const phaseEntries = activeState?.resolution?.phases?.length
+      ? activeState.resolution.phases.map((phase) => [phase.id, phase])
+      : Object.entries(definition.phases);
+    const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
+      const personaViews = session ? definition.personas[session.persona]?.worldModelViews ?? [] : [];
+      return [id, { views: [...new Set([...(phase.worldModel?.views ?? []), ...personaViews])], depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false }];
+    }));
+    return {
+      outputDir: definition.worldModel?.outputDir ?? '.singularity/world-model',
+      promptSource: definition.worldModel?.promptSource ?? '.singularity/prompts/worldmodel-builder.md',
+      runner: definition.worldModel?.runner ?? 'copilot -p "$(cat {prompt_file})" --allow-all-tools',
+      staleness: definition.worldModel?.staleness ?? 'warn', phases,
+      context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
+      personaPrompt: session ? path.posix.join(definition.personaPromptsRoot, definition.personas[session.persona].prompt) : null
+    };
+  }
   const file = path.join(root, configRelative);
   if (!existsSync(file)) throw new SingularityFlowError('World model is not initialized. Run: singularity-flow wm init');
   const user = JSON.parse(await readFile(file, 'utf8'));
@@ -58,12 +82,10 @@ function render(template, root, config, options) {
 }
 
 async function init(root) {
-  const configFile = path.join(root, configRelative);
-  const promptFile = path.join(root, '.sdlc/prompts/worldmodel-builder.md');
+  const promptFile = path.join(root, '.singularity/prompts/worldmodel-builder.md');
   await mkdir(path.dirname(promptFile), { recursive: true });
-  if (!existsSync(configFile)) await copyFile(path.join(packageRoot, 'templates/worldmodel.json'), configFile);
   if (!existsSync(promptFile)) await copyFile(path.join(packageRoot, 'templates/worldmodel-builder.md'), promptFile);
-  console.log(`World model initialized at ${configRelative}.`);
+  console.log('World-model builder prompt initialized; phase routing comes from .singularity/workflow.yml.');
 }
 
 async function prompt(root, config, options) {
@@ -115,21 +137,22 @@ async function context(root, config, phase, options) {
     if (relative && existsSync(path.join(root, config.outputDir, relative)) && !selected.some((item) => item.relative === relative)) selected.push({ relative, level, reason });
   };
   for (const relative of config.context.always ?? []) add(relative, 0, 'shared repository core');
+  if (config.personaPrompt && existsSync(path.join(root, config.personaPrompt))) selected.push({ relative: path.relative(config.outputDir, config.personaPrompt), absolute: config.personaPrompt, level: 0, reason: 'active persona prompt' });
   for (const view of phaseConfig.views ?? []) add(model.views?.[view]?.path ?? `views/${view}.md`, 1, `${phase} view: ${view}`);
   if (config.context.includeDomains !== 'none') {
     for (const domain of model.domains ?? []) {
       if (config.context.includeDomains === 'all' || (domain.relevant_views ?? []).some((view) => phaseConfig.views.includes(view))) add(domain.path, 2, `domain: ${domain.id}`);
     }
   }
-  if (optionBoolean(options, 'evidence') || config.context.includeEvidence) add(model.evidence?.path, 3, 'evidence ledger');
+  if (optionBoolean(options, 'evidence') || phaseConfig.evidence || config.context.includeEvidence) add(model.evidence?.path, 3, 'evidence ledger');
   if (optionBoolean(options, 'concat')) {
     for (const item of selected) {
       console.log(`\n<!-- L${item.level} ${item.relative}: ${item.reason} -->\n`);
-      process.stdout.write(await readFile(path.join(root, config.outputDir, item.relative), 'utf8'));
+      process.stdout.write(await readFile(path.join(root, item.absolute ?? path.join(config.outputDir, item.relative)), 'utf8'));
     }
   } else {
     console.log(`# World-model context: phase=${phase} commit=${String(state.built).slice(0, 10)}${state.fresh ? '' : ' STALE'}`);
-    selected.forEach((item) => console.log(`L${item.level}  ${path.posix.join(config.outputDir, item.relative)}  # ${item.reason}`));
+    selected.forEach((item) => console.log(`L${item.level}  ${item.absolute ?? path.posix.join(config.outputDir, item.relative)}  # ${item.reason}`));
   }
 }
 

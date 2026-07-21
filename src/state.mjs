@@ -1,177 +1,64 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
-  SingularityFlowError,
-  exists,
-  invariant,
-  nowIso,
-  posix,
-  readJson,
-  repoRelative,
-  run,
-  snapshot,
-  truncate,
-  writeJson,
-  writeText
+  SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
+  run, snapshot, truncate, writeJson, writeText
 } from './util.mjs';
-import { add, branch, changedFiles, commit, head, identity } from './git.mjs';
+import { add, branch, changedFiles, commit, head, identity, pushBranch, remoteContains } from './git.mjs';
+import {
+  WORKFLOW_PATH, loadDefinition, renderArtifactTemplate, resolveWorkType, snapshotResolution
+} from './config.mjs';
+import { loadSession } from './session.mjs';
 
-export const CONFIG_PATH = '.sdlc/config.json';
-
-export const DEFAULT_PHASES = [
-  ['requirements', 'Requirements', 'product-owner', 'artifacts/requirements/requirements.md', 'requirements', 300],
-  ['design', 'Architecture & Design', 'architect', 'artifacts/design/design.md', 'design', 300],
-  ['implementation', 'Implementation', 'developer', 'artifacts/implementation/implementation-summary.md', 'implementation-summary', 250],
-  ['verification', 'Verification', 'qa', 'artifacts/verification/test-evidence.md', 'test-evidence', 250],
-  ['review', 'Independent Review', 'reviewer', 'artifacts/review/review.md', 'review', 250],
-  ['release', 'Release Readiness', 'release-manager', 'artifacts/release/release-plan.md', 'release-plan', 250]
-].map(([id, label, owner, requiredPath, kind, minimumBytes]) => ({
-  id,
-  label,
-  owner,
-  requiredArtifact: { path: requiredPath, kind, minimumBytes },
-  qualityCommands: []
-}));
-
-export function defaultConfig() {
-  return {
-    schemaVersion: 1,
-    defaultBaseBranch: 'main',
-    workItemRoot: '.sdlc/work-items',
-    idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
-    phases: structuredClone(DEFAULT_PHASES),
-    artifactScan: {
-      ignorePrefixes: ['.git/', 'node_modules/', '.idea/', '.vscode/']
-    },
-    jira: {
-      issueType: 'Story',
-      maxResults: 25
-    },
-    governance: {
-      requireGithubApprovals: false,
-      requireAcceptanceCriteriaTags: true,
-      protectedPaths: ['.sdlc/config.json', '.github/workflows/singularity-flow-approve.yml', '.github/workflows/singularity-flow-validation.yml'],
-      roles: {}
-    }
-  };
-}
-
-export async function loadConfig(root, { create = false } = {}) {
-  const file = path.join(root, CONFIG_PATH);
-  if (!(await exists(file))) {
-    const config = defaultConfig();
-    if (create) await writeJson(file, config);
-    return config;
-  }
-  const user = await readJson(file);
-  const defaults = defaultConfig();
-  return {
-    ...defaults,
-    ...user,
-    artifactScan: { ...defaults.artifactScan, ...(user.artifactScan ?? {}) },
-    jira: { ...defaults.jira, ...(user.jira ?? {}) },
-    governance: { ...defaults.governance, ...(user.governance ?? {}) },
-    phases: Array.isArray(user.phases) && user.phases.length ? user.phases : defaults.phases
-  };
-}
+export const CONFIG_PATH = WORKFLOW_PATH;
+export const loadConfig = loadDefinition;
 
 export function validateId(config, id) {
-  if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) {
-    throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
-  }
-  if (!(new RegExp(config.idPattern)).test(id)) {
-    throw new SingularityFlowError(`Work ID ${id} does not match ${config.idPattern}.`);
-  }
+  if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
+  if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(id)) throw new SingularityFlowError(`Work ID ${id} does not match ${config.idPattern}.`);
 }
 
-export function workDir(root, config, id) {
-  return path.join(root, config.workItemRoot, id);
-}
+export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? '.singularity/work-items', id); }
+export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? '.singularity/work-items', id)); }
+export function workflowPath(root, config, id) { return path.join(workDir(root, config, id), 'workflow.json'); }
+export function statusPath(root, config, id) { return path.join(workDir(root, config, id), 'STATUS.md'); }
+export function sourcePath(root, config, id) { return path.join(workDir(root, config, id), 'source.json'); }
+export function userStoryPath(root, config, id) { return path.join(workDir(root, config, id), 'USER-STORY.md'); }
+export function approvalPath(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', `${phase}.json`); }
+export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
+export function pendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
 
-export function workDirRelative(config, id) {
-  return posix(path.join(config.workItemRoot, id));
-}
+function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
-export function workflowPath(root, config, id) {
-  return path.join(workDir(root, config, id), 'workflow.json');
-}
-
-export function statusPath(root, config, id) {
-  return path.join(workDir(root, config, id), 'STATUS.md');
-}
-
-export function sourcePath(root, config, id) {
-  return path.join(workDir(root, config, id), 'source.json');
-}
-
-export function userStoryPath(root, config, id) {
-  return path.join(workDir(root, config, id), 'USER-STORY.md');
-}
-
-export function approvalPath(root, config, id, phase) {
-  return path.join(workDir(root, config, id), 'approvals', `${phase}.json`);
-}
-
-function jiraSourceMarkdown(source) {
-  const metadata = [
-    source.url ? `- URL: ${source.url}` : null,
-    source.issueType ? `- Type: ${source.issueType}` : null,
-    source.project ? `- Project: ${source.project.key ?? ''}${source.project.name ? ` — ${source.project.name}` : ''}` : null,
-    source.status ? `- Status: ${source.status}${source.statusCategory ? ` (${source.statusCategory})` : ''}` : null,
+function sourceMarkdown(source) {
+  const details = [
+    `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
+    source.status ? `- Status: ${source.status}` : null,
     source.priority ? `- Priority: ${source.priority}` : null,
-    source.assignee ? `- Assignee: ${source.assignee}` : null,
-    source.reporter ? `- Reporter: ${source.reporter}` : null,
-    source.parent ? `- Parent: ${source.parent.key}${source.parent.title ? ` — ${source.parent.title}` : ''}` : null,
     source.storyPoints != null ? `- Story points: ${source.storyPoints}` : null,
-    source.sprints?.length ? `- Sprint: ${source.sprints.map((sprint) => `${sprint.name ?? sprint.id ?? 'unnamed'}${sprint.state ? ` [${sprint.state}]` : ''}`).join(', ')}` : null,
-    source.dueDate ? `- Due date: ${source.dueDate}` : null,
-    source.createdAt ? `- Created: ${source.createdAt}` : null,
-    source.updatedAt ? `- Updated: ${source.updatedAt}` : null,
-    source.labels?.length ? `- Labels: ${source.labels.join(', ')}` : null,
-    source.components?.length ? `- Components: ${source.components.join(', ')}` : null,
-    source.fetchedAt ? `- Fetched: ${source.fetchedAt}` : null
+    source.assignee ? `- Assignee: ${source.assignee}` : null
   ].filter(Boolean).join('\n');
-  const sections = [
-    ['Description', source.description || '_No description provided._'],
-    ['Acceptance criteria', source.acceptanceCriteria || '_No acceptance-criteria field was configured or populated._'],
-    ['Environment', source.environment],
-    ['Subtasks', source.subtasks?.map((item) => `- ${item.key}${item.status ? ` [${item.status}]` : ''}${item.title ? ` — ${item.title}` : ''}`).join('\n')],
-    ['Linked issues', source.issueLinks?.map((item) => `- ${item.relationship ?? 'Related to'}: ${item.issue?.key ?? 'unknown'}${item.issue?.status ? ` [${item.issue.status}]` : ''}${item.issue?.title ? ` — ${item.issue.title}` : ''}`).join('\n')],
-    ['Attachments', source.attachments?.map((item) => `- ${item.filename ?? item.id}${item.mimeType ? ` (${item.mimeType})` : ''}`).join('\n')]
-  ].filter(([, value]) => String(value ?? '').trim());
-  return `# ${source.key} — ${source.title}\n\n${metadata}\n${sections.map(([heading, value]) => `\n## ${heading}\n\n${String(value).trim()}\n`).join('')}`.trimEnd() + '\n';
-}
-
-function requirementsTemplate({ id, title, source }) {
-  const description = source.description?.trim() || 'TODO: Describe the business problem, user need, and expected outcome.';
-  const acceptance = source.acceptanceCriteria?.trim() || 'TODO: Add clear, testable acceptance criteria.';
-  const sourceLines = source.type === 'jira'
-    ? [`- Source: Jira`, `- Key: ${source.key}`, source.url ? `- URL: ${source.url}` : null, source.status ? `- Jira status: ${source.status}` : null].filter(Boolean).join('\n')
-    : `- Source: Manual identifier\n- ID: ${id}`;
-  return `# ${id} — Requirements\n\n## Work item\n\n- Title: ${title}\n${sourceLines}\n\n## Problem statement\n\n${description}\n\n## Scope\n\n### In scope\n\n- TODO: Define included behavior.\n\n### Out of scope\n\n- TODO: Define explicit exclusions.\n\n## Acceptance criteria\n\n${acceptance}\n\n## Dependencies and assumptions\n\n- TODO: Record dependencies and assumptions.\n\n## Risks and open questions\n\n- TODO: Resolve or explicitly track open questions.\n`;
-}
-
-function phaseTemplate(phase, context) {
-  const { id, title, source } = context;
-  if (phase === 'requirements') return requirementsTemplate({ id, title, source });
-  const templates = {
-    design: `# ${id} — Architecture & Design\n\n## Objective\n\nTODO: Summarize the approved requirements and design objective for **${title}**.\n\n## Current-state assessment\n\nTODO: Identify affected components, constraints, and existing patterns.\n\n## Proposed design\n\nTODO: Describe components, interfaces, data flow, and responsibilities.\n\n## Alternatives considered\n\nTODO: Record alternatives and why they were not selected.\n\n## Security, privacy, and compliance\n\nTODO: Identify threats, data handling, permissions, and controls.\n\n## Observability and operations\n\nTODO: Define logging, metrics, alerts, supportability, and capacity.\n\n## Migration and rollback\n\nTODO: Describe compatibility, rollout, migration, and rollback.\n\n## Implementation plan\n\nTODO: Break the design into ordered, testable work.\n`,
-    implementation: `# ${id} — Implementation Summary\n\n## Implemented outcome\n\nTODO: Summarize what changed for **${title}**.\n\n## Changed components\n\nTODO: List code, configuration, data, and documentation changes.\n\n## Key decisions and deviations\n\nTODO: Record deviations from the approved design and their rationale.\n\n## Tests added or updated\n\nTODO: List test coverage and important scenarios.\n\n## Known limitations\n\nTODO: Record limitations or explicitly state none.\n\n## Operational notes\n\nTODO: Record feature flags, migrations, configuration, and deployment considerations.\n`,
-    verification: `# ${id} — Verification Evidence\n\n## Verification scope\n\nTODO: Describe what was verified for **${title}** and against which acceptance criteria.\n\n## Automated checks\n\nTODO: Record exact commands, environments, outcomes, and logs.\n\n## Acceptance-criteria results\n\nTODO: Map every acceptance criterion to evidence and a pass/fail result.\n\n## Regression and edge cases\n\nTODO: Record negative cases, boundaries, failures, and regression coverage.\n\n## Security and non-functional checks\n\nTODO: Record applicable security, performance, accessibility, reliability, or privacy checks.\n\n## Defects and residual risk\n\nTODO: List defects, waivers, residual risk, or explicitly state none.\n`,
-    review: `# ${id} — Independent Review\n\n## Review scope\n\nTODO: Describe the implementation and evidence reviewed for **${title}**.\n\n## Findings\n\nTODO: Record findings by severity, location, impact, and action.\n\n## Acceptance-criteria assessment\n\nTODO: Confirm whether each criterion is implemented and evidenced.\n\n## Maintainability and architecture assessment\n\nTODO: Evaluate readability, coupling, interfaces, tests, and design alignment.\n\n## Security and operational assessment\n\nTODO: Evaluate security, failures, observability, rollout, and rollback.\n\n## Review decision\n\nTODO: State approved, approved with conditions, or changes requested.\n`,
-    release: `# ${id} — Release Plan\n\n## Release scope\n\nTODO: Summarize the releasable outcome for **${title}**.\n\n## Preconditions\n\nTODO: List approvals, migrations, configuration, secrets, and dependencies.\n\n## Deployment steps\n\nTODO: Provide ordered deployment and validation steps.\n\n## Observability and success criteria\n\nTODO: Define metrics, logs, alerts, dashboards, and success window.\n\n## Rollback plan\n\nTODO: Define triggers, steps, data considerations, and owners.\n\n## Communication and support\n\nTODO: Identify stakeholders, release notes, support handoff, and escalation.\n\n## Final readiness decision\n\nTODO: State ready, conditionally ready, or not ready, with rationale.\n`
-  };
-  return templates[phase] ?? `# ${id} — ${phase}\n\nTODO: Complete the phase artifact.\n`;
+  const subtasks = source.subtasks?.length ? source.subtasks.map((item) => `- ${item.key}${item.status ? ` [${item.status}]` : ''}${item.title ? ` — ${item.title}` : ''}`).join('\n') : '_None._';
+  return `# ${source.key ?? source.id} — ${source.title}\n\n${details}\n\n## Description\n\n${source.description || '_No description provided._'}\n\n## Acceptance criteria\n\n${source.acceptanceCriteria || '_Not provided._'}\n\n## Subtasks\n\n${subtasks}\n`;
 }
 
 function phaseState(definition, index) {
+  const requiredArtifact = structuredClone(definition.artifact);
   return {
     id: definition.id,
-    label: definition.label ?? definition.id,
-    owner: definition.owner ?? null,
+    label: definition.label,
     order: index,
+    owner: definition.suggestedPersonas?.[0] ?? null,
+    suggestedPersonas: [...(definition.suggestedPersonas ?? [])],
     status: index === 0 ? 'in_progress' : 'not_started',
-    requiredArtifact: structuredClone(definition.requiredArtifact ?? null),
+    requiredArtifact,
+    template: definition.template,
+    worldModel: structuredClone(definition.worldModel ?? {}),
+    writeScope: definition.writeScope ?? 'artifact-only',
+    comparison: structuredClone(definition.comparison ?? {}),
+    approvalPolicy: structuredClone(definition.approval ?? { personas: [], minimum: 0, rejectTo: [definition.id] }),
     qualityCommands: [...(definition.qualityCommands ?? [])],
     startedAt: index === 0 ? nowIso() : null,
     submittedAt: null,
@@ -180,43 +67,137 @@ function phaseState(definition, index) {
     rejectedAt: null,
     rejectedBy: null,
     rejectionReason: null,
+    generation: 0,
+    generatedBy: null,
+    generatedPersona: null,
+    usage: [],
+    approvals: [],
     artifacts: [],
     checks: []
   };
 }
 
-export async function createWorkflow(root, config, { id, title, source, baseBranch }) {
+function managedMetadata(workflow, phase) {
+  return {
+    schemaVersion: 1,
+    workId: workflow.workItem.id,
+    workType: workflow.workItem.workType,
+    phase: phase.id,
+    generation: phase.generation,
+    status: phase.status,
+    generatedBy: phase.generatedBy,
+    generatedPersona: phase.generatedPersona,
+    sourceCommit: phase.sourceCommit ?? null,
+    generationCommit: phase.generationCommit ?? null,
+    publicationCommit: phase.publicationCommit ?? null,
+    configSha256: workflow.resolution.configSha256,
+    sourceSha256: workflow.resolution.sourceSha256 ?? null,
+    template: workflow.resolution.templates[phase.id],
+    usage: phase.usage,
+    approvals: phase.approvals,
+    selfApproval: phase.approvals.some((approval) => approval.selfApproval && !approval.invalidatedAt),
+    conformanceTree: phase.conformanceTree ?? null
+  };
+}
+
+function metadataBlock(metadata) {
+  return `<!-- singularity-flow:metadata\n${JSON.stringify(metadata, null, 2)}\n-->`;
+}
+
+async function updateArtifactMetadata(root, config, workflow, phase) {
+  const file = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
+  if (!(await exists(file))) return;
+  const text = await readFile(file, 'utf8');
+  const block = metadataBlock(managedMetadata(workflow, phase));
+  const pattern = /<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+  await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
+}
+
+function statusMarkdown(workflow) {
+  const lines = [
+    `# ${workflow.workItem.id} — ${workflow.workItem.title}`, '',
+    `- Branch: \`${workflow.workItem.branch}\``,
+    `- Work type: **${workflow.workItem.workType}**`,
+    `- Overall status: **${workflow.status}**`,
+    `- Current phase: **${workflow.currentPhase ?? 'complete'}**`, '',
+    '| # | Phase | Suggested personas | Status | Generation | Approvals | Tokens |',
+    '|---:|---|---|---|---:|---:|---:|'
+  ];
+  for (const id of workflow.phaseOrder) {
+    const phase = workflow.phases[id];
+    const approvals = phase.approvals.filter((item) => !item.invalidatedAt).length;
+    const tokens = phase.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
+    lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.suggestedPersonas.join(', ')} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
+    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.persona} / ${approval.actor.name} | **warning** |  |  |  |`);
+  }
+  lines.push('', '## Recent history', '');
+  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.persona ? ` as ${item.persona}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
+  return `${lines.join('\n')}\n`;
+}
+
+export async function saveWorkflow(root, config, workflow) {
+  await writeJson(workflowPath(root, config, workflow.workItem.id), workflow);
+  await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
+}
+
+export async function createWorkflow(root, config, { id, title, source, baseBranch, workType, persona, resolved } = {}) {
   validateId(config, id);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match work ID ${id}.`);
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
+  const selectedType = workType ?? Object.keys(config.workTypes)[0];
+  const resolution = resolved ?? resolveWorkType(config, selectedType);
+  const snapshotState = config._legacy ? { configSha256: null, templates: Object.fromEntries(resolution.phases.map((phase) => [phase.id, { path: phase.template, sha256: null }])) } : await snapshotResolution(root, config, resolution);
   const actor = identity(root);
-  const phases = config.phases.map(phaseState);
+  const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
   const workflow = {
-    schemaVersion: 1,
-    workItem: {
-      id,
-      title: title || id,
-      branch: branch(root),
-      baseBranch,
-      createdAt,
-      createdBy: actor,
-      source: { type: source.type, key: source.key ?? null, url: source.url ?? null }
+    schemaVersion: 2,
+    workItem: { id, title: title || id, workType: selectedType, workTypeLabel: resolution.label, branch: branch(root), baseBranch, createdAt, createdBy: actor, source: { type: source.type, key: source.key ?? null, url: source.url ?? null } },
+    resolution: {
+      ...snapshotState,
+      workType: selectedType,
+      workTypeLabel: resolution.label,
+      sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
+      phases: resolution.phases
     },
     status: 'in_progress',
     currentPhase: phases[0]?.id ?? null,
     phaseOrder: phases.map((phase) => phase.id),
     phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
-    history: [{ at: createdAt, actor: actor.name, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created branch ${branch(root)}` }]
+    usage: {
+      mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
+      exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {}
+    },
+    history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
   await writeJson(sourcePath(root, config, id), source);
-  if (source.type === 'jira') await writeText(userStoryPath(root, config, id), jiraSourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable SDLC state for branch \`${workflow.workItem.branch}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human-readable phase status\n- [source.json](./source.json) — normalized input context\n${source.type === 'jira' ? '- [USER-STORY.md](./USER-STORY.md) — human-readable Jira story snapshot\n' : ''}- [artifacts/](./artifacts/) — phase deliverables\n- [approvals/](./approvals/) — immutable approval snapshots\n`);
-  const first = phases[0];
-  if (first?.requiredArtifact?.path) {
-    await writeText(path.join(workDir(root, config, id), first.requiredArtifact.path), phaseTemplate(first.id, { id, title: workflow.workItem.title, source }));
-  }
+  if (source.type === 'jira') await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n${source.type === 'jira' ? '- [USER-STORY.md](./USER-STORY.md) — Jira snapshot\n' : ''}- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await saveWorkflow(root, config, workflow);
+  await preparePhase(root, config, workflow, phases[0]?.id);
+  await saveWorkflow(root, config, workflow);
+  return workflow;
+}
+
+function upgradeWorkflow(workflow) {
+  if (workflow.schemaVersion === 2) return workflow;
+  workflow.schemaVersion = 2;
+  workflow.workItem.workType ??= 'legacy';
+  workflow.resolution ??= { configSha256: null, templates: {}, phases: [] };
+  workflow.resolution.workType ??= workflow.workItem.workType;
+  workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
+  workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
+  workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
+  workflow.usage.byPhase ??= {}; workflow.usage.byPersona ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
+  for (const id of workflow.phaseOrder) {
+    const phase = workflow.phases[id];
+    phase.suggestedPersonas ??= phase.owner ? [phase.owner] : [];
+    phase.approvalPolicy ??= { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [id] };
+    phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
+    phase.generation ??= phase.artifacts?.length ? 1 : 0;
+    phase.usage ??= [];
+    phase.approvals ??= phase.approvedBy ? [{ actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
+  }
   return workflow;
 }
 
@@ -224,7 +205,7 @@ export async function loadWorkflow(root, config, id = undefined) {
   const resolved = id ?? branch(root);
   const file = workflowPath(root, config, resolved);
   if (!(await exists(file))) throw new SingularityFlowError(`No workflow found for ${resolved}. Expected ${posix(path.relative(root, file))}.`);
-  const workflow = await readJson(file);
+  const workflow = upgradeWorkflow(await readJson(file));
   invariant(workflow.workItem?.id === resolved, `Workflow ID does not match ${resolved}.`);
   return workflow;
 }
@@ -236,301 +217,271 @@ export function currentPhase(workflow) {
   return phase;
 }
 
-function assertCurrent(workflow, requested = undefined) {
+function assertCurrent(workflow, requested) {
   const phase = currentPhase(workflow);
   if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
   if (requested && requested !== phase.id) throw new SingularityFlowError(`Current phase is ${phase.id}, not ${requested}.`);
   return phase;
 }
 
-function requiredRepoPath(config, workflow, phase) {
-  return phase.requiredArtifact?.path ? `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}` : null;
-}
-
-function statusMarkdown(workflow) {
-  const lines = [
-    `# ${workflow.workItem.id} — ${workflow.workItem.title}`,
-    '',
-    `- Branch: \`${workflow.workItem.branch}\``,
-    `- Base branch: \`${workflow.workItem.baseBranch}\``,
-    `- Overall status: **${workflow.status}**`,
-    `- Current phase: **${workflow.currentPhase ?? 'complete'}**`,
-    '',
-    '## SDLC phases',
-    '',
-    '| # | Phase | Owner | Status | Submitted | Approved |',
-    '|---:|---|---|---|---|---|'
-  ];
-  workflow.phaseOrder.forEach((id, index) => {
-    const phase = workflow.phases[id];
-    lines.push(`| ${index + 1} | ${phase.label} (\`${id}\`) | ${phase.owner ?? '—'} | **${phase.status}** | ${phase.submittedAt ?? '—'} | ${phase.approvedAt ?? '—'} |`);
-  });
-  const active = currentPhase(workflow);
-  if (active) {
-    lines.push('', `## Current phase artifacts — ${active.label}`, '');
-    if (!active.artifacts.length) lines.push('_No artifacts registered yet._');
-    else {
-      lines.push('| Path | Kind | Status | Snapshot |', '|---|---|---|---|');
-      active.artifacts.forEach((artifact) => lines.push(`| \`${artifact.path}\` | ${artifact.kind} | ${artifact.status} | ${artifact.sha256 ? artifact.sha256.slice(0, 12) : artifact.exists ? 'non-file' : 'deleted'} |`));
-    }
-  }
-  lines.push('', '## Recent history', '');
-  workflow.history.slice(-10).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.detail ? `: ${item.detail}` : ''}`));
-  return `${lines.join('\n')}\n`;
-}
-
-export async function saveWorkflow(root, config, workflow) {
-  await writeJson(workflowPath(root, config, workflow.workItem.id), workflow);
-  await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
-}
+function requiredRepoPath(config, workflow, phase) { return `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}`; }
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
   const phase = assertCurrent(workflow, requested);
-  if (!phase.requiredArtifact?.path) throw new SingularityFlowError(`No required artifact configured for ${phase.id}.`);
   const target = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
   if (!(await exists(target))) {
-    const source = await readJson(sourcePath(root, config, workflow.workItem.id));
-    await writeText(target, phaseTemplate(phase.id, { id: workflow.workItem.id, title: workflow.workItem.title, source }));
+    let text;
+    if (config._legacy) text = `# ${workflow.workItem.id} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`;
+    else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), { id: workflow.workItem.id, title: workflow.workItem.title, workType: workflow.workItem.workType });
+    await writeText(target, `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`);
   }
   return posix(path.relative(root, target));
 }
 
 const SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.hpp', '.html', '.java', '.js', '.jsx', '.kt', '.kts', '.mjs', '.php', '.py', '.rb', '.rs', '.scala', '.scss', '.sql', '.swift', '.ts', '.tsx', '.vue']);
-
 export function inferKind(relativePath) {
   const value = relativePath.toLowerCase();
-  if (value.endsWith('/requirements.md')) return 'requirements';
-  if (value.endsWith('/design.md')) return 'design';
-  if (value.endsWith('/implementation-summary.md')) return 'implementation-summary';
-  if (value.endsWith('/test-evidence.md')) return 'test-evidence';
-  if (value.endsWith('/review.md')) return 'review';
-  if (value.endsWith('/release-plan.md')) return 'release-plan';
+  if (value.includes('/implementation-spec')) return 'implementation-spec';
+  if (value.includes('/spec-code-comparison')) return 'conformance-report';
   if (/(^|\/)(test|tests|spec|specs)(\/|$)/.test(value) || /\.(test|spec)\.[^.]+$/.test(value)) return 'test';
-  const extension = path.extname(value);
-  if (SOURCE_EXTENSIONS.has(extension)) return 'code';
-  if (['.md', '.mdx', '.txt', '.adoc', '.rst'].includes(extension)) return 'document';
-  if (['.json', '.yml', '.yaml', '.toml', '.ini', '.properties'].includes(extension)) return 'configuration';
+  if (SOURCE_EXTENSIONS.has(path.extname(value))) return 'code';
+  if (/\.(md|mdx|txt|adoc|rst)$/.test(value)) return 'document';
+  if (/\.(json|ya?ml|toml|ini|properties)$/.test(value)) return 'configuration';
   return 'file';
 }
 
-function canModify(phase) {
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Phase ${phase.id} is ${phase.status}; it cannot accept artifact changes.`);
-}
-
-function artifactFor(phase, relativePath) {
-  return phase.artifacts.find((item) => item.path === relativePath);
-}
+function artifactFor(phase, relativePath) { return phase.artifacts.find((item) => item.path === relativePath); }
+function canModify(phase) { if (phase.status !== 'in_progress') throw new SingularityFlowError(`Phase ${phase.id} is ${phase.status}; it cannot accept artifact changes.`); }
 
 export async function registerArtifact(root, workflow, candidate, { phaseId, kind } = {}) {
-  const phase = assertCurrent(workflow, phaseId);
-  canModify(phase);
-  const relativePath = repoRelative(root, candidate);
-  if (relativePath === '.') throw new SingularityFlowError('Repository root cannot be an artifact.');
-  const info = await snapshot(path.join(root, relativePath));
-  const timestamp = nowIso();
-  const existing = artifactFor(phase, relativePath);
-  const record = {
-    path: relativePath,
-    kind: kind || existing?.kind || inferKind(relativePath),
-    status: 'pending',
-    exists: info.exists,
-    size: info.size,
-    sha256: info.sha256,
-    registeredAt: existing?.registeredAt ?? timestamp,
-    updatedAt: timestamp
-  };
-  if (existing) Object.assign(existing, record);
-  else phase.artifacts.push(record);
+  const phase = assertCurrent(workflow, phaseId); canModify(phase);
+  const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
+  const info = await snapshot(absolute); const existing = artifactFor(phase, relativePath); const timestamp = nowIso();
+  const record = { path: relativePath, kind: kind ?? inferKind(relativePath), status: 'pending', exists: info.exists, size: info.size, sha256: info.sha256, registeredAt: existing?.registeredAt ?? timestamp, updatedAt: timestamp };
+  if (existing) Object.assign(existing, record); else phase.artifacts.push(record);
   phase.artifacts.sort((a, b) => a.path.localeCompare(b.path));
-  workflow.history.push({ at: timestamp, actor: identity(root).name, event: existing ? 'artifact_updated' : 'artifact_registered', phase: phase.id, detail: `${record.kind}: ${relativePath}` });
   return record;
 }
 
 function ignored(config, workflow, relativePath) {
-  if (relativePath === CONFIG_PATH) return true;
-  if ((config.artifactScan?.ignorePrefixes ?? []).some((prefix) => relativePath.startsWith(prefix))) return true;
+  if ([WORKFLOW_PATH, '.singularity/config.json', '.singularity/worldmodel.json'].includes(relativePath)) return true;
+  if (relativePath.startsWith('.singularity/world-model/')) return true;
+  if (['.git/', 'node_modules/', '.idea/', '.vscode/'].some((prefix) => relativePath.startsWith(prefix))) return true;
   const itemRoot = workDirRelative(config, workflow.workItem.id);
   return relativePath.startsWith(`${itemRoot}/`) && !relativePath.startsWith(`${itemRoot}/artifacts/`);
 }
 
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
-  const phase = assertCurrent(workflow, phaseId);
-  canModify(phase);
-  const records = [];
-  for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item))) {
-    records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
-  }
+  const phase = assertCurrent(workflow, phaseId); canModify(phase); const records = [];
+  for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item))) records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
   return records;
 }
 
 const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/i;
-
-async function validatePhase(root, config, workflow, phase) {
-  const errors = [];
-  const required = requiredRepoPath(config, workflow, phase);
-  if (required) {
-    const absolute = path.join(root, required);
-    if (!(await exists(absolute))) errors.push(`Required artifact missing: ${required}`);
-    else {
-      const text = await readFile(absolute, 'utf8');
-      const bytes = Buffer.byteLength(text);
-      if (bytes < (phase.requiredArtifact.minimumBytes ?? 1)) errors.push(`Required artifact ${required} is too short (${bytes} bytes).`);
-      if (PLACEHOLDER.test(text)) errors.push(`Required artifact ${required} contains TODO/TBD/template placeholders.`);
-      if (!artifactFor(phase, required)) errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
-    }
+async function validatePhase(root, config, workflow, phase, { placeholders = true } = {}) {
+  const errors = []; const required = requiredRepoPath(config, workflow, phase); const absolute = path.join(root, required);
+  if (!(await exists(absolute))) errors.push(`Required artifact missing: ${required}`);
+  else {
+    const text = await readFile(absolute, 'utf8'); const bytes = Buffer.byteLength(text);
+    if (bytes < (phase.requiredArtifact.minimumBytes ?? 1)) errors.push(`Required artifact ${required} is too short (${bytes} bytes).`);
+    if (placeholders && PLACEHOLDER.test(text.replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, ''))) errors.push(`Required artifact ${required} contains TODO/TBD/template placeholders.`);
+    if (!artifactFor(phase, required)) errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
   }
   for (const artifact of phase.artifacts) {
     const current = await snapshot(path.join(root, artifact.path));
-    if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) {
-      errors.push(`Artifact changed after registration: ${artifact.path}. Run singularity-flow artifact scan.`);
-    }
+    if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) errors.push(`Artifact changed after registration: ${artifact.path}. Run singularity-flow artifact scan.`);
   }
   return errors;
+}
+
+function normalizeUsage(raw, session) {
+  const startedAt = raw?.startedAt ?? nowIso(); const completedAt = raw?.completedAt ?? nowIso();
+  const numeric = ['inputTokens', 'outputTokens', 'cachedInputTokens', 'totalTokens'];
+  const exact = raw && numeric.some((key) => Number.isFinite(raw[key]));
+  const usage = { status: exact ? 'exact' : 'unavailable', source: raw?.source ?? (exact ? 'provider' : 'copilot-unavailable'), provider: raw?.provider ?? null, model: raw?.model ?? null, inputTokens: raw?.inputTokens ?? null, outputTokens: raw?.outputTokens ?? null, cachedInputTokens: raw?.cachedInputTokens ?? null, totalTokens: raw?.totalTokens ?? (exact ? (raw.inputTokens ?? 0) + (raw.outputTokens ?? 0) : null), startedAt, completedAt, persona: session.persona };
+  return usage;
+}
+
+function addUsageAggregate(workflow, phase, usage) {
+  const increment = (collection, key) => {
+    const aggregate = collection[key] ??= { records: 0, exactRecords: 0, unavailableRecords: 0, totalTokens: 0 };
+    aggregate.records += 1;
+    aggregate[usage.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
+    aggregate.totalTokens += usage.totalTokens ?? 0;
+  };
+  workflow.usage.records += 1;
+  workflow.usage[usage.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
+  workflow.usage.totalTokens += usage.totalTokens ?? 0;
+  increment(workflow.usage.byPhase, phase.id);
+  increment(workflow.usage.byPersona, usage.persona);
+  increment(workflow.usage.byWorkType, workflow.workItem.workType);
+  increment(workflow.usage.byWorkItem, workflow.workItem.id);
+}
+
+function generationCommit(root, workflow, phase, number = phase.generation) {
+  const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${number}]`;
+  const result = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true });
+  if (result.status !== 0) return null;
+  return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject))?.[0] ?? null;
+}
+
+export async function sourceTreeHash(root) {
+  const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
+  const files = [...new Set([...tracked, ...changedFiles(root)])].filter((file) => !file.startsWith('.singularity/') && !file.startsWith('.git/') && !file.startsWith('node_modules/')).sort();
+  const hash = createHash('sha256');
+  for (const file of files) {
+    if (!existsSync(path.join(root, file))) continue;
+    hash.update(file).update('\0').update(await readFile(path.join(root, file))).update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
+
+export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage } = {}) {
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
+  const phase = assertCurrent(workflow, phaseId); canModify(phase); const session = await loadSession(root);
+  const changed = changedFiles(root);
+  const protectedChange = (config.governance?.protectedPaths ?? []).find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
+  if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);
+  if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
+    const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+    const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
+    if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
+  }
+  phase.generation += 1; phase.generatedBy = session.actor; phase.generatedPersona = session.persona; phase.sourceCommit = head(root);
+  if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
+  phase.usage.push(normalizeUsage(rawUsage, session));
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await scanArtifacts(root, config, workflow, phase.id);
+  const errors = await validatePhase(root, config, workflow, phase);
+  if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
+  addUsageAggregate(workflow, phase, phase.usage.at(-1));
+  workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), persona: session.persona, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
+  await saveWorkflow(root, config, workflow); return phase;
 }
 
 async function qualityChecks(root, phase) {
   const checks = [];
   for (const command of phase.qualityCommands ?? []) {
-    const startedAt = nowIso();
-    const result = run(command, [], { cwd: root, shell: true, allowFailure: true });
-    checks.push({
-      command,
-      startedAt,
-      completedAt: nowIso(),
-      status: result.status === 0 ? 'passed' : 'failed',
-      exitCode: result.status,
-      stdout: truncate(result.stdout),
-      stderr: truncate(result.stderr)
-    });
+    const startedAt = nowIso(); const result = run(command, [], { cwd: root, shell: true, allowFailure: true });
+    checks.push({ command, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
   }
   return checks;
 }
 
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true } = {}) {
-  const phase = assertCurrent(workflow, phaseId);
-  canModify(phase);
-  await scanArtifacts(root, config, workflow, phase.id);
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
+  const phase = assertCurrent(workflow, phaseId); canModify(phase); const session = await loadSession(root);
+  if (phase.generation < 1) throw new SingularityFlowError(`Phase ${phase.id} has no published generation.`);
+  phase.generationCommit = generationCommit(root, workflow, phase);
+  if (!phase.generationCommit) throw new SingularityFlowError(`Generation commit is missing for ${phase.id} generation ${phase.generation}.`);
+  phase.publicationCommit = config.git?.publish === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', workflow.workItem.branch) ? phase.generationCommit : null;
+  if (config.git?.publish === 'required' && !phase.publicationCommit) throw new SingularityFlowError(`Generation commit ${phase.generationCommit.slice(0, 8)} is not published; run singularity-flow sync.`);
   phase.checks = runChecks ? await qualityChecks(root, phase) : [];
-  const errors = await validatePhase(root, config, workflow, phase);
-  const failed = phase.checks.filter((check) => check.status !== 'passed');
+  const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status !== 'passed');
   if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
-  phase.status = 'awaiting_approval';
-  phase.submittedAt = nowIso();
-  workflow.history.push({ at: phase.submittedAt, actor: identity(root).name, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifact(s), ${phase.checks.length} check(s)` });
-  await saveWorkflow(root, config, workflow);
-  return phase;
+  phase.status = 'awaiting_approval'; phase.submittedAt = nowIso(); await updateArtifactMetadata(root, config, workflow, phase); await refreshRequiredArtifact(root, config, workflow, phase);
+  workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), persona: session.persona, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
+  await saveWorkflow(root, config, workflow); return phase;
 }
 
-function nextPhase(workflow, phase) {
-  const nextId = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1];
-  return nextId ? workflow.phases[nextId] : null;
+function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1]; return id ? workflow.phases[id] : null; }
+
+async function writeDecision(root, config, workflow, phase, decision) {
+  const safe = decision.at.replace(/[:.]/g, '-');
+  await writeJson(path.join(decisionDir(root, config, workflow.workItem.id, phase.id), `${safe}-${decision.decision}.json`), decision);
+  await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), { schemaVersion: 2, phase: phase.id, decisions: phase.approvals });
 }
 
-export async function approvePhase(root, config, workflow, { phaseId, by, createCommit = false, message } = {}) {
-  const phase = assertCurrent(workflow, phaseId);
-  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Phase ${phase.id} must be submitted before approval.`);
-  if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Approval must run on branch ${workflow.workItem.branch}.`);
-  const errors = await validatePhase(root, config, workflow, phase);
-  if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} cannot be approved:\n- ${errors.join('\n- ')}`);
-  const githubActor = process.env.SINGULARITY_FLOW_GITHUB_ACTOR;
-  const actor = githubActor || by || identity(root).name;
-  if (githubActor) {
-    const allowed = config.governance?.roles?.[phase.owner] ?? [];
-    if (!allowed.includes(githubActor)) {
-      throw new SingularityFlowError(`@${githubActor} is not authorized for role ${phase.owner}.`);
-    }
+export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal' } = {}) {
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
+  const phase = assertCurrent(workflow, phaseId); if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Phase ${phase.id} must be submitted before approval.`);
+  const session = await loadSession(root); const allowed = phase.approvalPolicy.personas ?? [];
+  if (!allowed.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot approve phase '${phase.id}'. Choose one of: ${allowed.join(', ')}.`);
+  const actor = session.actor; const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
+  const decision = { decision: 'approved', phase: phase.id, at: nowIso(), actor, persona: session.persona, channel, generation: phase.generation, selfApproval: actorKey(phase.generatedBy ?? {}) === key };
+  phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
+  if (reached) {
+    phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
+    const upcoming = nextPhase(workflow, phase);
+    if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id; }
+    else { workflow.currentPhase = null; workflow.status = 'complete'; }
   }
-  const timestamp = nowIso();
-  phase.artifacts.forEach((artifact) => Object.assign(artifact, { status: 'approved', approvedAt: timestamp, approvedBy: actor }));
-  Object.assign(phase, { status: 'approved', approvedAt: timestamp, approvedBy: actor, rejectedAt: null, rejectedBy: null, rejectionReason: null });
-  const upcoming = nextPhase(workflow, phase);
-  if (upcoming) {
-    upcoming.status = 'in_progress';
-    upcoming.startedAt = timestamp;
-    workflow.currentPhase = upcoming.id;
-  } else {
-    workflow.currentPhase = null;
-    workflow.status = 'complete';
-  }
-  workflow.history.push({ at: timestamp, actor, event: 'phase_approved', phase: phase.id, detail: upcoming ? `Advanced to ${upcoming.id}` : 'Workflow completed' });
-  const approval = {
-    schemaVersion: 1,
-    workItemId: workflow.workItem.id,
-    branch: workflow.workItem.branch,
-    phase: phase.id,
-    phaseLabel: phase.label,
-    approvedAt: timestamp,
-    approvedBy: actor,
-    provenance: githubActor ? {
-      channel: 'github-pr-comment',
-      actor: githubActor,
-      repository: process.env.GITHUB_REPOSITORY ?? null,
-      pullRequest: process.env.SINGULARITY_FLOW_GITHUB_PR ?? null,
-      commentUrl: process.env.SINGULARITY_FLOW_GITHUB_COMMENT_URL ?? null
-    } : { channel: 'local', actor },
-    headBeforeApproval: head(root),
-    intakeApprovals: Object.fromEntries(await Promise.all(
-      workflow.phaseOrder.slice(0, workflow.phaseOrder.indexOf(phase.id)).map(async (priorId) => {
-        const priorPath = approvalPath(root, config, workflow.workItem.id, priorId);
-        return [priorId, (await exists(priorPath)) ? (await snapshot(priorPath)).sha256 : null];
-      })
-    )),
-    artifacts: phase.artifacts.map(({ path: artifactPath, kind, sha256, size, exists: present }) => ({ path: artifactPath, kind, sha256, size, exists: present })),
-    checks: phase.checks.map(({ command, status, exitCode, completedAt }) => ({ command, status, exitCode, completedAt }))
-  };
-  await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), approval);
-  await saveWorkflow(root, config, workflow);
-  if (createCommit) {
-    add(root, [...new Set([CONFIG_PATH, workDirRelative(config, workflow.workItem.id), ...phase.artifacts.map((artifact) => artifact.path)])]);
-    commit(root, message || `${workflow.workItem.id} approve ${phase.id}`);
-  }
-  return { phase, next: upcoming, approval };
+  await updateArtifactMetadata(root, config, workflow, phase); await registerApprovedSnapshot(root, config, workflow, phase);
+  await writeDecision(root, config, workflow, phase, decision);
+  workflow.history.push({ at: decision.at, actor: key, persona: session.persona, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
+  await saveWorkflow(root, config, workflow); return { phase, next: reached ? currentPhase(workflow) : phase, approval: { approvedBy: key, ...decision }, reached };
 }
 
-export async function rejectPhase(root, config, workflow, { reason, by } = {}) {
-  const phase = currentPhase(workflow);
-  if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
-  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Only an awaiting_approval phase can be rejected; current status is ${phase.status}.`);
+async function registerApprovedSnapshot(root, config, workflow, phase) {
+  const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
+  if (existing) Object.assign(existing, { ...current, status: phase.status === 'approved' ? 'approved' : 'pending', approvedAt: phase.approvedAt, approvedBy: phase.approvedBy });
+}
+
+async function refreshRequiredArtifact(root, config, workflow, phase) {
+  const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
+  if (existing) Object.assign(existing, { ...current, updatedAt: nowIso() });
+  else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
+}
+
+export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal' } = {}) {
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
+  const phase = assertCurrent(workflow, phaseId); if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Only an awaiting_approval phase can be rejected; current status is ${phase.status}.`);
   if (!reason?.trim()) throw new SingularityFlowError('A rejection reason is required.');
-  const actor = by || identity(root).name;
-  const timestamp = nowIso();
-  Object.assign(phase, { status: 'in_progress', submittedAt: null, rejectedAt: timestamp, rejectedBy: actor, rejectionReason: reason.trim() });
-  phase.artifacts.forEach((artifact) => { artifact.status = 'pending'; });
-  workflow.history.push({ at: timestamp, actor, event: 'phase_rejected', phase: phase.id, detail: reason.trim() });
-  await saveWorkflow(root, config, workflow);
-  return phase;
+  const session = await loadSession(root); const allowedPersonas = phase.approvalPolicy.personas ?? [];
+  if (!allowedPersonas.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot reject phase '${phase.id}'.`);
+  const targetId = target ?? phase.id; if (!(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
+  const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
+  const timestamp = nowIso(); const key = actorKey(session.actor);
+  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
+    const affected = workflow.phases[workflow.phaseOrder[index]];
+    affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
+    affected.status = index === targetIndex ? 'in_progress' : 'not_started'; affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    if (index === targetIndex) { affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = reason.trim(); }
+    await updateArtifactMetadata(root, config, workflow, affected);
+  }
+  workflow.currentPhase = targetId; workflow.status = 'in_progress';
+  const decision = { decision: 'rejected', phase: phase.id, target: targetId, reason: reason.trim(), at: timestamp, actor: session.actor, persona: session.persona, channel };
+  phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
+  workflow.history.push({ at: timestamp, actor: key, persona: session.persona, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
+  await saveWorkflow(root, config, workflow); return workflow.phases[targetId];
+}
+
+export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
+  const pending = pendingPublicationPath(root, config, workflow.workItem.id);
+  if (await exists(pending)) throw new SingularityFlowError('A previous publication is pending. Run: singularity-flow sync');
+  add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths])]);
+  const sha = commit(root, message); const mode = config.git?.publish ?? 'required';
+  if (mode === 'off') return { sha, pushed: false };
+  const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, workflow.workItem.branch);
+  if (result.status !== 0) {
+    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: workflow.workItem.branch, remote, commit: sha, createdAt: nowIso(), error: (result.stderr || result.stdout).trim() });
+    throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
+  }
+  return { sha, pushed: true };
+}
+
+export async function syncPublication(root, config, workflow) {
+  const pending = pendingPublicationPath(root, config, workflow.workItem.id); const record = (await exists(pending)) ? await readJson(pending) : { remote: config.git?.remote ?? 'origin', branch: workflow.workItem.branch };
+  const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+  if (await exists(pending)) await unlink(pending); return { pushed: head(root), remote: record.remote, branch: record.branch };
 }
 
 export async function validateWorkflow(root, config, workflow, { strict = false } = {}) {
-  const errors = [];
-  const warnings = [];
-  if (branch(root) !== workflow.workItem.branch) errors.push(`Current branch ${branch(root)} does not match ${workflow.workItem.branch}.`);
+  const errors = [], warnings = []; if (branch(root) !== workflow.workItem.branch) errors.push(`Current branch ${branch(root)} does not match ${workflow.workItem.branch}.`);
+  if (workflow.schemaVersion === 2 && workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
+  const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
+  if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');
   let activeCount = 0;
   for (const phaseId of workflow.phaseOrder) {
-    const phase = workflow.phases[phaseId];
-    if (!phase) {
-      errors.push(`Missing phase ${phaseId}.`);
-      continue;
-    }
+    const phase = workflow.phases[phaseId]; if (!phase) { errors.push(`Missing phase ${phaseId}.`); continue; }
     if (['in_progress', 'awaiting_approval'].includes(phase.status)) activeCount += 1;
-    if (phase.status === 'approved') {
-      const required = requiredRepoPath(config, workflow, phase);
-      if (required && !(await exists(path.join(root, required)))) errors.push(`Approved artifact missing: ${required}`);
-    }
+    if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
   }
-  if (workflow.status === 'complete') {
-    if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.');
-    if (activeCount) errors.push('Complete workflow cannot have an active phase.');
-  } else {
-    if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.');
-    if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`);
-  }
-  const active = currentPhase(workflow);
-  if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
-  if (active) {
-    const unregistered = changedFiles(root).filter((file) => !ignored(config, workflow, file) && !artifactFor(active, file));
-    if (unregistered.length) warnings.push(`Unregistered changed files: ${unregistered.join(', ')}`);
-  }
+  if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
+  else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
+  const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) errors.push('Publication is pending; run singularity-flow sync.');
   return { valid: errors.length === 0, errors, warnings };
 }

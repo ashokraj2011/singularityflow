@@ -1,0 +1,231 @@
+import { cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs';
+
+export const WORKFLOW_PATH = '.singularity/workflow.yml';
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function assertId(value, label) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
+}
+
+function assertRelative(value, label) {
+  if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`);
+}
+
+export function validateDefinition(definition) {
+  if (definition?.version !== 1) throw new SingularityFlowError('workflow.yml version must be 1.');
+  if (!definition.personas || !Object.keys(definition.personas).length) throw new SingularityFlowError('workflow.yml must define at least one persona.');
+  if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
+  if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
+  assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
+  assertRelative(definition.templatesRoot, 'templatesRoot');
+  assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
+  for (const [id, persona] of Object.entries(definition.personas)) {
+    assertId(id, 'Persona');
+    if (!persona.label || !persona.prompt) throw new SingularityFlowError(`Persona '${id}' requires label and prompt.`);
+    assertRelative(persona.prompt, `Persona '${id}' prompt`);
+    for (const phaseId of [...(persona.suggestedPhases ?? []), ...(persona.mayApprove ?? [])]) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Persona '${id}' references unknown phase '${phaseId}'.`);
+  }
+  for (const [id, workType] of Object.entries(definition.workTypes)) {
+    assertId(id, 'Work type');
+    if (!workType.label || !Array.isArray(workType.phases) || !workType.phases.length) throw new SingularityFlowError(`Work type '${id}' requires label and phases.`);
+    for (const phaseId of workType.phases) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Work type '${id}' references unknown phase '${phaseId}'.`);
+    for (const phaseId of Object.keys(workType.templateOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
+    for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
+  }
+  for (const [id, phase] of Object.entries(definition.phases)) {
+    assertId(id, 'Phase');
+    if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
+    assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
+    const template = phase.defaultTemplate;
+    if (template) assertRelative(template, `Phase '${id}' defaultTemplate`);
+    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertRelative(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
+    if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
+    for (const persona of phase.approval?.personas ?? []) {
+      if (!definition.personas[persona]) throw new SingularityFlowError(`Phase '${id}' approval references unknown persona '${persona}'.`);
+      if (!(definition.personas[persona].mayApprove ?? []).includes(id)) throw new SingularityFlowError(`Persona '${persona}' must list '${id}' in mayApprove.`);
+    }
+  }
+  return definition;
+}
+
+function legacyDefinition(config, worldModel = {}) {
+  const personas = {};
+  const phases = {};
+  for (const phase of config.phases ?? []) {
+    const personaId = String(phase.owner ?? 'developer').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'developer';
+    personas[personaId] ??= { label: phase.owner ?? 'Developer', description: `Legacy ${phase.owner ?? 'developer'} persona`, prompt: `${personaId}.md`, suggestedPhases: [], worldModelViews: [], mayApprove: [] };
+    personas[personaId].suggestedPhases.push(phase.id);
+    personas[personaId].mayApprove.push(phase.id);
+    phases[phase.id] = {
+      label: phase.label ?? phase.id,
+      suggestedPersonas: [personaId],
+      defaultTemplate: `legacy/${phase.id}.md`,
+      artifact: { ...(phase.requiredArtifact ?? {}), path: phase.requiredArtifact?.path ?? `artifacts/${phase.id}/${phase.id}.md` },
+      worldModel: worldModel.phases?.[phase.id] ?? { views: [], depth: 'standard' },
+      writeScope: 'source-and-artifact',
+      approval: { personas: [personaId], minimum: 1, rejectTo: [phase.id] },
+      qualityCommands: phase.qualityCommands ?? []
+    };
+  }
+  return {
+    version: 1,
+    defaultBaseBranch: config.defaultBaseBranch ?? 'main',
+    workItemRoot: config.workItemRoot ?? '.singularity/work-items',
+    idPattern: config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
+    git: { remote: 'origin', publish: 'off' },
+    templatesRoot: '.singularity/templates',
+    personaPromptsRoot: '.singularity/personas',
+    tokens: { mode: 'exact-or-unavailable' },
+    personas,
+    workTypes: { legacy: { label: 'Legacy workflow', phases: Object.keys(phases), templateOverrides: {} } },
+    phases,
+    governance: {
+      requireAcceptanceCriteriaTags: config.governance?.requireAcceptanceCriteriaTags ?? true,
+      protectedPaths: config.governance?.protectedPaths ?? []
+    },
+    _legacy: true
+  };
+}
+
+export async function loadDefinition(root) {
+  const yamlPath = path.join(root, WORKFLOW_PATH);
+  if (existsSync(yamlPath)) {
+    const definition = validateDefinition(YAML.parse(await readFile(yamlPath, 'utf8')));
+    for (const [id, persona] of Object.entries(definition.personas)) if (!existsSync(path.join(root, definition.personaPromptsRoot, persona.prompt))) throw new SingularityFlowError(`Persona prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
+    for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
+      if (!existsSync(path.join(root, definition.templatesRoot, phase.template))) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
+    }
+    return definition;
+  }
+  const legacyPath = path.join(root, '.singularity/config.json');
+  if (!existsSync(legacyPath)) throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
+  const worldPath = path.join(root, '.singularity/worldmodel.json');
+  return legacyDefinition(await readJson(legacyPath), existsSync(worldPath) ? await readJson(worldPath) : {});
+}
+
+async function copyIfMissing(source, destination) {
+  if (existsSync(destination)) return false;
+  await mkdir(path.dirname(destination), { recursive: true });
+  await cp(source, destination, { recursive: true });
+  return true;
+}
+
+export async function initializeDefinition(root) {
+  const wrote = [];
+  const mappings = [
+    ['workflow.yml', WORKFLOW_PATH],
+    ['artifacts', '.singularity/templates'],
+    ['personas', '.singularity/personas']
+  ];
+  for (const [source, destination] of mappings) {
+    if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);
+  }
+  return wrote;
+}
+
+export function resolveWorkType(definition, workTypeId) {
+  const workType = definition.workTypes[workTypeId];
+  if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
+  const phases = workType.phases.map((id, order) => {
+    const phase = structuredClone(definition.phases[id]);
+    const override = structuredClone(workType.phaseOverrides?.[id] ?? {});
+    const merged = {
+      ...phase,
+      ...override,
+      artifact: { ...(phase.artifact ?? {}), ...(override.artifact ?? {}) },
+      worldModel: { ...(phase.worldModel ?? {}), ...(override.worldModel ?? {}) },
+      approval: { ...(phase.approval ?? {}), ...(override.approval ?? {}) },
+      comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
+    };
+    const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
+    return { id, order, ...merged, template };
+  });
+  return { id: workTypeId, label: workType.label, phases };
+}
+
+export async function snapshotResolution(root, definition, resolved) {
+  const definitionSnapshot = await snapshot(path.join(root, WORKFLOW_PATH));
+  const templates = {};
+  for (const phase of resolved.phases) {
+    const file = path.join(root, definition.templatesRoot, phase.template);
+    if (!existsSync(file)) throw new SingularityFlowError(`Template missing for phase '${phase.id}': ${path.relative(root, file)}`);
+    templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file)).sha256 };
+  }
+  return { configSha256: definitionSnapshot.sha256, templates };
+}
+
+export async function migrateLegacyConfig(root) {
+  if (existsSync(path.join(root, WORKFLOW_PATH))) return { migrated: false, reason: `${WORKFLOW_PATH} already exists` };
+  const currentRoot = path.join(root, '.singularity');
+  const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`);
+  let movedStateRoot = false;
+  if (!existsSync(currentRoot) && existsSync(previousRoot)) {
+    await rename(previousRoot, currentRoot);
+    movedStateRoot = true;
+  }
+  const legacyPath = path.join(currentRoot, 'config.json');
+  if (!existsSync(legacyPath)) throw new SingularityFlowError('No .singularity/config.json exists to migrate.');
+  const definition = await loadDefinition(root);
+  await mkdir(path.join(root, '.singularity/templates/legacy'), { recursive: true });
+  await mkdir(path.join(root, '.singularity/personas'), { recursive: true });
+  for (const [id, phase] of Object.entries(definition.phases)) {
+    await writeText(path.join(root, '.singularity/templates', phase.defaultTemplate), `# {{work.id}} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`);
+  }
+  for (const [id, persona] of Object.entries(definition.personas)) await writeText(path.join(root, '.singularity/personas', persona.prompt), `Act as ${persona.label}. Follow the active phase contract and cite evidence.\n`);
+  const clean = structuredClone(definition); delete clean._legacy;
+  await writeFile(path.join(root, WORKFLOW_PATH), YAML.stringify(clean));
+  const resolved = resolveWorkType(clean, 'legacy');
+  const resolution = await snapshotResolution(root, clean, resolved);
+  const workRoot = path.join(root, clean.workItemRoot ?? '.singularity/work-items');
+  let migratedWorkItems = 0;
+  if (existsSync(workRoot)) {
+    for (const entry of await readdir(workRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const statePath = path.join(workRoot, entry.name, 'workflow.json');
+      if (!existsSync(statePath)) continue;
+      const state = await readJson(statePath);
+      if (state.schemaVersion === 2) continue;
+      state.schemaVersion = 2;
+      state.workItem.workType = 'legacy'; state.workItem.workTypeLabel = 'Legacy workflow';
+      state.resolution = { ...resolution, workType: 'legacy', workTypeLabel: 'Legacy workflow', sourceSha256: null, phases: resolved.phases };
+      state.usage = { mode: 'exact-or-unavailable', totalTokens: 0, records: 0, exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {} };
+      for (const phaseId of state.phaseOrder ?? []) {
+        const phase = state.phases[phaseId]; const definitionPhase = resolved.phases.find((item) => item.id === phaseId);
+        phase.suggestedPersonas ??= definitionPhase?.suggestedPersonas ?? (phase.owner ? [phase.owner] : []);
+        phase.approvalPolicy ??= definitionPhase?.approval ?? { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [phaseId] };
+        phase.template ??= definitionPhase?.template ?? null; phase.worldModel ??= definitionPhase?.worldModel ?? {};
+        phase.writeScope ??= definitionPhase?.writeScope ?? 'source-and-artifact'; phase.comparison ??= definitionPhase?.comparison ?? {};
+        phase.generation ??= phase.artifacts?.length ? 1 : 0; phase.generatedBy ??= null; phase.generatedPersona ??= null;
+        phase.usage ??= []; phase.approvals ??= phase.approvedBy ? [{ decision: 'approved', phase: phaseId, actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
+      }
+      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+      migratedWorkItems += 1;
+    }
+  }
+  return { migrated: true, path: WORKFLOW_PATH, migratedWorkItems, movedStateRoot };
+}
+
+export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
+  const file = path.join(root, definition.templatesRoot, resolvedPhase.template);
+  let text = await readFile(file, 'utf8');
+  const replacements = {
+    '{{work.id}}': variables.id,
+    '{{work.title}}': variables.title,
+    '{{work.type}}': variables.workType,
+    '{{phase.id}}': resolvedPhase.id,
+    '{{phase.label}}': resolvedPhase.label
+  };
+  for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
+  return text;
+}
+
+export async function personaPrompt(root, definition, personaId) {
+  const persona = definition.personas[personaId];
+  if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
+  return readFile(path.join(root, definition.personaPromptsRoot, persona.prompt), 'utf8');
+}

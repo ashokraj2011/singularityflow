@@ -1,7 +1,7 @@
 {
   "name": "@your-company/singularity-flow",
-  "version": "0.5.0",
-  "description": "Singularity Flow: a skills-first, world-model-grounded SDLC workflow with hash-pinned GitHub approvals and deterministic CI governance.",
+  "version": "0.6.0",
+  "description": "Singularity Flow: YAML-configured work profiles, personas, templates, Git state transfer, world-model grounding, and deterministic governance.",
   "type": "module",
   "bin": {
     "singularity-flow": "bin/singularity-flow.mjs",
@@ -42,5 +42,8 @@
   "license": "MIT",
   "publishConfig": {
     "access": "restricted"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
   }
 }

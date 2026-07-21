@@ -1,4 +1,4 @@
-name: Singularity Flow approval
+name: Singularity Flow decisions
 
 on:
   issue_comment:
@@ -9,19 +9,17 @@ permissions:
   pull-requests: read
 
 jobs:
-  approve:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve ')
+  decide:
+    if: github.event.issue.pull_request && (startsWith(github.event.comment.body, '/approve ') || startsWith(github.event.comment.body, '/reject '))
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve pull request
+      - name: Resolve pull request branch
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          branch=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.ref)
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+        run: echo "branch=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.ref)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.pr.outputs.branch }}
@@ -30,34 +28,24 @@ jobs:
         with:
           node-version: 20
       - name: Install pinned workflow CLI
-        run: npm install --global @your-company/singularity-flow@0.5.0
-      - name: Validate and record approval
+        run: npm install --global @your-company/singularity-flow@0.6.0
+      - name: Apply authenticated decision
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          APPROVAL_BRANCH: ${{ steps.pr.outputs.branch }}
           SINGULARITY_FLOW_GITHUB_ACTOR: ${{ github.actor }}
-          SINGULARITY_FLOW_GITHUB_PR: ${{ github.event.issue.number }}
-          SINGULARITY_FLOW_GITHUB_COMMENT_URL: ${{ github.event.comment.html_url }}
-          APPROVAL_COMMENT: ${{ github.event.comment.body }}
+          DECISION_COMMENT: ${{ github.event.comment.body }}
         run: |
-          requested=$(printf '%s' "$APPROVAL_COMMENT" | awk '{print $2}')
-          active=$(singularity-flow status --json | jq -r .currentPhase)
-          test "$requested" = "$active"
-          work_id=$(singularity-flow status --json | jq -r .workItem.id)
-          singularity-flow approve --phase "$requested" --yes
-
-          upload_file() {
-            file="$1"
-            message="$2"
-            encoded=$(base64 -w 0 "$file")
-            current_sha=$(gh api "repos/$REPOSITORY/contents/$file?ref=$APPROVAL_BRANCH" --jq .sha 2>/dev/null || true)
-            jq -n --arg message "$message" --arg content "$encoded" --arg branch "$APPROVAL_BRANCH" --arg sha "$current_sha" \
-              '{message:$message,content:$content,branch:$branch} + (if $sha == "" then {} else {sha:$sha} end)' > "$RUNNER_TEMP/content.json"
-            gh api --method PUT "repos/$REPOSITORY/contents/$file" --input "$RUNNER_TEMP/content.json" >/dev/null
-          }
-
-          workflow_file=".sdlc/work-items/$work_id/workflow.json"
-          approval_file=".sdlc/work-items/$work_id/approvals/$requested.json"
-          upload_file "$workflow_file" "$work_id approve $requested state"
-          upload_file "$approval_file" "$work_id approve $requested"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          action=$(printf '%s' "$DECISION_COMMENT" | awk '{print $1}')
+          phase=$(printf '%s' "$DECISION_COMMENT" | awk '{print $2}')
+          persona=$(printf '%s' "$DECISION_COMMENT" | awk '{print $4}')
+          test "$(printf '%s' "$DECISION_COMMENT" | awk '{print $3}')" = "as"
+          export SINGULARITY_FLOW_GITHUB_PERSONA="$persona"
+          if [ "$action" = "/approve" ]; then
+            singularity-flow approve --phase "$phase" --yes
+          else
+            target=$(printf '%s' "$DECISION_COMMENT" | sed -n 's/.*--to \([^ ]*\).*/\1/p')
+            reason=$(printf '%s' "$DECISION_COMMENT" | sed -n 's/.*--reason "\([^"]*\)".*/\1/p')
+            test -n "$target" && test -n "$reason"
+            singularity-flow reject --phase "$phase" --to "$target" --reason "$reason"
+          fi

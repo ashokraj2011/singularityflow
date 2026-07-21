@@ -12,5 +12,5 @@ disable-model-invocation: true
 4. Map each acceptance criterion to executable or inspectable evidence and its `@ac:AC-n` test tag.
 5. Run relevant tests and add missing tests when needed. Record exact commands and results.
 6. Cover regression, negative cases, boundaries, failure modes, security, reliability, accessibility, and performance where applicable.
-7. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, remove placeholders, and run `singularity-flow artifact scan`.
+7. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, remove placeholders, and run `singularity-flow phase publish verification`.
 8. Do not submit or approve automatically.

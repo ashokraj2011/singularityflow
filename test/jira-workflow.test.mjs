@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
+import { initializeDefinition } from '../src/config.mjs';
 
 function exec(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
@@ -18,7 +19,8 @@ async function repository() {
   exec('git', ['config', 'user.name', 'Singularity Flow Test'], root);
   exec('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n');
-  exec('git', ['add', 'README.md'], root);
+  await initializeDefinition(root);
+  exec('git', ['add', 'README.md', '.singularity'], root);
   exec('git', ['commit', '-m', 'initial'], root);
   exec('git', ['checkout', '-b', 'PAY-142'], root);
   return root;
@@ -26,7 +28,7 @@ async function repository() {
 
 test('Jira-backed workflow writes a readable user-story snapshot', async () => {
   const root = await repository();
-  const config = await loadConfig(root, { create: true });
+  const config = await loadConfig(root);
   const source = {
     type: 'jira',
     id: '10042',
@@ -59,13 +61,13 @@ test('Jira-backed workflow writes a readable user-story snapshot', async () => {
     baseBranch: 'main'
   });
 
-  const story = await readFile(path.join(root, '.sdlc', 'work-items', 'PAY-142', 'USER-STORY.md'), 'utf8');
+  const story = await readFile(path.join(root, '.singularity', 'work-items', 'PAY-142', 'USER-STORY.md'), 'utf8');
   assert.match(story, /# PAY-142 — Add payment retry policy/);
   assert.match(story, /## Acceptance criteria/);
   assert.match(story, /Retry at most three times/);
   assert.match(story, /Story points: 5/);
   assert.match(story, /PAY-143/);
 
-  const readme = await readFile(path.join(root, '.sdlc', 'work-items', 'PAY-142', 'README.md'), 'utf8');
+  const readme = await readFile(path.join(root, '.singularity', 'work-items', 'PAY-142', 'README.md'), 'utf8');
   assert.match(readme, /USER-STORY\.md/);
 });

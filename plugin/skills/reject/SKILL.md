@@ -1,13 +1,13 @@
 ---
 name: reject
-description: Reject a Singularity Flow phase awaiting approval, record a required reason, and return it to in-progress state.
-argument-hint: "--reason 'required explanation' [--by 'Name']"
+description: Interactively select a persona and reject a submitted Singularity Flow phase to an allowed current or earlier phase, recording the reason and invalidating downstream approvals.
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation'"
 disable-model-invocation: true
 ---
 # Reject the submitted phase
 
-1. Require a specific rejection reason; do not invent one.
-2. Run `singularity-flow status --json`; verify the phase is awaiting approval.
-3. Run `singularity-flow reject <arguments>`.
-4. Read updated status and explain what must change before resubmission.
+1. Require a specific rejection reason and target phase; do not invent either.
+2. Run `singularity-flow reject <WORK-ID> --fetch --to <phase> --reason "..."` in an interactive terminal.
+3. Let the reviewer choose a persona and show which approvals and later phases will be invalidated.
+4. Confirm the rejection, commit, push, reopened target, and recorded reason.
 5. Do not modify artifacts unless the user asks to address the rejection.

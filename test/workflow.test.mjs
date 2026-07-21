@@ -1,156 +1,112 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function exec(command, args, cwd, { allowFailure = false } = {}) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
-  if (!allowFailure && result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
-  }
+function execute(command, args, cwd, { allowFailure = false, selection, actor = 'Singularity Flow Test' } = {}) {
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor };
+  if (selection) env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify(selection);
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
+  if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   return result;
 }
 
-function flow(cwd, ...args) {
-  return exec(process.execPath, [bin, ...args], cwd);
-}
+function flow(cwd, args, options = {}) { return execute(process.execPath, [bin, ...args], cwd, options); }
 
 async function repository() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-test-'));
-  exec('git', ['init', '-b', 'main'], root);
-  exec('git', ['config', 'user.name', 'Singularity Flow Test'], root);
-  exec('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
-  await writeFile(path.join(root, 'README.md'), '# Test\n');
-  flow(root, 'init');
-  exec('git', ['add', 'README.md', '.sdlc'], root);
-  exec('git', ['commit', '-m', 'initial'], root);
-  return root;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-v2-test-'));
+  execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
+  const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['add', 'README.md', '.singularity'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
 }
 
-const completedRequirements = `# TEST-101 — Requirements
-
-## Work item
-
-- Title: Test workflow
-- Source: Manual identifier
-- ID: TEST-101
-
-## Problem statement
-
-The team needs an automated proof that the personal Copilot skills can rely on a deterministic npm utility for branch creation, durable lifecycle state, artifact registration, approval snapshots, and phase advancement.
-
-## Scope
-
-### In scope
-
-- Create an exact-ID branch and workflow state.
-- Submit and approve the requirements artifact.
-
-### Out of scope
-
-- Network access, deployment, merge, and repository push.
-
-## Acceptance criteria
-
-- Branch TEST-101 is checked out.
-- Requirements submission records this file.
-- Approval creates a commit and advances to design.
-
-## Dependencies and assumptions
-
-- Git identity and Node.js are available.
-
-## Risks and open questions
-
-- No unresolved issue remains for this automated test.
-`;
-
-test('start, submit, and approve create durable Git state', async () => {
-  const root = await repository();
-  const prompt = flow(root, 'wm', 'prompt', '--phase', 'design', '--task', 'Design test workflow').stdout;
-  assert.match(prompt, /Requested views:\s+architecture, security/);
-  flow(root, 'start', 'TEST-101', '--title', 'Test workflow');
-  assert.equal(exec('git', ['branch', '--show-current'], root).stdout.trim(), 'TEST-101');
-
-  const requirement = path.join(root, '.sdlc', 'work-items', 'TEST-101', 'artifacts', 'requirements', 'requirements.md');
-  await writeFile(requirement, completedRequirements);
-  flow(root, 'artifact', 'scan');
-  flow(root, 'submit');
-
-  let workflow = JSON.parse(await readFile(path.join(root, '.sdlc', 'work-items', 'TEST-101', 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.requirements.status, 'awaiting_approval');
-  assert.equal(workflow.phases.requirements.artifacts.length, 1);
-
-  flow(root, 'approve', '--yes', '--commit', '--by', 'Test Approver');
-  workflow = JSON.parse(await readFile(path.join(root, '.sdlc', 'work-items', 'TEST-101', 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.requirements.status, 'approved');
-  assert.equal(workflow.currentPhase, 'design');
-  assert.equal(workflow.phases.design.status, 'in_progress');
-  assert.equal(workflow.phases.requirements.approvedBy, 'Test Approver');
-
-  const approval = JSON.parse(await readFile(path.join(root, '.sdlc', 'work-items', 'TEST-101', 'approvals', 'requirements.json'), 'utf8'));
-  assert.equal(approval.phase, 'requirements');
-  assert.equal(approval.artifacts[0].path, '.sdlc/work-items/TEST-101/artifacts/requirements/requirements.md');
-  assert.match(exec('git', ['log', '-1', '--pretty=%s'], root).stdout.trim(), /^TEST-101 approve requirements$/);
-  assert.equal(exec('git', ['status', '--porcelain'], root).stdout.trim(), '');
-});
-
-test('submission blocks placeholder artifacts', async () => {
-  const root = await repository();
-  flow(root, 'start', 'TEST-102');
-  const result = exec(process.execPath, [bin, 'submit'], root, { allowFailure: true });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /TODO\/TBD\/template placeholders/);
-});
-
-function completedPhaseDocument(id, phase, title) {
-  const narrative = `This ${phase} artifact records a complete, reviewed outcome for ${title}. It defines concrete responsibilities, observable results, explicit boundaries, operational considerations, verification evidence, and decisions that a subsequent contributor can understand without relying on an earlier chat session. The artifact is intentionally detailed enough to satisfy the workflow completeness guard and contains no unresolved template instructions. `;
-  return `# ${id} — ${phase}\n\n## Outcome\n\n${narrative.repeat(3)}\n\n## Evidence and decisions\n\n${narrative.repeat(2)}\n`;
+async function completeArtifact(root, workflow, phaseId) {
+  const phase = workflow.phases[phaseId]; const file = path.join(root, '.singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
+  let text = await readFile(file, 'utf8');
+  text = text.replace(/TODO:[^\n]*/g, 'matched evidence for AC-001 and SPEC-001 with exact file references and complete operational detail.');
+  text = text.replace(/\bTODO\b/g, 'matched evidence');
+  if (phaseId === 'conformance') text += '\nSelf approvals: intake, requirements, design, implementation-spec, implementation, verification by singularity.flow.test@example.com.\n';
+  await writeFile(file, text); return file;
 }
 
-test('complete lifecycle advances through every configured phase', async () => {
+function selection(workType, persona) { return { workType, persona }; }
+
+test('start refuses non-interactive selection without a test or UI selection', async () => {
   const root = await repository();
-  flow(root, 'start', 'TEST-200', '--title', 'Complete lifecycle');
+  const result = execute(process.execPath, [bin, 'start', 'NO-SELECT'], root, { allowFailure: true });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /requires an interactive terminal/);
+});
 
-  for (const phaseId of ['requirements', 'design', 'implementation', 'verification', 'review', 'release']) {
-    const workflowFile = path.join(root, '.sdlc', 'work-items', 'TEST-200', 'workflow.json');
-    let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-    assert.equal(workflow.currentPhase, phaseId);
-    const phase = workflow.phases[phaseId];
-    flow(root, 'prepare', phaseId);
-    const artifact = path.join(root, '.sdlc', 'work-items', 'TEST-200', phase.requiredArtifact.path);
-    await writeFile(artifact, completedPhaseDocument('TEST-200', phase.label, 'Complete lifecycle'));
+test('artifact-only phases reject source changes', async () => {
+  const root = await repository(); const workId = 'SCOPE-1';
+  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake'); await mkdir(path.join(root, 'src'), { recursive: true }); await writeFile(path.join(root, 'src/not-allowed.mjs'), 'export const changedTooEarly = true;\n');
+  const result = flow(root, ['phase', 'publish', 'intake'], { allowFailure: true, selection: selection('feature', 'product-owner') });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /artifact-only/);
+});
 
+test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
+  const root = await repository(); const workId = 'FEATURE-101';
+  flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const personas = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
+  for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
+    let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', personas[phaseId]) });
+    flow(root, ['resume', workId], { selection: selection('feature', personas[phaseId]) });
+    await completeArtifact(root, workflow, phaseId);
     if (phaseId === 'implementation') {
-      await mkdir(path.join(root, 'src'), { recursive: true });
-      await writeFile(path.join(root, 'src', 'feature.mjs'), 'export const featureEnabled = true;\n');
+      await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
+      await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:AC-001 SPEC-001\n');
     }
-
-    flow(root, 'artifact', 'scan');
-    flow(root, 'submit');
-    flow(root, 'approve', '--yes', '--commit', '--by', 'Lifecycle Approver');
-
-    workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-    assert.equal(workflow.phases[phaseId].status, 'approved');
+    const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
+    flow(root, ['phase', 'publish', phaseId, '--usage-json', usagePath], { selection: selection('feature', personas[phaseId]) });
+    flow(root, ['submit'], { selection: selection('feature', personas[phaseId]) });
+    flow(root, ['approve', '--yes'], { selection: selection('feature', personas[phaseId]) });
   }
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.status, 'complete'); assert.equal(workflow.usage.totalTokens, 105);
+  assert.equal(workflow.usage.byWorkType.feature.totalTokens, 105); assert.equal(workflow.usage.byWorkItem[workId].records, 7);
+  assert.equal(workflow.usage.byPersona.architect.totalTokens, 30); assert.equal(workflow.usage.byPhase.verification.totalTokens, 15);
+  assert.equal(workflow.usage.exactRecords, 7); assert.equal(workflow.usage.unavailableRecords, 0);
+  assert.match(workflow.phases.design.generationCommit, /^[0-9a-f]{40}$/); assert.equal(workflow.phases.design.publicationCommit, workflow.phases.design.generationCommit);
+  assert.match(workflow.resolution.sourceSha256, /^[0-9a-f]{64}$/);
+  const designArtifact = await readFile(path.join(root, '.singularity/work-items', workId, workflow.phases.design.requiredArtifact.path), 'utf8');
+  assert.match(designArtifact, /"generationCommit": "[0-9a-f]{40}"/); assert.match(designArtifact, /"publicationCommit": "[0-9a-f]{40}"/);
+  assert.ok(workflow.phases.design.approvals[0].selfApproval); assert.equal(workflow.workItem.workType, 'feature'); assert.ok(workflow.resolution.templates['implementation-spec'].sha256);
+  assert.equal(flow(root, ['gate', '--terminal']).status, 0);
+});
 
-  const finalWorkflow = JSON.parse(await readFile(path.join(root, '.sdlc', 'work-items', 'TEST-200', 'workflow.json'), 'utf8'));
-  assert.equal(finalWorkflow.status, 'complete');
-  assert.equal(finalWorkflow.currentPhase, null);
-  assert.equal(exec(process.execPath, [bin, 'validate', '--strict'], root).status, 0);
-  assert.equal(exec(process.execPath, [bin, 'gate', '--terminal'], root).status, 0);
-  assert.equal(exec('git', ['status', '--porcelain'], root).stdout.trim(), '');
-  assert.equal(Number(exec('git', ['rev-list', '--count', 'HEAD'], root).stdout.trim()), 7);
+test('bugfix profile is immutable and rejection reopens an allowed earlier phase', async () => {
+  const root = await repository(); const workId = 'BUG-101';
+  flow(root, ['start', workId], { selection: selection('bugfix', 'qa') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.deepEqual(workflow.phaseOrder, ['intake', 'reproduction', 'fix-design', 'fix-spec', 'implementation', 'verification', 'conformance']); assert.equal(workflow.workItem.workType, 'bugfix');
+  await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') }); flow(root, ['submit'], { selection: selection('bugfix', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.usage.unavailableRecords, 1); assert.equal(workflow.phases.intake.usage[0].status, 'unavailable');
+  flow(root, ['approve', '--yes'], { selection: selection('bugfix', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8')); flow(root, ['prepare', 'reproduction'], { selection: selection('bugfix', 'qa') }); await completeArtifact(root, workflow, 'reproduction');
+  flow(root, ['resume', workId], { selection: selection('bugfix', 'qa') }); flow(root, ['phase', 'publish', 'reproduction'], { selection: selection('bugfix', 'qa') }); flow(root, ['submit'], { selection: selection('bugfix', 'qa') });
+  flow(root, ['reject', '--to', 'intake', '--reason', 'Need stronger impact evidence'], { selection: selection('bugfix', 'qa') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.rejectionReason, 'Need stronger impact evidence'); assert.equal(workflow.workItem.workType, 'bugfix');
+  assert.equal(workflow.phases.intake.approvals[0].invalidatedAt != null, true); assert.equal(workflow.phases.reproduction.status, 'not_started');
+  workflow.workItem.workType = 'feature'; await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
+  const tampered = flow(root, ['validate'], { allowFailure: true, selection: selection('bugfix', 'qa') }); assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /immutable profile snapshot/);
+});
 
-  const approvedRequirements = path.join(root, '.sdlc', 'work-items', 'TEST-200', 'artifacts', 'requirements', 'requirements.md');
-  await writeFile(approvedRequirements, `${await readFile(approvedRequirements, 'utf8')}\nChanged after approval.\n`);
-  const stale = exec(process.execPath, [bin, 'gate', '--terminal'], root, { allowFailure: true });
-  assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /STALE requirements approval/);
+test('multi-approval threshold requires distinct identities while allowing persona selection', async () => {
+  const root = await repository(); const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.phases.intake.approval.minimum = 2; await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['add', configPath], root); execute('git', ['commit', '-m', 'require two intake approvals'], root);
+  const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); flow(root, ['submit'], { selection: selection('feature', 'product-owner'), actor: 'Generator' });
+  flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  const duplicate = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One', allowFailure: true }); assert.notEqual(duplicate.status, 0); assert.match(duplicate.stderr, /already approved/);
+  flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer Two' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'requirements'); assert.equal(workflow.phases.intake.approvals.filter((item) => item.decision === 'approved').length, 2);
 });

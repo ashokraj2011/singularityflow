@@ -24,6 +24,8 @@ export function validateDefinition(definition) {
   assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
+  for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
+  if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
   for (const [id, persona] of Object.entries(definition.personas)) {
     assertId(id, 'Persona');
     if (!persona.label || !persona.prompt) throw new SingularityFlowError(`Persona '${id}' requires label and prompt.`);
@@ -36,6 +38,7 @@ export function validateDefinition(definition) {
     for (const phaseId of workType.phases) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Work type '${id}' references unknown phase '${phaseId}'.`);
     for (const phaseId of Object.keys(workType.templateOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
+    for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
   }
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
@@ -81,6 +84,7 @@ function legacyDefinition(config, worldModel = {}) {
     templatesRoot: '.singularity/templates',
     personaPromptsRoot: '.singularity/personas',
     tokens: { mode: 'exact-or-unavailable' },
+    documents: { allowedPhases: Object.keys(phases), maxFileBytes: 26214400, maxPreviewBytes: 1048576 },
     personas,
     workTypes: { legacy: { label: 'Legacy workflow', phases: Object.keys(phases), templateOverrides: {} } },
     phases,
@@ -145,7 +149,9 @@ export function resolveWorkType(definition, workTypeId) {
     const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
     return { id, order, ...merged, template };
   });
-  return { id: workTypeId, label: workType.label, phases };
+  const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
+  documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
+  return { id: workTypeId, label: workType.label, documents, phases };
 }
 
 export async function snapshotResolution(root, definition, resolved) {
@@ -192,8 +198,9 @@ export async function migrateLegacyConfig(root) {
       if (state.schemaVersion === 2) continue;
       state.schemaVersion = 2;
       state.workItem.workType = 'legacy'; state.workItem.workTypeLabel = 'Legacy workflow';
-      state.resolution = { ...resolution, workType: 'legacy', workTypeLabel: 'Legacy workflow', sourceSha256: null, phases: resolved.phases };
+      state.resolution = { ...resolution, workType: 'legacy', workTypeLabel: 'Legacy workflow', documents: resolved.documents, sourceSha256: null, phases: resolved.phases };
       state.usage = { mode: 'exact-or-unavailable', totalTokens: 0, records: 0, exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {} };
+      state.documents = { count: 0, updatedAt: null };
       for (const phaseId of state.phaseOrder ?? []) {
         const phase = state.phases[phaseId]; const definitionPhase = resolved.phases.find((item) => item.id === phaseId);
         phase.suggestedPersonas ??= definitionPhase?.suggestedPersonas ?? (phase.owner ? [phase.owner] : []);

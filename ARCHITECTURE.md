@@ -55,6 +55,9 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ├── workflow.json
 ├── STATUS.md
 ├── source.json
+├── documents.json
+├── inputs/
+│   └── DOC-001/<original-file>
 ├── artifacts/
 │   ├── intake/intake.md
 │   ├── implementation-spec/implementation-spec.md
@@ -66,6 +69,12 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ```
 
 `workflow.json` is authoritative runtime state. `STATUS.md` is a generated human view. Artifacts contain a machine-managed metadata comment. Approval event files are append-only records; phase summary files are derived snapshots.
+
+`documents.json` is the stable supporting-input catalog. Local files are copied under `inputs/DOC-nnn/`; external links such as Figma are recorded without being downloaded. Each input is attributed to the active identity/persona and uploaded only during the profile-snapshotted allowed phases. Uploads use the same commit/push recovery protocol as lifecycle events.
+
+## Progress model
+
+Completion is the number of approved phases divided by the immutable total phase count. Awaiting approval and in-progress phases are not assigned guessed fractional credit. The progress view also exposes current position, generations, approval thresholds, document count, and token totals.
 
 ## Transaction and publication model
 

@@ -56,6 +56,7 @@ These files are ordinary reviewed repository files and remain fully editable.
 - `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, and approval policy.
 - `phases`: default templates, artifact paths, write scope, world-model views, quality commands, and approval rules.
 - `personas`: prompt files, suggested phases, additional world-model views, and phases each persona may approve.
+- `documents`: allowed upload phases, maximum file size, and text-preview limit; work types may override this policy.
 - `git`: remote name and whether publication is required.
 - `governance`: protected paths and traceability rules.
 
@@ -82,6 +83,34 @@ singularity-flow resume ENG-142 --fetch
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
 
+## Progress
+
+```bash
+singularity-flow progress ENG-142
+singularity-flow progress ENG-142 --json
+```
+
+Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows a progress bar, percentage, current phase and position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase.
+
+## Supporting documents and designs
+
+Supporting inputs are managed under `.singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
+
+```bash
+# Local documents, screenshots, PDFs, .fig files, or other binary files
+singularity-flow documents upload ./brief.pdf ./checkout-wireframe.png
+
+# External Figma or design link (recorded, not downloaded)
+singularity-flow documents upload \
+  --url https://www.figma.com/design/example \
+  --label "Checkout design"
+
+singularity-flow documents list
+singularity-flow documents view DOC-001
+```
+
+Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, actor, and persona. Upload creates and pushes an atomic work-item commit. Text formats can be displayed directly; images, PDFs, `.fig`, and other binary files return an absolute path for the appropriate viewer. The catalog also lists generated phase artifacts, status, source context, and Jira user-story documents.
+
 ## Generate a phase
 
 Copilot users normally invoke the appropriate skill, for example:
@@ -105,6 +134,7 @@ Artifacts live under:
 
 ```text
 .singularity/work-items/<WORK-ID>/artifacts/<phase>/
+.singularity/work-items/<WORK-ID>/inputs/DOC-nnn/<filename>
 ```
 
 Managed metadata records the work type, phase, generation, actor, persona, source/config/template hashes, token usage, commit information, and approval history. Do not edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata block manually.
@@ -183,6 +213,10 @@ Phase views provide required grounding. Persona views add perspective without re
 | `singularity-flow start <ID>` | Interactively choose work type/persona and create/push the work branch. |
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
+| `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
+| `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
+| `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
+| `singularity-flow documents upload <PATH...>` | Copy, hash, catalog, commit, and push supporting files during configured initial phases. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
 | `singularity-flow submit` | Run checks and publish an approval request. |

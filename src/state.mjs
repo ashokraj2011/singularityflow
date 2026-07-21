@@ -157,6 +157,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       ...snapshotState,
       workType: selectedType,
       workTypeLabel: resolution.label,
+      documents: structuredClone(resolution.documents ?? config.documents ?? {}),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
     },
@@ -168,11 +169,12 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
       exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {}
     },
+    documents: { count: 0, updatedAt: null },
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
   await writeJson(sourcePath(root, config, id), source);
   if (source.type === 'jira') await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n${source.type === 'jira' ? '- [USER-STORY.md](./USER-STORY.md) — Jira snapshot\n' : ''}- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n${source.type === 'jira' ? '- [USER-STORY.md](./USER-STORY.md) — Jira snapshot\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await saveWorkflow(root, config, workflow);
   await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);
@@ -186,7 +188,9 @@ function upgradeWorkflow(workflow) {
   workflow.resolution ??= { configSha256: null, templates: {}, phases: [] };
   workflow.resolution.workType ??= workflow.workItem.workType;
   workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
+  workflow.resolution.documents ??= {};
   workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
+  workflow.documents ??= { count: 0, updatedAt: null };
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
   workflow.usage.byPhase ??= {}; workflow.usage.byPersona ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
   for (const id of workflow.phaseOrder) {

@@ -13,6 +13,11 @@ personaPromptsRoot: .singularity/personas
 tokens:
   mode: exact-or-unavailable
 
+documents:
+  allowedPhases: [intake, requirements, design, implementation-spec, reproduction, fix-design, fix-spec]
+  maxFileBytes: 26214400
+  maxPreviewBytes: 1048576
+
 personas:
   developer:
     label: Developer

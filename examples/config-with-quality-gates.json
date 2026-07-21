@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "defaultBaseBranch": "main",
+  "workItemRoot": ".sdlc/work-items",
+  "idPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+  "artifactScan": {
+    "ignorePrefixes": [".git/", "node_modules/", ".idea/", ".vscode/", "dist/", "coverage/"]
+  },
+  "jira": {
+    "issueType": "Story",
+    "maxResults": 25
+  },
+  "phases": [
+    {
+      "id": "requirements",
+      "label": "Requirements",
+      "owner": "product-owner",
+      "requiredArtifact": {
+        "path": "artifacts/requirements/requirements.md",
+        "kind": "requirements",
+        "minimumBytes": 300
+      },
+      "qualityCommands": []
+    },
+    {
+      "id": "design",
+      "label": "Architecture & Design",
+      "owner": "architect",
+      "requiredArtifact": {
+        "path": "artifacts/design/design.md",
+        "kind": "design",
+        "minimumBytes": 300
+      },
+      "qualityCommands": []
+    },
+    {
+      "id": "implementation",
+      "label": "Implementation",
+      "owner": "developer",
+      "requiredArtifact": {
+        "path": "artifacts/implementation/implementation-summary.md",
+        "kind": "implementation-summary",
+        "minimumBytes": 250
+      },
+      "qualityCommands": ["npm run lint", "npm test"]
+    },
+    {
+      "id": "verification",
+      "label": "Verification",
+      "owner": "qa",
+      "requiredArtifact": {
+        "path": "artifacts/verification/test-evidence.md",
+        "kind": "test-evidence",
+        "minimumBytes": 250
+      },
+      "qualityCommands": ["npm test"]
+    },
+    {
+      "id": "review",
+      "label": "Independent Review",
+      "owner": "reviewer",
+      "requiredArtifact": {
+        "path": "artifacts/review/review.md",
+        "kind": "review",
+        "minimumBytes": 250
+      },
+      "qualityCommands": []
+    },
+    {
+      "id": "release",
+      "label": "Release Readiness",
+      "owner": "release-manager",
+      "requiredArtifact": {
+        "path": "artifacts/release/release-plan.md",
+        "kind": "release-plan",
+        "minimumBytes": 250
+      },
+      "qualityCommands": []
+    }
+  ]
+}

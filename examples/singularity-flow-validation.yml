@@ -1,0 +1,27 @@
+# Optional example. Adapt registry authentication and package version for your organization.
+name: Singularity Flow lifecycle validation
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Install approved Singularity Flow version
+        run: npm install --global @your-company/singularity-flow@0.4.0
+      - name: Run deterministic governance gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SINGULARITY_FLOW_ENFORCE_TERMINAL: ${{ github.event.pull_request.draft == false && '1' || '0' }}
+        run: singularity-flow gate

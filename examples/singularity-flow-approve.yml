@@ -1,0 +1,63 @@
+name: Singularity Flow approval
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  approve:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/approve ')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          branch=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.ref)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install pinned workflow CLI
+        run: npm install --global @your-company/singularity-flow@0.4.0
+      - name: Validate and record approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          APPROVAL_BRANCH: ${{ steps.pr.outputs.branch }}
+          SINGULARITY_FLOW_GITHUB_ACTOR: ${{ github.actor }}
+          SINGULARITY_FLOW_GITHUB_PR: ${{ github.event.issue.number }}
+          SINGULARITY_FLOW_GITHUB_COMMENT_URL: ${{ github.event.comment.html_url }}
+          APPROVAL_COMMENT: ${{ github.event.comment.body }}
+        run: |
+          requested=$(printf '%s' "$APPROVAL_COMMENT" | awk '{print $2}')
+          active=$(singularity-flow status --json | jq -r .currentPhase)
+          test "$requested" = "$active"
+          work_id=$(singularity-flow status --json | jq -r .workItem.id)
+          singularity-flow approve --phase "$requested" --yes
+
+          upload_file() {
+            file="$1"
+            message="$2"
+            encoded=$(base64 -w 0 "$file")
+            current_sha=$(gh api "repos/$REPOSITORY/contents/$file?ref=$APPROVAL_BRANCH" --jq .sha 2>/dev/null || true)
+            jq -n --arg message "$message" --arg content "$encoded" --arg branch "$APPROVAL_BRANCH" --arg sha "$current_sha" \
+              '{message:$message,content:$content,branch:$branch} + (if $sha == "" then {} else {sha:$sha} end)' > "$RUNNER_TEMP/content.json"
+            gh api --method PUT "repos/$REPOSITORY/contents/$file" --input "$RUNNER_TEMP/content.json" >/dev/null
+          }
+
+          workflow_file=".sdlc/work-items/$work_id/workflow.json"
+          approval_file=".sdlc/work-items/$work_id/approvals/$requested.json"
+          upload_file "$workflow_file" "$work_id approve $requested state"
+          upload_file "$approval_file" "$work_id approve $requested"

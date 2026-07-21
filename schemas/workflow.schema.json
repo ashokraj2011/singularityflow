@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/workflow.schema.json",
+  "title": "Singularity Flow work-item lifecycle state",
+  "type": "object",
+  "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workItem": {
+      "type": "object",
+      "required": ["id", "title", "branch", "baseBranch", "createdAt", "createdBy", "source"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "baseBranch": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "object" },
+        "source": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "status": { "enum": ["in_progress", "complete"] },
+    "currentPhase": { "type": ["string", "null"] },
+    "phaseOrder": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+    "phases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["id", "label", "status", "artifacts", "checks"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "owner": { "type": ["string", "null"] },
+          "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved"] },
+          "requiredArtifact": { "type": ["object", "null"] },
+          "qualityCommands": { "type": "array", "items": { "type": "string" } },
+          "artifacts": { "type": "array", "items": { "type": "object" } },
+          "checks": { "type": "array", "items": { "type": "object" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "history": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@your-company/singularity-flow",
+  "version": "0.4.0",
+  "description": "Singularity Flow: a skills-first, Git-native SDLC workflow with hash-pinned GitHub approvals and deterministic CI governance.",
+  "type": "module",
+  "bin": {
+    "singularity-flow": "bin/singularity-flow.mjs",
+    "sflow": "bin/singularity-flow.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "plugin/",
+    "schemas/",
+    "examples/",
+    "README.md",
+    "ARCHITECTURE.md",
+    "VERIFICATION.md",
+    "MIGRATION.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.mjs",
+    "gate": "node scripts/gate.mjs",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "github-copilot",
+    "agent-skills",
+    "sdlc",
+    "workflow",
+    "git",
+    "jira",
+    "singularity-flow",
+    "copilot-plugin"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

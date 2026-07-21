@@ -28,7 +28,7 @@ async function repository() {
   exec('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n');
   flow(root, 'init');
-  exec('git', ['add', 'README.md', '.sdlc/config.json'], root);
+  exec('git', ['add', 'README.md', '.sdlc'], root);
   exec('git', ['commit', '-m', 'initial'], root);
   return root;
 }
@@ -73,6 +73,8 @@ The team needs an automated proof that the personal Copilot skills can rely on a
 
 test('start, submit, and approve create durable Git state', async () => {
   const root = await repository();
+  const prompt = flow(root, 'wm', 'prompt', '--phase', 'design', '--task', 'Design test workflow').stdout;
+  assert.match(prompt, /Requested views:\s+architecture, security/);
   flow(root, 'start', 'TEST-101', '--title', 'Test workflow');
   assert.equal(exec('git', ['branch', '--show-current'], root).stdout.trim(), 'TEST-101');
 

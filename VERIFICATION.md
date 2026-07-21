@@ -92,8 +92,8 @@ The final repository had no uncommitted changes.
 The generated npm tarball was installed into an isolated temporary global npm prefix. The installed executable was then used—not the source-tree entry point—to verify:
 
 ```text
-singularity-flow --version                    → 0.4.0
-sflow --version                               → 0.4.0
+singularity-flow --version                    → 0.5.0
+sflow --version                               → 0.5.0
 singularity-flow plugin path                  → packaged plugin/plugin.json found
 singularity-flow start DEMO-900               → exact branch DEMO-900 created
 singularity-flow status DEMO-900 --json       → requirements / in_progress
@@ -107,7 +107,7 @@ This smoke test made no changes to the machine's real global npm installation or
 ### Copilot CLI
 
 ```bash
-npm install --global ./your-company-singularity-flow-0.4.0.tgz
+npm install --global ./your-company-singularity-flow-0.5.0.tgz
 singularity-flow plugin install
 copilot plugin list
 copilot

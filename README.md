@@ -1,6 +1,6 @@
 # Singularity Flow
 
-> Version 0.4 adds deterministic GitHub governance to the skills-first v0.3 workflow: authenticated role approvals, hash freshness, approval cascades, acceptance-criteria test mapping, and a merge gate.
+> Version 0.5 combines phase-scoped repository world-model grounding with deterministic GitHub governance: authenticated role approvals, hash freshness, approval cascades, acceptance-criteria test mapping, and a merge gate.
 
 Singularity Flow is a small, skills-first SDLC workflow for GitHub Copilot. It combines:
 
@@ -60,6 +60,7 @@ The plugin remains in the user's Copilot profile. Only lifecycle state and deliv
 - Advance to the next phase after approval.
 - Resume on another workstation from the committed work package.
 - Validate lifecycle state in a pull request or CI job.
+- Build a modular repository world model and load only the views needed by the active phase.
 - Optionally require approvals created by authenticated `/approve <phase>` GitHub PR comments.
 - Recompute approved artifact hashes and cascade-invalidate downstream approvals.
 - Require every `AC-n` requirement to have a test tagged `@ac:AC-n`.
@@ -93,6 +94,29 @@ Run the same gate locally for fast feedback:
 singularity-flow gate
 singularity-flow gate --terminal
 ```
+
+## Phase-scoped world model
+
+`singularity-flow init` creates `.sdlc/worldmodel.json` and an editable `.sdlc/prompts/worldmodel-builder.md`. Commit both on the base branch. The configuration routes repository knowledge by phase:
+
+| Phase | Loaded views |
+|---|---|
+| Requirements | Business |
+| Design | Architecture, security |
+| Implementation | Development, testing |
+| Verification | Testing, development, security, evidence |
+| Review | Architecture, development, testing, security, evidence |
+| Release | Release, operations, security, evidence |
+
+Build and inspect grounding directly:
+
+```bash
+singularity-flow wm build --phase implementation --task "Add payment retries"
+singularity-flow wm context implementation --task "Add payment retries" --concat
+singularity-flow wm check
+```
+
+The builder writes a shared core, requested role views, relevant domain models, task guides, an evidence ledger, and `manifest.json` under `.sdlc/world-model/`. Each phase skill runs the context command before reasoning. If the manifest commit differs from `HEAD`, the skill rebuilds the phase model. This keeps prompts focused while preserving file-and-line evidence.
 
 ## Default SDLC
 
@@ -145,7 +169,7 @@ copilot --version
 After running `npm pack`, install the generated tarball globally:
 
 ```bash
-npm install --global ./your-company-singularity-flow-0.4.0.tgz
+npm install --global ./your-company-singularity-flow-0.5.0.tgz
 ```
 
 Verify the executable:
@@ -171,7 +195,7 @@ copilot plugin list
 After an npm package upgrade, reinstall the cached plugin copy:
 
 ```bash
-npm install --global ./your-company-singularity-flow-0.4.0.tgz
+npm install --global ./your-company-singularity-flow-0.5.0.tgz
 singularity-flow plugin install --force
 ```
 
@@ -180,7 +204,7 @@ singularity-flow plugin install --force
 Change the package scope and publisher fields first, then publish through your approved registry. Developer installation becomes:
 
 ```bash
-npm install --global @your-company/singularity-flow@0.4.0
+npm install --global @your-company/singularity-flow@0.5.0
 singularity-flow plugin install
 ```
 
@@ -261,7 +285,7 @@ Show current state at any time:
 Install the npm package and plugin with the same two commands:
 
 ```bash
-npm install --global @your-company/singularity-flow@0.4.0
+npm install --global @your-company/singularity-flow@0.5.0
 singularity-flow plugin install
 ```
 
@@ -588,7 +612,7 @@ npm pack
 Inspect its contents before publishing:
 
 ```bash
-tar -tzf your-company-singularity-flow-0.4.0.tgz
+tar -tzf your-company-singularity-flow-0.5.0.tgz
 ```
 
 # Publishing checklist

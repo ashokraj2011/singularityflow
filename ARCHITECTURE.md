@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-Singularity Flow separates **probabilistic work generation** from **deterministic workflow control**.
+Singularity Flow separates **probabilistic work generation** from **deterministic workflow control**, and grounds each phase with a selectively loaded repository world model.
 
 Copilot skills tell the agent how to act during each SDLC phase. A small npm command performs operations that must be exact: branch creation, workflow transitions, artifact hashing, quality-command execution, approval recording, and optional Jira retrieval. Git stores all durable state needed for handoff.
 
@@ -129,7 +129,13 @@ src/git.mjs                exact branch, fetch, checkout, commit
 src/state.mjs              lifecycle, artifacts, checks, approval
 src/jira.mjs               optional direct Jira Cloud REST read
 src/plugin.mjs             personal Copilot plugin installation
+src/worldmodel.mjs         world-model prompt, build, freshness, and phase-context routing
+templates/                 editable world-model builder prompt and routing defaults
 ```
+
+### World-model grounding
+
+The builder generates `.sdlc/world-model/manifest.json`, a minimal shared core, requested role views, matched domain files, optional task guides, and separate evidence. `wm context <phase>` reads the manifest and returns only the configured levels for that phase. Skills use `--concat` so the selected files enter the active Copilot tool context; verification, review, and release additionally request the evidence ledger. The manifest records the inspected Git commit, allowing `wm check` and phase skills to detect stale grounding.
 
 The package has no runtime dependencies.
 

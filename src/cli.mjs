@@ -29,8 +29,9 @@ import {
 import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
+import { worldModelCommand } from './worldmodel.mjs';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -49,6 +50,10 @@ Usage:
   singularity-flow reject --reason TEXT [--by NAME]
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal]
+  singularity-flow wm init
+  singularity-flow wm build [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep]
+  singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence]
+  singularity-flow wm check
   singularity-flow jira list [--project KEY] [--type Story] [--limit 25] [--jql JQL] [--json]
   singularity-flow jira pull <WORK-ID> [--json]
   singularity-flow jira show <WORK-ID> [--json]      Alias for jira pull
@@ -100,6 +105,7 @@ async function confirm(phase) {
 async function initCommand() {
   const root = repoRoot();
   await loadConfig(root, { create: true });
+  await worldModelCommand(root, ['wm', 'init'], {});
   console.log(`Created or verified ${CONFIG_PATH}`);
 }
 
@@ -334,6 +340,7 @@ export async function main(argv) {
     case 'reject': return rejectCommand(options);
     case 'validate': return validateCommand(options);
     case 'gate': return gateCommand(options);
+    case 'wm': return worldModelCommand(repoRoot(), positionals, options);
     case 'jira': return jiraCommand(positionals, options);
     case 'plugin': return pluginCommand(positionals, options);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);

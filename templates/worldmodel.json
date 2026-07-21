@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "outputDir": ".sdlc/world-model",
+  "promptSource": ".sdlc/prompts/worldmodel-builder.md",
+  "runner": "copilot -p \"$(cat {prompt_file})\" --allow-all-tools",
+  "staleness": "warn",
+  "phases": {
+    "requirements": { "views": ["business"], "depth": "standard" },
+    "design": { "views": ["architecture", "security"], "depth": "standard" },
+    "implementation": { "views": ["development", "testing"], "depth": "standard" },
+    "verification": { "views": ["testing", "development", "security"], "depth": "standard" },
+    "review": { "views": ["architecture", "development", "testing", "security"], "depth": "deep" },
+    "release": { "views": ["release", "operations", "security"], "depth": "standard" }
+  },
+  "context": {
+    "always": ["core/summary.md"],
+    "includeDomains": "matched",
+    "includeEvidence": false
+  }
+}

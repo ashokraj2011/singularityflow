@@ -1,4 +1,8 @@
-# Migrating to Singularity Flow 0.4.0
+# Migrating to Singularity Flow 0.5.0
+
+## From 0.4.0
+
+Run `singularity-flow wm init` on the base branch and commit `.sdlc/worldmodel.json` plus `.sdlc/prompts/worldmodel-builder.md`. Version 0.5 adds `wm build`, `wm context`, `wm prompt`, and `wm check`; existing work-item state remains compatible. Phase skills now require their routed grounding context before producing artifacts.
 
 ## From 0.3.0
 
@@ -10,7 +14,7 @@ The product, npm package, executable, Copilot plugin, skill namespace, environme
 
 ```bash
 npm uninstall --global @your-company/flowpilot
-npm install --global ./your-company-singularity-flow-0.4.0.tgz
+npm install --global ./your-company-singularity-flow-0.5.0.tgz
 ```
 
 ## Replace the personal Copilot plugin

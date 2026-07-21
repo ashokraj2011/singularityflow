@@ -7,8 +7,9 @@ disable-model-invocation: true
 # Release-readiness phase
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `release`.
-2. Read all approved phase artifacts and deployment conventions.
-3. Run `singularity-flow prepare release` and complete the release plan.
-4. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
-5. Remove placeholders and run `singularity-flow artifact scan`.
-6. Do not submit or approve automatically.
+2. Ground the phase with `singularity-flow wm context release --task "<release target>" --concat --evidence`. If missing or stale, run `singularity-flow wm build --phase release --task "<release target>"`, then rerun context. Use release, operations, security, and evidence views.
+3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
+4. Run `singularity-flow prepare release` and complete the release plan.
+5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
+6. Remove placeholders and run `singularity-flow artifact scan`.
+7. Do not submit or approve automatically.

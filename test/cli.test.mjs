@@ -18,7 +18,7 @@ test('top-level version flags print only the package version', () => {
   for (const argument of ['--version', '-v', 'version']) {
     const result = run(argument);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), '0.4.0');
+    assert.equal(result.stdout.trim(), '0.5.0');
   }
 });
 
@@ -26,7 +26,7 @@ test('top-level help flags print usage', () => {
   for (const argument of ['--help', '-h', 'help']) {
     const result = run(argument);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /^Singularity Flow 0\.4\.0/m);
+    assert.match(result.stdout, /^Singularity Flow 0\.5\.0/m);
     assert.match(result.stdout, /singularity-flow start <WORK-ID>/);
   }
 });

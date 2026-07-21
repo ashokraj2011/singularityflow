@@ -13,5 +13,5 @@ disable-model-invocation: true
 5. Implement only approved scope; add or update tests and documentation. Tag tests with the corresponding `@ac:AC-n` identifiers.
 6. Run relevant format, build, lint, and test commands.
 7. Run `singularity-flow prepare implementation` and complete the summary with changed components, decisions, deviations, tests, limitations, and operational notes.
-8. Remove placeholders, then run `singularity-flow artifact scan`.
+8. Remove placeholders, then run `singularity-flow phase publish implementation`.
 9. Report commands and outcomes. Do not submit or approve automatically.

@@ -22,11 +22,18 @@ export function head(root) {
 }
 
 export function identity(root) {
+  if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
+    return { name: process.env.SINGULARITY_FLOW_TEST_IDENTITY, email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`, login: null };
+  }
   const name = git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
+  const github = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
+  let account = {};
+  if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
   return {
-    name: name || process.env.USER || process.env.USERNAME || 'unknown-user',
-    email: email || null
+    name: account.name || name || process.env.USER || process.env.USERNAME || 'unknown-user',
+    email: email || null,
+    login: account.login || null
   };
 }
 
@@ -111,4 +118,14 @@ export function add(root, paths) {
 
 export function commit(root, message) {
   git(['commit', '-m', message], { cwd: root, stdio: 'inherit' });
+  return head(root);
+}
+
+export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
+  return git(['push', '-u', remote, `HEAD:${branchName}`], { cwd: root, stdio: 'inherit', allowFailure: true });
+}
+
+export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {
+  if (!sha || !refExists(root, `refs/remotes/${remote}/${branchName}`)) return false;
+  return git(['merge-base', '--is-ancestor', sha, `refs/remotes/${remote}/${branchName}`], { cwd: root, allowFailure: true }).status === 0;
 }

@@ -1,0 +1,163 @@
+version: 1
+defaultBaseBranch: main
+workItemRoot: .sdlc/work-items
+idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+
+git:
+  remote: origin
+  publish: required
+
+templatesRoot: .sdlc/templates
+personaPromptsRoot: .sdlc/personas
+
+tokens:
+  mode: exact-or-unavailable
+
+personas:
+  developer:
+    label: Developer
+    description: Implement scoped changes and tests.
+    prompt: developer.md
+    suggestedPhases: [implementation]
+    worldModelViews: [development, testing]
+    mayApprove: [implementation]
+  architect:
+    label: Architect
+    description: Define boundaries, contracts, risks, and implementation specifications.
+    prompt: architect.md
+    suggestedPhases: [design, implementation-spec, fix-design, fix-spec]
+    worldModelViews: [architecture, security]
+    mayApprove: [design, implementation-spec, fix-design, fix-spec, conformance]
+  product-owner:
+    label: Product owner
+    description: Define the problem, scope, and measurable acceptance criteria.
+    prompt: product-owner.md
+    suggestedPhases: [intake, requirements]
+    worldModelViews: [business]
+    mayApprove: [intake, requirements]
+  qa:
+    label: QA
+    description: Verify acceptance criteria and collect reproducible evidence.
+    prompt: qa.md
+    suggestedPhases: [reproduction, verification, conformance]
+    worldModelViews: [testing, development, security]
+    mayApprove: [reproduction, verification, conformance]
+
+workTypes:
+  feature:
+    label: Feature
+    phases: [intake, requirements, design, implementation-spec, implementation, verification, conformance]
+    templateOverrides:
+      intake: feature/intake.md
+      requirements: feature/requirements.md
+      design: feature/design.md
+      implementation-spec: feature/implementation-spec.md
+  bugfix:
+    label: Bug fix
+    phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
+    templateOverrides:
+      intake: bugfix/intake.md
+      reproduction: bugfix/reproduction.md
+      fix-design: bugfix/fix-design.md
+      fix-spec: bugfix/fix-spec.md
+  chore:
+    label: Chore
+    phases: [intake, implementation, verification, conformance]
+    templateOverrides:
+      intake: chore/intake.md
+
+phases:
+  intake:
+    label: Intake
+    suggestedPersonas: [product-owner]
+    defaultTemplate: common/intake.md
+    artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
+    worldModel: { views: [business], depth: quick }
+    writeScope: artifact-only
+    approval: { personas: [product-owner], minimum: 1, rejectTo: [intake] }
+  requirements:
+    label: Requirements
+    suggestedPersonas: [product-owner]
+    defaultTemplate: feature/requirements.md
+    artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
+    worldModel: { views: [business], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [product-owner], minimum: 1, rejectTo: [intake, requirements] }
+  design:
+    label: Architecture and design
+    suggestedPersonas: [architect]
+    defaultTemplate: feature/design.md
+    artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
+    worldModel: { views: [architecture, security], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [architect], minimum: 1, rejectTo: [requirements, design] }
+  implementation-spec:
+    label: Implementation specification
+    suggestedPersonas: [architect, developer]
+    defaultTemplate: feature/implementation-spec.md
+    artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
+    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    writeScope: artifact-only
+    approval: { personas: [architect], minimum: 1, rejectTo: [requirements, design, implementation-spec] }
+  reproduction:
+    label: Reproduction
+    suggestedPersonas: [qa, developer]
+    defaultTemplate: bugfix/reproduction.md
+    artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
+    worldModel: { views: [development, testing], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [qa], minimum: 1, rejectTo: [intake, reproduction] }
+  fix-design:
+    label: Fix design
+    suggestedPersonas: [architect, developer]
+    defaultTemplate: bugfix/fix-design.md
+    artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
+    worldModel: { views: [architecture, development, security], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [architect], minimum: 1, rejectTo: [reproduction, fix-design] }
+  fix-spec:
+    label: Fix specification
+    suggestedPersonas: [architect, developer]
+    defaultTemplate: bugfix/fix-spec.md
+    artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
+    worldModel: { views: [development, testing, security], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [architect], minimum: 1, rejectTo: [reproduction, fix-design, fix-spec] }
+  implementation:
+    label: Implementation
+    suggestedPersonas: [developer]
+    defaultTemplate: common/implementation.md
+    artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
+    worldModel: { views: [development, testing], depth: standard }
+    writeScope: source-and-artifact
+    approval: { personas: [developer], minimum: 1, rejectTo: [implementation] }
+    qualityCommands: []
+  verification:
+    label: Verification
+    suggestedPersonas: [qa]
+    defaultTemplate: common/verification.md
+    artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
+    worldModel: { views: [testing, development, security], depth: standard, evidence: true }
+    writeScope: source-and-artifact
+    approval: { personas: [qa], minimum: 1, rejectTo: [implementation, verification] }
+    qualityCommands: []
+  conformance:
+    label: Spec-to-code conformance
+    suggestedPersonas: [qa, architect]
+    defaultTemplate: common/conformance.md
+    artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
+    worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
+    writeScope: artifact-only
+    comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned], exactFileLineEvidence: true }
+    approval: { personas: [qa, architect], minimum: 1, rejectTo: [implementation-spec, fix-spec, implementation, verification, conformance] }
+
+governance:
+  requireAcceptanceCriteriaTags: true
+  protectedPaths:
+    - .sdlc/workflow.yml
+    - .sdlc/templates
+    - .sdlc/personas
+    - plugin/skills
+    - .github/skills
+    - .github/workflows/singularity-flow-approve.yml
+    - .github/workflows/singularity-flow-validation.yml

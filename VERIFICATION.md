@@ -1,154 +1,96 @@
-# Verification record
+# Singularity Flow Lite 0.6 verification
 
-## Scope
+Use this checklist before packaging or rolling the workflow into a repository.
 
-The implementation was verified as a standalone npm package and skills-only Copilot plugin. No real Jira tenant or authenticated Copilot installation was available in the execution environment, so external authentication and client rendering remain local acceptance tests for the installing organization.
-
-## Automated checks
-
-Run from the package root:
+## Automated release checks
 
 ```bash
+npm install
 npm test
 npm run check
 npm pack --dry-run
+git diff --check
 ```
 
-The automated suite verifies:
-
-- CLI argument parsing.
-- Repeated option handling.
-- Jira Atlassian Document Format conversion.
-- Jira issue normalization.
-- Full user-story formatting, including acceptance criteria, story points, sprint, subtasks, links, and attachment metadata.
-- Direct Jira issue and JQL endpoint request construction using mocked `fetch`.
-- Jira custom-field discovery.
-- Creation of a human-readable `USER-STORY.md` snapshot for Jira-backed workflows.
-- Skills-only plugin manifest.
-- Every skill directory and frontmatter name.
-- Manual-only approval skill configuration.
-- Exact branch creation from a work ID.
-- Workflow initialization.
-- Placeholder blocking.
-- Artifact registration and hashing.
-- Submission state.
-- Approval snapshot creation.
-- Approval commit message.
-- Phase advancement.
-- Clean working tree after an approval commit.
-- JavaScript syntax for every `.mjs` file.
-- JSON parsing for package, plugin, schemas, and examples.
-- Absence of Python, MCP configuration, hooks, and Copilot JavaScript extensions.
-
-The final local run completed **16 Node.js tests with 16 passes and 0 failures**. The package checker completed **36 structural and syntax checks across 15 skills**.
-
-## Direct Jira pull smoke test
-
-A local HTTP server emulated the Jira Cloud endpoints used by Singularity Flow. The packaged source command was exercised end to end with Basic-auth headers and configured custom fields:
+Expected CLI versions:
 
 ```text
-singularity-flow jira pull PAY-142
-singularity-flow jira fields --query acceptance
-singularity-flow start PAY-142 --jira
+singularity-flow --version  → 0.6.0
+sflow --version             → 0.6.0
 ```
 
-The test verified:
+The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.sdlc` work items.
 
-- `GET /rest/api/3/issue/PAY-142` was called.
-- `GET /rest/api/3/field` returned the acceptance-criteria field ID.
-- The rendered story contained description, acceptance criteria, story points, sprint, subtask, linked issue, and attachment metadata.
-- The exact Git branch `PAY-142` was created.
-- `source.json` and `USER-STORY.md` were written under `.sdlc/work-items/PAY-142/`.
+## Configuration checks
 
-## Full lifecycle smoke test
+- `singularity-flow init` creates `.sdlc/workflow.yml`, all referenced templates, all persona prompts, and the world-model builder prompt without overwriting edited files.
+- Invalid YAML, unknown phase references, invalid persona capabilities, and missing templates fail clearly.
+- Work-type template overrides take precedence over phase defaults.
+- `start` snapshots the work type, resolved phases, configuration hash, and template hashes.
+- Changing a work item's type after creation is rejected by validation.
+- `migrate-config` preserves legacy JSON and Git history.
 
-A temporary Git repository was initialized with a `main` branch and configured test identity. The workflow was then exercised through:
+## Interactive selection checks
+
+- `start` always asks for work type and persona.
+- `resume` always asks for persona.
+- No public `--type` or `--persona` option bypasses the picker.
+- Non-interactive start/resume fails instead of choosing a default.
+- Any configured persona may be selected in any phase.
+- Persona selection alone changes only `.git/singularity-flow/session.json` and creates no commit.
+
+## Artifact and lifecycle checks
+
+Run a feature and bugfix through every configured phase. For each generation verify:
+
+- Artifact location is `.sdlc/work-items/<ID>/artifacts/<phase>/`.
+- Managed metadata includes the correct actor, persona, generation, hashes, usage, and approvals.
+- Commit subject includes `[ID][phase:<id>][generated:<n>]`.
+- The work branch is pushed before the command reports success.
+- Submission, approval, rejection, and advancement each have their own pushed commit.
+- A second clone can fetch, fast-forward, resume, and reconstruct state solely from the branch.
+
+For an unreachable remote, verify the local commit is retained, transitions are blocked, and `singularity-flow sync` publishes the same history after connectivity returns.
+
+## Approval checks
+
+- Only a persona whose `mayApprove` includes the phase can approve or reject it.
+- Approval records include authenticated identity, selected persona, timestamp, channel, and decision.
+- Multi-approval thresholds ignore repeat decisions by the same identity.
+- Self-approval is allowed but appears in the artifact, approval record, status, and conformance report.
+- Rejection can target only an allowed earlier phase and invalidates target/downstream approvals.
+- Concurrent terminal decisions cannot force-push over each other.
+
+## Traceability checks
+
+- Requirements use stable `AC-n` identifiers.
+- Feature implementation specs and bugfix fix specs use stable `SPEC-nnn` identifiers mapped to acceptance criteria.
+- Verification contains test/source evidence.
+- Conformance reports every AC and SPEC item with `matched`, `partial`, `missing`, `deviated`, or `unplanned` and exact file/line evidence.
+- The conformance report discloses approved deviations and self-approvals.
+- A tracked source/test change after conformance makes the report stale and fails the gate.
+
+## Token checks
+
+- Exact provider usage preserves provider, model, input/output/cached/total counts, timestamps, and collection source.
+- Missing provider values are recorded as `unavailable`, never guessed.
+- Aggregates are correct by phase, persona, work type, and work item.
+
+## World-model checks
+
+- Phase-required views are always present.
+- Persona views are added and do not replace required views.
+- The persona prompt is present in phase context.
+- Verification and conformance include the evidence ledger.
+- `singularity-flow wm check` detects a stale manifest.
+
+## Final GitHub checks
+
+Install the example approval and validation workflows, pin the released package version, and configure branch protection to require the validation job. Exercise both comment forms:
 
 ```text
-requirements → design → implementation → verification → review → release → complete
+/approve design as architect
+/reject design as architect --to requirements --reason "Missing failure behavior"
 ```
 
-For each phase, the required artifact was created, scanned, submitted, approved, and committed. The resulting commit subjects were:
-
-```text
-DEMO-101 approve requirements
-DEMO-101 approve design
-DEMO-101 approve implementation
-DEMO-101 approve verification
-DEMO-101 approve review
-DEMO-101 approve release
-```
-
-Final validation returned:
-
-```text
-Singularity Flow workflow is valid.
-```
-
-The final repository had no uncommitted changes.
-
-## Packaged-install smoke test
-
-The generated npm tarball was installed into an isolated temporary global npm prefix. The installed executable was then used—not the source-tree entry point—to verify:
-
-```text
-singularity-flow --version                    → 0.5.0
-sflow --version                               → 0.5.0
-singularity-flow plugin path                  → packaged plugin/plugin.json found
-singularity-flow start DEMO-900               → exact branch DEMO-900 created
-singularity-flow status DEMO-900 --json       → requirements / in_progress
-.sdlc/work-items/DEMO-900/workflow.json → created
-```
-
-This smoke test made no changes to the machine's real global npm installation or Copilot profile.
-
-## External acceptance tests to run locally
-
-### Copilot CLI
-
-```bash
-npm install --global ./your-company-singularity-flow-0.5.0.tgz
-singularity-flow plugin install
-copilot plugin list
-copilot
-```
-
-Inside the session:
-
-```text
-/skills list
-/singularity-flow:start DEMO-201 --title "Plugin acceptance test"
-/singularity-flow:status
-```
-
-### VS Code
-
-1. Use the same npm and plugin installation commands.
-2. Reload VS Code.
-3. Confirm `singularity-flow` in **Agent Plugins - Installed**.
-4. Confirm `/singularity-flow:start` appears in Copilot Chat.
-5. Run it in a disposable Git repository.
-
-### Jira
-
-With a dedicated test user and issue:
-
-```bash
-export JIRA_BASE_URL="https://tenant.atlassian.net"
-export JIRA_EMAIL="test-user@example.com"
-export JIRA_API_TOKEN="..."
-singularity-flow jira pull TEST-123
-singularity-flow jira list --project TEST
-singularity-flow jira fields --query acceptance
-```
-
-Then run `singularity-flow start TEST-123 --jira` in a disposable repository and review `source.json` plus `USER-STORY.md`. Remove the test token from the environment after testing.
-
-## Known boundaries
-
-- The package does not install Git hooks.
-- It does not push or merge.
-- It does not create pull requests.
-- It does not write to Jira.
-- It does not secure environment variables; credential handling is delegated to the organization's approved local-secret practice.
-- It does not implement backward migrations for future workflow schema versions yet.
+Confirm the workflow actor and declared persona appear in committed decision records and that the final terminal gate verifies the remote head.

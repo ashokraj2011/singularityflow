@@ -1,46 +1,74 @@
-# Migrating to Singularity Flow 0.5.0
+# Migrating to Singularity Flow Lite 0.6
 
-## From 0.4.0
+Version 0.6 moves repository definition from `.sdlc/config.json` to `.sdlc/workflow.yml` and introduces immutable work-type profiles, persona sessions, artifact templates, automatic publication, token usage, rejection cascades, and spec-to-code conformance.
 
-Run `singularity-flow wm init` on the base branch and commit `.sdlc/worldmodel.json` plus `.sdlc/prompts/worldmodel-builder.md`. Version 0.5 adds `wm build`, `wm context`, `wm prompt`, and `wm check`; existing work-item state remains compatible. Phase skills now require their routed grounding context before producing artifacts.
+## Before migrating
 
-## From 0.3.0
-
-Repository work-item data remains compatible. Version 0.4 adds an optional `governance` object to `.sdlc/config.json`, the `singularity-flow gate` command, authenticated GitHub approval provenance, approval-cascade hashes, and example approval/validation workflows. Existing local approvals remain valid when `requireGithubApprovals` is false. Enable governed mode only after configuring role-to-GitHub-username mappings and installing both example workflows.
-
-The product, npm package, executable, Copilot plugin, skill namespace, environment variables, and examples have been renamed consistently.
-
-## Replace the global package
+Commit or stash unrelated changes and ensure the normal Git remote is reachable. Upgrade the CLI, but do not delete the JSON configuration or rewrite work-item history.
 
 ```bash
-npm uninstall --global @your-company/flowpilot
-npm install --global ./your-company-singularity-flow-0.5.0.tgz
+npm install --global ./your-company-singularity-flow-0.6.0.tgz
+singularity-flow migrate-config
 ```
 
-## Replace the personal Copilot plugin
+The command:
+
+- Creates `.sdlc/workflow.yml` from the legacy phase model.
+- Installs editable templates and persona prompts.
+- Upgrades compatible work-item runtime state to schema v2.
+- Preserves `.sdlc/config.json` for audit.
+- Does not commit, rebase, or rewrite existing Git history.
+
+Review the generated YAML, especially:
+
+- `git.remote` and `git.publish`.
+- Work-type phase sequences.
+- Persona `mayApprove` capabilities.
+- Phase approval thresholds and rejection targets.
+- Template paths and quality commands.
+- Protected governance paths.
+
+Then publish the migration normally:
 
 ```bash
-copilot plugin uninstall flowpilot
+git add .sdlc/workflow.yml .sdlc/templates .sdlc/personas .sdlc/work-items
+git commit -m "Migrate Singularity Flow configuration"
+git push
+```
+
+## Active work items
+
+Migrated active work keeps its existing phase progression and Git history. On its next generation, submission, or decision, schema-v2 metadata is persisted through the normal atomic commit. New work receives a fully resolved immutable profile and template hash snapshot at `start`.
+
+Because v0.6 publication is required by the starter configuration, ensure every work-item branch has an upstream remote. If a lifecycle push fails, run `singularity-flow sync`; do not amend or force-push the pending commit.
+
+## Copilot and GitHub workflows
+
+Reinstall the bundled personal Copilot plugin and replace old approval/validation workflows with the v0.6 examples:
+
+```bash
 singularity-flow plugin install --force
+cp examples/singularity-flow-approve.yml .github/workflows/singularity-flow-approve.yml
+cp examples/singularity-flow-validation.yml .github/workflows/singularity-flow-validation.yml
 ```
 
-## Command changes
+GitHub decisions now require an explicit persona:
 
 ```text
-flowpilot ...                 -> singularity-flow ...
-                              -> sflow ...        (short alias)
-/flowpilot:start              -> /singularity-flow:start
-/flowpilot:approve            -> /singularity-flow:approve
+/approve design as architect
+/reject design as architect --to requirements --reason "Missing failure behavior"
 ```
 
-## Environment-variable changes
+Username role allowlists and local `--by` flags are obsolete. Persona capability supplies authority; authenticated identity supplies attribution and distinct-review counting.
 
-```text
-FLOWPILOT_DEBUG                         -> SINGULARITY_FLOW_DEBUG
-FLOWPILOT_JIRA_ACCEPTANCE_FIELD         -> SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD
-FLOWPILOT_JIRA_STORY_POINTS_FIELD       -> SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD
-FLOWPILOT_JIRA_SPRINT_FIELD             -> SINGULARITY_FLOW_JIRA_SPRINT_FIELD
-FLOWPILOT_JIRA_EXTRA_FIELDS             -> SINGULARITY_FLOW_JIRA_EXTRA_FIELDS
+## Verification
+
+After migration:
+
+```bash
+singularity-flow validate --strict
+npm test
+npm run check
 ```
 
-The repository workflow format remains under `.sdlc/`, so existing work-item state and artifacts do not require migration.
+Start a disposable feature and bugfix on a test remote to verify interactive selection, publication, remote resume, rejection, and conformance before enabling the validation workflow as a required branch-protection check.

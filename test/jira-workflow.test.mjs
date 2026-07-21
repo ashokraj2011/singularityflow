@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
+import { initializeDefinition } from '../src/config.mjs';
 
 function exec(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
@@ -18,7 +19,8 @@ async function repository() {
   exec('git', ['config', 'user.name', 'Singularity Flow Test'], root);
   exec('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n');
-  exec('git', ['add', 'README.md'], root);
+  await initializeDefinition(root);
+  exec('git', ['add', 'README.md', '.sdlc'], root);
   exec('git', ['commit', '-m', 'initial'], root);
   exec('git', ['checkout', '-b', 'PAY-142'], root);
   return root;
@@ -26,7 +28,7 @@ async function repository() {
 
 test('Jira-backed workflow writes a readable user-story snapshot', async () => {
   const root = await repository();
-  const config = await loadConfig(root, { create: true });
+  const config = await loadConfig(root);
   const source = {
     type: 'jira',
     id: '10042',

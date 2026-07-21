@@ -33,5 +33,5 @@ test('every skill has valid matching frontmatter', async () => {
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
-  assert.match(content, /singularity-flow approve --yes --commit/);
+  assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
 });

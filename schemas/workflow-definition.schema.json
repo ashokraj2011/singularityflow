@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/workflow-definition.schema.json",
+  "title": "Singularity Flow YAML workflow definition",
+  "type": "object",
+  "required": ["version", "git", "templatesRoot", "personaPromptsRoot", "personas", "workTypes", "phases"],
+  "properties": {
+    "version": { "const": 1 },
+    "defaultBaseBranch": { "type": "string", "minLength": 1 },
+    "workItemRoot": { "type": "string", "minLength": 1 },
+    "idPattern": { "type": "string", "minLength": 1 },
+    "git": {
+      "type": "object",
+      "required": ["remote", "publish"],
+      "properties": {
+        "remote": { "type": "string", "minLength": 1 },
+        "publish": { "enum": ["required", "off"] }
+      },
+      "additionalProperties": false
+    },
+    "templatesRoot": { "type": "string", "minLength": 1 },
+    "personaPromptsRoot": { "type": "string", "minLength": 1 },
+    "tokens": { "type": "object" },
+    "personas": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "prompt"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "prompt": { "type": "string", "minLength": 1 },
+          "suggestedPhases": { "type": "array", "items": { "type": "string" } },
+          "worldModelViews": { "type": "array", "items": { "type": "string" } },
+          "mayApprove": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "workTypes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "phases"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+          "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
+          "phaseOverrides": {
+            "type": "object",
+            "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields.",
+            "additionalProperties": { "type": "object" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "phases": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "object", "properties": { "writeScope": { "enum": ["artifact-only", "source-and-artifact"] } } } },
+    "governance": { "type": "object" },
+    "worldModel": { "type": "object" }
+  },
+  "additionalProperties": false
+}

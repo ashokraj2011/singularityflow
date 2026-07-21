@@ -1,0 +1,86 @@
+version: 1
+defaultBaseBranch: main
+workItemRoot: .sdlc/work-items
+idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+
+git:
+  remote: origin
+  publish: required
+
+templatesRoot: .sdlc/templates
+personaPromptsRoot: .sdlc/personas
+
+personas:
+  developer:
+    label: Developer
+    prompt: developer.md
+    worldModelViews: [development, testing]
+    mayApprove: [implementation]
+  architect:
+    label: Architect
+    prompt: architect.md
+    worldModelViews: [architecture, security]
+    mayApprove: [intake, design, implementation-spec, conformance]
+  qa:
+    label: QA
+    prompt: qa.md
+    worldModelViews: [testing, security]
+    mayApprove: [verification, conformance]
+
+workTypes:
+  feature:
+    label: Feature
+    phases: [intake, design, implementation-spec, implementation, verification, conformance]
+    templateOverrides:
+      intake: feature/intake.md
+      implementation-spec: feature/implementation-spec.md
+
+phases:
+  intake:
+    label: Intake
+    defaultTemplate: common/intake.md
+    artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
+    worldModel: { views: [business], depth: quick }
+    approval: { personas: [architect], minimum: 1, rejectTo: [intake] }
+  design:
+    label: Architecture and design
+    defaultTemplate: feature/design.md
+    artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
+    worldModel: { views: [architecture, security], depth: standard }
+    approval: { personas: [architect], minimum: 1, rejectTo: [intake, design] }
+  implementation-spec:
+    label: Implementation specification
+    defaultTemplate: feature/implementation-spec.md
+    artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
+    worldModel: { views: [architecture, development, testing], depth: deep }
+    approval: { personas: [architect], minimum: 1, rejectTo: [design, implementation-spec] }
+  implementation:
+    label: Implementation
+    defaultTemplate: common/implementation.md
+    artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
+    worldModel: { views: [development, testing], depth: standard }
+    qualityCommands: [npm test, npm run check]
+    approval: { personas: [developer], minimum: 1, rejectTo: [implementation] }
+  verification:
+    label: Verification
+    defaultTemplate: common/verification.md
+    artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
+    worldModel: { views: [testing, security], depth: standard, evidence: true }
+    qualityCommands: [npm test]
+    approval: { personas: [qa], minimum: 1, rejectTo: [implementation, verification] }
+  conformance:
+    label: Spec-to-code conformance
+    defaultTemplate: common/conformance.md
+    artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
+    worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
+    approval: { personas: [architect, qa], minimum: 2, rejectTo: [implementation-spec, implementation, verification, conformance] }
+
+governance:
+  requireAcceptanceCriteriaTags: true
+  protectedPaths:
+    - .sdlc/workflow.yml
+    - .sdlc/templates
+    - .sdlc/personas
+    - plugin/skills
+    - .github/workflows/singularity-flow-approve.yml
+    - .github/workflows/singularity-flow-validation.yml

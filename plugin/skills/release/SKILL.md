@@ -11,5 +11,5 @@ disable-model-invocation: true
 3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
 4. Run `singularity-flow prepare release` and complete the release plan.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
-6. Remove placeholders and run `singularity-flow artifact scan`.
+6. Remove placeholders and run `singularity-flow phase publish release`.
 7. Do not submit or approve automatically.

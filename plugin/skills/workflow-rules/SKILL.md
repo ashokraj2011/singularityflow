@@ -5,7 +5,7 @@ user-invocable: false
 ---
 # Singularity Flow workflow contract
 
-When `.sdlc/work-items/<WORK-ID>/workflow.json` exists, it is the authoritative lifecycle state.
+When `.sdlc/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `.sdlc/workflow.yml` defines new work types, phases, personas, templates, and approvals.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
 2. Work only on the exact branch stored in `workflow.json`.
@@ -16,7 +16,8 @@ When `.sdlc/work-items/<WORK-ID>/workflow.json` exists, it is the authoritative 
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
 9. Treat approved artifacts as durable inputs. Document later deviations in the active phase artifact.
-10. Leave enough committed state for another person to resume using only the work ID.
+10. End every successful artifact generation with `singularity-flow phase publish <phase>`; generation is incomplete until its commit is pushed.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
 13. Before phase reasoning, load `singularity-flow wm context <phase> --task "<current objective>" --concat`; rebuild the phase model when missing or stale. Load evidence only for verification, review, or release decisions.
+14. Never choose a work type or persona for the user. Anyone may choose any persona; phase mappings are recommendations, while approval capability comes from persona configuration.

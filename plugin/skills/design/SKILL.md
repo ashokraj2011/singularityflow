@@ -12,5 +12,5 @@ disable-model-invocation: true
 4. Run `singularity-flow prepare design` and complete the returned document.
 5. Cover components, interfaces, data flow, alternatives, compatibility, security, privacy, observability, migration, rollout, rollback, risks, and an ordered implementation plan.
 6. State assumptions and tradeoffs. Do not implement production code.
-7. Remove every placeholder and run `singularity-flow artifact add <design-path> --kind design`.
-8. Do not submit or approve automatically.
+7. Remove every placeholder and run `singularity-flow phase publish design`.
+8. Report the publication commit and token status. Do not submit or approve automatically.

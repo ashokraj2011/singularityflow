@@ -12,5 +12,5 @@ disable-model-invocation: true
 4. Review correctness, acceptance coverage, maintainability, architecture alignment, security, failures, observability, rollout, rollback, and tests.
 5. Rank findings by severity and include file/line references when available.
 6. Do not silently fix findings unless explicitly asked.
-7. Run `singularity-flow prepare review`, complete the decision document, remove placeholders, and run `singularity-flow artifact scan`.
+7. If the configured workflow includes review, run `singularity-flow prepare review`, complete the decision document, remove placeholders, and run `singularity-flow phase publish review`.
 8. Do not submit or approve automatically.

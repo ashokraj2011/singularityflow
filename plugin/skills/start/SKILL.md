@@ -14,6 +14,7 @@ disable-model-invocation: true
 6. Confirm that the current branch exactly equals the work ID.
 7. Read the created `workflow.json`, `STATUS.md`, and `source.json`.
 8. Summarize the source, current phase, required artifact, and next valid action.
-9. Do not generate the active artifact unless also requested. Recommend `/singularity-flow:phase`.
+9. Offer `/singularity-flow:documents upload` for requirements files, images, PDFs, `.fig` files, or Figma links during the configured initial phases.
+10. Do not generate the active artifact unless also requested. Recommend `/singularity-flow:phase`.
 
 `--jira` uses direct Jira REST through the npm utility and environment credentials. It does not use MCP or an IDE Jira plugin.

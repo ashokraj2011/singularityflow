@@ -23,6 +23,23 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
   }
 
+  const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');
+  if (await exists(documentManifest)) {
+    const manifest = JSON.parse(await readFile(documentManifest, 'utf8')); const seen = new Set();
+    if (manifest.workId !== workflow.workItem.id) errors.push('document catalog work ID does not match workflow');
+    for (const document of manifest.documents ?? []) {
+      if (seen.has(document.id)) errors.push(`duplicate document ID: ${document.id}`); seen.add(document.id);
+      if (!(workflow.resolution.documents?.allowedPhases ?? []).includes(document.phase)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
+      if (!document.addedBy || !document.persona) errors.push(`${document.id} is missing actor or persona attribution`);
+      if (document.type === 'file') {
+        const current = await snapshot(path.join(root, document.path));
+        if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) errors.push(`document integrity failed: ${document.id} (${document.path})`);
+      } else if (document.type === 'url' && !/^https?:\/\/\S+$/i.test(document.url ?? '')) errors.push(`${document.id} has an invalid external URL`);
+    }
+    if ((workflow.documents?.count ?? 0) !== (manifest.documents?.length ?? 0)) errors.push('workflow document count differs from documents.json');
+    else passes.push(`document integrity: ${manifest.documents?.length ?? 0} supporting inputs`);
+  } else if ((workflow.documents?.count ?? 0) > 0) errors.push('workflow records documents but documents.json is missing');
+
   const diff = run('git', ['diff', '--name-only', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
   if (diff.status === 0) {
     const changed = diff.stdout.split(/\r?\n/).filter(Boolean);

@@ -52,6 +52,16 @@ Run a feature and bugfix through every configured phase. For each generation ver
 
 For an unreachable remote, verify the local commit is retained, transitions are blocked, and `singularity-flow sync` publishes the same history after connectivity returns.
 
+## Progress and supporting-document checks
+
+- `progress` reports zero at start, exact approved/total percentage after each approval, and 100% only when every phase is approved.
+- JSON progress includes current phase/position, generations, approval thresholds, document count, and token usage.
+- Upload local text, image, PDF, and `.fig` inputs during an allowed phase; verify stable `DOC-nnn` IDs, hashes, attribution, copied paths, commit, and push.
+- Record a Figma HTTPS link and confirm it is cataloged without network download.
+- `documents list` includes uploaded inputs plus generated workflow/source/status documents.
+- `documents view` prints text and returns usable paths/URLs for binary or external documents.
+- Upload outside `documents.allowedPhases` and above `maxFileBytes` fails without a lifecycle commit.
+
 ## Approval checks
 
 - Only a persona whose `mayApprove` includes the phase can approve or reject it.

@@ -1,4 +1,5 @@
 import readline from 'node:readline/promises';
+import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import {
   SingularityFlowError,
@@ -36,6 +37,8 @@ import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { selectPersona, selectWorkType } from './session.mjs';
 import { readJson } from './util.mjs';
+import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
+import { progressBar, progressSnapshot } from './progress.mjs';
 
 const VERSION = '0.6.0';
 
@@ -48,6 +51,10 @@ Usage:
   singularity-flow start <WORK-ID> [--title TEXT] [--description TEXT] [--base BRANCH] [--jira] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow status [WORK-ID] [--json]
+  singularity-flow progress [WORK-ID] [--json]
+  singularity-flow documents list [WORK-ID] [--json]
+  singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
+  singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow prepare [PHASE]
   singularity-flow phase publish [PHASE] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
@@ -202,6 +209,49 @@ async function statusCommand(positionals, options) {
   const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'} as ${item.persona}`));
   if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
 }
+
+async function progressCommand(positionals, options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]); const progress = progressSnapshot(workflow);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
+  console.log(`\n${progress.workId} — ${progress.workType}`);
+  console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
+  console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'complete'} (${progress.currentPosition}/${progress.totalPhases})`);
+  console.log(`Documents: ${progress.documents}  Tokens: ${progress.tokens.totalTokens || 'unavailable'}`);
+  console.log(`\n${table(progress.phases, [
+    { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
+    { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }
+  ])}`);
+}
+
+async function documentsCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot(); const config = await loadConfig(root);
+  if (subcommand === 'list') {
+    const workflow = await loadWorkflow(root, config, positionals[2]); const records = await documentCatalog(root, config, workflow);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
+    if (!records.length) return console.log('No documents found.');
+    return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', label: item.label, location: item.url ?? item.path ?? '' })), [
+      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION' }
+    ]));
+  }
+  if (subcommand === 'view') {
+    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadWorkflow(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
+    if (result.record.url) console.log(`URL: ${result.record.url}`);
+    else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
+    if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or desktop viewer.');
+    else if (result.content != null) process.stdout.write(`\n${result.content}`);
+    return;
+  }
+  if (['upload', 'add'].includes(subcommand)) {
+    const workflow = await loadWorkflow(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
+    const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
+  }
+  throw new SingularityFlowError(`Unknown documents subcommand: ${subcommand}`);
+}
+
+function pathForDisplay(root, relative) { return path.join(root, relative); }
 
 async function prepareCommand(positionals) {
   const root = repoRoot();
@@ -394,6 +444,8 @@ export async function main(argv) {
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
     case 'status': return statusCommand(positionals, options);
+    case 'progress': return progressCommand(positionals, options);
+    case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);
     case 'artifact': return artifactCommand(positionals, options);

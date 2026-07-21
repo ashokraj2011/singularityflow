@@ -21,6 +21,15 @@
     "templatesRoot": { "type": "string", "minLength": 1 },
     "personaPromptsRoot": { "type": "string", "minLength": 1 },
     "tokens": { "type": "object" },
+    "documents": {
+      "type": "object",
+      "properties": {
+        "allowedPhases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "maxFileBytes": { "type": "integer", "minimum": 1 },
+        "maxPreviewBytes": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
     "personas": {
       "type": "object",
       "minProperties": 1,

@@ -10,6 +10,11 @@ git:
 templatesRoot: .singularity/templates
 personaPromptsRoot: .singularity/personas
 
+documents:
+  allowedPhases: [intake, design, implementation-spec]
+  maxFileBytes: 26214400
+  maxPreviewBytes: 1048576
+
 personas:
   developer:
     label: Developer

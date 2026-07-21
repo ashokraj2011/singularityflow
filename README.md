@@ -20,7 +20,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./your-company-singularity-flow-0.6.0.tgz
+npm install --global ./singularity-flow-0.6.0.tgz
 cd your-repository
 singularity-flow init
 git add .singularity

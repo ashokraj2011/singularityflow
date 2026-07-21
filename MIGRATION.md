@@ -7,7 +7,7 @@ Version 0.6 consolidates the previous repository-state directory under the Singu
 Commit or stash unrelated changes and ensure the normal Git remote is reachable. Upgrade the CLI, but do not delete the JSON configuration or rewrite work-item history.
 
 ```bash
-npm install --global ./your-company-singularity-flow-0.6.0.tgz
+npm install --global ./singularity-flow-0.6.0.tgz
 singularity-flow migrate-config
 ```
 

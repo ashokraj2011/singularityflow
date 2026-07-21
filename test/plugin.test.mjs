@@ -16,6 +16,16 @@ test('plugin manifest is a skills-only Copilot plugin', async () => {
   assert.equal(manifest.hooks, undefined);
 });
 
+test('official marketplace publishes the versioned plugin from the repository plugin directory', async () => {
+  const marketplace = JSON.parse(await readFile(path.join(root, '.github/plugin/marketplace.json'), 'utf8'));
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
+  const entry = marketplace.plugins.find((item) => item.name === 'singularity-flow');
+  assert.equal(marketplace.name, 'singularity-flow');
+  assert.equal(marketplace.metadata.version, manifest.version);
+  assert.equal(entry.version, manifest.version);
+  assert.equal(entry.source, './plugin');
+});
+
 test('every skill has valid matching frontmatter', async () => {
   const skillRoot = path.join(pluginRoot, 'skills');
   const entries = (await readdir(skillRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory());
@@ -25,13 +35,14 @@ test('every skill has valid matching frontmatter', async () => {
     const name = content.match(/^---\n[\s\S]*?^name:\s*([^\n]+)$/m)?.[1]?.trim();
     const description = content.match(/^---\n[\s\S]*?^description:\s*([^\n]+)$/m)?.[1]?.trim();
     assert.equal(name, entry.name, `${entry.name} name mismatch`);
+    assert.match(name, /^sflow-/, `${entry.name} must use the collision-safe sflow- prefix`);
     assert.ok(description, `${entry.name} missing description`);
     assert.match(name, /^[a-z0-9-]+$/);
   }
 });
 
 test('approval skill is explicitly user-invoked', async () => {
-  const content = await readFile(path.join(pluginRoot, 'skills', 'approve', 'SKILL.md'), 'utf8');
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
 });

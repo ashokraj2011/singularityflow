@@ -1,6 +1,6 @@
 # Singularity Flow Lite 0.6
 
-Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, personas, world-model views, approvals, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git.
+Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, personas, world-model views, approvals, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
 
 The package contains:
 
@@ -21,7 +21,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.6.0.tgz
+npm install --global ./singularity-flow-0.6.1.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -117,7 +117,7 @@ Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME t
 Copilot users normally invoke the appropriate skill, for example:
 
 ```text
-/singularity-flow:phase
+/sflow-phase
 ```
 
 The skill combines the configured phase prompt, the selected persona prompt, and routed world-model context. The equivalent deterministic CLI sequence is:
@@ -265,6 +265,30 @@ Install the personal Copilot plugin with:
 
 ```bash
 singularity-flow plugin install
+copilot skill list
 ```
+
+The installer registers the official `ashokraj2011/singularityflow` marketplace and installs `singularity-flow@singularity-flow`. The equivalent manual commands are:
+
+```bash
+copilot plugin marketplace add ashokraj2011/singularityflow
+copilot plugin install singularity-flow@singularity-flow
+```
+
+The plugin package remains named `singularity-flow`, while every public skill has a globally unique command name:
+
+```text
+/sflow-start ENG-142 --title "Add invoice export"
+/sflow-phase
+/sflow-progress
+/sflow-documents list
+/sflow-status
+/sflow-submit
+/sflow-approve
+/sflow-reject
+/sflow-resume ENG-142
+```
+
+The `sflow-` prefix prevents collisions with generic skills such as `/start`, `/status`, and `/approve` from other plugins. After upgrading from v0.6.0, reinstall the plugin with `singularity-flow plugin install --force`, close existing Copilot sessions, and confirm that `copilot skill list` reports the `sflow-*` skills.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants and [VERIFICATION.md](VERIFICATION.md) for the release checklist.

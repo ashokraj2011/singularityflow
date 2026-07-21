@@ -7,7 +7,7 @@ Version 0.6 consolidates the previous repository-state directory under the Singu
 Commit or stash unrelated changes and ensure the normal Git remote is reachable. Upgrade the CLI, but do not delete the JSON configuration or rewrite work-item history.
 
 ```bash
-npm install --global ./singularity-flow-0.6.0.tgz
+npm install --global ./singularity-flow-0.6.1.tgz
 singularity-flow migrate-config
 ```
 
@@ -49,9 +49,12 @@ Reinstall the bundled personal Copilot plugin and replace old approval/validatio
 
 ```bash
 singularity-flow plugin install --force
+copilot skill list
 cp examples/singularity-flow-approve.yml .github/workflows/singularity-flow-approve.yml
 cp examples/singularity-flow-validation.yml .github/workflows/singularity-flow-validation.yml
 ```
+
+Version 0.6.1 replaces generic Copilot skill names with collision-safe commands such as `/sflow-start`, `/sflow-phase`, and `/sflow-progress`. Close existing Copilot sessions after reinstalling so the new skill registry is loaded.
 
 GitHub decisions now require an explicit persona:
 

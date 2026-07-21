@@ -47,7 +47,7 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -177,7 +177,7 @@ async function startCommand(positionals, options) {
   });
   await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
   summary(workflow);
-  console.log('\nNext in Copilot: /singularity-flow:phase');
+  console.log('\nNext in Copilot: /sflow-phase');
 }
 
 async function resumeCommand(positionals, options) {
@@ -195,7 +195,7 @@ async function resumeCommand(positionals, options) {
   const active = currentPhase(workflow);
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
-    console.log(`\nResume in Copilot: /singularity-flow:${command}`);
+    console.log(`\nResume in Copilot: /sflow-${command}`);
   }
 }
 
@@ -317,7 +317,7 @@ async function submitCommand(options) {
   });
   await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, phase.artifacts.map((item) => item.path));
   console.log(`Phase ${phase.id} is awaiting approval with ${phase.artifacts.length} artifact(s).`);
-  console.log('Next in Copilot: /singularity-flow:approve');
+  console.log('Next in Copilot: /sflow-approve');
 }
 
 async function decisionWorkflow(positionals, options) {

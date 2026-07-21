@@ -15,8 +15,8 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.6.0
-sflow --version             → 0.6.0
+singularity-flow --version  → 0.6.1
+sflow --version             → 0.6.1
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
@@ -38,6 +38,21 @@ The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schem
 - Non-interactive start/resume fails instead of choosing a default.
 - Any configured persona may be selected in any phase.
 - Persona selection alone changes only `.git/singularity-flow/session.json` and creates no commit.
+
+## GitHub Copilot plugin checks
+
+Register the repository as a marketplace, install the plugin, and inspect the discovered skills:
+
+```bash
+copilot plugin marketplace add /path/to/singularityflow
+copilot plugin install singularity-flow@singularity-flow
+copilot skill list
+```
+
+- The plugin exposes exactly 18 skills and every skill name begins with `sflow-`.
+- `/sflow-start`, `/sflow-phase`, and `/sflow-progress` are available in Copilot.
+- Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
+- Reinstalling through `singularity-flow plugin install --force` refreshes the marketplace and plugin cache.
 
 ## Artifact and lifecycle checks
 

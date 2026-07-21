@@ -42,7 +42,8 @@ function parseFrontmatter(text, file) {
 
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
 const pluginJson = JSON.parse(await readFile(path.join(root, 'plugin', 'plugin.json'), 'utf8'));
-checked.push('package.json', 'plugin/plugin.json');
+const marketplaceJson = JSON.parse(await readFile(path.join(root, '.github', 'plugin', 'marketplace.json'), 'utf8'));
+checked.push('package.json', 'plugin/plugin.json', '.github/plugin/marketplace.json');
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 if (pluginJson.name !== 'singularity-flow') fail('plugin.json name must be singularity-flow');
@@ -50,6 +51,10 @@ for (const forbidden of ['extensions', 'mcpServers', 'hooks', 'agents']) {
   if (Object.hasOwn(pluginJson, forbidden)) fail(`plugin.json must remain skills-only; remove ${forbidden}`);
 }
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
+const marketplacePlugin = marketplaceJson.plugins?.find((item) => item.name === pluginJson.name);
+if (marketplaceJson.name !== 'singularity-flow') fail('marketplace.json name must be singularity-flow');
+if (!marketplacePlugin || marketplacePlugin.source !== './plugin') fail('marketplace must publish singularity-flow from ./plugin');
+if (marketplaceJson.metadata?.version !== pluginJson.version || marketplacePlugin?.version !== pluginJson.version) fail('marketplace and plugin versions must match');
 
 const allFiles = await walk(root);
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
@@ -67,8 +72,9 @@ for (const entry of skillDirs) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name)) fail(`${entry.name}: directory name is not kebab-case`);
   if (frontmatter.name !== entry.name) fail(`${entry.name}: frontmatter name must match directory`);
   if (!frontmatter.description) fail(`${entry.name}: description is required`);
-  if (entry.name === 'approve' && frontmatter['disable-model-invocation'] !== 'true') {
-    fail('approve: disable-model-invocation must be true');
+  if (!entry.name.startsWith('sflow-')) fail(`${entry.name}: every public skill must use the collision-safe sflow- prefix`);
+  if (entry.name === 'sflow-approve' && frontmatter['disable-model-invocation'] !== 'true') {
+    fail('sflow-approve: disable-model-invocation must be true');
   }
   checked.push(path.relative(root, file));
 }

@@ -19,11 +19,11 @@ singularity-flow --version  → 0.6.0
 sflow --version             → 0.6.0
 ```
 
-The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.sdlc` work items.
+The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
 
 ## Configuration checks
 
-- `singularity-flow init` creates `.sdlc/workflow.yml`, all referenced templates, all persona prompts, and the world-model builder prompt without overwriting edited files.
+- `singularity-flow init` creates `.singularity/workflow.yml`, all referenced templates, all persona prompts, and the world-model builder prompt without overwriting edited files.
 - Invalid YAML, unknown phase references, invalid persona capabilities, and missing templates fail clearly.
 - Work-type template overrides take precedence over phase defaults.
 - `start` snapshots the work type, resolved phases, configuration hash, and template hashes.
@@ -43,7 +43,7 @@ The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schem
 
 Run a feature and bugfix through every configured phase. For each generation verify:
 
-- Artifact location is `.sdlc/work-items/<ID>/artifacts/<phase>/`.
+- Artifact location is `.singularity/work-items/<ID>/artifacts/<phase>/`.
 - Managed metadata includes the correct actor, persona, generation, hashes, usage, and approvals.
 - Commit subject includes `[ID][phase:<id>][generated:<n>]`.
 - The work branch is pushed before the command reports success.

@@ -23,7 +23,7 @@ The package contains:
 npm install --global ./your-company-singularity-flow-0.6.0.tgz
 cd your-repository
 singularity-flow init
-git add .sdlc
+git add .singularity
 git commit -m "Initialize Singularity Flow"
 git push
 ```
@@ -31,7 +31,7 @@ git push
 Initialization installs:
 
 ```text
-.sdlc/
+.singularity/
 ├── workflow.yml
 ├── personas/
 │   ├── architect.md
@@ -51,7 +51,7 @@ These files are ordinary reviewed repository files and remain fully editable.
 
 ## Configuration
 
-`.sdlc/workflow.yml` is the definition for new work items. It contains:
+`.singularity/workflow.yml` is the definition for new work items. It contains:
 
 - `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, and approval policy.
 - `phases`: default templates, artifact paths, write scope, world-model views, quality commands, and approval rules.
@@ -104,7 +104,7 @@ singularity-flow submit
 Artifacts live under:
 
 ```text
-.sdlc/work-items/<WORK-ID>/artifacts/<phase>/
+.singularity/work-items/<WORK-ID>/artifacts/<phase>/
 ```
 
 Managed metadata records the work type, phase, generation, actor, persona, source/config/template hashes, token usage, commit information, and approval history. Do not edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata block manually.
@@ -194,11 +194,11 @@ Phase views provide required grounding. Persona views add perspective without re
 
 ## Migration
 
-From a repository using `.sdlc/config.json`:
+From a repository using `.singularity/config.json`:
 
 ```bash
 singularity-flow migrate-config
-git add .sdlc/workflow.yml .sdlc/templates .sdlc/personas .sdlc/work-items
+git add .singularity/workflow.yml .singularity/templates .singularity/personas .singularity/work-items
 git commit -m "Migrate Singularity Flow configuration"
 git push
 ```

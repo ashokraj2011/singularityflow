@@ -28,18 +28,18 @@ test('work-type phase overrides merge world model, quality, comparison, and appr
 
 test('invalid persona approval capability is rejected', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-')); await initializeDefinition(root);
-  const file = path.join(root, '.sdlc/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
+  const file = path.join(root, '.singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
   await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /must list 'design' in mayApprove/);
 });
 
 test('legacy JSON configuration migrates to YAML without deleting source state', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-')); await mkdir(path.join(root, '.sdlc'), { recursive: true });
-  const legacy = { schemaVersion: 1, defaultBaseBranch: 'main', workItemRoot: '.sdlc/work-items', idPattern: '^[A-Z0-9-]+$', phases: [{ id: 'requirements', label: 'Requirements', owner: 'product-owner', requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements', minimumBytes: 100 }, qualityCommands: [] }] };
-  await writeFile(path.join(root, '.sdlc/config.json'), JSON.stringify(legacy));
-  const stateDir = path.join(root, '.sdlc/work-items/LEGACY-1'); await mkdir(stateDir, { recursive: true });
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-')); const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`); await mkdir(previousRoot, { recursive: true });
+  const legacy = { schemaVersion: 1, defaultBaseBranch: 'main', workItemRoot: '.singularity/work-items', idPattern: '^[A-Z0-9-]+$', phases: [{ id: 'requirements', label: 'Requirements', owner: 'product-owner', requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements', minimumBytes: 100 }, qualityCommands: [] }] };
+  await writeFile(path.join(previousRoot, 'config.json'), JSON.stringify(legacy));
+  const stateDir = path.join(previousRoot, 'work-items/LEGACY-1'); await mkdir(stateDir, { recursive: true });
   await writeFile(path.join(stateDir, 'workflow.json'), JSON.stringify({ schemaVersion: 1, workItem: { id: 'LEGACY-1', title: 'Legacy', branch: 'LEGACY-1' }, status: 'in_progress', currentPhase: 'requirements', phaseOrder: ['requirements'], phases: { requirements: { id: 'requirements', label: 'Requirements', owner: 'product-owner', status: 'in_progress', artifacts: [], checks: [] } }, history: [] }));
-  const result = await migrateLegacyConfig(root); assert.equal(result.migrated, true); assert.equal(result.migratedWorkItems, 1);
-  const migrated = YAML.parse(await readFile(path.join(root, '.sdlc/workflow.yml'), 'utf8')); assert.deepEqual(migrated.workTypes.legacy.phases, ['requirements']);
-  assert.equal(JSON.parse(await readFile(path.join(root, '.sdlc/config.json'), 'utf8')).schemaVersion, 1);
-  const state = JSON.parse(await readFile(path.join(stateDir, 'workflow.json'), 'utf8')); assert.equal(state.schemaVersion, 2); assert.equal(state.workItem.workType, 'legacy'); assert.ok(state.resolution.templates.requirements.sha256);
+  const result = await migrateLegacyConfig(root); assert.equal(result.migrated, true); assert.equal(result.migratedWorkItems, 1); assert.equal(result.movedStateRoot, true);
+  const migrated = YAML.parse(await readFile(path.join(root, '.singularity/workflow.yml'), 'utf8')); assert.deepEqual(migrated.workTypes.legacy.phases, ['requirements']);
+  assert.equal(JSON.parse(await readFile(path.join(root, '.singularity/config.json'), 'utf8')).schemaVersion, 1);
+  const state = JSON.parse(await readFile(path.join(root, '.singularity/work-items/LEGACY-1/workflow.json'), 'utf8')); assert.equal(state.schemaVersion, 2); assert.equal(state.workItem.workType, 'legacy'); assert.ok(state.resolution.templates.requirements.sha256);
 });

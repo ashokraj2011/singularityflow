@@ -38,13 +38,13 @@ test('another clone resumes by work ID and fast-forwards tracked state', async (
   run('git', ['commit', '-m', 'initial'], first);
   run('git', ['remote', 'add', 'origin', remote], first);
   flow(first, ['init']);
-  run('git', ['add', '.sdlc'], first);
+  run('git', ['add', '.singularity'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
 
   flow(first, ['start', 'HAND-101', '--title', 'Handoff test']);
-  const intakePath = path.join(first, '.sdlc', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
+  const intakePath = path.join(first, '.singularity', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
   const intake = (await readFile(intakePath, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete handoff evidence and measurable outcomes for another terminal.');
   await writeFile(intakePath, intake);
   flow(first, ['phase', 'publish', 'intake']);
@@ -55,7 +55,7 @@ test('another clone resumes by work ID and fast-forwards tracked state', async (
   identity(second, 'Second Contributor');
   flow(second, ['resume', 'HAND-101', '--fetch'], 'architect');
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'HAND-101');
-  const workflow = JSON.parse(await readFile(path.join(second, '.sdlc', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(second, '.singularity', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
 
   await writeFile(path.join(first, 'handoff-note.txt'), 'Remote handoff update\n');

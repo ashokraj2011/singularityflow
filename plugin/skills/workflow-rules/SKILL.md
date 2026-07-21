@@ -1,16 +1,16 @@
 ---
 name: workflow-rules
-description: Background rules for Singularity Flow-managed SDLC work. Load when a repository contains .sdlc/work-items or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
+description: Background rules for Singularity Flow-managed SDLC work. Load when a repository contains .singularity/work-items or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
 user-invocable: false
 ---
 # Singularity Flow workflow contract
 
-When `.sdlc/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `.sdlc/workflow.yml` defines new work types, phases, personas, templates, and approvals.
+When `.singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `.singularity/workflow.yml` defines new work types, phases, personas, templates, and approvals.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
 2. Work only on the exact branch stored in `workflow.json`.
 3. Do not skip phases or edit lifecycle state files manually.
-4. Put each required phase document under `.sdlc/work-items/<WORK-ID>/artifacts/<phase>/`.
+4. Put each required phase document under `.singularity/work-items/<WORK-ID>/artifacts/<phase>/`.
 5. Register generated and modified files with `singularity-flow artifact add` or `singularity-flow artifact scan`.
 6. Never run `singularity-flow approve` unless the user explicitly invokes the approval skill or directly asks to approve.
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.

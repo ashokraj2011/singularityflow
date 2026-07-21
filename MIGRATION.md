@@ -1,6 +1,6 @@
 # Migrating to Singularity Flow Lite 0.6
 
-Version 0.6 moves repository definition from `.sdlc/config.json` to `.sdlc/workflow.yml` and introduces immutable work-type profiles, persona sessions, artifact templates, automatic publication, token usage, rejection cascades, and spec-to-code conformance.
+Version 0.6 consolidates the previous repository-state directory under the Singularity brand at `.singularity/`, moves repository definition from JSON to `.singularity/workflow.yml`, and introduces immutable work-type profiles, persona sessions, artifact templates, automatic publication, token usage, rejection cascades, and spec-to-code conformance.
 
 ## Before migrating
 
@@ -13,10 +13,11 @@ singularity-flow migrate-config
 
 The command:
 
-- Creates `.sdlc/workflow.yml` from the legacy phase model.
+- Atomically moves a detected pre-brand state directory to `.singularity/`.
+- Creates `.singularity/workflow.yml` from the legacy phase model.
 - Installs editable templates and persona prompts.
 - Upgrades compatible work-item runtime state to schema v2.
-- Preserves `.sdlc/config.json` for audit.
+- Preserves `.singularity/config.json` for audit.
 - Does not commit, rebase, or rewrite existing Git history.
 
 Review the generated YAML, especially:
@@ -31,7 +32,7 @@ Review the generated YAML, especially:
 Then publish the migration normally:
 
 ```bash
-git add .sdlc/workflow.yml .sdlc/templates .sdlc/personas .sdlc/work-items
+git add .singularity/workflow.yml .singularity/templates .singularity/personas .singularity/work-items
 git commit -m "Migrate Singularity Flow configuration"
 git push
 ```

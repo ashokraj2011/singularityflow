@@ -11,7 +11,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const base = await validateWorkflow(root, config, workflow, { strict: true }); errors.push(...base.errors); warnings.push(...base.warnings);
 
   if (!config._legacy && workflow.resolution.configSha256) {
-    const current = await snapshot(path.join(root, '.sdlc/workflow.yml'));
+    const current = await snapshot(path.join(root, '.singularity/workflow.yml'));
     if (current.sha256 !== workflow.resolution.configSha256) errors.push('workflow.yml differs from the immutable work-item configuration snapshot');
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
       const present = await snapshot(path.join(root, template.path));

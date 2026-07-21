@@ -9,7 +9,7 @@ import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadSession } from './session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configRelative = '.sdlc/worldmodel.json';
+const configRelative = '.singularity/worldmodel.json';
 
 function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
@@ -31,7 +31,7 @@ async function load(root) {
     const definition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
     const activeId = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
-    const activeStatePath = path.join(root, definition.workItemRoot ?? '.sdlc/work-items', activeId, 'workflow.json');
+    const activeStatePath = path.join(root, definition.workItemRoot ?? '.singularity/work-items', activeId, 'workflow.json');
     const activeState = existsSync(activeStatePath) ? JSON.parse(await readFile(activeStatePath, 'utf8')) : null;
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
@@ -41,8 +41,8 @@ async function load(root) {
       return [id, { views: [...new Set([...(phase.worldModel?.views ?? []), ...personaViews])], depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false }];
     }));
     return {
-      outputDir: definition.worldModel?.outputDir ?? '.sdlc/world-model',
-      promptSource: definition.worldModel?.promptSource ?? '.sdlc/prompts/worldmodel-builder.md',
+      outputDir: definition.worldModel?.outputDir ?? '.singularity/world-model',
+      promptSource: definition.worldModel?.promptSource ?? '.singularity/prompts/worldmodel-builder.md',
       runner: definition.worldModel?.runner ?? 'copilot -p "$(cat {prompt_file})" --allow-all-tools',
       staleness: definition.worldModel?.staleness ?? 'warn', phases,
       context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
@@ -82,10 +82,10 @@ function render(template, root, config, options) {
 }
 
 async function init(root) {
-  const promptFile = path.join(root, '.sdlc/prompts/worldmodel-builder.md');
+  const promptFile = path.join(root, '.singularity/prompts/worldmodel-builder.md');
   await mkdir(path.dirname(promptFile), { recursive: true });
   if (!existsSync(promptFile)) await copyFile(path.join(packageRoot, 'templates/worldmodel-builder.md'), promptFile);
-  console.log('World-model builder prompt initialized; phase routing comes from .sdlc/workflow.yml.');
+  console.log('World-model builder prompt initialized; phase routing comes from .singularity/workflow.yml.');
 }
 
 async function prompt(root, config, options) {

@@ -23,24 +23,24 @@ test('world-model context combines required phase views, persona views, and pers
   run('git', ['config', 'user.email', 'world@example.com'], root);
   await initializeDefinition(root);
   await writeFile(path.join(root, 'README.md'), '# World model test\n');
-  run('git', ['add', '.sdlc', 'README.md'], root);
+  run('git', ['add', '.singularity', 'README.md'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const commit = run('git', ['rev-parse', 'HEAD'], root).trim();
 
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
   await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ persona: 'developer', workId: 'WM-1' }));
-  await mkdir(path.join(root, '.sdlc/world-model/core'), { recursive: true });
-  await mkdir(path.join(root, '.sdlc/world-model/views'), { recursive: true });
-  await writeFile(path.join(root, '.sdlc/world-model/core/summary.md'), 'SHARED CORE\n');
+  await mkdir(path.join(root, '.singularity/world-model/core'), { recursive: true });
+  await mkdir(path.join(root, '.singularity/world-model/views'), { recursive: true });
+  await writeFile(path.join(root, '.singularity/world-model/core/summary.md'), 'SHARED CORE\n');
   for (const view of ['architecture', 'security', 'development', 'testing']) {
-    await writeFile(path.join(root, `.sdlc/world-model/views/${view}.md`), `${view.toUpperCase()} VIEW\n`);
+    await writeFile(path.join(root, `.singularity/world-model/views/${view}.md`), `${view.toUpperCase()} VIEW\n`);
   }
-  await writeFile(path.join(root, '.sdlc/world-model/manifest.json'), JSON.stringify({
+  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({
     repository_commit: commit,
     views: Object.fromEntries(['architecture', 'security', 'development', 'testing'].map((view) => [view, { path: `views/${view}.md` }])),
     domains: [], evidence: { path: 'evidence.md' }
   }));
-  await writeFile(path.join(root, '.sdlc/world-model/evidence.md'), 'EVIDENCE LEDGER\n');
+  await writeFile(path.join(root, '.singularity/world-model/evidence.md'), 'EVIDENCE LEDGER\n');
 
   const output = run(process.execPath, [bin, 'wm', 'context', 'design', '--concat'], root);
   assert.match(output, /ARCHITECTURE VIEW/);
@@ -49,5 +49,5 @@ test('world-model context combines required phase views, persona views, and pers
   assert.match(output, /TESTING VIEW/);
   assert.match(output, /Act as a developer/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'verification', '--concat'], root), /EVIDENCE LEDGER/);
-  assert.doesNotMatch(await readFile(path.join(root, '.sdlc/personas/developer.md'), 'utf8'), /architect persona/i);
+  assert.doesNotMatch(await readFile(path.join(root, '.singularity/personas/developer.md'), 'utf8'), /architect persona/i);
 });

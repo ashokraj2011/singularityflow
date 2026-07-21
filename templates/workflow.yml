@@ -1,14 +1,14 @@
 version: 1
 defaultBaseBranch: main
-workItemRoot: .sdlc/work-items
+workItemRoot: .singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 
 git:
   remote: origin
   publish: required
 
-templatesRoot: .sdlc/templates
-personaPromptsRoot: .sdlc/personas
+templatesRoot: .singularity/templates
+personaPromptsRoot: .singularity/personas
 
 tokens:
   mode: exact-or-unavailable
@@ -154,9 +154,9 @@ phases:
 governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:
-    - .sdlc/workflow.yml
-    - .sdlc/templates
-    - .sdlc/personas
+    - .singularity/workflow.yml
+    - .singularity/templates
+    - .singularity/personas
     - plugin/skills
     - .github/skills
     - .github/workflows/singularity-flow-approve.yml

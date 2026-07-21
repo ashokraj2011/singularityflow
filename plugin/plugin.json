@@ -3,7 +3,7 @@
   "description": "Singularity Flow provides skills for a Git-native SDLC lifecycle with deterministic branch, artifact, phase, approval, and optional Jira read operations.",
   "version": "0.6.0",
   "author": {
-    "name": "Your Company"
+    "name": "Singularity Flow"
   },
   "license": "MIT",
   "keywords": [

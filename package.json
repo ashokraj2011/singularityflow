@@ -1,5 +1,5 @@
 {
-  "name": "@your-company/singularity-flow",
+  "name": "singularity-flow",
   "version": "0.6.0",
   "description": "Singularity Flow: YAML-configured work profiles, personas, templates, Git state transfer, world-model grounding, and deterministic governance.",
   "type": "module",

@@ -39,6 +39,13 @@ import { selectPersona, selectWorkType } from './session.mjs';
 import { readJson } from './util.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
+import {
+  desktopSnapshot,
+  publishDesktopConfiguration,
+  saveDesktopFile,
+  selectDesktopPersona,
+  validateDesktopConfiguration
+} from './desktop.mjs';
 
 const VERSION = '0.6.0';
 
@@ -76,6 +83,11 @@ Usage:
   singularity-flow jira fields [--query TEXT] [--json]
   singularity-flow plugin install [--force]
   singularity-flow plugin uninstall | list | path
+  singularity-flow desktop snapshot [WORK-ID] --json
+  singularity-flow desktop validate --json
+  singularity-flow desktop save <PATH>          Reads replacement content from stdin
+  singularity-flow desktop publish [--message TEXT] --json
+  singularity-flow desktop session <PERSONA> [--work-id ID] --json
 
 Optional Jira environment:
   JIRA_BASE_URL=https://company.atlassian.net
@@ -432,6 +444,25 @@ async function pluginCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown plugin subcommand: ${subcommand}`);
 }
 
+async function stdinText() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function desktopCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'desktop subcommand');
+  const root = repoRoot();
+  let result;
+  if (subcommand === 'snapshot') result = await desktopSnapshot(root, positionals[2]);
+  else if (subcommand === 'validate') result = await validateDesktopConfiguration(root);
+  else if (subcommand === 'save') result = await saveDesktopFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
+  else if (subcommand === 'publish') result = await publishDesktopConfiguration(root, optionString(options, 'message'));
+  else if (subcommand === 'session') result = await selectDesktopPersona(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'persona'));
+  else throw new SingularityFlowError(`Unknown desktop subcommand: ${subcommand}`);
+  console.log(JSON.stringify(result, null, 2));
+}
+
 export async function main(argv) {
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
@@ -459,6 +490,7 @@ export async function main(argv) {
     case 'wm': return worldModelCommand(repoRoot(), positionals, options);
     case 'jira': return jiraCommand(positionals, options);
     case 'plugin': return pluginCommand(positionals, options);
+    case 'desktop': return desktopCommand(positionals, options);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);
   }
 }

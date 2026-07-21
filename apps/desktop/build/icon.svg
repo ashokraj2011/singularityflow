@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="140" y1="80" x2="900" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17201D"/>
+      <stop offset="1" stop-color="#090C0E"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="298" y1="260" x2="748" y2="776" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B6F6D8"/>
+      <stop offset="1" stop-color="#63D9A5"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+  </defs>
+  <rect x="52" y="52" width="920" height="920" rx="218" fill="url(#background)"/>
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#79E6B5" stroke-opacity=".12" stroke-width="3"/>
+  <circle cx="512" cy="512" r="224" fill="#79E6B5" fill-opacity=".12" filter="url(#glow)"/>
+  <path d="M717 333c-55-43-119-65-192-65-112 0-192 55-192 143 0 78 51 116 174 143 82 18 105 32 105 66 0 39-40 62-102 62-73 0-137-25-199-77l-71 86c72 65 161 97 266 97 128 0 213-61 213-158 0-84-51-123-176-151-80-18-103-31-103-62 0-35 35-56 89-56 55 0 105 18 151 53l37-81Z" fill="url(#mark)"/>
+</svg>

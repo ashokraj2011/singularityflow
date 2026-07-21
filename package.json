@@ -20,11 +20,17 @@
     "MIGRATION.md",
     "LICENSE"
   ],
+  "workspaces": [
+    "apps/desktop"
+  ],
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
     "gate": "node scripts/gate.mjs",
-    "pack:dry": "npm pack --dry-run"
+    "pack:dry": "npm pack --dry-run",
+    "desktop:dev": "npm run dev --workspace singularity-flow-desktop",
+    "desktop:build": "npm run build --workspace singularity-flow-desktop",
+    "desktop:dist": "npm run dist --workspace singularity-flow-desktop"
   },
   "engines": {
     "node": ">=20"

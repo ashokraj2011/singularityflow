@@ -15,8 +15,8 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.6.1
-sflow --version             → 0.6.1
+singularity-flow --version  → 0.6.2
+sflow --version             → 0.6.2
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
@@ -52,7 +52,7 @@ copilot skill list
 - The plugin exposes exactly 18 skills and every skill name begins with `sflow-`.
 - `/sflow-start`, `/sflow-phase`, and `/sflow-progress` are available in Copilot.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
-- Reinstalling through `singularity-flow plugin install --force` refreshes the marketplace and plugin cache.
+- Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 
 ## Artifact and lifecycle checks
 

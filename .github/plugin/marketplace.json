@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Official GitHub Copilot plugins for the Singularity Flow Git-native SDLC.",
-    "version": "0.6.1"
+    "version": "0.6.2"
   },
   "plugins": [
     {
       "name": "singularity-flow",
       "description": "Collision-safe sflow-* skills for governed work types, artifacts, personas, approvals, and Git state transfer.",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "source": "./plugin",
       "author": {
         "name": "Singularity Flow"

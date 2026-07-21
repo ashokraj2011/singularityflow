@@ -47,7 +47,7 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -81,7 +81,7 @@ Usage:
   singularity-flow jira pull <WORK-ID> [--json]
   singularity-flow jira show <WORK-ID> [--json]      Alias for jira pull
   singularity-flow jira fields [--query TEXT] [--json]
-  singularity-flow plugin install [--force]
+  singularity-flow plugin install
   singularity-flow plugin uninstall | list | path
   singularity-flow desktop snapshot [WORK-ID] --json
   singularity-flow desktop validate --json
@@ -437,7 +437,7 @@ async function jiraCommand(positionals, options) {
 
 async function pluginCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'plugin subcommand');
-  if (subcommand === 'install') return installPlugin({ force: optionBoolean(options, 'force') });
+  if (subcommand === 'install') return installPlugin();
   if (subcommand === 'uninstall') return uninstallPlugin();
   if (subcommand === 'list') return listPlugins();
   if (subcommand === 'path') return console.log(pluginPath());

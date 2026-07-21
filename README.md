@@ -21,7 +21,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.6.1.tgz
+npm install --global ./singularity-flow-0.6.2.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -268,7 +268,7 @@ singularity-flow plugin install
 copilot skill list
 ```
 
-The installer registers the official `ashokraj2011/singularityflow` marketplace and installs `singularity-flow@singularity-flow`. The equivalent manual commands are:
+The installer removes both the legacy direct installation (`singularity-flow`) and any existing marketplace installation (`singularity-flow@singularity-flow`), refreshes the official `ashokraj2011/singularityflow` marketplace, and installs exactly one current marketplace copy. Running the command again is a safe replacement operation; `--force` is not required. The equivalent manual commands are:
 
 ```bash
 copilot plugin marketplace add ashokraj2011/singularityflow
@@ -289,6 +289,6 @@ The plugin package remains named `singularity-flow`, while every public skill ha
 /sflow-resume ENG-142
 ```
 
-The `sflow-` prefix prevents collisions with generic skills such as `/start`, `/status`, and `/approve` from other plugins. After upgrading from v0.6.0, reinstall the plugin with `singularity-flow plugin install --force`, close existing Copilot sessions, and confirm that `copilot skill list` reports the `sflow-*` skills.
+The `sflow-` prefix prevents collisions with generic skills such as `/start`, `/status`, and `/approve` from other plugins. After upgrading from v0.6.0 or v0.6.1, run `singularity-flow plugin install`, close existing Copilot sessions, and confirm that `copilot plugin list` contains only `singularity-flow@singularity-flow` and `copilot skill list` reports the `sflow-*` skills.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants and [VERIFICATION.md](VERIFICATION.md) for the release checklist.

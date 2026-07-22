@@ -13,16 +13,13 @@ function fail(message) {
   failures.push(message);
 }
 
-async function walk(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    if (['node_modules', '.git'].includes(entry.name)) continue;
-    const candidate = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await walk(candidate));
-    else files.push(candidate);
+function repositoryFiles() {
+  const result = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) {
+    fail(`Unable to enumerate repository files: ${result.stderr.trim() || `git exited ${result.status}`}`);
+    return [];
   }
-  return files;
+  return result.stdout.split('\0').filter(Boolean).map((file) => path.join(root, file));
 }
 
 function parseFrontmatter(text, file) {
@@ -56,7 +53,7 @@ if (marketplaceJson.name !== 'singularity-flow') fail('marketplace.json name mus
 if (!marketplacePlugin || marketplacePlugin.source !== './plugin') fail('marketplace must publish singularity-flow from ./plugin');
 if (marketplaceJson.metadata?.version !== pluginJson.version || marketplacePlugin?.version !== pluginJson.version) fail('marketplace and plugin versions must match');
 
-const allFiles = await walk(root);
+const allFiles = repositoryFiles();
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) fail(`${path.relative(root, file)}: JavaScript syntax check failed\n${result.stderr}`);

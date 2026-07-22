@@ -19,7 +19,7 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
       - name: Install approved Singularity Flow version
-        run: npm install --global singularity-flow@0.7.1
+        run: npm install --global singularity-flow@0.7.2
       - name: Run deterministic governance gate
         env:
           GITHUB_TOKEN: ${{ github.token }}

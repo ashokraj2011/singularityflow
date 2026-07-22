@@ -32,9 +32,11 @@ test('help loader returns the full manual or one focused topic', async () => {
 
 test('desktop imports the canonical help manual and exposes searchable help navigation', async () => {
   const app = await readFile(path.join(root, 'apps/desktop/src/App.jsx'), 'utf8');
+  const desktopPackage = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'));
   assert.match(app, /import helpMarkdown from '\.\.\/\.\.\/\.\.\/HELP\.md\?raw'/);
   assert.match(app, /\['help', 'Help'/);
   assert.match(app, /placeholder="Search help…"/);
   assert.match(app, /page === 'help'/);
   assert.match(app, />Open help</);
+  assert.ok(desktopPackage.build.extraResources.some((item) => item.from === '../../HELP.md' && item.to === 'cli/HELP.md'));
 });

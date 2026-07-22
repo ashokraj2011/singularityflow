@@ -101,10 +101,36 @@ Before dependency installation, the script asks you to choose:
 For a non-interactive or repeatable company setup, pass the registry explicitly:
 
 ```bash
-./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
+./install.sh \
+  --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
 ```
 
-The environment variable `SINGULARITY_FLOW_NPM_REGISTRY` provides the same override. Command-line selection takes precedence. Registry authentication remains in the user's or company's `.npmrc`; the script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
+You can provide the same override through an environment variable:
+
+```bash
+SINGULARITY_FLOW_NPM_REGISTRY="https://artifacts.company.com/artifactory/api/npm/npm-virtual/" \
+  ./install.sh
+```
+
+For an interactive installation, run `./install.sh`, choose **Custom company registry / Artifactory**, and enter the registry URL. The `--registry` option takes precedence over the environment variable and interactive selection.
+
+Keep Artifactory authentication in your user or company `.npmrc`; do not put credentials in the registry URL. For example:
+
+```ini
+registry=https://artifacts.company.com/artifactory/api/npm/npm-virtual/
+always-auth=true
+//artifacts.company.com/artifactory/api/npm/npm-virtual/:_authToken=${NPM_TOKEN}
+```
+
+Export the token only in the shell or CI secret store, then run the installer:
+
+```bash
+export NPM_TOKEN="your-artifactory-token"
+./install.sh \
+  --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
+```
+
+The selected registry is used for both `npm ci` and the global tarball installation. The script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
 The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper selects the active repository dynamically and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
 

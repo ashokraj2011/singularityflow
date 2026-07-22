@@ -1,6 +1,7 @@
 import readline from 'node:readline/promises';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
+import { existsSync } from 'node:fs';
 import {
   SingularityFlowError,
   optionBoolean,
@@ -22,6 +23,7 @@ import {
   currentPhase,
   loadConfig,
   loadWorkflow,
+  pendingPublicationPath,
   preparePhase,
   publishGeneration,
   registerArtifact,
@@ -31,7 +33,8 @@ import {
   submitPhase,
   syncPublication,
   validateId,
-  validateWorkflow
+  validateWorkflow,
+  workflowPath
 } from './state.mjs';
 import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
@@ -44,6 +47,7 @@ import { progressBar, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, workflowGuide } from './guide.mjs';
+import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import {
   desktopSnapshot,
@@ -69,6 +73,7 @@ Usage:
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow guide [WORK-ID] [--json]
+  singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
@@ -299,6 +304,28 @@ async function guideCommand(positionals, options) {
   const guide = workflowGuide(workflow);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
   else process.stdout.write(guideText(guide));
+}
+
+async function nextStepsCommand(positionals, options) {
+  const root = repoRoot();
+  const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, '.singularity/config.json'));
+  let snapshot;
+  if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
+  else {
+    const config = await loadConfig(root);
+    const requestedWorkId = positionals[1] ?? null;
+    const id = requestedWorkId ?? branch(root);
+    if (existsSync(workflowPath(root, config, id))) {
+      const workflow = await loadWorkflow(root, config, id);
+      snapshot = nextStepsSnapshot({
+        branch: branch(root),
+        workflow,
+        publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id))
+      });
+    } else snapshot = nextStepsSnapshot({ branch: branch(root), requestedWorkId });
+  }
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
+  else process.stdout.write(nextStepsText(snapshot));
 }
 
 async function documentsCommand(positionals, options) {
@@ -545,6 +572,8 @@ export async function main(argv) {
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
+    case 'nextsteps':
+    case 'next-steps': return nextStepsCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);

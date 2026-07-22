@@ -35,7 +35,7 @@ Start a new Copilot session after plugin installation. Begin work from Jira or f
 
 ```text
 /sflow-start WORK-123
-/sflow-help WORK-123
+/sflow-nextsteps WORK-123
 /sflow-phase
 ```
 
@@ -177,6 +177,17 @@ singularity-flow guide WORK-123
 ```
 
 In Copilot, `/sflow-help WORK-123` gives the same work-item guidance.
+
+For a compact ordered action plan at any time—including before initialization,
+without an active work item, during pending push recovery, or after workflow
+completion—run:
+
+```bash
+singularity-flow nextsteps [WORK-ID]
+```
+
+In Copilot, use `/sflow-nextsteps [WORK-ID]`. It labels actions as `NOW`,
+`THEN`, or `ALTERNATIVE` and never executes them automatically.
 
 ## Personas and approvals
 
@@ -438,6 +449,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-start` | Guided Jira or manual intake, workflow selection, and persona selection |
 | `/sflow-resume` | Fetch, fast-forward, and select a persona |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
+| `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sflow-phase` | Generate the current phase using its contract and world model |
 | `/sflow-requirements` | Requirements-focused generation |
 | `/sflow-design` | Architecture/design-focused generation |
@@ -463,16 +475,17 @@ If commands do not appear, run `singularity-flow plugin install`, close existing
 From a clean clone, the supported local update/install workflow is:
 
 ```bash
-npm run install:local
+./install.sh
 ```
 
-It performs a fast-forward-only pull, asks for the npm registry, installs dependencies, creates the tarball, installs it globally, removes old plugin identities, and installs the current marketplace plugin.
+`npm run install:local` invokes the same script.
+
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, and installs the current marketplace plugin.
 
 For a company Artifactory or registry:
 
 ```bash
-npm run install:local -- \
-  --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
+./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
 ```
 
 Or set `SINGULARITY_FLOW_NPM_REGISTRY`. Authentication remains in `.npmrc`; do not embed credentials or tokens in the URL. The installer rejects dirty checkouts and never resets, rebases, or force-pushes.
@@ -527,6 +540,7 @@ singularity-flow init
 singularity-flow start <WORK-ID> [--jira | --story-file FILE]
 singularity-flow resume <WORK-ID> [--fetch]
 singularity-flow guide [WORK-ID] [--json]
+singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]

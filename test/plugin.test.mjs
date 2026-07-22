@@ -64,6 +64,13 @@ test('report skill is read-only and preserves unavailable usage disclosure', asy
   assert.match(content, /disable-model-invocation:\s*true/);
 });
 
+test('nextsteps skill delegates to the read-only deterministic action planner', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-nextsteps', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow nextsteps <arguments>/);
+  assert.match(content, /NOW.*THEN.*ALTERNATIVE/s);
+  assert.match(content, /Keep this operation read-only/);
+});
+
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {
   const calls = [];
   const execute = (command, args, options) => {

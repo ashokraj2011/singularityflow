@@ -1,5 +1,11 @@
 import { currentPhase } from './state.mjs';
 
+export function phaseNeedsGeneration(workflow, phase) {
+  if (phase.generation < 1) return true;
+  if (!phase.rejectedAt) return false;
+  return !(workflow.history ?? []).some((item) => item.phase === phase.id && item.event === 'phase_generated' && item.at > phase.rejectedAt);
+}
+
 function nextActions(workflow, phase) {
   if (!phase) return [
     { skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' }
@@ -8,10 +14,9 @@ function nextActions(workflow, phase) {
     { skill: '/sflow-approve', command: `singularity-flow approve ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an approval-capable persona.` },
     { skill: '/sflow-reject', command: `singularity-flow reject ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` }
   ];
-  const latestPhaseEvent = workflow.history.filter((item) => item.phase === phase.id).at(-1);
-  const rejected = latestPhaseEvent?.event === 'phase_rejected';
-  if (phase.generation < 1 || rejected) return [
-    { skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}`, reason: `${rejected ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` }
+  const regenerate = phaseNeedsGeneration(workflow, phase);
+  if (regenerate) return [
+    { skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` }
   ];
   return [
     { skill: '/sflow-submit', command: `singularity-flow submit --phase ${phase.id}`, reason: `Run configured checks and submit ${phase.id} for approval.` }

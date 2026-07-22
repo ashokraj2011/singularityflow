@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -19,7 +20,7 @@ function repositoryFiles() {
     fail(`Unable to enumerate repository files: ${result.stderr.trim() || `git exited ${result.status}`}`);
     return [];
   }
-  return result.stdout.split('\0').filter(Boolean).map((file) => path.join(root, file));
+  return result.stdout.split('\0').filter(Boolean).map((file) => path.join(root, file)).filter(existsSync);
 }
 
 function parseFrontmatter(text, file) {

@@ -65,15 +65,19 @@ singularity-flow help --json
 
 In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help WORK-123` loads the selected work item's immutable workflow guide. Singularity Flow Desktop includes the same manual in a searchable **Help** page, bundled for offline use.
 
+Use `/sflow-nextsteps [WORK-ID]` whenever you need a compact ordered plan. Its CLI equivalent, `singularity-flow nextsteps [WORK-ID]`, works before initialization, without an active work item, during pending publication recovery, throughout every phase, and after completion. It is read-only and marks actions as `NOW`, `THEN`, or `ALTERNATIVE`.
+
 ### One-command local update and installation
 
 From a clean clone, update the tracked branch, create the distribution tarball, install it globally, remove any previous Copilot plugin identities, and install one current marketplace plugin:
 
 ```bash
-npm run install:local
+./install.sh
 ```
 
-Before `npm install`, the script asks you to choose:
+`npm run install:local` is an alias for the same script.
+
+Before dependency installation, the script asks you to choose:
 
 1. The registry currently returned by `npm config get registry`.
 2. The public npm registry.
@@ -82,19 +86,22 @@ Before `npm install`, the script asks you to choose:
 For a non-interactive or repeatable company setup, pass the registry explicitly:
 
 ```bash
-npm run install:local -- \
-  --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
+./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
 ```
 
 The environment variable `SINGULARITY_FLOW_NPM_REGISTRY` provides the same override. Command-line selection takes precedence. Registry authentication remains in the user's or company's `.npmrc`; the script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
-This runs `scripts/update-local-install.mjs`, which performs:
+The single self-contained `install.sh` performs:
 
 ```text
 git pull --ff-only
 choose configured, public, or custom npm registry
-npm install --registry=<selected-registry>
+npm ci --registry=<selected-registry>
+npm run desktop:build
+npm test
+npm run check
 npm pack --json
+npm uninstall --global singularity-flow
 npm install --global <generated-tarball> --registry=<selected-registry>
 singularity-flow plugin install
 ```
@@ -204,6 +211,14 @@ From Copilot, use:
 ```
 
 The guide is read-only. Depending on state, it recommends `/sflow-phase`, `/sflow-submit`, `/sflow-approve` or `/sflow-reject`, and `/sflow-progress` after completion.
+
+For the complete sequence of immediate, subsequent, and alternative actions instead of the full template explanation:
+
+```bash
+singularity-flow nextsteps WORK-123
+```
+
+From Copilot, use `/sflow-nextsteps WORK-123`.
 
 ## Progress
 
@@ -369,6 +384,7 @@ Optional `worldModel.injection.rules` add need-based context directly to that pe
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
+| `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <PATH...>` | Copy, hash, catalog, commit, and push supporting files during configured initial phases. |
@@ -438,6 +454,7 @@ The plugin package remains named `singularity-flow`, while every public skill ha
 /sflow-start ENG-142 --title "Add invoice export"
 /sflow-phase
 /sflow-progress
+/sflow-nextsteps
 /sflow-report
 /sflow-help
 /sflow-documents list

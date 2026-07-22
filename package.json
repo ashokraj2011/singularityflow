@@ -29,7 +29,7 @@
     "check": "node scripts/check.mjs",
     "gate": "node scripts/gate.mjs",
     "pack:dry": "npm pack --dry-run",
-    "install:local": "node scripts/update-local-install.mjs",
+    "install:local": "bash ./install.sh",
     "desktop:dev": "npm run dev --workspace singularity-flow-desktop",
     "desktop:build": "npm run build --workspace singularity-flow-desktop",
     "desktop:dist": "npm run dist --workspace singularity-flow-desktop"

@@ -17,6 +17,6 @@ disable-model-invocation: true
 9. Read the created `workflow.json`, `STATUS.md`, `source.json`, `USER-STORY.md`, and `documents.json` when documents were supplied.
 10. Summarize the source, imported documents and stable `DOC-nnn` IDs, current phase, required artifact, open questions, and next valid action.
 11. Offer `/sflow-documents upload` for later supporting inputs during configured initial phases.
-12. Do not generate the active artifact unless also requested. Recommend `/sflow-help` to explain the selected template and `/sflow-phase` to begin its current phase.
+12. Do not generate the active artifact unless also requested. Recommend `/sflow-nextsteps` for the ordered action plan, `/sflow-help` to explain the selected template, and `/sflow-phase` to begin its current phase.
 
 `--jira` uses direct Jira REST through the npm utility and environment credentials. It does not use MCP or an IDE Jira plugin.

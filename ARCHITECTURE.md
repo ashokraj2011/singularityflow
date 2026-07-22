@@ -77,7 +77,7 @@ Suggested personas improve discoverability but do not authorize phase access. An
 
 `documents.json` is the stable supporting-input catalog. Local files are copied under `inputs/DOC-nnn/`; external links such as Figma are recorded without being downloaded. Each input is attributed to the active identity/persona and uploaded only during the profile-snapshotted allowed phases. Uploads use the same commit/push recovery protocol as lifecycle events.
 
-`guide` derives a read-only template walkthrough from `workflow.json`. It does not maintain separate state; `/sflow-help` reports the immutable phase sequence and selects its recommended next action from the current phase status and generation history.
+`guide` derives a read-only template walkthrough from `workflow.json`. It does not maintain separate state; `/sflow-help` reports the immutable phase sequence and selects its recommended next action from the current phase status and generation history. `nextsteps` reuses that recommendation engine to produce a compact ordered plan with immediate, subsequent, and alternative actions, while also handling pre-initialization, idle repositories, pending publication, and completed workflows.
 
 `HELP.md` is the canonical product manual. The CLI parses its level-two headings into stable topic IDs for `singularity-flow help [TOPIC]`; `/sflow-help` loads those topics for general questions and uses `guide` for work-item-specific questions. The Electron renderer imports the same Markdown at build time and provides local topic search. This keeps help available offline without granting the renderer new filesystem or IPC capabilities.
 

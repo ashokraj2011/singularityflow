@@ -52,7 +52,7 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Structured manual stories capture user, problem, outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, and notes.
 - Story-file document paths resolve relative to the story file; files and HTTPS references receive stable `DOC-nnn` records and atomic pushed commits.
 - Repeatable `--document` and `--document-url` inputs are imported in addition to documents declared in the story file.
-- `guide` and `/sflow-help` are read-only, show the selected template and all phase contracts, and recommend the correct next action for generation, submission, approval/rejection, or completion.
+- `guide`, `/sflow-help`, and `/sflow-nextsteps` are read-only; nextsteps returns ordered immediate, subsequent, and alternative actions for initialization, start/resume, pending publication, generation, submission, approval/rejection, following phases, and completion.
 
 ## Help manual checks
 
@@ -72,8 +72,8 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 20 skills and every skill name begins with `sflow-`.
-- `/sflow-start`, `/sflow-help`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
+- The plugin exposes exactly 21 skills and every skill name begins with `sflow-`.
+- `/sflow-start`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 

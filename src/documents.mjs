@@ -3,7 +3,7 @@ import path from 'node:path';
 import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
-import { assertPhaseSequence, sequenceError } from './sequence.mjs';
+import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 
 const TEXT_EXTENSIONS = new Set(['.adoc', '.csv', '.html', '.ini', '.json', '.md', '.mdx', '.rst', '.sql', '.svg', '.toml', '.tsv', '.txt', '.xml', '.yaml', '.yml']);
 const MIME_TYPES = {
@@ -28,9 +28,9 @@ function documentPolicy(workflow, config) {
 
 export async function addDocuments(root, config, workflow, { files = [], url = null, label = null, kind = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'upload documents');
-  const phase = assertPhaseSequence(workflow, 'upload documents');
+  const phase = await assertPhaseSequence(root, workflow, 'upload documents');
   const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
-  if (!allowed.includes(phase.id)) throw sequenceError(workflow, 'upload documents', {
+  if (!allowed.includes(phase.id)) await enforceSequenceGate(root, workflow, 'documentPhase', 'upload documents', {
     requestedPhase: phase.id,
     reason: `Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
   });

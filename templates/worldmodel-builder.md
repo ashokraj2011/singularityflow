@@ -117,6 +117,7 @@ Do not generate unrelated views.
 - Do not claim tests pass unless they were executed successfully.
 - Do not claim code is unused merely because no reference was found.
 - Ignore generated code, build output, caches, dependencies, and vendored files unless architecturally significant.
+- Do not inspect or reuse an existing `.singularity/world-model` or `.singularity/work-items` tree; the CLI removes those runtime/generated directories from the isolated analysis copy.
 - Keep each view concise and relevant to its intended audience.
 - Store detailed evidence separately rather than repeating it in every view.
 
@@ -666,6 +667,22 @@ Use this structure:
         "deployment",
         "rollback"
       ]
+    },
+    "operations": {
+      "path": "views/operations.md",
+      "generated": false,
+      "load_when": [
+        "runtime diagnosis",
+        "monitoring and incident response"
+      ]
+    },
+    "security": {
+      "path": "views/security.md",
+      "generated": false,
+      "load_when": [
+        "threat analysis",
+        "authentication or authorization change"
+      ]
     }
   },
   "domains": [
@@ -719,6 +736,11 @@ For views that were not generated:
 - Set `generated` to `false`.
 - Do not create placeholder documents.
 - Preserve the recommended `load_when` rules in the manifest.
+
+Every generated output must be a regular file inside the output directory. Do
+not create symbolic links, sockets, device files, or undeclared helper files.
+When a current task is supplied, copy its exact text into the matching
+`task_guides[].task` field so the runtime can select it deterministically.
 
 # Depth control
 

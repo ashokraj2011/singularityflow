@@ -50,7 +50,7 @@ import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
-import { guideText, workflowGuide } from './guide.mjs';
+import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
@@ -61,24 +61,54 @@ import {
   selectDesktopPersona,
   validateDesktopConfiguration
 } from './desktop.mjs';
+import { verifyGroundingRecord, worldModelCommit, worldModelSourceSnapshot } from './grounding.mjs';
 
 const VERSION = '0.8.0';
+
+const ABOUT = `Singularity Flow ${VERSION}
+
+Singularity Flow is a Git-native, configurable SDLC orchestration system for
+GitHub Copilot and engineering teams. It belongs to the Singularity product
+brand and uses the short, collision-safe sflow- command namespace.
+
+What it provides:
+  - YAML-defined feature, bugfix, chore, and custom workflows
+  - Session personas, phase-aware prompts, and repository world-model grounding
+  - Configurable artifact templates, phase inputs, approvals, and quality gates
+  - Jira or manual intake with supporting documents
+  - Requirements-to-code traceability, verification, and conformance reporting
+  - Atomic Git commit/push state transfer, including every approval decision
+  - Remote agent Markdown dependencies and an Electron configuration desktop
+  - Per-phase token and model usage reporting when the provider exposes it
+
+Command namespace:
+  Copilot: /sflow-<action>     Example: /sflow-start, /sflow-next, /sflow-about
+  Terminal: sflow-<action>     Example: sflow-next, sflow-about
+  Compatibility: singularity-flow <action>
+
+Workflow state lives in committed work-item branches, so another person or
+terminal can fetch the branch and continue without a separate workflow database.
+
+Run /sflow-help in Copilot or singularity-flow help in a terminal for the full guide.`;
 
 const HELP = `Singularity Flow ${VERSION}
 
 Personal Copilot skills plus a deterministic Git-native SDLC utility.
 
 Usage:
+  singularity-flow about
   singularity-flow help [TOPIC] [--json]
   singularity-flow init
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
+  singularity-flow persona [WORK-ID]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
+  singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow agents list
   singularity-flow agents lock <AGENT> [--update]
@@ -102,7 +132,8 @@ Usage:
   singularity-flow wm init
   singularity-flow wm build [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep]
   singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence] [--no-persona]
-  singularity-flow wm inject [--persona ID] [--phase ID] [--dry-run] [--out FILE]
+  singularity-flow wm compose [--persona ID] [--phase ID] [--task TEXT] [--evidence] [--dry-run] [--out FILE]
+  singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
   singularity-flow jira list [--project KEY] [--type Story] [--limit 25] [--jql JQL] [--json]
   singularity-flow jira pull <WORK-ID> [--json]
@@ -137,6 +168,7 @@ function summary(workflow) {
   const active = currentPhase(workflow);
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
+  console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'complete'}`);
   if (active) {
@@ -144,6 +176,7 @@ function summary(workflow) {
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }
+  if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
 }
 
 function actionActor(root) {
@@ -262,6 +295,19 @@ async function resumeCommand(positionals, options) {
   }
 }
 
+async function personaCommand(positionals) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, positionals[1]);
+  if (branch(root) !== workflow.workItem.branch) {
+    throw new SingularityFlowError(`Work item '${workflow.workItem.id}' is not the current branch. Run singularity-flow resume ${workflow.workItem.id} --fetch first.`);
+  }
+  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
+  console.log(`Active persona: ${config.personas[session.persona].label} (${session.persona})`);
+  console.log(`Session scope: ${workflow.workItem.id} on branch ${workflow.workItem.branch}`);
+  console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+}
+
 async function statusCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
@@ -340,6 +386,24 @@ async function nextStepsCommand(positionals, options) {
       const workflow = await loadWorkflow(root, config, id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
+      if (active?.status === 'in_progress' && !session?.persona) prerequisites.push({
+        timing: 'now', skill: '/sflow-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
+        reason: 'Select the persona that will remain active for this terminal session before generation.'
+      });
+      if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && (workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off') !== 'off') {
+        const rebuildReason = await worldModelRebuildReason(root, config);
+        const task = '<current objective>';
+        if (rebuildReason) {
+          prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
+          prerequisites.push({ timing: 'then', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+        } else {
+          const grounding = await verifyGroundingRecord(root, config, workflow, active, { persona: session?.persona ?? null });
+          if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
+            timing: 'now', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
+            reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
+          });
+        }
+      }
       if (active?.status === 'in_progress' && session?.agent) {
         const status = (await agentStatus(root, session.agent))[0];
         if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available agent.` });
@@ -358,6 +422,58 @@ async function nextStepsCommand(positionals, options) {
   }
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
   else process.stdout.write(nextStepsText(snapshot));
+}
+
+async function worldModelRebuildReason(root, config) {
+  const outputDir = config.worldModel?.outputDir ?? '.singularity/world-model';
+  const manifestPath = path.join(root, outputDir, 'manifest.json');
+  if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
+  try {
+    const manifest = await readJson(manifestPath);
+    const currentSource = await worldModelSourceSnapshot(root, config);
+    if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
+    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) return 'The repository world model is stale for the current source tree.';
+    return null;
+  } catch (error) {
+    return `The repository world model is invalid: ${error.message}`;
+  }
+}
+
+async function nextCommand(options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  if (existsSync(pendingPublicationPath(root, config, workflow.workItem.id))) {
+    console.log('Next step: publish the retained local commit.');
+    return syncCommand();
+  }
+  const phase = currentPhase(workflow);
+  if (!phase) {
+    console.log('Next step: run the terminal governance gate for the completed workflow.');
+    return gateCommand({ ...options, terminal: true });
+  }
+  if (phase.status === 'awaiting_approval') {
+    console.log(`Next step: review and decide submitted phase '${phase.id}'.`);
+    return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
+  }
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}. Run singularity-flow nextsteps ${workflow.workItem.id}.`);
+  if (!phaseNeedsGeneration(workflow, phase)) {
+    console.log(`Next step: submit published phase '${phase.id}' for approval.`);
+    return submitCommand({ ...options, phase: phase.id });
+  }
+
+  const task = optionString(options, 'task', workflow.workItem.title);
+  const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
+  if (grounding !== 'off') {
+    const rebuildReason = await worldModelRebuildReason(root, config);
+    if (rebuildReason) {
+      console.log(`Next step prerequisite: ${rebuildReason}`);
+      await worldModelCommand(root, ['wm', 'build'], { phase: phase.id, task });
+    }
+    await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+  }
+  const artifact = await preparePhase(root, config, workflow, phase.id);
+  await saveWorkflow(root, config, workflow);
+  console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
+  console.log(`After authoring and validation, publish it with: singularity-flow phase publish ${phase.id}`);
 }
 
 async function documentsCommand(positionals, options) {
@@ -472,7 +588,7 @@ async function agentsCommand(positionals, options) {
     const resourceId = requirePositional(positionals, 2, 'resource ID');
     const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
     await assertNoPendingPublication(root, config, workflow, 'refresh remote generated output');
-    assertPhaseSequence(workflow, 'refresh remote generated output');
+    await assertPhaseSequence(root, workflow, 'refresh remote generated output');
     const session = await loadSession(root);
     const itemDirectory = workDir(root, config, workflow.workItem.id);
     const refreshed = await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId });
@@ -541,12 +657,24 @@ async function decisionWorkflow(positionals, options, action) {
   const workId = requestedId ?? branch(root);
   if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   config = await loadConfig(root); const workflow = await loadWorkflow(root, config, workId);
+  const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
-  const phase = assertPhaseSequence(workflow, action, {
+  const phase = await assertPhaseSequence(root, workflow, action, {
     requestedPhase: optionString(options, 'phase'),
     allowedStatuses: ['awaiting_approval']
   });
-  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
+  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
+    allowedPersonas: phase.approvalPolicy?.personas ?? []
+  });
+  for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
+    override.actor = session.actor;
+    override.persona = session.persona;
+    const history = workflow.history?.find((event) => event.event === 'sequence_gate_overridden' && event.at === override.at);
+    if (history) {
+      history.actor = session.actor.login ?? session.actor.email ?? session.actor.name ?? 'interactive-user';
+      history.persona = session.persona;
+    }
+  }
   return { root, config, workflow, phase, session };
 }
 
@@ -564,7 +692,10 @@ async function approveCommand(positionals, options) {
     phaseId: optionString(options, 'phase'),
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal'
   });
-  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
+  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
+  console.log(publication.pushed
+    ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflow.workItem.branch}.`
+    : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
@@ -688,14 +819,17 @@ export async function main(argv) {
   if (!command) return console.log(HELP);
   if (command === 'version') return console.log(VERSION);
   switch (command) {
+    case 'about': return console.log(ABOUT);
     case 'help': return helpCommand(positionals, options);
     case 'init': return initCommand();
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
+    case 'persona': return personaCommand(positionals);
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
+    case 'next': return nextCommand(options);
     case 'nextsteps':
     case 'next-steps': return nextStepsCommand(positionals, options);
     case 'inputs': return inputsCommand(positionals, options);

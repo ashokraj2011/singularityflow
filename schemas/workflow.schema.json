@@ -25,6 +25,8 @@
       "type": "object",
       "properties": {
         "inputsMode": { "enum": ["off", "record", "enforce"] },
+        "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
+        "sequenceGates": { "type": "object", "additionalProperties": { "enum": ["hard", "soft"] } },
         "phases": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": true
@@ -59,7 +61,8 @@
         "additionalProperties": true
       }
     },
-    "history": { "type": "array", "items": { "type": "object" } }
+    "history": { "type": "array", "items": { "type": "object" } },
+    "sequenceOverrides": { "type": "array", "items": { "type": "object" } }
   },
   "additionalProperties": true
 }

@@ -5,7 +5,10 @@
   "type": "module",
   "bin": {
     "singularity-flow": "bin/singularity-flow.mjs",
-    "sflow": "bin/singularity-flow.mjs"
+    "sflow": "bin/singularity-flow.mjs",
+    "sflow-about": "bin/sflow-about.mjs",
+    "sflow-next": "bin/sflow-next.mjs",
+    "sflow-persona": "bin/sflow-persona.mjs"
   },
   "files": [
     "bin/",

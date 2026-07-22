@@ -6,7 +6,7 @@ disable-model-invocation: true
 ---
 # Submit the current phase
 
-If any command exits with `Out of sequence`, stop immediately, relay the actionable error, and use only `singularity-flow nextsteps` to confirm the valid next action. Never bypass sequence enforcement by editing managed state.
+Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `singularity-flow nextsteps` only for read-only guidance and never edit managed state to bypass a gate.
 
 1. Run `singularity-flow status --json` and confirm the current phase has a published generation and no pending synchronization.
 2. Do not use `--skip-checks` unless explicitly authorized.

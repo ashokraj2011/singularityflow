@@ -4,6 +4,7 @@ import { currentPhase, sourceTreeHash, validateWorkflow, workDir } from './state
 import { exists, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
+import { verifyGroundingRecord } from './grounding.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -11,6 +12,9 @@ function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map
 export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
   const errors = [], warnings = [], passes = [];
   const base = await validateWorkflow(root, config, workflow, { strict: true }); errors.push(...base.errors); warnings.push(...base.warnings);
+  for (const override of workflow.sequenceOverrides ?? []) {
+    warnings.push(`soft sequence gate '${override.gate}' was overridden for ${override.requestedPhase ?? override.before?.currentPhase ?? 'workflow'} during ${override.action}`);
+  }
 
   if (!config._legacy && workflow.resolution.configSha256) {
     const current = await snapshot(path.join(root, '.singularity/workflow.yml'));
@@ -61,20 +65,12 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         if (published.status !== 0) errors.push(`${phaseId} generation ${generation} is not present on the remote branch`);
       }
-      const contextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`);
-      const contextFile = path.join(root, contextRelative);
-      if (await exists(contextFile)) {
-        const context = JSON.parse(await readFile(contextFile, 'utf8'));
-        if (context.workId !== workflow.workItem.id || context.phase !== phase.id || context.generation !== generation) errors.push(`prompt context identity mismatch: ${contextRelative}`);
-        if (!context.persona || typeof context.matchedRules !== 'number' || !Array.isArray(context.files)) errors.push(`prompt context metadata is incomplete: ${contextRelative}`);
-        for (const file of context.files ?? []) {
-          if (!file.path?.startsWith('.singularity/world-model/') || !/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) errors.push(`prompt context file reference is invalid: ${contextRelative}`);
-          if (!Number.isInteger(file.injectedBytes) || file.injectedBytes < 0 || file.injectedBytes > file.bytes) errors.push(`prompt context byte accounting is invalid: ${contextRelative}`);
-        }
-        if (found) {
-          if (run('git', ['cat-file', '-e', `${found[0]}:${contextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`prompt context was not committed with ${phaseId} generation ${generation}`);
-          else passes.push(`prompt context audit: ${phaseId} generation ${generation}`);
-        }
+      const grounding = await verifyGroundingRecord(root, config, workflow, phase, { generation });
+      errors.push(...grounding.errors); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
+      if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
+        if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
+        else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
+        if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
       }
       const agentContextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {

@@ -6,7 +6,10 @@ This delivery combines deterministic next-action guidance, the one-script local 
 
 ### Workflow guidance and installation
 
+- `/sflow-about` and `sflow-about` identify Singularity Flow as the product under the Singularity brand and document `/sflow-<action>` as the only public Copilot command namespace.
+- Start, resume, approval, rejection, and `/sflow-persona` mirror YAML-derived CLI menus through Copilot's interactive `ask_user` selection UI; unavailable interaction fails without choosing a default.
 - `/sflow-nextsteps` and `singularity-flow nextsteps` return valid `NOW`, `THEN`, and `ALTERNATIVE` actions before initialization, throughout lifecycle/recovery, and after completion.
+- `/sflow-next`, `sflow-next`, and `singularity-flow next` execute one valid lifecycle action at a time while preserving explicit approval and atomic decision publication.
 - `install.sh` performs fast-forward pull, selectable npm/Artifactory registry use, locked dependency install, desktop build, tests/checks, package creation, global CLI replacement, and forced Copilot plugin replacement.
 - Registry credentials remain in `.npmrc`; credential-bearing URLs are rejected.
 
@@ -36,6 +39,16 @@ This delivery combines deterministic next-action guidance, the one-script local 
 - Workflow performance report and searchable shared help, merged in PR #5.
 - Rule-selected repository world-model prompt injection, merged in PR #7.
 - Repository world models remain generated and stored in the repository. Remote agent Markdown is an additive prompt/template/output source, never a world-model replacement.
+- World-model generation is isolated, manifest-validated, source-hashed, atomically installed, and committed/published. `wm compose` is now the single audited phase path; `wm inject` remains an alias.
+- Grounding policy is configurable as `off`, `warn`, or `enforce`. The starter profile enforces committed required views and exact prompt snapshots, while missing legacy configuration remains off.
+
+### Configurable lifecycle sequence gates
+
+- Eight named guards can be configured independently as `hard` or `soft`, globally or per work type.
+- Missing configuration remains hard for backward compatibility; each resolved policy is pinned into the work item.
+- Soft violations show actionable state and require an exact interactive `continue`; non-interactive use stops safely.
+- Confirmed exceptions are attributed to identity and persona and disclosed in state, artifacts, reports, Electron, and governance warnings.
+- Integrity and state-transfer controls remain hard in the starter profile, while recoverable phase-status and document-timing mistakes default to soft.
 
 ## Starter configuration
 
@@ -81,13 +94,17 @@ Agent Markdown accepts only these table locations:
 Generation now composes:
 
 ```text
-phase contract/template
++ phase skill contract
 + selected persona prompt
 + required repository world-model views
++ exact task guide when requested
 + rule-selected repository world-model files
 + active-agent remote skill Markdown
-+ approved phase-input artifacts
++ evidence when applicable
 ```
+
+Approved phase-input artifacts continue to be injected into the managed artifact
+template by `prepare`; their independent audit record remains unchanged.
 
 Verification and conformance additionally load the repository evidence ledger.
 
@@ -142,4 +159,3 @@ The script's forced uninstall/reinstall is required because the public version r
 - Portfolio reporting across every work item (`report --all`) is not implemented.
 - This repository still ships example GitHub workflows rather than enabling a CI workflow in `.github/workflows/` by default.
 - DNS resolution is delegated to the Node HTTPS stack; literal local/private hosts are rejected, while enterprise egress policy should remain the authoritative network control.
-

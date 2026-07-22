@@ -10,13 +10,14 @@ import YAML from 'yaml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function execute(command, args, cwd, { allowFailure = false, persona = 'product-owner' } = {}) {
+function execute(command, args, cwd, { allowFailure = false, persona = 'product-owner', confirm = null } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Sequence Tester',
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona })
   };
+  if (confirm) env.SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM = confirm;
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
@@ -36,6 +37,7 @@ async function repository() {
   const configPath = path.join(root, '.singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
+  config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', '.singularity'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
@@ -45,11 +47,11 @@ async function repository() {
 
 function assertSequenceFailure(result, ...patterns) {
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /Out of sequence:/);
+  assert.match(result.stderr, /(?:Out of sequence|Soft sequence warning) \[[A-Za-z]+\]:/);
   assert.match(result.stderr, /Current state:/);
   assert.match(result.stderr, /Required next action:/);
   assert.match(result.stderr, /singularity-flow nextsteps SEQ-1/);
-  assert.match(result.stderr, /No workflow files, commits, or remote state were changed/);
+  assert.match(result.stderr, /(?:No workflow files, commits, or remote state were changed|Nothing was changed)/);
   for (const pattern of patterns) assert.match(result.stderr, pattern);
 }
 
@@ -73,6 +75,40 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
   assert.equal(await readFile(workflowFile, 'utf8'), initialWorkflow);
   assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), initialHead);
   assert.equal(execute('git', ['status', '--porcelain'], root).stdout.trim(), '');
+});
+
+test('soft gates require confirmation and audit a confirmed override with the selected persona', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+
+  const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, persona: 'product-owner' });
+  assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);
+
+  const approved = flow(root, ['approve', '--yes'], { persona: 'product-owner', confirm: 'phaseStatus' });
+  assert.match(approved.stderr, /Continuing after confirmed soft gate 'phaseStatus'/);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'requirements');
+  assert.equal(workflow.phases.intake.status, 'approved');
+  assert.equal(workflow.sequenceOverrides.length, 1);
+  assert.equal(workflow.sequenceOverrides[0].gate, 'phaseStatus');
+  assert.equal(workflow.sequenceOverrides[0].persona, 'product-owner');
+  assert.equal(workflow.sequenceOverrides[0].actor.name, 'Sequence Tester');
+  assert.ok(workflow.history.some((event) => event.event === 'sequence_gate_overridden' && event.persona === 'product-owner'));
+
+  const report = flow(root, ['report']);
+  assert.match(report.stdout, /Soft sequence overrides/);
+  assert.match(report.stdout, /phaseStatus/);
+});
+
+test('sequence gate policy is immutable after work-item creation', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  workflow.resolution.sequenceGates.phaseStatus = 'hard';
+  await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
+  const validation = flow(root, ['validate'], { allowFailure: true });
+  assert.equal(validation.status, 2);
+  assert.match(validation.stderr, /Sequence gate policy differs from the immutable work-type configuration snapshot/);
 });
 
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {

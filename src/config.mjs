@@ -5,11 +5,17 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
+import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
 
 export const WORKFLOW_PATH = '.singularity/workflow.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
+export const SEQUENCE_GATE_IDS = [
+  'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',
+  'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase'
+];
+const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
 
 function assertId(value, label) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
@@ -28,6 +34,21 @@ export function configuredInputsMode(definition) {
   const mode = definition.inputsMode ?? 'off';
   if (!INPUT_MODES.has(mode)) throw new SingularityFlowError(`inputsMode must be off, record, or enforce; got '${mode}'.`);
   return mode;
+}
+
+export function normalizeSequenceGates(value = {}, overrides = {}) {
+  for (const [label, source] of [['sequenceGates', value], ['work-type sequenceGates', overrides]]) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${label} must be an object.`);
+    for (const [gate, mode] of Object.entries(source)) {
+      if (gate !== 'default' && !SEQUENCE_GATE_IDS.includes(gate)) throw new SingularityFlowError(`${label} contains unknown gate '${gate}'. Allowed: ${SEQUENCE_GATE_IDS.join(', ')}.`);
+      if (!SEQUENCE_GATE_MODES.has(mode)) throw new SingularityFlowError(`${label}.${gate} must be hard or soft.`);
+    }
+  }
+  const fallback = overrides.default ?? value.default ?? 'hard';
+  return Object.fromEntries([
+    ['default', fallback],
+    ...SEQUENCE_GATE_IDS.map((gate) => [gate, overrides[gate] ?? value[gate] ?? fallback])
+  ]);
 }
 
 export function normalizePhaseInputs(value, label = 'Phase inputs') {
@@ -57,6 +78,8 @@ export function validateDefinition(definition) {
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
   configuredInputsMode(definition);
+  normalizeSequenceGates(definition.sequenceGates ?? {});
+  groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
   validateInjectionDefinition(definition);
@@ -84,6 +107,7 @@ export function validateDefinition(definition) {
     for (const phaseId of Object.keys(workType.templateOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has a template override for inactive phase '${phaseId}'.`);
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
+    normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
   }
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
@@ -215,7 +239,8 @@ export function resolveWorkType(definition, workTypeId) {
   }));
   const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
-  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), documents, phases };
+  const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
+  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), sequenceGates, documents, phases };
 }
 
 export async function snapshotResolution(root, definition, resolved) {
@@ -230,7 +255,13 @@ export async function snapshotResolution(root, definition, resolved) {
     if (!existsSync(file)) throw new SingularityFlowError(`Template missing for phase '${phase.id}': ${path.relative(root, file)}`);
     templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file)).sha256 };
   }
-  return { configSha256: definitionSnapshot.sha256, inputsMode: resolved.inputsMode ?? configuredInputsMode(definition), templates };
+  return {
+    configSha256: definitionSnapshot.sha256,
+    inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
+    worldModelGrounding: groundingMode(definition),
+    sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
+    templates
+  };
 }
 
 export async function migrateLegacyConfig(root) {

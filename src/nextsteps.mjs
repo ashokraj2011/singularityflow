@@ -100,6 +100,7 @@ export function nextStepsText(snapshot) {
     `State: ${snapshot.state}`,
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
+    snapshot.workId ? 'Automatic next action: sflow-next' : null,
     ''
   ].filter((line) => line !== null);
   snapshot.actions.forEach((item, index) => {

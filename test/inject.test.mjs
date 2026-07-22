@@ -18,10 +18,12 @@ async function fixtureRoot({ placeholder = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inject-'));
   await mkdir(path.join(root, '.singularity/world-model/architecture'), { recursive: true });
   await mkdir(path.join(root, '.singularity/world-model/domains'), { recursive: true });
+  await mkdir(path.join(root, '.singularity/world-model/evidence'), { recursive: true });
   await mkdir(path.join(root, '.singularity/personas'), { recursive: true });
   await writeFile(path.join(root, '.singularity/world-model/architecture/overview.md'), '# Architecture\n\nHexagonal, event-driven.\n');
   await writeFile(path.join(root, '.singularity/world-model/domains/payments.md'), '# Payments domain\n\nPCI boundaries live here.\n');
-  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({ schema_version: '1.0', repository_commit: 'a'.repeat(40) }));
+  await writeFile(path.join(root, '.singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'Observed architecture' })}\n`);
+  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({ schema_version: '1.0', repository_commit: 'a'.repeat(40), evidence: { path: 'evidence/evidence.jsonl' } }));
   await writeFile(path.join(root, '.singularity/personas/architect.md'), placeholder ? '# Architect\n\nDesign carefully.\n\n{{WORLD_MODEL}}\n' : '# Architect\n\nDesign carefully.\n');
   return root;
 }
@@ -122,7 +124,13 @@ test('non-matching signals leave the persona prompt untouched', async () => {
   const { text, injection } = await injectPersonaPrompt(root, definition([{ when: { persona: 'developer' }, include: ['architecture/*'] }]), 'architect', {});
   assert.equal(injection.sections.length, 0);
   assert.equal(injection.applied, false);
-  assert.ok(text.includes('{{WORLD_MODEL}}'));
+  assert.ok(!text.includes('{{WORLD_MODEL}}'));
+});
+
+test('evidence rules use the manifest evidence path', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'], evidence: true }]), { persona: 'architect' });
+  assert.ok(rendered.sections.some((section) => section.path.endsWith('evidence/evidence.jsonl')));
 });
 
 test('recordInjection writes an auditable generation context record', async () => {

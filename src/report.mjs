@@ -192,6 +192,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     reworkCycles: phases.reduce((sum, phase) => sum + Math.max(0, phase.generations - 1), 0),
     rejections: phases.flatMap((phase) => phase.rejections.map((item) => ({ phase: phase.id, ...item }))),
     selfApprovals: phases.reduce((sum, phase) => sum + phase.selfApprovals, 0),
+    sequenceOverrides: workflow.sequenceOverrides ?? [],
     tokens: {
       total: phases.reduce((sum, phase) => sum + phase.tokens, 0),
       exactRecords: workflow.usage?.exactRecords ?? null,
@@ -251,9 +252,18 @@ export function renderMarkdown(report) {
     lines.push(`**Bottleneck:** approval latency on \`${report.bottleneck.phase}\` (${humanizeDuration(report.bottleneck.waitingMs)}${share}).`, '');
   }
   if (report.selfApprovals) lines.push(`**Governance note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
+  if (report.sequenceOverrides.length) lines.push(`**Governance note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
   if (report.rejections.length) {
     lines.push('## Rework history', '');
     for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (${rejection.persona ?? 'unknown persona'}): ${rejection.detail}`);
+    lines.push('');
+  }
+  if (report.sequenceOverrides.length) {
+    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / persona | Reason |', '|------|------|--------|-------|-----------------|--------|');
+    for (const override of report.sequenceOverrides) {
+      const actor = actorLabel(override.actor);
+      lines.push(`| ${override.at} | ${override.gate} | ${override.action} | ${override.requestedPhase ?? override.before?.currentPhase ?? '—'} | ${actor} / ${override.persona ?? 'unknown'} | ${override.reason ?? '—'} |`);
+    }
     lines.push('');
   }
   const personas = Object.entries(report.tokens.byPersona);
@@ -301,7 +311,12 @@ export function renderHtml(report) {
   const modelRows = report.tokens.byModel.map((aggregate) => `<tr><td>${escapeHtml(aggregate.provider)}</td><td>${escapeHtml(aggregate.model)}</td><td>${aggregate.records}</td><td>${aggregate.exactRecords}</td><td>${aggregate.unavailableRecords}</td><td>${aggregate.totalTokens.toLocaleString('en-US')}</td></tr>`).join('');
   const modelTable = modelRows ? `<h2>Token usage by model</h2>\n<table><thead><tr><th>Provider</th><th>Model</th><th>Records</th><th>Exact</th><th>Unavailable</th><th>Tokens</th></tr></thead><tbody>${modelRows}</tbody></table>` : '';
   const bottleneck = report.bottleneck ? `<p><strong>Bottleneck:</strong> approval latency on <code>${escapeHtml(report.bottleneck.phase)}</code> (${humanizeDuration(report.bottleneck.waitingMs)}${report.bottleneck.share != null ? `, ${report.bottleneck.share}% of elapsed` : ''}).</p>` : '';
-  const governance = report.selfApprovals ? `<p><strong>Governance note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '';
+  const governance = [
+    report.selfApprovals ? `<p><strong>Governance note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '',
+    report.sequenceOverrides.length ? `<p><strong>Governance note:</strong> ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}.</p>` : ''
+  ].join('');
+  const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.persona ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
+  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / persona</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -329,6 +344,7 @@ ${elapsedChart}
 <h2>Tokens by phase</h2>
 ${tokenChart}
 ${modelTable}
+${overrideTable}
 <footer>Durations are wall-clock elapsed time, including nights and weekends. Generated ${escapeHtml(report.generatedAt)} by singularity-flow.</footer>
 </body>
 </html>

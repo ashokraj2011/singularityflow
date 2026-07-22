@@ -10,7 +10,7 @@ disable-model-invocation: true
 2. For a work ID or a question about the active work item's current phase, run `singularity-flow guide <WORK-ID>` instead.
 3. When using the work-item guide, state the selected workflow template and whether the source is Jira or manual intake.
 4. Explain the ordered phases, required artifact for each phase, suggested personas, approval-capable personas, and approval threshold.
-5. Highlight the current phase and present the exact recommended `/sflow-*` skill and equivalent CLI command. Point to `/sflow-nextsteps` when the user wants the complete ordered action plan.
+5. Highlight the current phase and present the exact recommended `/sflow-*` skill and equivalent CLI command. Point to `/sflow-nextsteps` for a read-only ordered plan and `/sflow-next` to execute exactly one valid action.
 6. If approval is pending, show both approve and reject paths and remind the user that the selected persona must have approval capability.
 7. If the workflow is complete, point to `/sflow-progress`, `/sflow-report`, and the final conformance artifact.
 8. Treat `HELP.md` as the canonical product manual; do not invent a conflicting rule when the manual or committed workflow provides one.

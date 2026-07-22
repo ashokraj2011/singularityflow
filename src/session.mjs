@@ -46,8 +46,11 @@ export async function selectIntakeSource() {
   ]);
 }
 
-export async function selectPersona(root, definition, actor, workId = null) {
-  const persona = await choose('persona', Object.entries(definition.personas));
+export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null } = {}) {
+  const allowed = allowedPersonas ? new Set(allowedPersonas) : null;
+  const entries = Object.entries(definition.personas).filter(([id]) => !allowed || allowed.has(id));
+  if (!entries.length) throw new SingularityFlowError('No configured persona is available for this action.');
+  const persona = await choose('persona', entries);
   return setPersonaSession(root, definition, actor, persona, workId);
 }
 

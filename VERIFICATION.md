@@ -55,6 +55,7 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Story-file document paths resolve relative to the story file; files and HTTPS references receive stable `DOC-nnn` records and atomic pushed commits.
 - Repeatable `--document` and `--document-url` inputs are imported in addition to documents declared in the story file.
 - `guide`, `/sflow-help`, and `/sflow-nextsteps` are read-only; nextsteps returns ordered immediate, subsequent, and alternative actions for initialization, start/resume, pending publication, generation, submission, approval/rejection, following phases, and completion.
+- `sflow-next`, `singularity-flow next`, and `/sflow-next` execute exactly one valid action: sync, grounded preparation, submission, interactive approval, or terminal governance. They never silently combine generation, submission, and approval.
 
 ## Help manual checks
 
@@ -74,9 +75,10 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 22 skills and every skill name begins with `sflow-`.
+- The plugin exposes exactly 25 skills and every skill name begins with `sflow-`.
 - The plugin manifest exposes `agents/`, and `sflow-workflow.agent.md` is discovered with empty, inert remote dependency tables.
-- `/sflow-start`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
+- `/sflow-about`, `/sflow-start`, `/sflow-persona`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-next`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
+- Start, resume, approval, rejection, and persona skills use `ask_user` for YAML-derived selectable options and `write_bash` to answer the same CLI picker; they never infer a default or pass hidden type/persona flags.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 
@@ -164,12 +166,16 @@ For an unreachable remote, verify the local commit is retained, transitions are 
 
 ## World-model checks
 
+- The builder runs in an isolated detached worktree; source writes, history changes, escaping paths, symlinks, malformed manifests, missing declared files, and undeclared output files are rejected.
+- A successful build records the repository source-tree hash and creates/publishes a dedicated model commit. Model and lifecycle commits alone do not cause false staleness.
 - Phase-required views are always present.
 - Persona views are added and do not replace required views.
 - The persona prompt is present in phase context.
-- Need-based injection rules match persona, phase, work type, changed paths, and source labels; applied context is byte-bounded and recorded with file hashes and the world-model commit.
+- Exact task guides are loaded when requested; mismatched task text fails with a rebuild instruction.
+- Need-based injection rules match persona, phase, work type, committed/pending changed paths, and source labels; applied context is byte-bounded.
 - Verification and conformance include the evidence ledger.
 - `singularity-flow wm check` detects a stale manifest.
+- `wm compose` records provenance and the exact rendered prompt. `off`, `warn`, and `enforce` modes produce the configured gate severity, and enforce mode verifies the persona, manifest/source hashes, required views, committed model files, and prompt hash.
 
 ## Final GitHub checks
 
@@ -181,3 +187,15 @@ Install the example approval and validation workflows, pin the released package 
 ```
 
 Confirm the workflow actor and declared persona appear in committed decision records and that the final terminal gate verifies the remote head.
+
+## Configurable sequence gates
+
+- A workflow without `sequenceGates` resolves every named gate to `hard`.
+- Global modes and work-type overrides resolve correctly and are pinned into new work-item state.
+- Invalid modes and unknown gate names fail configuration validation.
+- Hard violations exit with code `2` without changing state, session, Git history, or remote state.
+- Soft violations require the exact interactive `continue` response; refusal and non-interactive execution stop without mutation.
+- A confirmed exception records the authenticated identity, selected persona, prior state, reason, action, and timestamp.
+- Status, artifact metadata, performance reports, Electron, and governance output visibly disclose confirmed exceptions.
+- Mutating the pinned gate policy after creation fails workflow validation.
+- Copilot agent and skill instructions never self-confirm a soft warning.

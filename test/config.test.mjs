@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizeSequenceGates, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { groundingMode } from '../src/grounding.mjs';
 
 test('starter YAML resolves distinct feature and bugfix templates and personas', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -15,8 +16,46 @@ test('starter YAML resolves distinct feature and bugfix templates and personas',
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
+  assert.equal(definition.worldModel.grounding, 'enforce');
+  assert.equal(feature.sequenceGates.phaseStatus, 'soft');
+  assert.equal(feature.sequenceGates.documentPhase, 'soft');
+  assert.equal(feature.sequenceGates.publicationPending, 'hard');
   assert.deepEqual(feature.phases.find((item) => item.id === 'design').inputs, [{ phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }]);
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
+});
+
+test('world-model grounding is configurable and legacy-safe', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-grounding-config-')); await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.worldModel.grounding = 'warn';
+  assert.equal(validateDefinition(definition).worldModel.grounding, 'warn');
+  assert.equal(groundingMode(definition, { resolution: {} }), 'off');
+  assert.equal(groundingMode(definition, { resolution: { worldModelGrounding: 'enforce' } }), 'enforce');
+  delete definition.worldModel.grounding;
+  assert.doesNotThrow(() => validateDefinition(definition));
+  definition.worldModel.grounding = 'sometimes';
+  assert.throws(() => validateDefinition(definition), /worldModel\.grounding must be off, warn, or enforce/);
+});
+
+test('sequence gates default safely to hard and support work-type overrides', async () => {
+  const legacySafe = normalizeSequenceGates();
+  assert.equal(legacySafe.default, 'hard');
+  assert.ok(Object.values(legacySafe).every((mode) => mode === 'hard'));
+
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-sequence-config-')); await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.workTypes.feature.sequenceGates = { phaseStatus: 'hard', generationCommit: 'soft' };
+  const gates = resolveWorkType(definition, 'feature').sequenceGates;
+  assert.equal(gates.default, 'soft');
+  assert.equal(gates.phaseStatus, 'hard');
+  assert.equal(gates.generationCommit, 'soft');
+  assert.equal(gates.publicationPending, 'hard');
+
+  definition.sequenceGates.phaseStatus = 'sometimes';
+  assert.throws(() => validateDefinition(definition), /sequenceGates\.phaseStatus must be hard or soft/);
+  definition.sequenceGates.phaseStatus = 'soft';
+  definition.sequenceGates.unknown = 'soft';
+  assert.throws(() => validateDefinition(definition), /unknown gate 'unknown'/);
 });
 
 test('phase inputs normalize shorthand and reject invalid declarations', async () => {

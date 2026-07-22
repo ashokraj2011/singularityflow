@@ -24,7 +24,7 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-v2-test-'));
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
-  const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; await writeFile(configPath, YAML.stringify(config));
+  const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', '.singularity'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
 }
 
@@ -45,6 +45,21 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(result.status, 0); assert.match(result.stderr, /requires an interactive terminal/);
 });
 
+test('persona selection changes only the local session and persists for later actions', async () => {
+  const root = await repository(); const workId = 'PERSONA-1';
+  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const result = flow(root, ['persona', workId], { selection: selection('feature', 'architect'), actor: 'Session Architect' });
+  assert.match(result.stdout, /Active persona: Architect \(architect\)/);
+  assert.match(result.stdout, /selection is local to this checkout/);
+  const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
+  assert.equal(session.persona, 'architect');
+  assert.equal(session.workId, workId);
+  assert.equal(session.actor.name, 'Session Architect');
+  assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+});
+
 test('artifact-only phases reject source changes', async () => {
   const root = await repository(); const workId = 'SCOPE-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
@@ -52,6 +67,29 @@ test('artifact-only phases reject source changes', async () => {
   await completeArtifact(root, workflow, 'intake'); await mkdir(path.join(root, 'src'), { recursive: true }); await writeFile(path.join(root, 'src/not-allowed.mjs'), 'export const changedTooEarly = true;\n');
   const result = flow(root, ['phase', 'publish', 'intake'], { allowFailure: true, selection: selection('feature', 'product-owner') });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /artifact-only/);
+});
+
+test('next executes one valid lifecycle action at a time', async () => {
+  const root = await repository(); const workId = 'NEXT-AUTO-1';
+  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
+  assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
+  assert.match(flow(root, ['nextsteps']).stdout, /Automatic next action: sflow-next/);
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+
+  const submitted = flow(root, ['next'], { selection: selection('feature', 'product-owner') });
+  assert.match(submitted.stdout, /Next step: submit published phase 'intake'/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+
+  const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
+  assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'requirements');
+  assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-owner`);
 });
 
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
@@ -113,7 +151,13 @@ test('multi-approval threshold requires distinct identities while allowing perso
   execute('git', ['add', configPath], root); execute('git', ['commit', '-m', 'require two intake approvals'], root);
   const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); flow(root, ['submit'], { selection: selection('feature', 'product-owner'), actor: 'Generator' });
-  flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  const firstApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.match(firstApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  const firstApprovalCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const duplicate = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One', allowFailure: true }); assert.notEqual(duplicate.status, 0); assert.match(duplicate.stderr, /already approved/);
-  flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer Two' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'requirements'); assert.equal(workflow.phases.intake.approvals.filter((item) => item.decision === 'approved').length, 2);
+  const secondApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer Two' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'requirements'); assert.equal(workflow.phases.intake.approvals.filter((item) => item.decision === 'approved').length, 2);
+  assert.match(secondApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  const secondApprovalCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  assert.notEqual(secondApprovalCommit, firstApprovalCommit);
+  assert.equal(execute('git', ['log', '--format=%s', '--grep', '\\[MULTI-1\\]\\[phase:intake\\]\\[approve\\]'], root).stdout.trim().split(/\r?\n/).filter(Boolean).length, 2);
 });

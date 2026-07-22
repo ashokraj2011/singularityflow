@@ -7,9 +7,9 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizeSequenceGates, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
 
-test('starter YAML resolves distinct feature and bugfix templates and personas', async () => {
+test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
-  const definition = await loadDefinition(root); const feature = resolveWorkType(definition, 'feature'); const bugfix = resolveWorkType(definition, 'bugfix');
+  const definition = await loadDefinition(root); const feature = resolveWorkType(definition, 'feature'); const bugfix = resolveWorkType(definition, 'bugfix'); const figmaMobile = resolveWorkType(definition, 'figma-mobile');
   assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').template, 'feature/implementation-spec.md');
   assert.equal(bugfix.phases.find((item) => item.id === 'fix-spec').template, 'bugfix/fix-spec.md');
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
@@ -22,6 +22,15 @@ test('starter YAML resolves distinct feature and bugfix templates and personas',
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
   assert.deepEqual(feature.phases.find((item) => item.id === 'design').inputs, [{ phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }]);
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
+  assert.deepEqual(figmaMobile.phases.map((item) => item.id), ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance']);
+  assert.deepEqual(figmaMobile.documents.allowedPhases, ['design-intake', 'design-inventory']);
+  assert.equal(figmaMobile.sequenceGates.documentPhase, 'hard');
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').template, 'figma-mobile/mobile-spec.md');
+  assert.deepEqual(figmaMobile.phases.find((item) => item.id === 'implementation').inputs.map((item) => item.phase), ['component-mapping', 'mobile-spec']);
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 2);
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
+  assert.match(await personaPrompt(root, definition, 'product-designer'), /exported design package/i);
+  assert.match(await readFile(path.join(root, '.singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
 });
 
 test('world-model grounding is configurable and legacy-safe', async () => {

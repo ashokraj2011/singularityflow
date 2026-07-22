@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,4 +93,22 @@ test('source-code documents are rendered as reviewable text instead of binary me
   const consoleOutput = flow(root, ['documents', 'view', 'DOC-001']).stdout;
   assert.match(consoleOutput, /RuleEngineService\.java/);
   assert.match(consoleOutput, /boolean evaluate\(\) \{ return true; \}/);
+});
+
+test('document upload recursively imports an exported design directory with stable relative paths', async () => {
+  const root = await repository(); const exportRoot = await mkdtemp(path.join(os.tmpdir(), 'figma-export-'));
+  await mkdir(path.join(exportRoot, 'components'), { recursive: true }); await mkdir(path.join(exportRoot, 'screens/login'), { recursive: true });
+  await writeFile(path.join(exportRoot, 'components/button.json'), JSON.stringify({ name: 'Button', variants: ['primary', 'disabled'] }));
+  await writeFile(path.join(exportRoot, 'screens/login/default.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+  flow(root, ['start', 'FIGMA-DIR-1', '--title', 'Import exported mobile design']);
+
+  const upload = flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export']);
+  assert.match(upload.stdout, /DOC-001[\s\S]*DOC-002/);
+  const records = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
+  assert.deepEqual(records.map((item) => item.sourceRelativePath), ['components/button.json', 'screens/login/default.png']);
+  assert.ok(records.every((item) => item.kind === 'figma-export'));
+  assert.match(records[0].path, /inputs\/DOC-001\/figma-export-[^/]+\/components\/button\.json$/);
+  assert.match(records[1].path, /inputs\/DOC-002\/figma-export-[^/]+\/screens\/login\/default\.png$/);
+  assert.match(flow(root, ['documents', 'view', 'DOC-001']).stdout, /Button/);
+  assert.match(flow(root, ['gate']).stdout, /document integrity: 2 supporting inputs/);
 });

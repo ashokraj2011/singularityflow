@@ -121,6 +121,23 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .ring strong { color: var(--navy-950); font-size: 20px; }
 .ring span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 18px; box-shadow: none; }
+.health-strip { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; border: 1px solid #b9dfcf; border-radius: 14px; padding: 14px 18px; color: var(--green-700); background: var(--green-100); }
+.health-strip.warn { border-color: #ead59e; color: var(--amber-700); background: var(--amber-100); }
+.health-strip span { color: inherit; font-size: 12px; }
+.review-grid { display: grid; grid-template-columns: minmax(320px,.7fr) minmax(0,1.3fr); gap: 18px; }
+.review-summary dl { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+.review-summary dl div { min-height: 76px; padding: 16px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.review-summary dt { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.review-summary dd { margin: 6px 0 0; overflow-wrap: anywhere; font-weight: 700; }
+.review-source pre, .review-document > pre { margin: 0; padding: 20px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+.review-document { margin-top: 18px; }
+.review-document > pre { max-height: 620px; background: #fbfaf7; }
+.contract-preview { margin-top: 18px; }
+.contract-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); }
+.contract-grid > div { min-height: 94px; display: grid; align-content: center; gap: 5px; padding: 16px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.contract-grid strong { font-size: 13px; }
+.contract-grid code { overflow: hidden; color: var(--blue-700); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.contract-grid span { color: var(--muted); font-size: 10px; }
 .metric { display: grid; gap: 6px; min-height: 96px; padding: 19px 21px; border-right: 1px solid var(--line); }
 .metric:last-child { border: 0; }
 .metric span { color: var(--muted); font-size: 10px; font-weight: 680; letter-spacing: .08em; text-transform: uppercase; }

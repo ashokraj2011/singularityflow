@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('singularity', {
   publish: (repository, message) => ipcRenderer.invoke('configuration:publish', { repository, message }),
   selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
   uploadDocuments: (repository) => ipcRenderer.invoke('documents:upload', { repository }),
+  uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),
   addDocumentUrl: (repository, url, label) => ipcRenderer.invoke('documents:add-url', { repository, url, label }),
   previewDocument: (repository, workId, reference) => ipcRenderer.invoke('documents:preview', { repository, workId, reference }),
   openDocument: (repository, record) => ipcRenderer.invoke('documents:open', { repository, record })

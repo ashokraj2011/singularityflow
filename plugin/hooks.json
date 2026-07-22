@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "command": "singularity-flow hook session-start",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

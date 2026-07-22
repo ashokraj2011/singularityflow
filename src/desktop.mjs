@@ -11,6 +11,9 @@ import { loadWorkflow } from './state.mjs';
 import { exists, posix, readJson, repoRelative, run, SingularityFlowError, writeText } from './util.mjs';
 import { AGENT_LOCK_PATH, agentStatus, discoverAgents } from './agents.mjs';
 import { structuredWorldModelViewReferences, worldModelViewCatalog } from './world-model-views.mjs';
+import { createReviewBundle, reviewMarkdown } from './review.mjs';
+import { doctorSnapshot } from './doctor.mjs';
+import { simulateWorkflow } from './workflow-catalog.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -98,10 +101,13 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   let workflow = null;
   let progress = null;
   let documents = [];
+  let review = null;
   if (selectedId) {
     workflow = await loadWorkflow(root, definition, selectedId);
     progress = progressSnapshot(workflow);
     documents = await documentCatalog(root, definition, workflow);
+    review = await createReviewBundle(root, definition, workflow);
+    review.markdown = reviewMarkdown(review);
   }
   const agents = await discoverAgents(root);
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
@@ -142,6 +148,9 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     workflow,
     progress,
     documents,
+    review,
+    diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
+    workflowSimulations: await simulateWorkflow(root),
     session: await loadSession(root, { required: false })
   };
 }

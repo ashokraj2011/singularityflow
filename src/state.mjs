@@ -209,6 +209,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       workTypeLabel: resolution.label,
       sequenceGates: snapshotState.sequenceGates ?? resolution.sequenceGates ?? { default: 'hard' },
       documents: structuredClone(resolution.documents ?? config.documents ?? {}),
+      collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
     },
@@ -222,6 +223,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     },
     telemetry: { schemaVersion: 1, mode: 'work-item-sanitized' },
     documents: { count: 0, updatedAt: null },
+    collaboration: { assignments: {}, notifications: [] },
     sequenceOverrides: [],
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
@@ -250,12 +252,16 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.workType ??= workflow.workItem.workType;
   workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
   workflow.resolution.documents ??= {};
+  workflow.resolution.collaboration ??= { assignmentMode: 'off', notifications: ['terminal'] };
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
   workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
   workflow.telemetry ??= { schemaVersion: 1, mode: 'legacy' };
   workflow.documents ??= { count: 0, updatedAt: null };
+  workflow.collaboration ??= { assignments: {}, notifications: [] };
+  workflow.collaboration.assignments ??= {};
+  workflow.collaboration.notifications ??= [];
   workflow.sequenceOverrides ??= [];
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
   workflow.usage.byPhase ??= {}; workflow.usage.byPersona ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
@@ -455,9 +461,16 @@ export async function sourceTreeHash(root) {
   return `sha256:${hash.digest('hex')}`;
 }
 
+function assertRequiredAssignment(workflow, phase) {
+  if (workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[phase.id]) {
+    throw new SingularityFlowError(`Phase '${phase.id}' requires an assignment. Run singularity-flow assign ${phase.id} <assignee> before publishing.`);
+  }
+}
+
 export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
+  assertRequiredAssignment(workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
   const grounding = await verifyGroundingRecord(root, config, workflow, phase, { persona: session.persona });
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -507,6 +520,7 @@ async function qualityChecks(root, phase) {
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
+  assertRequiredAssignment(workflow, phase);
   if (phaseNeedsGeneration(workflow, phase)) await enforceSequenceGate(root, workflow, 'freshGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'

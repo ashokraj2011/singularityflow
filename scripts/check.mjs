@@ -45,9 +45,13 @@ checked.push('package.json', 'plugin/plugin.json', '.github/plugin/marketplace.j
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 if (pluginJson.name !== 'singularity-flow') fail('plugin.json name must be singularity-flow');
-for (const forbidden of ['mcpServers', 'hooks']) {
+for (const forbidden of ['mcpServers']) {
   if (Object.hasOwn(pluginJson, forbidden)) fail(`plugin.json contains unsupported component ${forbidden}`);
 }
+if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hooks.json');
+const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
+if (hooksJson.version !== 1 || !Array.isArray(hooksJson.hooks?.sessionStart)) fail('plugin/hooks.json must define version 1 sessionStart hooks');
+checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
 if (pluginJson.agents !== 'agents/') fail('plugin.json agents path must be agents/');
 if (pluginJson.extensions !== 'extensions/') fail('plugin.json extensions path must be extensions/');
@@ -117,7 +121,7 @@ checked.push('CLI help smoke test');
 
 const pythonFiles = allFiles.filter((file) => file.endsWith('.py'));
 if (pythonFiles.length) fail(`Python files are not allowed: ${pythonFiles.map((file) => path.relative(root, file)).join(', ')}`);
-const forbiddenFiles = allFiles.filter((file) => ['.mcp.json', 'mcp.json', 'hooks.json'].includes(path.basename(file)));
+const forbiddenFiles = allFiles.filter((file) => ['.mcp.json', 'mcp.json'].includes(path.basename(file)));
 if (forbiddenFiles.length) fail(`Unexpected MCP/hook files: ${forbiddenFiles.map((file) => path.relative(root, file)).join(', ')}`);
 
 if (failures.length) {

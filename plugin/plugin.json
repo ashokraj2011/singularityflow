@@ -16,5 +16,6 @@
   ],
   "skills": "skills/",
   "agents": "agents/",
+  "hooks": "hooks.json",
   "extensions": "extensions/"
 }

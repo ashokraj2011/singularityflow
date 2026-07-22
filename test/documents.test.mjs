@@ -106,9 +106,15 @@ test('document upload recursively imports an exported design directory with stab
   assert.match(upload.stdout, /DOC-001[\s\S]*DOC-002/);
   const records = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
   assert.deepEqual(records.map((item) => item.sourceRelativePath), ['components/button.json', 'screens/login/default.png']);
+  assert.ok(records.every((item) => item.packageId === 'PKG-001'));
   assert.ok(records.every((item) => item.kind === 'figma-export'));
   assert.match(records[0].path, /inputs\/DOC-001\/figma-export-[^/]+\/components\/button\.json$/);
   assert.match(records[1].path, /inputs\/DOC-002\/figma-export-[^/]+\/screens\/login\/default\.png$/);
   assert.match(flow(root, ['documents', 'view', 'DOC-001']).stdout, /Button/);
+  const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout);
+  assert.ok(catalog.some((item) => item.id === 'PACKAGE-PKG-001-INVENTORY'));
+  assert.ok(catalog.some((item) => item.id === 'PACKAGE-PKG-001-GALLERY'));
+  assert.match(flow(root, ['documents', 'view', 'PACKAGE-PKG-001-INVENTORY']).stdout, /Design package PKG-001/);
+  assert.match(flow(root, ['documents', 'view', 'PACKAGE-PKG-001-GALLERY']).stdout, /1 image preview/);
   assert.match(flow(root, ['gate']).stdout, /document integrity: 2 supporting inputs/);
 });

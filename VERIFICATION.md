@@ -75,7 +75,7 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 25 skills and every skill name begins with `sflow-`.
+- Every public plugin skill begins with `sflow-`; the bundled count is checked dynamically so new usability skills remain package-visible.
 - The plugin manifest exposes `agents/`, and `sflow-workflow.agent.md` is discovered with empty, inert remote dependency tables.
 - `/sflow-about`, `/sflow-start`, `/sflow-persona`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-next`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
 - Start, resume, approval, rejection, and persona skills use `ask_user` for YAML-derived selectable options and `write_bash` to answer the same CLI picker; they never infer a default or pass hidden type/persona flags.

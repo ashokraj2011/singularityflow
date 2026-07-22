@@ -16,7 +16,7 @@ When `.singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutab
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
 9. Treat approved artifacts as durable inputs. Document later deviations in the active phase artifact.
-10. End every successful artifact generation with `singularity-flow phase publish <phase>`; generation is incomplete until its commit is pushed.
+10. End every successful artifact generation with `singularity-flow phase publish <phase>`; generation is incomplete until its commit is pushed. Preserve the command's published-document display in the response and never replace the document with a summary.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
 13. Before phase reasoning, run `singularity-flow wm compose --phase <phase> --task "<current objective>"` and use the complete returned prompt. If missing or stale, build with the same phase and exact task text, then compose again. Add `--evidence` for verification, review, or release decisions.

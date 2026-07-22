@@ -122,6 +122,7 @@ For an unreachable remote, verify the local commit is retained, transitions are 
 ## Progress and supporting-document checks
 
 - `progress` reports zero at start, exact approved/total percentage after each approval, and 100% only when every phase is approved. Human-readable output includes the connected arrow map and marks the current phase; JSON remains machine-readable without presentation text.
+- The plugin declares `extensions/`; with Copilot experimental extensions enabled, bare `/documents` opens the Documents canvas and `/documents view <ID>` selects an artifact. A non-canvas host receives timeline output instead.
 - JSON progress includes current phase/position, generations, approval thresholds, document count, and token usage.
 - Upload local text, image, PDF, and `.fig` inputs during an allowed phase; verify stable `DOC-nnn` IDs, hashes, attribution, copied paths, commit, and push.
 - Record a Figma HTTPS link and confirm it is cataloged without network download.

@@ -13,4 +13,5 @@ disable-model-invocation: true
 5. Run relevant tests and add missing tests when needed. Record exact commands and results.
 6. Cover regression, negative cases, boundaries, failure modes, security, reliability, accessibility, and performance where applicable.
 7. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, remove placeholders, and run `singularity-flow phase publish verification`.
-8. Do not submit or approve automatically.
+8. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+9. Do not submit or approve automatically.

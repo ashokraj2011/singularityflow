@@ -12,4 +12,5 @@ disable-model-invocation: true
 4. Run `singularity-flow prepare release` and complete the release plan.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
 6. Remove placeholders and run `singularity-flow phase publish release`.
-7. Do not submit or approve automatically.
+7. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+8. Do not submit or approve automatically.

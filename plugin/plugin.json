@@ -15,5 +15,6 @@
     "jira"
   ],
   "skills": "skills/",
-  "agents": "agents/"
+  "agents": "agents/",
+  "extensions": "extensions/"
 }

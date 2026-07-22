@@ -686,6 +686,7 @@ async function phaseCommand(positionals, options) {
   const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
   const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  printPhaseReview(await phaseReview(root, config, workflow, phase));
 }
 
 async function artifactCommand(positionals, options) {

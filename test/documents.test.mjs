@@ -50,7 +50,14 @@ test('progress and document commands upload, list, and view files, images, and F
 
   const workflowFile = path.join(root, '.singularity/work-items/DOCS-1/workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); const intake = path.join(root, '.singularity/work-items/DOCS-1', workflow.phases.intake.requiredArtifact.path);
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
-  flow(root, ['phase', 'publish', 'intake']);
+  const publication = flow(root, ['phase', 'publish', 'intake']);
+  assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
+  assert.match(publication.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
+  assert.match(publication.stdout, /Path: \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
+  assert.match(publication.stdout, /SHA-256: [0-9a-f]{64}/);
+  assert.match(publication.stdout, /--- BEGIN \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  assert.match(publication.stdout, /Complete intake evidence/);
+  assert.match(publication.stdout, /--- END \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
   const review = flow(root, ['phase', 'show', 'intake']);
   assert.match(review.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
   assert.match(review.stdout, /PHASE-INTAKE/);

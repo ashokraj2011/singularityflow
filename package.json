@@ -19,6 +19,7 @@
     "ARCHITECTURE.md",
     "VERIFICATION.md",
     "MIGRATION.md",
+    "RELEASE-PHASE-INPUTS.md",
     "LICENSE"
   ],
   "workspaces": [

@@ -189,6 +189,37 @@ singularity-flow nextsteps [WORK-ID]
 In Copilot, use `/sflow-nextsteps [WORK-ID]`. It labels actions as `NOW`,
 `THEN`, or `ALTERNATIVE` and never executes them automatically.
 
+## Approved phase inputs
+
+Phase inputs make approved upstream artifacts explicit prompt dependencies. The top-level mode is pinned when the work item starts:
+
+```yaml
+inputsMode: record          # off | record | enforce
+
+phases:
+  design:
+    inputs:
+      - requirements
+      - phase: intake
+        optional: true
+        maxBytes: 16384
+```
+
+- `off`, including a missing key, validates declarations but changes no runtime behavior.
+- `record` resolves and injects available approved artifacts, records hashes, and warns when required input is unavailable or tampered.
+- `enforce` blocks preparation and publication when required input is unavailable or any present input fails hash verification.
+
+String entries are required and unbounded. An omitted `maxBytes` injects the complete artifact. A work type may replace a phase declaration through `phaseOverrides.<phase>.inputs`.
+
+Inspect or render the prospective generation:
+
+```bash
+singularity-flow inputs design --dry-run
+singularity-flow inputs design
+```
+
+Normal execution updates the marker-delimited managed input block and writes `context/inputs-<phase>-gen<n>.json`. Repeating preparation replaces only that managed block. Publication recollects the approved artifacts so editing the rendered block cannot bypass enforcement. Use `/sflow-inputs` in Copilot.
+
 ## Personas and approvals
 
 Personas add prompt perspective, world-model views, and approval capabilities. Starter personas include product owner, architect, developer, and QA.
@@ -371,14 +402,57 @@ the exact prompt grounding transferable to another terminal.
 Context composition is additive:
 
 ```text
-phase instructions
+phase contract/template
 + selected persona prompt
 + phase-required world-model views
 + persona world-model views
++ rule-selected repository world-model files
++ active-agent remote skill Markdown
++ approved phase-input artifacts
 + evidence ledger for verification and conformance
 ```
 
 Persona views never remove phase-required views. Verification and conformance load test/source evidence. Use the relevant phase skill in Copilot; it builds and reads routed context before generating content.
+
+## Remote agent Markdown
+
+Repository world models always remain repository-generated and repository-owned. Copilot agents may additionally declare plain public HTTPS Markdown dependencies in exact tables under these headings:
+
+```markdown
+## Remote skills
+
+| ID | URL | Phases | Personas | Optional | Max bytes |
+
+## Remote artifact templates
+
+| ID | URL | Phases | Optional | Max bytes |
+
+## Remote generated artifacts
+
+| ID | URL template | Phase | Target | Optional | Max bytes |
+```
+
+Only table links are processed; links in prose are inert. Content must be non-empty UTF-8 Markdown. The default limit is 1 MiB and the hard ceiling is 10 MiB. URLs must be public HTTPS without credentials. Dynamic output URLs support only URL-encoded `{workId}`, `{workType}`, `{phase}`, and `{generation}`. Output targets must remain under `artifacts/<phase>/`.
+
+Discover, trust, and activate an agent:
+
+```bash
+singularity-flow agents list
+singularity-flow agents lock architecture
+singularity-flow agents sync architecture
+singularity-flow agents status architecture
+```
+
+First trust and every `--update` display hashes and require typing the exact agent name. The committed `.singularity/agents.lock.yml` pins agent-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active agent while preserving the selected persona. No authentication, cookies, or bearer tokens are sent.
+
+Remote skills are prompt context for the active agent, not global slash commands. Reference a remote artifact template explicitly with `agent:architecture/design-template`; it is copied into the work item and pinned before use. Dynamic generated output is fetched once per prospective generation and reused. If the remote result changed, refresh deliberately:
+
+```bash
+singularity-flow agents refresh-output threat-model
+# Add --replace only after deciding to discard local edits.
+```
+
+The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. The desktop **Agents & remote Markdown** page edits repository agent Markdown, shows lock status, and keeps the lock read-only.
 
 ## Conformance and final gate
 
@@ -399,8 +473,10 @@ Conformance stores a source/test tree hash. Later code or test changes make the 
 Edit `.singularity/workflow.yml` directly or use Singularity Flow Desktop. The definition controls:
 
 - `workTypes`: phase sequences and profile overrides
-- `phases`: artifact contracts, write scope, views, checks, and approvals
+- `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
+- `phases`: artifact contracts, approved inputs, write scope, views, checks, and approvals
 - `personas`: prompts, views, suggested phases, and approval capability
+- repository agent Markdown and `.singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources
 - `documents`: allowed upload phases and size limits
 - `git`: remote and publication policy
 - `tokens`: exact-or-unavailable mode and optional pricing
@@ -434,6 +510,7 @@ The desktop app provides:
 - Visual workflow and approval-rule designer
 - Persona and approval-capability inspection
 - Artifact-template source and preview
+- Repository agent Markdown editor and read-only remote lock status
 - Supporting-document catalog and upload
 - Searchable help manual
 - Validated configuration save, commit, and push
@@ -450,6 +527,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-resume` | Fetch, fast-forward, and select a persona |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
+| `/sflow-inputs` | Preview or render approved upstream artifact inputs |
 | `/sflow-phase` | Generate the current phase using its contract and world model |
 | `/sflow-requirements` | Requirements-focused generation |
 | `/sflow-design` | Architecture/design-focused generation |
@@ -532,6 +610,14 @@ Copilot or the provider did not expose exact usage, the exact model name has no 
 
 Confirm the directory is a Git repository and contains `.singularity/workflow.yml`. Run `singularity-flow init` and commit the initialized files first.
 
+### Agent sync reports stale or changed content
+
+Run `singularity-flow agents status <AGENT>`. If the agent Markdown or a remote hash changed, use `singularity-flow agents lock <AGENT> --update`, inspect the old/new hashes, type the exact agent name, commit the lock, and sync again. Never edit the lock by hand.
+
+### Remote generated output has local edits
+
+Review the local artifact first. `singularity-flow agents refresh-output <RESOURCE-ID>` will preserve conflicting local edits and explain the conflict. Add `--replace` only when you intentionally want the newly fetched Markdown to overwrite them.
+
 ## CLI command reference
 
 ```text
@@ -541,6 +627,12 @@ singularity-flow start <WORK-ID> [--jira | --story-file FILE]
 singularity-flow resume <WORK-ID> [--fetch]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
+singularity-flow inputs [PHASE] [--dry-run]
+singularity-flow agents list
+singularity-flow agents lock <AGENT> [--update]
+singularity-flow agents sync <AGENT>
+singularity-flow agents status [AGENT]
+singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]

@@ -1,4 +1,4 @@
-# Singularity Flow Lite architecture
+# Singularity Flow Lite 0.8.0 architecture
 
 ## System boundary
 
@@ -8,6 +8,8 @@ Singularity Flow separates probabilistic generation from deterministic lifecycle
 flowchart LR
   U["Contributor in Copilot or terminal"] --> S["Phase skill + selected persona"]
   S --> W["Routed world-model context"]
+  S --> I["Approved phase inputs"]
+  S --> D["Pinned active-agent Markdown"]
   S --> A["Artifact template"]
   A --> C["Deterministic CLI"]
   C --> V["Validate metadata, state, and checks"]
@@ -29,6 +31,8 @@ At work-item creation the CLI resolves:
 3. Every phase artifact/template path.
 4. Applicable checks, views, comparison, and approval policy.
 5. Configuration and template SHA-256 hashes.
+6. `inputsMode`, normalized upstream-input declarations, and producer artifact paths.
+7. Any explicitly referenced remote template copied into committed work-item context.
 
 This resolution is copied into `.singularity/work-items/<ID>/workflow.json`. The selected work type and snapshot are immutable. Active work therefore follows the definition committed on its branch even if the base branch later evolves.
 
@@ -39,14 +43,19 @@ This resolution is copied into `.singularity/work-items/<ID>/workflow.json`. The
 For generation, context is additive:
 
 ```text
-phase instructions
+phase contract/template
 + persona prompt
 + phase-required world-model views
 + persona world-model views
++ rule-selected repository world-model files
++ active-agent remote skill Markdown
++ approved phase-input artifacts
 + evidence ledger for verification/conformance
 ```
 
 Need-based `worldModel.injection.rules` may additionally place selected model files inside the active persona prompt. Normal phase skills load mandatory views with `wm context --no-persona`, then load the rendered persona through `wm inject`; the next generation commit includes a context audit record containing the selected file hashes and model commit.
+
+Repository world models never move to remote delivery. Agent Markdown is an additional scoped layer. `.singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent beside the persona without changing the lock. Skills are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
 Suggested personas improve discoverability but do not authorize phase access. Any contributor may assume any configured persona. A persona's `mayApprove` list provides decision authority.
 
@@ -62,7 +71,11 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ├── inputs/
 │   └── DOC-001/<original-file>
 ├── context/                 # per-generation prompt-injection audit records
-│   └── design-gen1.json
+│   ├── design-gen1.json
+│   ├── inputs-design-gen1.json
+│   ├── agents-design-gen1.json
+│   ├── agent-templates/
+│   └── remote-output-<agent>-<resource>-design-gen1.json
 ├── artifacts/
 │   ├── intake/intake.md
 │   ├── implementation-spec/implementation-spec.md
@@ -74,6 +87,16 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ```
 
 `workflow.json` is authoritative runtime state. `STATUS.md` is a generated human view. Artifacts contain a machine-managed metadata comment. Approval event files are append-only records; phase summary files are derived snapshots.
+
+## Phase-input dataflow
+
+Input declarations are validated in all modes, including ordering and work-type membership. `off` is inert, `record` records warnings, and `enforce` blocks required missing/unapproved inputs and every present hash mismatch. Collection verifies the producer's active approval, registered approved hash, current artifact hash, and resolved producer path. The marker-delimited input block is replaceable; the accompanying context record captures declarations, status, bytes, truncation, approved hashes, and rendered-block hash. Publication recollects rather than trusting preparation.
+
+## Remote dependency trust boundary
+
+Only links in exact agent dependency tables are executable configuration. Fetching accepts non-empty UTF-8 Markdown over public HTTPS, uses bounded redirects and timeouts, rejects embedded credentials and local/private literal hosts, and enforces a 10 MiB hard ceiling. The lock stores source-agent and resource hashes. First trust and updates are interactive; sync never changes hashes. Cache and audit writes are atomic.
+
+Dynamic URL expansion permits only encoded work item, work type, phase, and generation values. Targets are constrained below the current work item's `artifacts/<phase>/`. Repeated prepare reuses the snapshot. Local edits produce a conflict and require deliberate refresh; overwrite additionally requires `--replace`.
 
 `documents.json` is the stable supporting-input catalog. Local files are copied under `inputs/DOC-nnn/`; external links such as Figma are recorded without being downloaded. Each input is attributed to the active identity/persona and uploaded only during the profile-snapshotted allowed phases. Uploads use the same commit/push recovery protocol as lifecycle events.
 
@@ -91,7 +114,7 @@ Completion is the number of approved phases divided by the immutable total phase
 
 `apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, persona sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
 
-The app may visualize repository state and edit workflow, template, and persona source text, but it does not write `workflow.json`, approvals, generated metadata, or other runtime state directly. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, or template unresolved.
+The app may visualize repository state and edit workflow, template, persona, and repository-agent source text, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
 
 ## Transaction and publication model
 
@@ -134,7 +157,7 @@ Publication commit information that is not knowable before a commit is represent
 
 Requirements establish `AC-n` identifiers. Implementation specifications establish `SPEC-nnn` items mapped to acceptance criteria. Verification supplies tests and evidence. Conformance joins these ledgers to exact file/line evidence and one of five verdicts: `matched`, `partial`, `missing`, `deviated`, or `unplanned`.
 
-The final tree hash excludes `.singularity` state and hashes tracked source/test content. A later source/test change invalidates the conformance report. The deterministic gate also validates configuration/template snapshots, artifacts, approval identities/personas, thresholds, rejection effects, self-approval disclosure, protected paths, and—under required publication—the remote branch head.
+The final tree hash excludes `.singularity` state and hashes tracked source/test content. A later source/test change invalidates the conformance report. The deterministic gate also validates configuration/template snapshots, final-generation input/agent records, remote template/output provenance, artifacts, approval identities/personas, thresholds, rejection effects, self-approval disclosure, protected paths, and—under required publication—the remote branch head.
 
 ## Migration boundary
 

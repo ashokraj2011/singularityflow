@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.7
+# Singularity Flow Lite 0.8.0
 
 Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, personas, world-model views, approvals, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
 
@@ -6,7 +6,7 @@ The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
 - A secure Electron desktop studio for visual workflow, persona, approval, template, progress, and document management.
-- A skills-only GitHub Copilot plugin.
+- A GitHub Copilot plugin with collision-safe skills and a bundled workflow agent.
 - A canonical searchable help manual shared by the CLI, Copilot, and Electron desktop.
 - Editable feature, bugfix, and chore profiles.
 - Editable persona prompts and artifact templates.
@@ -112,8 +112,9 @@ The script refuses a checkout with uncommitted changes and never resets, rebases
 
 `.singularity/workflow.yml` is the definition for new work items. It contains:
 
-- `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, and approval policy.
-- `phases`: default templates, artifact paths, write scope, world-model views, quality commands, and approval rules.
+- `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, input, and approval policy.
+- `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
+- `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, quality commands, and approval rules.
 - `personas`: prompt files, suggested phases, additional world-model views, and phases each persona may approve.
 - `documents`: allowed upload phases, maximum file size, and text-preview limit; work types may override this policy.
 - `git`: remote name and whether publication is required.
@@ -290,6 +291,23 @@ Artifacts live under:
 
 Managed metadata records the work type, phase, generation, actor, persona, source/config/template hashes, token usage, commit information, and approval history. Do not edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata block manually.
 
+## Approved phase inputs
+
+Starter repositories use `inputsMode: record` and connect the full feature, bugfix, and chore phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation.
+
+```yaml
+inputsMode: enforce
+phases:
+  design:
+    inputs:
+      - requirements
+      - phase: intake
+        optional: true
+        maxBytes: 16384
+```
+
+Use `singularity-flow inputs design --dry-run` to inspect provenance without writing, or `/sflow-inputs` in Copilot. Normal preparation writes a managed artifact block and `context/inputs-design-gen<n>.json`; publication recollects inputs and the gate verifies approved hashes and rendered-block freshness.
+
 ## Token usage
 
 If a provider exposes exact usage, pass it when publishing:
@@ -373,6 +391,19 @@ Phase views provide required grounding. Persona views add perspective without re
 
 Optional `worldModel.injection.rules` add need-based context directly to that persona prompt. Rules can match persona, phase, immutable work type, changed-path globs, and source labels. Preview them with `singularity-flow wm inject --phase <phase> --dry-run`; a normal injection records selected file hashes and the model commit under the work item's `context/` directory for publication with the next generation.
 
+## Remote agent Markdown
+
+Agents under `.github/agents`, `.claude/agents`, or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. No URLs ship in the bundled agent, and local-only repositories perform no network access.
+
+```bash
+singularity-flow agents list
+singularity-flow agents lock architecture
+singularity-flow agents sync architecture
+singularity-flow agents status architecture
+```
+
+First trust and updates require exact agent-name confirmation. `.singularity/agents.lock.yml` pins hashes; sync only verifies and caches them. Remote skills are scoped prompt context, remote templates require an explicit `agent:<agent>/<resource>` workflow reference, and generated Markdown stays under the current phase artifact directory. See [HELP.md](HELP.md#remote-agent-markdown) for table schemas and refresh behavior.
+
 ## Useful commands
 
 | Command | Purpose |
@@ -385,6 +416,8 @@ Optional `worldModel.injection.rules` add need-based context directly to that pe
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
 | `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |
+| `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
+| `singularity-flow agents list\|lock\|sync\|status\|refresh-output` | Trust, materialize, inspect, and refresh remote agent Markdown. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <PATH...>` | Copy, hash, catalog, commit, and push supporting files during configured initial phases. |

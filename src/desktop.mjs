@@ -133,6 +133,26 @@ export async function saveDesktopFile(root, requestedPath, content) {
   return { path: relative, changed: changedFiles(root).includes(relative) };
 }
 
+export async function deleteDesktopTemplate(root, requestedPath) {
+  const definition = await loadDefinition(root);
+  const relative = repoRelative(root, requestedPath);
+  const templatesRoot = posix(definition.templatesRoot).replace(/\/$/, '');
+  if (!relative.startsWith(`${templatesRoot}/`)) throw new SingularityFlowError(`Template deletion is restricted to ${templatesRoot}.`);
+  const template = relative.slice(templatesRoot.length + 1);
+  const references = [];
+  for (const [phaseId, phase] of Object.entries(definition.phases)) {
+    if (phase.defaultTemplate === template) references.push(`phase ${phaseId}`);
+  }
+  for (const [workTypeId, profile] of Object.entries(definition.workTypes)) {
+    for (const [phaseId, value] of Object.entries(profile.templateOverrides ?? {})) if (value === template) references.push(`workflow ${workTypeId}/${phaseId}`);
+  }
+  if (references.length) throw new SingularityFlowError(`Template '${template}' is still referenced by ${references.join(', ')}. Select a replacement before deleting it.`);
+  const absolute = path.join(root, relative);
+  if (!(await exists(absolute))) throw new SingularityFlowError(`Template does not exist: ${relative}`);
+  await unlink(absolute);
+  return { path: relative, deleted: true, changed: changedFiles(root).includes(relative) };
+}
+
 export async function validateDesktopConfiguration(root) {
   const definition = await loadDefinition(root);
   const agents = await discoverAgents(root);

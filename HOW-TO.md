@@ -141,6 +141,19 @@ The interactive sequence is always:
 2. Choose a workflow profile: feature, bugfix, chore, or Figma export to mobile app.
 3. Choose a persona for the current terminal.
 
+When Copilot can ask questions but its shell cannot accept later stdin, `/sflow-start` uses an equivalent one-time receipt instead of sending you to another terminal:
+
+```bash
+singularity-flow choices begin start WORK-123 --json
+singularity-flow choices answer <TOKEN> intake-source manual --json
+singularity-flow choices answer <TOKEN> workflow-template feature --json
+singularity-flow choices answer <TOKEN> persona developer --json
+singularity-flow start WORK-123 --story-file /absolute/story.yml \
+  --selection-receipt <TOKEN>
+```
+
+Copilot must obtain each value from the contributor through its selectable question UI. Receipts expire after 15 minutes, are bound to the repository HEAD and work item, and are consumed once.
+
 Manual intake can also be supplied explicitly:
 
 ```bash

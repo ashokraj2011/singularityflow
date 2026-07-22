@@ -38,7 +38,7 @@ This resolution is copied into `.singularity/work-items/<ID>/workflow.json`. The
 
 ## Persona session and prompt composition
 
-`start` first selects Jira or manual intake, captures the story and supporting documents, and then selects a workflow template and persona; `resume` selects a persona. Template and persona selection are never bypassed. The normal path uses an interactive terminal. When Copilot has selectable questions but no persistent stdin bridge, start uses a short-lived one-time receipt under the Git directory that records the contributor's exact YAML-derived choices and is bound to the work ID, repository HEAD, and Copilot session when available. The session lives at `.git/singularity-flow/session.json` and is intentionally local and uncommitted.
+`start` first selects Jira or manual intake, captures the story and supporting documents, and then selects a workflow template and persona; `resume` selects a persona. Template and persona selection are never bypassed. The normal path uses an interactive terminal. When Copilot has selectable questions but no persistent stdin bridge, start and approval use short-lived one-time receipts under the Git directory. They record the human's exact YAML-derived choices and are bound to the work ID, repository HEAD, and Copilot session when available. Approval receipts additionally pin the submitted phase, generation, and artifact hashes and carry an exact typed phase confirmation. The session lives at `.git/singularity-flow/session.json` and is intentionally local and uncommitted.
 
 For generation, context is additive:
 

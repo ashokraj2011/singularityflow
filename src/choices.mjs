@@ -21,9 +21,22 @@ function options(entries) {
   return entries.map(([id, item]) => ({ id, label: item.label ?? id, description: item.description ?? '' }));
 }
 
-function choiceSets(definition, action) {
-  if (action !== 'start') throw new SingularityFlowError(`Selection receipts do not support action '${action}'. Use start.`);
-  return [
+function approvalContext(workflow) {
+  const phase = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
+  if (!phase || phase.status !== 'awaiting_approval') {
+    throw new SingularityFlowError(`Work item '${workflow?.workItem?.id ?? 'unknown'}' has no phase awaiting approval.`);
+  }
+  return {
+    phase: phase.id,
+    label: phase.label,
+    generation: phase.generation,
+    submittedAt: phase.submittedAt ?? null,
+    artifacts: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null }))
+  };
+}
+
+function choiceSets(definition, action, workflow = null) {
+  if (action === 'start') return [
     {
       id: 'intake-source',
       label: 'Intake source',
@@ -35,6 +48,23 @@ function choiceSets(definition, action) {
     { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) },
     { id: 'persona', label: 'Persona', options: options(Object.entries(definition.personas ?? {})) }
   ];
+  if (action === 'approve') {
+    const context = approvalContext(workflow);
+    const phase = workflow.phases[context.phase];
+    const allowed = new Set(phase.approvalPolicy?.personas ?? []);
+    const personas = Object.entries(definition.personas ?? {}).filter(([id, persona]) =>
+      allowed.has(id) && (persona.mayApprove ?? []).includes(phase.id));
+    if (!personas.length) throw new SingularityFlowError(`No configured persona can approve phase '${phase.id}'.`);
+    return [
+      { id: 'persona', label: 'Approval persona', options: options(personas) },
+      {
+        id: 'phase-confirmation',
+        label: 'Exact phase confirmation',
+        options: [{ id: phase.id, label: `Approve ${phase.label}`, description: `The reviewer must explicitly type '${phase.id}' to approve generation ${phase.generation}.` }]
+      }
+    ];
+  }
+  throw new SingularityFlowError(`Selection receipts do not support action '${action}'. Use start or approve.`);
 }
 
 async function writeReceipt(root, receipt) {
@@ -77,10 +107,11 @@ async function removeExpired(root) {
   }));
 }
 
-export async function beginSelectionReceipt(root, definition, { action, workId }) {
+export async function beginSelectionReceipt(root, definition, { action, workId, workflow = null }) {
   await removeExpired(root);
   const copilot = await loadCopilotSession(root);
   const createdAt = new Date();
+  const context = action === 'approve' ? approvalContext(workflow) : null;
   const receipt = {
     schemaVersion: 1,
     token: randomUUID(),
@@ -90,7 +121,8 @@ export async function beginSelectionReceipt(root, definition, { action, workId }
     copilotSessionId: copilot?.sessionId ?? null,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + RECEIPT_TTL_MS).toISOString(),
-    choiceSets: choiceSets(definition, action),
+    ...(context ? { approvalContext: context } : {}),
+    choiceSets: choiceSets(definition, action, workflow),
     answers: {},
     ready: false
   };
@@ -116,7 +148,7 @@ export async function selectionReceiptStatus(root, token) {
   return receipt;
 }
 
-export async function resolveSelectionReceipt(root, definition, token, { action, workId }) {
+export async function resolveSelectionReceipt(root, definition, token, { action, workId, workflow = null }) {
   const receipt = await readReceipt(root, token);
   await assertActive(root, receipt);
   if (receipt.action !== action || receipt.workId !== workId) {
@@ -125,7 +157,10 @@ export async function resolveSelectionReceipt(root, definition, token, { action,
   if (receipt.repositoryHead !== head(root)) {
     throw new SingularityFlowError(`Selection receipt '${token}' is stale because the repository HEAD changed. Ask the contributor to review the choices again.`);
   }
-  const current = choiceSets(definition, action);
+  if (action === 'approve' && JSON.stringify(receipt.approvalContext) !== JSON.stringify(approvalContext(workflow))) {
+    throw new SingularityFlowError(`Selection receipt '${token}' is stale because the submitted phase, generation, or artifact hashes changed.`);
+  }
+  const current = choiceSets(definition, action, workflow);
   const answers = {};
   for (const choices of current) {
     const selected = receipt.answers?.[choices.id]?.id;

@@ -115,6 +115,7 @@ Usage:
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
+  singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
   singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
@@ -334,13 +335,21 @@ function printSelectionReceipt(receipt) {
 async function choicesCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'choices subcommand');
   const root = repoRoot();
-  const config = await loadConfig(root);
+  let config = await loadConfig(root);
   let receipt;
   if (subcommand === 'begin') {
     const action = requirePositional(positionals, 2, 'selection action');
     const workId = requirePositional(positionals, 3, 'work ID');
     validateId(config, workId);
-    receipt = await beginSelectionReceipt(root, config, { action, workId });
+    let workflow = null;
+    if (action === 'approve') {
+      assertClean(root);
+      if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+      config = await loadConfig(root);
+      workflow = await loadWorkflow(root, config, workId);
+      await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
+    }
+    receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });
   } else if (subcommand === 'answer') {
     receipt = await answerSelectionReceipt(
       root,
@@ -823,6 +832,8 @@ async function submitCommand(options) {
 async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const requestedId = positionals[1];
+  const receiptToken = optionString(options, 'selection-receipt');
+  if (receiptToken) assertClean(root);
   let config = await loadConfig(root);
   const workId = requestedId ?? branch(root);
   if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
@@ -833,8 +844,12 @@ async function decisionWorkflow(positionals, options, action) {
     requestedPhase: optionString(options, 'phase'),
     allowedStatuses: ['awaiting_approval']
   });
+  const receipt = receiptToken
+    ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
+    : null;
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
-    allowedPersonas: phase.approvalPolicy?.personas ?? []
+    allowedPersonas: phase.approvalPolicy?.personas ?? [],
+    selection: receipt?.answers.persona ?? null
   });
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
     override.actor = session.actor;
@@ -845,11 +860,14 @@ async function decisionWorkflow(positionals, options, action) {
       history.persona = session.persona;
     }
   }
-  return { root, config, workflow, phase, session };
+  return { root, config, workflow, phase, session, receipt, receiptToken };
 }
 
 async function approveCommand(positionals, options) {
-  const { root, config, workflow, phase, session } = await decisionWorkflow(positionals, options, 'approve');
+  if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
+    throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
+  }
+  const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
   printPhaseReview(await phaseReview(root, config, workflow, phase));
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id} as ${session.persona}`);
@@ -858,10 +876,11 @@ async function approveCommand(positionals, options) {
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? 'unknown'} as ${item.persona} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
-  if (!optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
+  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+  if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const result = await approvePhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
-    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal'
+    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal'
   });
   const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
   console.log(publication.pushed

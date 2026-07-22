@@ -67,8 +67,11 @@ function setupCommandText(toolArgs) {
 
 function isPersonaToolCall(payload) {
   const command = setupCommandText(payload.toolArgs);
-  if (/^(?:singularity-flow|sflow) choices (?:begin start [A-Za-z0-9._-]+|answer [0-9a-f-]{36} (?:intake-source|workflow-template|persona) [A-Za-z0-9._-]+|status [0-9a-f-]{36})(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) choices (?:begin start [A-Za-z0-9._-]+|begin approve [A-Za-z0-9._-]+(?: --fetch)?|answer [0-9a-f-]{36} (?:intake-source|workflow-template|persona|phase-confirmation) [A-Za-z0-9._-]+|status [0-9a-f-]{36})(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) start\s/.test(command)
+    && /(?:^|\s)--selection-receipt\s+[0-9a-f-]{36}(?:\s|$)/.test(command)
+    && !/[;&|`$<>\n]/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) approve\s/.test(command)
     && /(?:^|\s)--selection-receipt\s+[0-9a-f-]{36}(?:\s|$)/.test(command)
     && !/[;&|`$<>\n]/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) inbox(?:(?: --json| --offline)){0,2}(?: 2>&1)?$/.test(command)) return true;

@@ -76,9 +76,9 @@ In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help W
 
 Copilot start, resume, approval, rejection, and persona flows use its
 interactive question facility to show the YAML-configured choices. Choose a
-label instead of typing a persona or workflow ID. During start, a shell without
-persistent stdin uses a short-lived one-time selection receipt, so the contributor
-can stay in Copilot. If interactive questions themselves are disabled, Singularity
+label instead of typing a persona or workflow ID. During start or approval, a shell
+without persistent stdin uses a short-lived one-time selection receipt, so the
+contributor or reviewer can stay in Copilot. If interactive questions themselves are disabled, Singularity
 Flow stops rather than choosing a default.
 
 Use `/sflow-nextsteps [WORK-ID]` whenever you need a compact ordered plan. Its CLI equivalent, `singularity-flow nextsteps [WORK-ID]`, works before initialization, without an active work item, during pending publication recovery, throughout every phase, and after completion. It is read-only and marks actions as `NOW`, `THEN`, or `ALTERNATIVE`.
@@ -187,7 +187,7 @@ singularity-flow resume ENG-142 --fetch
 
 With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags. A raw non-interactive invocation without proof of the contributor's choices fails clearly; `/sflow-start` can supply that proof with a one-time selection receipt when its shell has no persistent stdin bridge. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. The optional Copilot session hook binds that declaration to the current Copilot session ID and can prevent mutating tools until the contributor selects a persona.
 
-The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live YAML-derived intake, workflow, and persona options; Copilot presents those options through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. The completed token is passed as `--selection-receipt`, expires after 15 minutes, is bound to the work ID, repository HEAD, and Copilot session when available, and is deleted after one use. It never creates a commit, never contains Jira credentials, and cannot be substituted for another work item or changed repository state.
+The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live YAML-derived intake, workflow, and persona options; Copilot presents those options through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval uses `singularity-flow choices begin approve <WORK-ID> --fetch --json` and additionally binds the receipt to the submitted phase, generation, and artifact hashes while requiring the reviewer to type the exact phase ID. The completed token is passed as `--selection-receipt`, expires after 15 minutes, is bound to the work ID, repository HEAD, and Copilot session when available, and is deleted after one use. It never creates a commit by itself, never contains Jira credentials, and cannot be substituted for another work item or changed repository state.
 
 New repositories enable the session hook policy in `.singularity/workflow.yml`:
 
@@ -436,7 +436,7 @@ singularity-flow approve ENG-142 --fetch
 singularity-flow reject ENG-142 --fetch --to requirements --reason "Failure behavior is missing"
 ```
 
-Approval prompts for a persona, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, then requires the phase name as confirmation. Multi-approval thresholds require distinct authenticated identities.
+Approval prompts for a persona, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, then requires the phase name as confirmation. When Copilot lacks persistent shell stdin, `/sflow-approve` collects both explicit answers with a one-time approval receipt and runs the same approval itself; it never uses `--yes`. Multi-approval thresholds require distinct authenticated identities.
 
 Every individual approval is an atomic lifecycle decision: it updates the decision ledger and workflow state, creates its own `[WORK-ID][phase:<id>][approve] <persona>` commit, and pushes that commit before reporting success. This also applies to approvals that do not yet satisfy a multi-approval threshold. A failed push retains the local commit and blocks further decisions until `singularity-flow sync` succeeds.
 
@@ -510,7 +510,7 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, persona prompts, and world-model builder prompt. |
 | `singularity-flow start <ID> [--jira \| --story-file FILE]` | Import Jira or manual story details, attach optional documents, choose workflow template/persona, and create/push the work branch. |
-| `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
+| `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `sflow-persona [ID]` | Select or change the persona for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |

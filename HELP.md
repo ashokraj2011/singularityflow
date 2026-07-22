@@ -182,7 +182,7 @@ For a tab-like browser inside a canvas-capable Copilot host, enable experimental
 /documents view PHASE-DESIGN
 ```
 
-The canvas separates generated artifacts, uploaded inputs, and workflow documents, with search and full text previews. If the host cannot render canvases, `/documents` falls back to deterministic terminal list/view output. This extension cannot add a fifth built-in Copilot home tab because that UI surface is not exposed to plugins.
+The canvas separates generated artifacts, uploaded inputs, and workflow documents, with search and full text previews. It embeds a fresh snapshot directly in the canvas; run `/documents` again after generating or uploading files to reload it. If the host cannot render canvases, `/documents` falls back to deterministic terminal list/view output. This extension cannot add a fifth built-in Copilot home tab because that UI surface is not exposed to plugins.
 
 Use `/sflow-documents` for the model-assisted upload workflow or the **Documents** page in the desktop app.
 

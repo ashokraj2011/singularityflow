@@ -274,7 +274,7 @@ Durations include nights and weekends; they are not business-hours or developer-
 
 Supporting inputs are managed under `.singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
 
-GitHub Copilot CLI can also load the bundled experimental Documents extension. Enable experimental features with `/experimental on`, start a fresh session, then use `/documents` for a searchable canvas or `/documents view PHASE-DESIGN` to open a specific artifact. Hosts without canvas rendering automatically fall back to terminal output. Copilot currently does not allow plugins to add another built-in home tab, so the canvas is the supported tab-like document browser.
+GitHub Copilot CLI can also load the bundled experimental Documents extension. Enable experimental features with `/experimental on`, start a fresh session, then use `/documents` for a searchable canvas or `/documents view PHASE-DESIGN` to open a specific artifact. The extension embeds a fresh document snapshot directly in the canvas; run `/documents` again after generating or uploading files to reload it. Hosts without canvas rendering automatically fall back to terminal output. Copilot currently does not allow plugins to add another built-in home tab, so the canvas is the supported tab-like document browser.
 
 ```bash
 # Local documents, screenshots, PDFs, .fig files, or other binary files

@@ -44,6 +44,9 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   const root = await repository();
   let snapshot = await desktopSnapshot(root);
   assert.equal(snapshot.repository.branch, 'main');
+  assert.deepEqual(snapshot.repository.configurationChanges, []);
+  assert.deepEqual(snapshot.repository.unrelatedChanges, []);
+  assert.equal(snapshot.repository.publishReady, false);
   assert.equal(snapshot.workItems.length, 0);
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
@@ -60,6 +63,18 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.workflow.workItem.workType, 'feature');
   assert.equal(snapshot.workflow.resolution.sequenceGates.phaseStatus, 'soft');
   assert.ok(snapshot.documents.some((item) => item.id === 'SYS-WORKFLOW'));
+});
+
+test('desktop snapshot separates publishable configuration from unrelated changes', async () => {
+  const root = await repository();
+  const templatePath = '.singularity/templates/feature/design.md';
+  const template = await readFile(path.join(root, templatePath), 'utf8');
+  await saveDesktopFile(root, templatePath, `${template}\nDesktop configuration change.\n`);
+  await writeFile(path.join(root, 'README.md'), '# Unrelated source change\n');
+  const snapshot = await desktopSnapshot(root);
+  assert.deepEqual(snapshot.repository.configurationChanges, [templatePath]);
+  assert.deepEqual(snapshot.repository.unrelatedChanges, ['README.md']);
+  assert.equal(snapshot.repository.publishReady, false);
 });
 
 test('desktop configuration saves validate atomically and publish scoped changes', async () => {

@@ -47,7 +47,7 @@ import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadSession, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
-import { progressBar, progressSnapshot } from './progress.mjs';
+import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
@@ -339,6 +339,7 @@ async function progressCommand(positionals, options) {
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
   console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'complete'} (${progress.currentPosition}/${progress.totalPhases})`);
   console.log(`Documents: ${progress.documents}  Tokens: ${progress.tokens.totalTokens || 'unavailable'}`);
+  console.log(`\nWorkflow flow:\n${progressFlow(progress)}`);
   console.log(`\n${table(progress.phases, [
     { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
     { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }

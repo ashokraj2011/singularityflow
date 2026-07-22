@@ -419,7 +419,7 @@ singularity-flow progress WORK-123
 singularity-flow progress WORK-123 --json
 ```
 
-Progress is `approved phases / total phases`. Singularity Flow never invents fractional credit inside an unapproved phase. The view includes the current phase and position, generations, approval threshold, document count, and token totals.
+Progress is `approved phases / total phases`. Singularity Flow never invents fractional credit inside an unapproved phase. The view includes a vertical arrow-based phase map, with distinct markers for completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases, followed by the detailed table. It also includes the current position, generations, approval threshold, document count, and token totals.
 
 Use `/sflow-status` for full state and `/sflow-progress` for a concise completion view.
 

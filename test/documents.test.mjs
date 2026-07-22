@@ -32,6 +32,10 @@ test('progress and document commands upload, list, and view files, images, and F
   await writeFile(notes, '# Research\nCustomer workflow evidence.\n'); await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
   flow(root, ['start', 'DOCS-1', '--title', 'Document intake']);
 
+  const visualProgress = flow(root, ['progress']).stdout;
+  assert.match(visualProgress, /Workflow flow:/);
+  assert.match(visualProgress, /▶ Intake\s+IN PROGRESS · generation 0  ← CURRENT/);
+  assert.match(visualProgress, /▼[\s\S]*○ Requirements\s+PENDING/);
   let progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 0); assert.equal(progress.currentPhase, 'intake');
   flow(root, ['documents', 'upload', notes, image, '--kind', 'research']);
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/example', '--label', 'Checkout design']);

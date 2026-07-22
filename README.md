@@ -254,7 +254,7 @@ singularity-flow progress ENG-142
 singularity-flow progress ENG-142 --json
 ```
 
-Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows a progress bar, percentage, current phase and position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase.
+Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows an arrow-based workflow map in addition to the progress bar and detailed phase table. Completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases are visually distinct. It also shows percentage, current position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase.
 
 ## Workflow performance reports
 

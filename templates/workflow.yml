@@ -23,6 +23,7 @@ templatesRoot: .singularity/templates
 personaPromptsRoot: .singularity/personas
 
 worldModel:
+  views: [business, architecture, development, testing, release, operations, security]
   outputDir: .singularity/world-model
   promptSource: .singularity/prompts/worldmodel-builder.md
   grounding: enforce

@@ -8,13 +8,13 @@ import { installPlugin, uninstallPlugin } from '../src/plugin.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = path.join(root, 'plugin');
 
-test('plugin manifest publishes collision-safe skills and a workflow agent', async () => {
+test('plugin manifest publishes collision-safe skills, a workflow agent, and the Documents extension', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   assert.equal(manifest.name, 'singularity-flow');
   assert.equal(manifest.skills, 'skills/');
   assert.equal(manifest.agents, 'agents/');
   assert.equal(manifest.mcpServers, undefined);
-  assert.equal(manifest.extensions, undefined);
+  assert.equal(manifest.extensions, 'extensions/');
   assert.equal(manifest.hooks, undefined);
 });
 
@@ -109,6 +109,14 @@ test('next skill executes one action and preserves explicit approval controls', 
   assert.match(content, /Do not automatically submit a generation you just published/);
   assert.match(content, /ask_user/);
   assert.match(content, /write_bash/);
+});
+
+test('generation skills display published documents instead of reducing them to summaries', async () => {
+  for (const name of ['sflow-design', 'sflow-implement', 'sflow-next', 'sflow-phase', 'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-verify']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /published text document in full/i, `${name} must display published document content`);
+    assert.match(content, /never replace (?:it|the published document) with a summary/i, `${name} must prohibit summary-only publication output`);
+  }
 });
 
 test('interactive lifecycle skills bridge Copilot choices to the CLI picker without bypass flags', async () => {

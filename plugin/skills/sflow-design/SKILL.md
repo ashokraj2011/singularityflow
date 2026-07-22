@@ -13,4 +13,5 @@ disable-model-invocation: true
 5. Cover components, interfaces, data flow, alternatives, compatibility, security, privacy, observability, migration, rollout, rollback, risks, and an ordered implementation plan.
 6. State assumptions and tradeoffs. Do not implement production code.
 7. Remove every placeholder and run `singularity-flow phase publish design`.
-8. Report the publication commit and token status. Do not submit or approve automatically.
+8. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+9. Report the publication commit and token status. Do not submit or approve automatically.

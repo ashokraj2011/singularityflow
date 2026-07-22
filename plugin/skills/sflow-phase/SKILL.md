@@ -14,4 +14,5 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 4. Complete only the active phase's configured artifacts. Preserve managed metadata and remove all placeholders and unsupported claims.
 5. For specifications, assign stable `SPEC-nnn` identifiers mapped to `AC-nnn`. For implementation/tests, preserve both identifiers. For conformance, compare every identifier with file/line evidence and disclose all self-approvals.
 6. Run `singularity-flow phase publish <phase>`. Add `--usage-json <file>` only when the provider supplied exact usage JSON. The generation commit must include the grounding composition record and prompt snapshot.
-7. Report the generation commit, push result, token status, and next action. Do not submit or approve automatically.
+7. Preserve the command's post-publication document display: show every published text document in full with its path and hash. For a binary document, show its path and open instruction. Never replace the published document with a summary.
+8. Report the generation commit, push result, token status, and next action. Do not submit or approve automatically.

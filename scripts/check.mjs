@@ -45,11 +45,12 @@ checked.push('package.json', 'plugin/plugin.json', '.github/plugin/marketplace.j
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 if (pluginJson.name !== 'singularity-flow') fail('plugin.json name must be singularity-flow');
-for (const forbidden of ['extensions', 'mcpServers', 'hooks']) {
+for (const forbidden of ['mcpServers', 'hooks']) {
   if (Object.hasOwn(pluginJson, forbidden)) fail(`plugin.json contains unsupported component ${forbidden}`);
 }
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
 if (pluginJson.agents !== 'agents/') fail('plugin.json agents path must be agents/');
+if (pluginJson.extensions !== 'extensions/') fail('plugin.json extensions path must be extensions/');
 const marketplacePlugin = marketplaceJson.plugins?.find((item) => item.name === pluginJson.name);
 if (marketplaceJson.name !== 'singularity-flow') fail('marketplace.json name must be singularity-flow');
 if (!marketplacePlugin || marketplacePlugin.source !== './plugin') fail('marketplace must publish singularity-flow from ./plugin');
@@ -87,6 +88,15 @@ for (const entry of agentFiles) {
   checked.push(path.relative(root, file));
 }
 
+const extensionRoot = path.join(root, 'plugin', 'extensions');
+const extensionDirs = (await readdir(extensionRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory());
+if (!extensionDirs.length) fail('plugin must contain at least one bundled extension');
+for (const entry of extensionDirs) {
+  const file = path.join(extensionRoot, entry.name, 'extension.mjs');
+  if (!existsSync(file)) fail(`${entry.name}: extension.mjs is required`);
+  else checked.push(path.relative(root, file));
+}
+
 for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json']) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);
@@ -115,5 +125,5 @@ if (failures.length) {
   failures.forEach((message) => console.error(`- ${message}`));
   process.exitCode = 1;
 } else {
-  console.log(`Singularity Flow check passed: ${checked.length} checks across ${skillDirs.length} skills and ${agentFiles.length} agent(s); no Python, no MCP.`);
+  console.log(`Singularity Flow check passed: ${checked.length} checks across ${skillDirs.length} skills, ${agentFiles.length} agent(s), and ${extensionDirs.length} extension(s); no Python, no MCP.`);
 }

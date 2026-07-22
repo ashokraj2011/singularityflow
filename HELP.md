@@ -174,7 +174,17 @@ singularity-flow documents upload \
 
 Each uploaded file receives a stable ID, content hash, MIME type, actor, persona, and phase. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
 
-Use `/sflow-documents` in Copilot or the **Documents** page in the desktop app.
+For a tab-like browser inside a canvas-capable Copilot host, enable experimental features, start a fresh session, and invoke the bundled extension:
+
+```text
+/experimental on
+/documents
+/documents view PHASE-DESIGN
+```
+
+The canvas separates generated artifacts, uploaded inputs, and workflow documents, with search and full text previews. If the host cannot render canvases, `/documents` falls back to deterministic terminal list/view output. This extension cannot add a fifth built-in Copilot home tab because that UI surface is not exposed to plugins.
+
+Use `/sflow-documents` for the model-assisted upload workflow or the **Documents** page in the desktop app.
 
 ## Work types and phases
 
@@ -288,6 +298,8 @@ singularity-flow prepare intake
 singularity-flow phase publish intake
 singularity-flow submit
 ```
+
+After publication succeeds and any required push completes, the command prints every generated phase document with its path, SHA-256 hash, and text content. Binary documents print an openable local path. This is the exact published artifact preview, not an AI-generated summary.
 
 Phase artifacts live under:
 

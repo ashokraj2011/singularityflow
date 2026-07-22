@@ -13,4 +13,5 @@ disable-model-invocation: true
 5. Rank findings by severity and include file/line references when available.
 6. Do not silently fix findings unless explicitly asked.
 7. If the configured workflow includes review, run `singularity-flow prepare review`, complete the decision document, remove placeholders, and run `singularity-flow phase publish review`.
-8. Do not submit or approve automatically.
+8. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+9. Do not submit or approve automatically.

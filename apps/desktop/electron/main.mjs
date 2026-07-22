@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
@@ -31,6 +33,16 @@ function assertRepository(repository) {
   return resolved;
 }
 
+function safeRelativePath(value, label = 'path') {
+  const normalized = String(value ?? '').replaceAll('\\', '/').replace(/^\/+/, '');
+  if (!normalized || path.isAbsolute(normalized) || normalized.split('/').includes('..')) throw new Error(`${label} must stay inside the repository.`);
+  return normalized;
+}
+
+function portableName(value) {
+  return String(value ?? '').toLowerCase().replace(/\.md$/i, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'imported-skill';
+}
+
 async function snapshot(repository, workId = null) {
   const result = await invokeCli(repository, ['desktop', 'snapshot', ...(workId ? [workId] : []), '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   activeRepository = path.resolve(result.repository.root);
@@ -47,6 +59,51 @@ function registerHandlers() {
   ipcMain.handle('configuration:validate', (_event, { repository }) => invokeCli(assertRepository(repository), ['desktop', 'validate', '--json']));
   ipcMain.handle('configuration:save', (_event, { repository, filePath, content }) => invokeCli(assertRepository(repository), ['desktop', 'save', filePath], { input: content }));
   ipcMain.handle('configuration:delete-template', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-template', filePath, '--json']));
+  ipcMain.handle('configuration:delete-file', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-file', filePath, '--json']));
+  ipcMain.handle('configuration:download', async (_event, { repository, filePath }) => {
+    const source = await invokeCli(assertRepository(repository), ['desktop', 'read', filePath, '--json']);
+    const result = await dialog.showSaveDialog({ title: 'Download Singularity Flow file', defaultPath: source.name });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    await writeFile(result.filePath, Buffer.from(source.contentBase64, 'base64'));
+    return { path: result.filePath, bytes: source.bytes };
+  });
+  ipcMain.handle('configuration:import', async (_event, { repository, targetDirectory, targetPath, kind }) => {
+    const root = assertRepository(repository);
+    const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Import YAML or Markdown', filters: [{ name: 'Singularity Flow files', extensions: ['md', 'yml', 'yaml'] }] });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const sourcePath = result.filePaths[0];
+    const extension = path.extname(sourcePath).toLowerCase();
+    if (!['.md', '.yml', '.yaml'].includes(extension)) throw new Error('Only Markdown and YAML files can be imported.');
+    let relative;
+    if (targetPath) relative = safeRelativePath(targetPath, 'Import target');
+    else if (kind === 'skill') {
+      const parent = path.basename(path.dirname(sourcePath));
+      const id = portableName(path.basename(sourcePath).toLowerCase() === 'skill.md' ? parent : path.basename(sourcePath, extension));
+      relative = `${safeRelativePath(targetDirectory, 'Import directory').replace(/\/$/, '')}/${id}/SKILL.md`;
+    } else relative = `${safeRelativePath(targetDirectory, 'Import directory').replace(/\/$/, '')}/${path.basename(sourcePath)}`;
+    const absolute = path.join(root, relative);
+    if (existsSync(absolute)) {
+      const confirmation = await dialog.showMessageBox({ type: 'warning', buttons: ['Cancel', 'Replace'], defaultId: 0, cancelId: 0, title: 'Replace existing configuration?', message: `${relative} already exists.`, detail: 'Replacing it updates the repository working tree and remains uncommitted until you publish.' });
+      if (confirmation.response !== 1) return { canceled: true };
+    }
+    const saved = await invokeCli(root, ['desktop', 'save', relative], { input: await readFile(sourcePath, 'utf8') });
+    return { ...saved, sourcePath };
+  });
+  ipcMain.handle('configuration:export-bundle', async (_event, { repository }) => {
+    const root = assertRepository(repository);
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Choose where to export Singularity Flow configuration' });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const bundle = await invokeCli(root, ['desktop', 'export-bundle', '--json']);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const output = path.join(result.filePaths[0], `singularity-flow-export-${stamp}`);
+    for (const file of bundle.files) {
+      const relative = safeRelativePath(file.path, 'Export path');
+      const destination = path.join(output, relative);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, file.content, 'utf8');
+    }
+    return { path: output, files: bundle.files.length, worldModelRepositoryOwned: true };
+  });
   ipcMain.handle('configuration:publish', (_event, { repository, message }) => invokeCli(assertRepository(repository), ['desktop', 'publish', '--message', message || 'Configure Singularity Flow workflow', '--json']));
   ipcMain.handle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
   ipcMain.handle('documents:upload', async (_event, { repository }) => {

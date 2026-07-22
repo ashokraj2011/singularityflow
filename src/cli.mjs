@@ -55,9 +55,12 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
+  deleteDesktopFile,
   deleteDesktopTemplate,
+  desktopExportBundle,
   desktopSnapshot,
   publishDesktopConfiguration,
+  readDesktopFile,
   saveDesktopFile,
   selectDesktopPersona,
   validateDesktopConfiguration
@@ -146,6 +149,9 @@ Usage:
   singularity-flow desktop snapshot [WORK-ID] --json
   singularity-flow desktop validate --json
   singularity-flow desktop save <PATH>          Reads replacement content from stdin
+  singularity-flow desktop read <PATH> --json
+  singularity-flow desktop export-bundle --json
+  singularity-flow desktop delete-file <PATH> --json
   singularity-flow desktop delete-template <PATH> --json
   singularity-flow desktop publish [--message TEXT] --json
   singularity-flow desktop session <PERSONA> [--work-id ID] --json
@@ -899,6 +905,9 @@ async function desktopCommand(positionals, options) {
   if (subcommand === 'snapshot') result = await desktopSnapshot(root, positionals[2]);
   else if (subcommand === 'validate') result = await validateDesktopConfiguration(root);
   else if (subcommand === 'save') result = await saveDesktopFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
+  else if (subcommand === 'read') result = await readDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));
+  else if (subcommand === 'export-bundle') result = await desktopExportBundle(root);
+  else if (subcommand === 'delete-file') result = await deleteDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteDesktopTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishDesktopConfiguration(root, optionString(options, 'message'));
   else if (subcommand === 'session') result = await selectDesktopPersona(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'persona'));

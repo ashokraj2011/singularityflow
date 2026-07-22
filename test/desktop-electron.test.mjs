@@ -41,7 +41,7 @@ test('Electron welcome screen renders persistent repository errors and loading f
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
 
-test('Electron desktop exposes guided workflow, stage, artifact, and template controls', async () => {
+test('Electron desktop exposes guided workflow and portable repository configuration controls', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   assert.match(source, />＋ Workflow</);
@@ -49,5 +49,12 @@ test('Electron desktop exposes guided workflow, stage, artifact, and template co
   assert.match(source, /Artifact path/);
   assert.match(source, /Inputs from earlier stages/);
   assert.match(source, /Create artifact template/);
+  assert.match(source, /Create persona and prompt/);
+  assert.match(source, /Create repository skill/);
+  assert.match(source, /Repository-owned world model/);
+  assert.match(source, />Download config</);
   assert.match(preload, /deleteTemplate/);
+  assert.match(preload, /downloadFile/);
+  assert.match(preload, /importFile/);
+  assert.match(preload, /exportBundle/);
 });

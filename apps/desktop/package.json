@@ -39,6 +39,8 @@
     "extraResources": [
       { "from": "../../bin", "to": "cli/bin" },
       { "from": "../../src", "to": "cli/src" },
+      { "from": "../../templates", "to": "cli/templates" },
+      { "from": "../../plugin", "to": "cli/plugin" },
       { "from": "../../HELP.md", "to": "cli/HELP.md" },
       { "from": "../../node_modules/yaml", "to": "cli/node_modules/yaml" },
       { "from": "../../package.json", "to": "cli/package.json" }

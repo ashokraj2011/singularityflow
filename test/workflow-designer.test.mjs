@@ -7,11 +7,15 @@ import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import {
   addPhaseToWorkType,
+  createPersona,
   createPhase,
   createWorkType,
   deleteUnusedPhase,
+  personaPromptRepositoryPath,
   removePhaseFromWorkType,
+  removePersona,
   removeWorkType,
+  repositorySkillPath,
   setWorkTypeInputs,
   templateRepositoryPath
 } from '../apps/desktop/src/workflow-designer.mjs';
@@ -80,4 +84,25 @@ test('workflow designer normalizes safe template repository paths', async () => 
   assert.equal(templateRepositoryPath(original, 'security/review.md'), '.singularity/templates/security/review.md');
   assert.throws(() => templateRepositoryPath(original, '../review.md'), /without "\.\."/);
   assert.throws(() => templateRepositoryPath(original, 'review.txt'), /relative \.md path/);
+});
+
+test('workflow designer creates personas and safely rewrites persona references', async () => {
+  const original = await definition();
+  const created = createPersona(original, { id: 'security-reviewer', label: 'Security reviewer', description: 'Review controls.', prompt: 'security/security-reviewer.md' });
+  assert.equal(created.personas['security-reviewer'].prompt, 'security/security-reviewer.md');
+  assert.equal(personaPromptRepositoryPath(created, created.personas['security-reviewer'].prompt), '.singularity/personas/security/security-reviewer.md');
+  const referenced = structuredClone(created);
+  referenced.phases.design.suggestedPersonas.push('security-reviewer');
+  referenced.phases.design.approval.personas = ['security-reviewer'];
+  const removed = removePersona(referenced, 'security-reviewer', 'architect');
+  assert.equal(removed.personas['security-reviewer'], undefined);
+  assert.ok(removed.phases.design.suggestedPersonas.includes('architect'));
+  assert.deepEqual(removed.phases.design.approval.personas, ['architect']);
+  assert.doesNotThrow(() => validateDefinition(removed));
+  assert.throws(() => createPersona(original, { id: 'Bad ID' }), /kebab-case/);
+});
+
+test('workflow designer normalizes repository skill paths', () => {
+  assert.equal(repositorySkillPath('security-review'), '.github/skills/security-review/SKILL.md');
+  assert.throws(() => repositorySkillPath('../security'), /kebab-case/);
 });

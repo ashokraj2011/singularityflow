@@ -206,7 +206,8 @@ export async function initializeDefinition(root) {
   const mappings = [
     ['workflow.yml', WORKFLOW_PATH],
     ['artifacts', '.singularity/templates'],
-    ['personas', '.singularity/personas']
+    ['personas', '.singularity/personas'],
+    ['worldmodel-builder.md', '.singularity/prompts/worldmodel-builder.md']
   ];
   for (const [source, destination] of mappings) {
     if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);

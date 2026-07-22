@@ -55,10 +55,22 @@ async function workItems(root, definition) {
   return results.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
 }
 
+function configurationChangeScope(definition, changes) {
+  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file));
+  const unrelatedChanges = changes.filter((file) => !configurationChanges.includes(file));
+  return {
+    configurationChanges,
+    unrelatedChanges,
+    publishReady: configurationChanges.length > 0 && unrelatedChanges.length === 0
+  };
+}
+
 export async function desktopSnapshot(root, requestedWorkId = null) {
   const definition = await loadDefinition(root);
   const items = await workItems(root, definition);
   const currentBranch = branch(root);
+  const changes = changedFiles(root);
+  const changeScope = configurationChangeScope(definition, changes);
   const selectedId = requestedWorkId ?? items.find((item) => item.branch === currentBranch)?.id ?? null;
   let workflow = null;
   let progress = null;
@@ -72,7 +84,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
   return {
     schemaVersion: 1,
-    repository: { root, branch: currentBranch, changes: changedFiles(root) },
+    repository: { root, branch: currentBranch, changes, ...changeScope },
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),

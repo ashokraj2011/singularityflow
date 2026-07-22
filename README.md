@@ -240,7 +240,7 @@ singularity-flow report ENG-142 --format json
 singularity-flow report ENG-142 --format html --out workflow-report.html
 ```
 
-From Copilot, use `/sflow-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, exact token usage, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
+From Copilot, use `/sflow-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, provider/model identity, exact token usage with per-model totals, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
 
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 
@@ -316,7 +316,7 @@ If a provider exposes exact usage, pass it when publishing:
 singularity-flow phase publish implementation --usage-json usage.json
 ```
 
-The JSON may contain provider, model, input, output, cached-input, total tokens, start/end timestamps, and collection source. When Copilot does not expose exact values, the record is explicitly marked `unavailable`; the CLI never estimates silently. Status and state aggregate usage by phase, persona, work type, and work item.
+The JSON may contain provider, model, input, output, cached-input, total tokens, start/end timestamps, and collection source. When Copilot does not expose exact values, the record is explicitly marked `unavailable`; the CLI never estimates silently. Reports identify the provider/model for every phase and aggregate token records by model as well as phase and persona.
 
 Workflow reports can calculate cost only from exact usage and optional prices configured by exact model name. Rates are currency units per million tokens; no prices are bundled or assumed because provider pricing changes over time:
 

@@ -236,6 +236,8 @@ Start and resume ask for a persona. The active session is local:
 
 Selecting a persona alone does not create a commit. The next generation, submission, approval, rejection, or document upload records the actor and persona.
 
+The selection remains active across CLI, Copilot, and later terminal invocations in this repository until another `start`, `resume`, approval, or rejection selection replaces it. It is deliberately not pushed: a different clone must run `singularity-flow resume <WORK-ID> --fetch` and declare its own persona.
+
 Multi-approval thresholds require distinct authenticated identities. Switching persona does not create another identity.
 
 ## Generating and publishing a phase
@@ -309,7 +311,7 @@ singularity-flow report WORK-123 --format json
 singularity-flow report WORK-123 --format html --out workflow-report.html
 ```
 
-Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, exact tokens, optional cost, quality-check duration, and the largest approval-latency bottleneck.
+Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
 
 Durations are wall-clock time and include nights and weekends. They are not business-hours or productivity estimates. Token counts are exact only when the provider supplied them. Cost appears only when exact model pricing is configured; incomplete coverage is marked partial.
 
@@ -323,7 +325,7 @@ When a provider exposes exact usage, save its values as JSON and publish with:
 singularity-flow phase publish implementation --usage-json usage.json
 ```
 
-The usage record may contain provider, model, input, output, cached-input and total tokens, timestamps, and collection source. Missing values are recorded as `unavailable`; they are never estimated silently.
+The usage record may contain provider, model, input, output, cached-input and total tokens, timestamps, and collection source. Missing values are recorded as `unavailable`; they are never estimated silently. Markdown, HTML, and JSON reports identify the models used per phase and aggregate records and tokens by provider/model.
 
 Optional report pricing uses rates per million tokens keyed by the exact provider model name:
 

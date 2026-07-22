@@ -72,6 +72,9 @@ test('deriveReport computes phase waiting, active time, rework, tokens, and bott
   assert.equal(report.phases[1].rejections.length, 1);
   assert.equal(report.reworkCycles, 1);
   assert.equal(report.tokens.total, 10000);
+  assert.deepEqual(report.tokens.byModel, [{
+    provider: 'test', model: 'test-model', records: 3, exactRecords: 2, unavailableRecords: 1, totalTokens: 10000
+  }]);
   assert.equal(report.phases[1].tokenStatus, 'partial');
   assert.equal(report.bottleneck.phase, 'design');
 });
@@ -114,11 +117,16 @@ test('markdown and HTML render escaped, script-free report summaries and limitat
   assert.match(markdown, /# ENG-1 — Demo feature \(feature\)/);
   assert.match(markdown, /1 rework cycle/);
   assert.match(markdown, /10,000 exact tokens/);
+  assert.match(markdown, /Provider \/ model/);
+  assert.match(markdown, /Token usage by model/);
+  assert.match(markdown, /test-model/);
   assert.match(markdown, /Bottleneck/);
   assert.match(markdown, /wall-clock/);
   const html = renderHtml(report);
   assert.match(html, /<svg/);
   assert.match(html, /ENG-1/);
+  assert.match(html, /Token usage by model/);
+  assert.match(html, /test-model/);
   assert.doesNotMatch(html, /<script/);
 });
 

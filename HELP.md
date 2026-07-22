@@ -673,15 +673,19 @@ Create a production renderer build with `npm run desktop:build` or packaged inst
 The desktop app provides:
 
 - Overview and progress dashboard
-- Visual workflow and approval-rule designer
+- Visual workflow profiles: create a profile by copying an existing workflow, rename it, or remove it
+- Stage designer: create stages, add shared stages, reorder or remove them, and select upstream artifact inputs
+- Artifact contracts: configure each stage's output path, kind, minimum size, write scope, template, quality commands, personas, approvals, and world-model views
 - Persona and approval-capability inspection
-- Artifact-template source and preview
+- Artifact-template library with guided creation, source/preview editing, and safe deletion when unreferenced
 - Repository agent Markdown editor and read-only remote lock status
 - Supporting-document catalog and upload
 - Searchable help manual
 - Validated configuration save, commit, and push
 
 Open an initialized repository. The desktop is a control plane over the same CLI and Git state; it does not maintain a second workflow database. Renderer sandboxing, context isolation, and a narrow preload API keep filesystem and Git access outside the UI.
+
+Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically. Use **Artifact templates** to create the Markdown structure first, then return to **Workflow** and assign it to a stage. Template deletion is refused while any default or workflow override still references it.
 
 ## Copilot commands
 
@@ -838,7 +842,7 @@ singularity-flow gate [--terminal]
 singularity-flow wm build|context|inject|check
 singularity-flow jira list|pull|fields
 singularity-flow plugin install|uninstall|list|path
-singularity-flow desktop snapshot|validate|save|publish|session
+singularity-flow desktop snapshot|validate|save|delete-template|publish|session
 ```
 
 Run `singularity-flow --help` for the current terse usage list and `singularity-flow help <topic>` for one section of this manual.

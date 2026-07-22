@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('singularity', {
   snapshot: (repository, workId) => ipcRenderer.invoke('repository:snapshot', { repository, workId }),
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
+  deleteTemplate: (repository, filePath) => ipcRenderer.invoke('configuration:delete-template', { repository, filePath }),
   publish: (repository, message) => ipcRenderer.invoke('configuration:publish', { repository, message }),
   selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
   uploadDocuments: (repository) => ipcRenderer.invoke('documents:upload', { repository }),

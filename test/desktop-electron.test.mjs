@@ -40,3 +40,14 @@ test('Electron welcome screen renders persistent repository errors and loading f
   assert.match(source, /if \(!data\).*<Toast toast=\{toast\}/s);
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
+
+test('Electron desktop exposes guided workflow, stage, artifact, and template controls', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
+  assert.match(source, />＋ Workflow</);
+  assert.match(source, />＋ New stage</);
+  assert.match(source, /Artifact path/);
+  assert.match(source, /Inputs from earlier stages/);
+  assert.match(source, /Create artifact template/);
+  assert.match(preload, /deleteTemplate/);
+});

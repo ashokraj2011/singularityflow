@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  deleteDesktopTemplate,
   desktopSnapshot,
   publishDesktopConfiguration,
   saveDesktopFile,
@@ -96,6 +97,15 @@ test('desktop configuration saves validate atomically and publish scoped changes
   assert.equal(published.pushed, false);
   assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure desktop template/);
+});
+
+test('desktop creates templates and only deletes them when no workflow references them', async () => {
+  const root = await repository();
+  const templatePath = '.singularity/templates/custom/security-review.md';
+  await saveDesktopFile(root, templatePath, '# {{work.id}} — Security review\n');
+  assert.equal((await deleteDesktopTemplate(root, templatePath)).deleted, true);
+  await assert.rejects(() => deleteDesktopTemplate(root, '.singularity/templates/feature/design.md'), /still referenced by/);
+  await assert.rejects(() => deleteDesktopTemplate(root, 'README.md'), /restricted to/);
 });
 
 test('desktop persona selection remains local and requires the active work branch', async () => {

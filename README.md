@@ -514,7 +514,7 @@ npm run desktop:build
 npm run desktop:dist
 ```
 
-Open an initialized repository from the app. The studio provides a progress dashboard, visual phase graph, persona and approval-rule inspection, validated YAML editing, artifact-template source/preview, supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
+Open an initialized repository from the app. The studio provides a progress dashboard and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. Users can create, copy, reorder, configure, or safely remove these elements while inspecting the exact YAML draft. It also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
 
 Install the personal Copilot plugin with:
 

@@ -765,6 +765,53 @@ SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh
 
 The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPORTER_PATH`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or explicit `COPILOT_OTEL_ENABLED` setting. Open a new terminal after installation.
 
+## Low-friction cockpit, diagnostics, and guided execution
+
+Run `singularity-flow` with no arguments, or `singularity-flow cockpit`, to open the terminal cockpit. It shows the current work item, persona, assignment, progress, current phase, blockers, and deterministic next actions without changing state. In Copilot use `/sflow-home`.
+
+```bash
+singularity-flow doctor
+singularity-flow doctor WORK-123 --offline
+singularity-flow run --task "Implement the approved screen contract"
+```
+
+Doctor checks Node and Git, YAML and workflow state, local persona, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never assumes an approval persona and never approves automatically.
+
+## Workflow catalog and preflight simulation
+
+```bash
+singularity-flow workflow list
+singularity-flow workflow simulate figma-mobile
+singularity-flow workflow diff figma-mobile
+singularity-flow workflow add figma-mobile --dry-run
+```
+
+`workflow add` copies the profile plus missing Markdown templates/persona prompts and validates the resulting YAML. Customized profiles are never overwritten unless `--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work items keep their immutable resolution snapshots.
+
+## Review bundles, assignments, and watching
+
+```bash
+singularity-flow review design
+singularity-flow review design --format html --out .singularity/reviews/WORK-123-design.html
+singularity-flow assign design "mobile-team"
+singularity-flow watch WORK-123 --once
+```
+
+The review bundle contains the artifact in full, input provenance, checks, approvals/self-approval warnings, model/token records, source changes, and supporting evidence. The desktop **Review bundle** page renders the same data. Assignments are committed/pushed coordination metadata, not persona restrictions. Configure `collaboration.assignmentMode` as `off`, `suggested`, or `required`; required assignments block publication and submission.
+
+## Design package inventory and gallery
+
+`singularity-flow documents upload ./figma-export` recursively preserves paths and hashes and creates committed `PKG-nnn` package records with `manifest.json`, `inventory.md`, and a local `gallery.html`. The inventory reports types, sizes, empty files, and duplicate hashes. The desktop Documents page has separate file and folder actions.
+
+## Safe recovery and Copilot session guidance
+
+```bash
+singularity-flow recover WORK-123 --fetch
+singularity-flow recover WORK-123 --fetch --apply
+```
+
+Recovery is plan-first. Apply only retries retained publication or performs a clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards work. The bundled read-only Copilot `sessionStart` hook injects current-phase guidance and recommends `/sflow-nextsteps` and `/sflow-documents`; it performs no mutation and never approves.
+
 ## Troubleshooting
 
 ### Copilot plugin is installed but commands are missing
@@ -829,6 +876,14 @@ sflow-persona [WORK-ID]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
+singularity-flow run [--task TEXT] [--yes]
+singularity-flow cockpit
+singularity-flow doctor [WORK-ID] [--offline] [--json]
+singularity-flow review [PHASE] [--format md|html|json] [--out FILE]
+singularity-flow workflow list|simulate|diff|add|upgrade
+singularity-flow assign <PHASE> <ASSIGNEE>
+singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
+singularity-flow recover [WORK-ID] [--fetch] [--apply]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run]
 singularity-flow agents list

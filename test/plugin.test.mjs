@@ -15,7 +15,17 @@ test('plugin manifest publishes collision-safe skills, a workflow agent, and the
   assert.equal(manifest.agents, 'agents/');
   assert.equal(manifest.mcpServers, undefined);
   assert.equal(manifest.extensions, 'extensions/');
-  assert.equal(manifest.hooks, undefined);
+  assert.equal(manifest.hooks, 'hooks.json');
+});
+
+test('plugin session hook injects guidance without running a lifecycle transition', async () => {
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
+  const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
+  assert.equal(hooks.version, 1);
+  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart']);
+  assert.equal(hooks.hooks.sessionStart[0].type, 'command');
+  assert.equal(hooks.hooks.sessionStart[0].command, 'singularity-flow hook session-start');
+  assert.equal(hooks.hooks.sessionStart[0].timeoutSec, 10);
 });
 
 test('bundled workflow agent self-activates and ships inert dependency tables', async () => {

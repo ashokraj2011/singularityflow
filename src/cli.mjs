@@ -2,6 +2,7 @@ import readline from 'node:readline/promises';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
+import YAML from 'yaml';
 import {
   SingularityFlowError,
   optionBoolean,
@@ -14,7 +15,7 @@ import {
   table,
   writeText
 } from './util.mjs';
-import { assertClean, branch, checkout, identity, repoRoot } from './git.mjs';
+import { assertClean, branch, changes, checkout, fetchOrigin, hasUpstream, identity, pullFastForward, repoRoot } from './git.mjs';
 import {
   approvePhase,
   assertNoPendingPublication,
@@ -66,6 +67,10 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 import { verifyGroundingRecord, worldModelCommit, worldModelSourceSnapshot } from './grounding.mjs';
+import { doctorSnapshot, doctorText } from './doctor.mjs';
+import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
+import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 
 const VERSION = '0.8.0';
 
@@ -113,6 +118,13 @@ Usage:
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
+  singularity-flow run [--task TEXT] [--yes]
+  singularity-flow doctor [WORK-ID] [--offline] [--json]
+  singularity-flow review [PHASE] [--format md|html|json] [--out FILE]
+  singularity-flow workflow list | simulate [TYPE] | diff <TYPE> | add <TYPE> [--dry-run] [--replace]
+  singularity-flow assign <PHASE> <ASSIGNEE>
+  singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
+  singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow agents list
   singularity-flow agents lock <AGENT> [--update]
@@ -212,6 +224,13 @@ async function confirmExact(prompt, expected) {
   }
   const io = readline.createInterface({ input, output });
   try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
+  finally { io.close(); }
+}
+
+async function confirmYesNo(prompt) {
+  if (!input.isTTY || !output.isTTY) return false;
+  const io = readline.createInterface({ input, output });
+  try { return /^(y|yes)$/i.test((await io.question(`${prompt} [y/N] `)).trim()); }
   finally { io.close(); }
 }
 
@@ -396,6 +415,8 @@ async function nextStepsCommand(positionals, options) {
       const workflow = await loadWorkflow(root, config, id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
+      if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
+      else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
       if (active?.status === 'in_progress' && !session?.persona) prerequisites.push({
         timing: 'now', skill: '/sflow-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
         reason: 'Select the persona that will remain active for this terminal session before generation.'
@@ -815,6 +836,148 @@ async function syncCommand() {
   const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
 }
 
+async function doctorCommand(positionals, options) {
+  const root = repoRoot();
+  const report = await doctorSnapshot(root, { workId: positionals[1], offline: optionBoolean(options, 'offline') });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
+  else process.stdout.write(doctorText(report));
+  if (!report.healthy) process.exitCode = 2;
+}
+
+async function reviewCommand(positionals, options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const bundle = await createReviewBundle(root, config, workflow, positionals[1]);
+  const format = optionString(options, 'format', 'md').toLowerCase();
+  if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError('Review format must be md, html, or json.');
+  const rendered = format === 'json' ? `${JSON.stringify(bundle, null, 2)}\n` : format === 'html' ? reviewHtml(bundle) : reviewMarkdown(bundle);
+  const outputFile = optionString(options, 'out');
+  if (outputFile) {
+    const absolute = path.resolve(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}`); return;
+  }
+  process.stdout.write(rendered);
+}
+
+async function workflowCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
+  if (subcommand === 'list') {
+    const catalog = await workflowCatalog(root);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(catalog, null, 2));
+    return console.log(table(catalog.map((item) => ({ id: item.id, label: item.label, phases: item.phases.length, status: item.status })), [
+      { key: 'id', label: 'WORKFLOW' }, { key: 'label', label: 'LABEL' }, { key: 'phases', label: 'PHASES' }, { key: 'status', label: 'STATUS' }
+    ]));
+  }
+  if (subcommand === 'simulate') {
+    const result = await simulateWorkflow(root, positionals[2]);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(simulationText(result));
+    return;
+  }
+  if (subcommand === 'diff') {
+    const result = await workflowDiff(root, requirePositional(positionals, 2, 'workflow type'));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(result.equal ? `Workflow '${result.id}' matches the bundled profile.` : `Workflow '${result.id}' differs from the bundled profile.`);
+    if (!result.equal) process.stdout.write(`\n--- INSTALLED ---\n${YAML.stringify(result.installed)}\n--- BUNDLED ---\n${YAML.stringify(result.bundled)}`);
+    return;
+  }
+  if (['add', 'upgrade'].includes(subcommand)) {
+    const id = requirePositional(positionals, 2, 'workflow type');
+    const result = await installWorkflow(root, id, { replace: optionBoolean(options, 'replace'), dryRun: optionBoolean(options, 'dry-run') });
+    console.log(`${result.dryRun ? 'Would update' : 'Updated'} workflow '${id}':`); result.files.forEach((file) => console.log(`  ${file}`));
+    if (!result.dryRun) console.log('Changes are validated but uncommitted. Review them, then publish from the desktop or commit them through your normal configuration-review path.');
+    return;
+  }
+  throw new SingularityFlowError(`Unknown workflow subcommand: ${subcommand}`);
+}
+
+async function assignCommand(positionals) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const phaseId = requirePositional(positionals, 1, 'phase'); const assignee = requirePositional(positionals, 2, 'assignee'); const session = await loadSession(root);
+  const record = await assignPhase(root, config, workflow, phaseId, assignee, session);
+  const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phaseId}][assign] ${record.assignee}`);
+  console.log(`Assigned ${phaseId} to ${record.assignee}. Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+}
+
+async function watchCommand(positionals, options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]);
+  const once = optionBoolean(options, 'once') || !output.isTTY; const interval = Math.max(2, optionNumber(options, 'interval', 15));
+  let previous = '';
+  do {
+    if (optionBoolean(options, 'fetch') && branch(root) === workflow.workItem.branch && hasUpstream(root) && !changes(root).trim()) { fetchOrigin(root); pullFastForward(root); }
+    const fresh = await loadWorkflow(root, config, workflow.workItem.id); const snapshot = watchSnapshot(fresh); const serialized = JSON.stringify(snapshot);
+    if (serialized !== previous) {
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2)); else process.stdout.write(watchText(snapshot));
+      previous = serialized;
+    }
+    if (once) break;
+    await new Promise((resolve) => setTimeout(resolve, interval * 1000));
+  } while (true);
+}
+
+async function recoverCommand(positionals, options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]);
+  const plan = await recoveryPlan(root, config, workflow, { fetch: optionBoolean(options, 'fetch') });
+  const result = optionBoolean(options, 'apply') ? await applyRecovery(root, config, workflow, plan) : plan;
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
+}
+
+async function runCommand(options) {
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
+  if (!phase) { console.log('Workflow is complete. Running the final governance gate.'); return gateCommand({ terminal: true }); }
+  if (phase.status === 'awaiting_approval') {
+    console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
+    console.log(`Review: singularity-flow review ${phase.id}`);
+    console.log(`Decide: singularity-flow approve ${workflow.workItem.id} --fetch`);
+    return;
+  }
+  if (phaseNeedsGeneration(workflow, phase)) {
+    await nextCommand(options);
+    console.log(`Guided run stopped at the authoring boundary. Complete ${phase.requiredArtifact.path}, then publish it with singularity-flow phase publish ${phase.id}.`);
+    return;
+  }
+  const submit = optionBoolean(options, 'yes') || await confirmYesNo(`Generation ${phase.generation} is published. Submit '${phase.id}' for approval?`);
+  if (!submit) { console.log(`No state changed. Submit later with singularity-flow submit --phase ${phase.id}.`); return; }
+  await submitCommand({ ...options, phase: phase.id });
+  console.log(`Guided run stopped at the approval boundary. Review with singularity-flow review ${phase.id}.`);
+}
+
+async function cockpitCommand() {
+  const root = repoRoot();
+  if (!existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(path.join(root, '.singularity/config.json'))) {
+    console.log('Singularity Flow is not initialized in this repository.\n\nRun: singularity-flow init'); return;
+  }
+  const config = await loadConfig(root); let workflow;
+  try { workflow = await loadWorkflow(root, config); }
+  catch {
+    console.log(`Singularity Flow cockpit\nRepository: ${root}\nBranch: ${branch(root)}\n\nNo work item is active on this branch.`);
+    console.log('Start: singularity-flow start <WORK-ID>\nResume: singularity-flow resume <WORK-ID> --fetch\nDiagnostics: singularity-flow doctor'); return;
+  }
+  const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
+  console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
+  console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
+  console.log(`Persona: ${session?.workId === workflow.workItem.id ? session.persona : 'not selected'} · Branch: ${workflow.workItem.branch}`);
+  console.log(`Current: ${active ? `${active.label} (${active.status})` : 'workflow complete'}`);
+  console.log(`Assignment: ${active ? workflow.collaboration?.assignments?.[active.id]?.assignee ?? 'unassigned' : 'none'}`);
+  console.log('\nNext actions:');
+  const prerequisites = active && workflow.resolution?.collaboration?.assignmentMode !== 'off' && !workflow.collaboration?.assignments?.[active.id]
+    ? [{ timing: workflow.resolution.collaboration.assignmentMode === 'required' ? 'now' : 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who coordinates '${active.id}' for cross-terminal handoff.` }]
+    : [];
+  process.stdout.write(nextStepsText(nextStepsSnapshot({ branch: branch(root), workflow, publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id)), prerequisites })));
+  console.log('\nUseful views: singularity-flow progress · review · documents list · report · doctor');
+}
+
+async function hookCommand(positionals) {
+  const event = requirePositional(positionals, 1, 'hook event');
+  if (event !== 'session-start') throw new SingularityFlowError(`Unknown hook event: ${event}`);
+  // Consume the hook payload so Copilot can close stdin. No values are executed.
+  await stdinText();
+  try {
+    const root = repoRoot();
+    if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
+    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
+    const context = phase ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}). Before changing lifecycle state, run /sflow-nextsteps. Use /sflow-documents to inspect evidence. Never approve automatically.` : `Singularity Flow work item ${workflow.workItem.id} is complete; run the governance gate before handoff.`;
+    console.log(JSON.stringify({ additionalContext: context }));
+  } catch { console.log('{}'); }
+}
+
 async function migrateConfigCommand() {
   const root = repoRoot(); const result = await migrateLegacyConfig(root); console.log(result.migrated ? `Migrated configuration to ${result.path}; upgraded ${result.migratedWorkItems} work item(s)${result.movedStateRoot ? ' and moved the previous state root to .singularity/' : ''}.` : result.reason);
 }
@@ -920,7 +1083,7 @@ export async function main(argv) {
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
   const { positionals, options } = parseArgs(argv);
   const command = positionals[0];
-  if (!command) return console.log(HELP);
+  if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   switch (command) {
     case 'about': return console.log(ABOUT);
@@ -934,6 +1097,15 @@ export async function main(argv) {
     case 'report': return reportCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
     case 'next': return nextCommand(options);
+    case 'run': return runCommand(options);
+    case 'cockpit':
+    case 'home': return cockpitCommand();
+    case 'doctor': return doctorCommand(positionals, options);
+    case 'review': return reviewCommand(positionals, options);
+    case 'workflow': return workflowCommand(positionals, options);
+    case 'assign': return assignCommand(positionals);
+    case 'watch': return watchCommand(positionals, options);
+    case 'recover': return recoverCommand(positionals, options);
     case 'nextsteps':
     case 'next-steps': return nextStepsCommand(positionals, options);
     case 'inputs': return inputsCommand(positionals, options);
@@ -953,6 +1125,7 @@ export async function main(argv) {
     case 'jira': return jiraCommand(positionals, options);
     case 'plugin': return pluginCommand(positionals, options);
     case 'desktop': return desktopCommand(positionals, options);
+    case 'hook': return hookCommand(positionals);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);
   }
 }

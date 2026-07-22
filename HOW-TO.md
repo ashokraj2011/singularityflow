@@ -394,6 +394,14 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Goal | Copilot | Terminal |
 |---|---|---|
 | About the product | `/sflow-about` | `sflow-about` |
+| Open cockpit | `/sflow-home` | `singularity-flow cockpit` |
+| Diagnose setup | `/sflow-doctor` | `singularity-flow doctor` |
+| Guided phase execution | `/sflow-run` | `singularity-flow run` |
+| Simulate a workflow | `/sflow-workflows simulate figma-mobile` | `singularity-flow workflow simulate figma-mobile` |
+| Build a reviewer handoff | `/sflow-review` | `singularity-flow review <phase>` |
+| Assign coordination | — | `singularity-flow assign <phase> <assignee>` |
+| Watch branch state | — | `singularity-flow watch <WORK-ID> --once` |
+| Plan safe recovery | — | `singularity-flow recover <WORK-ID> --fetch` |
 | Start work | `/sflow-start WORK-123` | `singularity-flow start WORK-123` |
 | Resume work | `/sflow-resume WORK-123` | `singularity-flow resume WORK-123 --fetch` |
 | Change session persona | `/sflow-persona` | `sflow-persona` |

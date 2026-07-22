@@ -112,6 +112,12 @@ function registerHandlers() {
     if (result.canceled || !result.filePaths.length) return { canceled: true };
     return invokeCli(root, ['documents', 'upload', ...result.filePaths], { json: false });
   });
+  ipcMain.handle('documents:upload-directory', async (_event, { repository }) => {
+    const root = assertRepository(repository);
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a design or evidence package' });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return invokeCli(root, ['documents', 'upload', result.filePaths[0]], { json: false, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+  });
   ipcMain.handle('documents:add-url', (_event, { repository, url, label }) => invokeCli(assertRepository(repository), ['documents', 'upload', '--url', url, ...(label ? ['--label', label] : [])], { json: false }));
   ipcMain.handle('documents:preview', (_event, { repository, workId, reference }) => invokeCli(assertRepository(repository), ['documents', 'view', reference, '--work-id', workId, '--json']));
   ipcMain.handle('documents:open', async (_event, { repository, record }) => {

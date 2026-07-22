@@ -54,6 +54,12 @@ documents:
   maxFileBytes: 26214400
   maxPreviewBytes: 1048576
 
+collaboration:
+  # Assignments coordinate people but never restrict who may select a persona.
+  assignmentMode: suggested
+  approvalReminderAfterHours: 24
+  notifications: [terminal]
+
 personas:
   developer:
     label: Developer

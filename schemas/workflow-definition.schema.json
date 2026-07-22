@@ -52,6 +52,15 @@
       },
       "additionalProperties": false
     },
+    "collaboration": {
+      "type": "object",
+      "properties": {
+        "assignmentMode": { "enum": ["off", "suggested", "required"] },
+        "approvalReminderAfterHours": { "type": "number", "minimum": 0 },
+        "notifications": { "type": "array", "uniqueItems": true, "items": { "enum": ["terminal"] } }
+      },
+      "additionalProperties": false
+    },
     "personas": {
       "type": "object",
       "minProperties": 1,

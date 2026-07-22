@@ -18,6 +18,8 @@ The package contains:
 - Editable feature, bugfix, chore, and Figma-export-to-mobile profiles.
 - Editable persona prompts and artifact templates.
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
+- A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
+- Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 
 ## Requirements
 

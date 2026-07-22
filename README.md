@@ -15,7 +15,7 @@ The package contains:
 - A secure Electron desktop studio for visual workflow, persona, approval, template, progress, and document management.
 - A GitHub Copilot plugin with collision-safe skills and a bundled workflow agent.
 - A canonical searchable help manual shared by the CLI, Copilot, and Electron desktop.
-- Editable feature, bugfix, and chore profiles.
+- Editable feature, bugfix, chore, and Figma-export-to-mobile profiles.
 - Editable persona prompts and artifact templates.
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
 
@@ -145,6 +145,7 @@ The bundled profiles are:
 | Feature | intake → requirements → design → implementation-spec → implementation → verification → conformance |
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
+| Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 
 Persona-to-phase mappings are suggestions, not restrictions. Any contributor may select any configured persona. Approval authority comes from the selected persona's `mayApprove` list.
 
@@ -155,7 +156,7 @@ singularity-flow start ENG-142 --title "Add invoice export" --fetch
 singularity-flow resume ENG-142 --fetch
 ```
 
-With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always prompts for a workflow template (`feature`, `bugfix`, `chore`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit.
+With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always prompts for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit.
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
 
@@ -283,6 +284,9 @@ GitHub Copilot CLI can also load the bundled experimental Documents extension. E
 # Local documents, screenshots, PDFs, .fig files, or other binary files
 singularity-flow documents upload ./brief.pdf ./checkout-wireframe.png
 
+# Complete exported design package; imported recursively in stable path order
+singularity-flow documents upload ./figma-export --kind figma-export
+
 # External Figma or design link (recorded, not downloaded)
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
@@ -292,7 +296,7 @@ singularity-flow documents list
 singularity-flow documents view DOC-001
 ```
 
-Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, actor, and persona. Upload creates and pushes an atomic work-item commit. Text formats can be displayed directly; images, PDFs, `.fig`, and other binary files return an absolute path for the appropriate viewer. The catalog also lists generated phase artifacts, status, source context, and Jira user-story documents.
+Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, actor, and persona. Directory imports preserve the package name and relative source path for every discovered regular file; symbolic links are rejected. Upload creates and pushes one atomic work-item commit. Text formats can be displayed directly; images, PDFs, `.fig`, and other binary files return an absolute path for the appropriate viewer. The catalog also lists generated phase artifacts, status, source context, and Jira user-story documents.
 
 ## Generate a phase
 
@@ -328,7 +332,7 @@ Lifecycle commands normally follow `prepare/edit → publish → submit → appr
 
 ## Approved phase inputs
 
-Starter repositories use `inputsMode: record` and connect the full feature, bugfix, and chore phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation.
+Starter repositories use `inputsMode: record` and connect the full feature, bugfix, chore, and Figma-mobile phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation.
 
 ```yaml
 inputsMode: enforce
@@ -468,7 +472,7 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `singularity-flow agents list\|lock\|sync\|status\|refresh-output` | Trust, materialize, inspect, and refresh remote agent Markdown. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
-| `singularity-flow documents upload <PATH...>` | Copy, hash, catalog, commit, and push supporting files during configured initial phases. |
+| `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |
 | `singularity-flow jira list` | List assigned Jira work with optional project, type, limit, and JQL filters. |
 | `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |

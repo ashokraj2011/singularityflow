@@ -13,7 +13,7 @@ Use the deterministic document catalog; never copy inputs into arbitrary reposit
 - In an experimental Copilot CLI session, the bare `/documents` extension command opens the searchable Documents canvas; `/documents view <DOCUMENT-ID>` opens a specific item. If canvas rendering is unavailable, it falls back to timeline output.
 - List all uploaded inputs, generated phase documents, status, and source context with `singularity-flow documents list [WORK-ID]`.
 - View text documents with `singularity-flow documents view <DOCUMENT-ID>`. For images, PDFs, `.fig`, and other binary formats, use the returned absolute path with the appropriate viewer.
-- Upload user-provided local or attached files with `singularity-flow documents upload <PATH...>`. The CLI copies, hashes, records actor/persona, commits, and pushes them under the work item.
+- Upload user-provided local files or complete export directories with `singularity-flow documents upload <PATH...>`. Directories are expanded recursively in deterministic path order, their relative structure is preserved, and every file is copied, hashed, attributed, committed, and pushed under the work item.
 - Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --label "<name>"`.
 - Respect the configured upload phases and maximum size. Never bypass those policies or download an external URL implicitly.
 - After upload, report document IDs and use those stable IDs in intake, requirements, design, specification, and conformance artifacts.

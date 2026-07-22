@@ -80,9 +80,23 @@ personas:
     label: QA
     description: Verify acceptance criteria and collect reproducible evidence.
     prompt: qa.md
-    suggestedPhases: [reproduction, verification, conformance]
+    suggestedPhases: [reproduction, verification, visual-verification, conformance]
     worldModelViews: [testing, development, security]
-    mayApprove: [reproduction, verification, conformance]
+    mayApprove: [reproduction, verification, visual-verification, conformance]
+  product-designer:
+    label: Product designer
+    description: Turn exported design evidence into explicit screens, states, interactions, tokens, and review decisions.
+    prompt: product-designer.md
+    suggestedPhases: [design-intake, design-inventory, visual-verification]
+    worldModelViews: [business, architecture, testing]
+    mayApprove: [design-intake, design-inventory, visual-verification, conformance]
+  mobile-architect:
+    label: Mobile architect
+    description: Map approved designs to a maintainable mobile design system, navigation model, implementation contract, and test strategy.
+    prompt: mobile-architect.md
+    suggestedPhases: [component-mapping, mobile-spec]
+    worldModelViews: [architecture, development, testing, security]
+    mayApprove: [component-mapping, mobile-spec, conformance]
 
 workTypes:
   feature:
@@ -124,6 +138,30 @@ workTypes:
       implementation: { inputs: [intake] }
       verification: { inputs: [implementation] }
       conformance: { inputs: [implementation, verification] }
+  figma-mobile:
+    label: Figma export to mobile app
+    phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
+    documents:
+      allowedPhases: [design-intake, design-inventory]
+    templateOverrides:
+      design-intake: figma-mobile/design-intake.md
+      design-inventory: figma-mobile/design-inventory.md
+      component-mapping: figma-mobile/component-mapping.md
+      mobile-spec: figma-mobile/mobile-spec.md
+      implementation: figma-mobile/implementation.md
+      visual-verification: figma-mobile/visual-verification.md
+      conformance: figma-mobile/conformance.md
+    phaseOverrides:
+      design-inventory: { inputs: [design-intake] }
+      component-mapping: { inputs: [design-inventory] }
+      mobile-spec: { inputs: [design-inventory, component-mapping] }
+      implementation: { inputs: [component-mapping, mobile-spec] }
+      visual-verification: { inputs: [design-inventory, mobile-spec, implementation] }
+      conformance:
+        inputs: [mobile-spec, implementation, visual-verification]
+        approval: { personas: [product-designer, mobile-architect, qa], minimum: 2, rejectTo: [design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
+    sequenceGates:
+      documentPhase: hard
 
 phases:
   intake:
@@ -182,6 +220,38 @@ phases:
     worldModel: { views: [development, testing, security], depth: standard }
     writeScope: artifact-only
     approval: { personas: [architect], minimum: 1, rejectTo: [reproduction, fix-design, fix-spec] }
+  design-intake:
+    label: Design package intake
+    suggestedPersonas: [product-designer]
+    defaultTemplate: figma-mobile/design-intake.md
+    artifact: { path: artifacts/design-intake/design-package-intake.md, kind: design-intake, minimumBytes: 350 }
+    worldModel: { views: [business, architecture], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [product-designer], minimum: 1, rejectTo: [design-intake] }
+  design-inventory:
+    label: Screen and design inventory
+    suggestedPersonas: [product-designer]
+    defaultTemplate: figma-mobile/design-inventory.md
+    artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
+    worldModel: { views: [business, architecture], depth: standard }
+    writeScope: artifact-only
+    approval: { personas: [product-designer], minimum: 1, rejectTo: [design-intake, design-inventory] }
+  component-mapping:
+    label: Mobile component mapping
+    suggestedPersonas: [mobile-architect, product-designer]
+    defaultTemplate: figma-mobile/component-mapping.md
+    artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
+    worldModel: { views: [architecture, development, security], depth: deep }
+    writeScope: artifact-only
+    approval: { personas: [mobile-architect], minimum: 1, rejectTo: [design-inventory, component-mapping] }
+  mobile-spec:
+    label: Mobile implementation specification
+    suggestedPersonas: [mobile-architect, developer]
+    defaultTemplate: figma-mobile/mobile-spec.md
+    artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
+    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    writeScope: artifact-only
+    approval: { personas: [mobile-architect], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec] }
   implementation:
     label: Implementation
     suggestedPersonas: [developer]
@@ -199,6 +269,15 @@ phases:
     worldModel: { views: [testing, development, security], depth: standard, evidence: true }
     writeScope: source-and-artifact
     approval: { personas: [qa], minimum: 1, rejectTo: [implementation, verification] }
+    qualityCommands: []
+  visual-verification:
+    label: Mobile visual verification
+    suggestedPersonas: [product-designer, qa]
+    defaultTemplate: figma-mobile/visual-verification.md
+    artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
+    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    writeScope: source-and-artifact
+    approval: { personas: [product-designer, qa], minimum: 2, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
     qualityCommands: []
   conformance:
     label: Spec-to-code conformance

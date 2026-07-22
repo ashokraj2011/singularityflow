@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
 import { loadSession } from './session.mjs';
@@ -29,6 +29,18 @@ function mimeType(file) { return MIME_TYPES[path.extname(file).toLowerCase()] ??
 function safeName(value) { return path.basename(value).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'document'; }
 function nextId(records) { return `DOC-${String(Math.max(0, ...records.map((item) => Number(item.id?.match(/^DOC-(\d+)$/)?.[1] ?? 0))) + 1).padStart(3, '0')}`; }
 
+async function directoryFiles(source, packageName, relativeParts = []) {
+  const files = [];
+  const entries = (await readdir(source, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const absolute = path.join(source, entry.name); const parts = [...relativeParts, entry.name];
+    if (entry.isSymbolicLink()) throw new SingularityFlowError(`Document directories cannot contain symbolic links: ${absolute}`);
+    if (entry.isDirectory()) files.push(...await directoryFiles(absolute, packageName, parts));
+    else if (entry.isFile()) files.push({ source: absolute, info: await stat(absolute), packageName, sourceRelativePath: posix(parts.join('/')) });
+  }
+  return files;
+}
+
 async function loadManifest(root, config, workflow) {
   const file = manifestPath(root, config, workflow);
   return await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : { schemaVersion: 1, workId: workflow.workItem.id, documents: [] };
@@ -47,22 +59,31 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
     reason: `Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
   });
   if (!files.length && !url) throw new SingularityFlowError('Provide one or more files or --url <https-url>.');
-  if (label && files.length + (url ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
   if (url && !/^https?:\/\/\S+$/i.test(url)) throw new SingularityFlowError('Document URL must use http:// or https://.');
   const fileInputs = [];
   for (const candidate of files) {
     const source = path.resolve(candidate); const info = await stat(source).catch(() => null);
-    if (!info?.isFile()) throw new SingularityFlowError(`Document is not a regular file: ${candidate}`);
-    if (info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${candidate}`);
-    fileInputs.push({ source, info });
+    if (info?.isFile()) fileInputs.push({ source, info, packageName: null, sourceRelativePath: null });
+    else if (info?.isDirectory()) {
+      const expanded = await directoryFiles(source, safeName(source));
+      if (!expanded.length) throw new SingularityFlowError(`Document directory contains no regular files: ${candidate}`);
+      fileInputs.push(...expanded);
+    } else throw new SingularityFlowError(`Document path is not a regular file or directory: ${candidate}`);
+  }
+  if (label && fileInputs.length + (url ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
+  for (const input of fileInputs) {
+    if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
   }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active persona session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const manifest = await loadManifest(root, config, workflow); const added = [];
-  for (const { source } of fileInputs) {
-    const id = nextId(manifest.documents); const filename = safeName(source); const relative = `${workDirRelative(config, workflow.workItem.id)}/inputs/${id}/${filename}`;
+  for (const { source, packageName, sourceRelativePath } of fileInputs) {
+    const id = nextId(manifest.documents); const filename = safeName(source);
+    const preservedPath = sourceRelativePath ? path.posix.join(packageName, ...sourceRelativePath.split('/').map(safeName)) : filename;
+    const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath);
     const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await copyFile(source, destination);
     const fileSnapshot = await snapshot(destination);
-    const record = { id, type: 'file', label: label ?? filename, kind: kind ?? 'reference', sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona };
+    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona };
+    if (packageName) { record.sourcePackage = packageName; record.sourceRelativePath = sourceRelativePath; }
     manifest.documents.push(record); added.push(record);
   }
   if (url) {

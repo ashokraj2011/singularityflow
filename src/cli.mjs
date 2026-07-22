@@ -76,7 +76,7 @@ GitHub Copilot and engineering teams. It belongs to the Singularity product
 brand and uses the short, collision-safe sflow- command namespace.
 
 What it provides:
-  - YAML-defined feature, bugfix, chore, and custom workflows
+  - YAML-defined feature, bugfix, chore, Figma-mobile, and custom workflows
   - Session personas, phase-aware prompts, and repository world-model grounding
   - Configurable artifact templates, phase inputs, approvals, and quality gates
   - Jira or manual intake with supporting documents
@@ -121,7 +121,7 @@ Usage:
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
-  singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
+  singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow prepare [PHASE]
   singularity-flow phase show [PHASE] [--json]
   singularity-flow phase publish [PHASE] [--usage-json FILE]

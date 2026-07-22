@@ -138,7 +138,7 @@ singularity-flow start WORK-123
 The interactive sequence is always:
 
 1. Choose Jira intake or manual description/documents.
-2. Choose a workflow profile: feature, bugfix, or chore.
+2. Choose a workflow profile: feature, bugfix, chore, or Figma export to mobile app.
 3. Choose a persona for the current terminal.
 
 Manual intake can also be supplied explicitly:
@@ -153,6 +153,16 @@ singularity-flow start WORK-123 \
 ```
 
 The selected work type, resolved phases, input mode, configuration hash, and template hashes are copied into the work item. Later base-branch configuration edits cannot silently change it.
+
+### Figma export to mobile app
+
+Choose the `figma-mobile` profile when the design team supplies a directory export instead of a live integration. Start the work item, select the Product designer persona, and import the complete package during `design-intake`:
+
+```bash
+singularity-flow documents upload ./figma-export --kind figma-export
+```
+
+Directories are traversed recursively in deterministic relative-path order. Every regular file receives a stable document ID and hash, retains its package-relative source path, and is committed and pushed in the same upload transaction. Symbolic links are rejected. The workflow then advances through design inventory, mobile component mapping, mobile specification, implementation, visual verification, and two-person final conformance approval.
 
 ## 4. Ask what to do next
 

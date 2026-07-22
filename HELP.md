@@ -92,7 +92,7 @@ singularity-flow start WORK-123
 Start always asks for:
 
 1. Jira story or manual intake.
-2. Workflow template, such as feature, bugfix, or chore.
+2. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
 3. Persona for the current session.
 
 The workflow and persona pickers are deliberately interactive. There are no public `--type` or `--persona` bypass flags. Non-interactive start fails rather than silently choosing defaults.
@@ -167,12 +167,13 @@ List, inspect, or add documents:
 singularity-flow documents list WORK-123
 singularity-flow documents view DOC-001 --work-id WORK-123
 singularity-flow documents upload ./brief.pdf ./wireframe.png
+singularity-flow documents upload ./figma-export --kind figma-export
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
   --label "Checkout design"
 ```
 
-Each uploaded file receives a stable ID, content hash, MIME type, actor, persona, and phase. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
+Each uploaded file receives a stable ID, content hash, MIME type, actor, persona, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
 
 For a tab-like browser inside a canvas-capable Copilot host, enable experimental features, start a fresh session, and invoke the bundled extension:
 
@@ -195,6 +196,7 @@ Starter work types are:
 | Feature | intake → requirements → design → implementation-spec → implementation → verification → conformance |
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
+| Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
 
@@ -839,7 +841,7 @@ singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
 singularity-flow documents list [WORK-ID] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID]
-singularity-flow documents upload <PATH...> [--url URL]
+singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
 singularity-flow prepare [PHASE]
 singularity-flow phase show [PHASE] [--json]
 singularity-flow phase publish [PHASE] [--usage-json FILE]

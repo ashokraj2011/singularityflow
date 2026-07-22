@@ -9,6 +9,9 @@ import { verifyPhaseTelemetry } from './telemetry.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
+function traceabilitySources(workflow) {
+  return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
+}
 
 export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
   const errors = [], warnings = [], passes = [];
@@ -116,22 +119,25 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
-    const requirements = workflow.phaseOrder.includes('requirements') ? path.join(workDir(root, config, workflow.workItem.id), workflow.phases.requirements.requiredArtifact.path) : null;
-    if (requirements && await exists(requirements)) {
-      const acIds = ids(await readFile(requirements, 'utf8'), /\bAC-\d+\b/g); const tags = new Set();
+    const acIds = new Set();
+    for (const source of traceabilitySources(workflow)) {
+      const sourcePath = path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path);
+      if (await exists(sourcePath)) ids(await readFile(sourcePath, 'utf8'), /\bAC-\d+\b/g).forEach((id) => acIds.add(id));
+    }
+    if (acIds.size) {
+      const tags = new Set();
       for (const file of trackedFiles(root).filter((item) => /(^|\/)(test|tests|__tests__)(\/|\.|$)|\.(test|spec)\./i.test(item))) {
         const text = await readFile(path.join(root, file), 'utf8').catch(() => ''); for (const match of text.matchAll(/@ac:\s*(AC-\d+)/g)) tags.add(match[1]);
       }
       for (const id of acIds) if (!tags.has(id)) errors.push(`AC coverage: ${id} has no test tagged @ac:${id}`);
-      if (acIds.length && acIds.every((id) => tags.has(id))) passes.push(`acceptance coverage: ${acIds.length} criteria mapped`);
+      if ([...acIds].every((id) => tags.has(id))) passes.push(`acceptance coverage: ${acIds.size} criteria mapped`);
     }
   }
 
   if (workflow.phases.conformance?.generation > 0) {
     const phase = workflow.phases.conformance; const reportPath = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path); const report = await readFile(reportPath, 'utf8');
     const expected = new Set();
-    for (const phaseId of ['requirements', 'implementation-spec', 'fix-spec']) {
-      const source = workflow.phases[phaseId]; if (!source) continue;
+    for (const source of traceabilitySources(workflow)) {
       const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
       ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
     }

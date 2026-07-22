@@ -10,6 +10,8 @@ Use this manual in three places:
 
 The short command reference is available with `singularity-flow --help`.
 
+For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff, phase-input, and remote-agent diagrams, open `HOW-TO.md` in the repository.
+
 ## Quick start
 
 Install the package, initialize a repository, and commit its editable process definition:

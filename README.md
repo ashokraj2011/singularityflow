@@ -53,7 +53,7 @@ These files are ordinary reviewed repository files and remain fully editable.
 
 ## Built-in help
 
-The canonical product manual is [HELP.md](HELP.md). Load all help or one focused topic from the terminal:
+The canonical product manual is [HELP.md](HELP.md). For an end-to-end diagram and operational walkthrough, use [HOW-TO.md](HOW-TO.md). Load all help or one focused topic from the terminal:
 
 ```bash
 singularity-flow help

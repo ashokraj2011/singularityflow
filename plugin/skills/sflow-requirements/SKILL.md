@@ -13,5 +13,5 @@ disable-model-invocation: true
 5. Complete the document with the problem, desired outcome, in/out scope, measurable `AC-n` acceptance criteria, dependencies, assumptions, risks, and open questions.
 6. Remove every `TODO`, `TBD`, template instruction, and unsupported claim.
 7. Run `singularity-flow phase publish requirements` to register, commit, and push the generated artifact.
-8. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+8. Run `singularity-flow phase show requirements --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
 9. Summarize unresolved decisions, token status, and publication commit. Do not submit or approve automatically.

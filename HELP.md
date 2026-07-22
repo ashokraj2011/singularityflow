@@ -299,7 +299,9 @@ singularity-flow phase publish intake
 singularity-flow submit
 ```
 
-After publication succeeds and any required push completes, the command prints every generated phase document with its path, SHA-256 hash, and text content. Binary documents print an openable local path. This is the exact published artifact preview, not an AI-generated summary.
+After publication succeeds and any required push completes, the command prints every generated phase document with its path, SHA-256 hash, and text content. Source files such as Java, JavaScript, TypeScript, Python, Go, and shell scripts are treated as reviewable text; true binary documents print an openable local path. This is the exact published artifact preview, not an AI-generated summary.
+
+Copilot may collapse the Shell tool panel even though the CLI printed the content. Singularity Flow skills therefore reload the phase with `singularity-flow phase show <phase> --json` and reproduce every text document in the visible assistant response between `BEGIN` and `END` path markers. A message such as “documents shown above” without those visible bodies is incomplete and should not be used for approval.
 
 Phase artifacts live under:
 

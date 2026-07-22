@@ -14,5 +14,5 @@ disable-model-invocation: true
 6. Run relevant format, build, lint, and test commands.
 7. Run `singularity-flow prepare implementation` and complete the summary with changed components, decisions, deviations, tests, limitations, and operational notes.
 8. Remove placeholders, then run `singularity-flow phase publish implementation`.
-9. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+9. Run `singularity-flow phase show implementation --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. Source files such as `.java`, `.js`, `.ts`, and `.py` are text documents and must be reproduced, not labeled binary. For true binary documents, show the absolute path, metadata, and open instruction.
 10. Report commands and outcomes. Do not submit or approve automatically.

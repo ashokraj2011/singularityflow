@@ -310,7 +310,7 @@ singularity-flow phase publish intake
 singularity-flow submit
 ```
 
-`phase publish` validates phase write scope and the required artifact, adds managed metadata, updates state, commits `[WORK-ID][phase:<id>][generated:<n>]`, and pushes the work-item branch. After publication succeeds, it displays every published document with its path, hash, and text content so the generated result can be reviewed immediately. Submission and every later decision are separate atomic commit-and-push operations.
+`phase publish` validates phase write scope and the required artifact, adds managed metadata, updates state, commits `[WORK-ID][phase:<id>][generated:<n>]`, and pushes the work-item branch. After publication succeeds, it displays every published document with its path, hash, and text content so the generated result can be reviewed immediately. Source-code formats such as Java, JavaScript, TypeScript, Python, Go, and shell scripts are rendered as text. Because Copilot can collapse Shell output, the bundled lifecycle skills reload the phase as JSON and reproduce each exact text artifact between visible `BEGIN`/`END` markers in the assistant response. Submission and every later decision are separate atomic commit-and-push operations.
 
 Artifacts live under:
 

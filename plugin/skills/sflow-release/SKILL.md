@@ -12,5 +12,5 @@ disable-model-invocation: true
 4. Run `singularity-flow prepare release` and complete the release plan.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
 6. Remove placeholders and run `singularity-flow phase publish release`.
-7. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+7. Run `singularity-flow phase show release --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
 8. Do not submit or approve automatically.

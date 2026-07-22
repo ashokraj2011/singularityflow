@@ -95,7 +95,7 @@ Start always asks for:
 2. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
 3. Persona for the current session.
 
-The workflow and persona pickers are deliberately interactive. There are no public `--type` or `--persona` bypass flags. Non-interactive start fails rather than silently choosing defaults.
+The workflow and persona pickers are deliberately human-driven. There are no public `--type` or `--persona` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sflow-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
 
 Useful source forms include:
 
@@ -297,10 +297,13 @@ Selecting a persona alone does not create a commit. The next generation, submiss
 
 Copilot uses its interactive `ask_user` facility for intake source, workflow,
 and persona choices. The choices are read from the CLI's live YAML-derived menu,
-so custom work types and personas appear automatically. The skill sends the
-selected menu number back to the same interactive CLI process; it never invents
-a default or uses hidden `--type`/`--persona` flags. If interactive questions are
-disabled, the skill stops and directs the contributor to the terminal picker.
+so custom work types and personas appear automatically. With persistent terminal
+stdin, the skill sends the selected menu number back to the same CLI process. If
+that bridge is unavailable during start, it records the exact `ask_user` answers
+in a 15-minute one-time receipt under the Git directory and passes only its token
+to `start`. The receipt is bound to the work ID, repository HEAD, and Copilot
+session when available, and is consumed once. The skill never invents a default
+or uses hidden `--type`/`--persona` flags. If `ask_user` is disabled, it stops.
 
 Switch the active persona at any time without changing committed workflow state:
 
@@ -860,9 +863,11 @@ copilot skill list
 
 Only `singularity-flow@singularity-flow` should remain. Close existing Copilot sessions because sessions do not always reload newly installed skills.
 
-### Start or resume says an interactive terminal is required
+### Start says an interactive terminal is required
 
-Work type and persona selection require an interactive terminal. Run the command directly in a terminal or invoke `/sflow-start` or `/sflow-resume` from Copilot with terminal interaction available.
+An updated `/sflow-start` should keep you inside Copilot even when `write_bash` or persistent stdin is unavailable. It runs `singularity-flow choices begin start <WORK-ID> --json`, asks you to select the returned options, records each answer, and invokes start with the one-time receipt. If the installed skill still directs you to a terminal immediately, update the repository, run `./install.sh`, open a new terminal, and start a new Copilot session so the refreshed skill is loaded. Raw CLI start without either a TTY or a valid receipt still fails safely.
+
+Resume, persona switching, and approval confirmation continue to require their interactive picker when invoked without a dedicated UI bridge; they never reuse a start receipt.
 
 ### A transition is blocked after push failure
 

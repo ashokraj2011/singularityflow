@@ -73,6 +73,7 @@ import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, wor
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
+import { answerSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 
 const VERSION = '0.8.0';
 
@@ -112,6 +113,10 @@ Usage:
   singularity-flow init
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
+    [--selection-receipt TOKEN]
+  singularity-flow choices begin start <WORK-ID> [--json]
+  singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
+  singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow persona [WORK-ID]
   singularity-flow session status|candidates [--json]
@@ -257,6 +262,9 @@ async function startCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   validateId(config, id);
+  const receiptToken = optionString(options, 'selection-receipt');
+  const receipt = receiptToken ? await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id }) : null;
+  if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const jira = optionBoolean(options, 'jira');
   const storyFile = optionString(options, 'story-file');
   if (jira && storyFile) throw new SingularityFlowError('Choose either --jira or --story-file, not both.');
@@ -266,7 +274,10 @@ async function startCommand(positionals, options) {
   const explicitFiles = optionStrings(options, 'document');
   const explicitUrls = optionStrings(options, 'document-url');
   const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
-  const sourceMode = jira ? 'jira' : hasManualInput ? 'manual' : await selectIntakeSource();
+  const declaredSource = jira ? 'jira' : hasManualInput ? 'manual' : null;
+  const receiptSource = receipt?.answers['intake-source'] ?? null;
+  if (declaredSource && receiptSource && declaredSource !== receiptSource) throw new SingularityFlowError(`Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
+  const sourceMode = declaredSource ?? await selectIntakeSource({ selection: receiptSource });
   const manual = sourceMode === 'manual'
     ? (storyFile || title || description || acceptanceCriteria
         ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
@@ -278,10 +289,10 @@ async function startCommand(positionals, options) {
     ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
     ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
   ];
-  const workType = await selectWorkType(config);
-  const selectedPersona = await selectPersona(root, config, actionActor(root), id);
+  const workType = await selectWorkType(config, { selection: receipt?.answers['workflow-template'] ?? null });
+  const selectedPersona = await selectPersona(root, config, actionActor(root), id, { selection: receipt?.answers.persona ?? null });
+  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
-  if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const base = optionString(options, 'base', config.defaultBaseBranch);
   checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
   const workflow = await createWorkflow(root, config, {
@@ -307,6 +318,40 @@ async function startCommand(positionals, options) {
   if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
   console.log('\nTemplate help: /sflow-help');
   console.log('\nNext in Copilot: /sflow-phase');
+}
+
+function printSelectionReceipt(receipt) {
+  console.log(`Selection receipt: ${receipt.token}`);
+  console.log(`Action: ${receipt.action} ${receipt.workId} · expires: ${receipt.expiresAt}`);
+  for (const choices of receipt.choiceSets) {
+    const selected = receipt.answers?.[choices.id]?.id;
+    console.log(`\n${choices.label}${selected ? ` — selected: ${selected}` : ''}`);
+    for (const item of choices.options) console.log(`  ${item.id}\t${item.label}${item.description ? ` — ${item.description}` : ''}`);
+  }
+  console.log(`\nReady: ${receipt.ready ? 'yes' : 'no'}`);
+}
+
+async function choicesCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'choices subcommand');
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  let receipt;
+  if (subcommand === 'begin') {
+    const action = requirePositional(positionals, 2, 'selection action');
+    const workId = requirePositional(positionals, 3, 'work ID');
+    validateId(config, workId);
+    receipt = await beginSelectionReceipt(root, config, { action, workId });
+  } else if (subcommand === 'answer') {
+    receipt = await answerSelectionReceipt(
+      root,
+      requirePositional(positionals, 2, 'selection receipt token'),
+      requirePositional(positionals, 3, 'choice ID'),
+      requirePositional(positionals, 4, 'selected option ID')
+    );
+  } else if (subcommand === 'status') receipt = await selectionReceiptStatus(root, requirePositional(positionals, 2, 'selection receipt token'));
+  else throw new SingularityFlowError(`Unknown choices subcommand: ${subcommand}`);
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2));
+  else printSelectionReceipt(receipt);
 }
 
 async function resumeCommand(positionals, options) {
@@ -1185,6 +1230,7 @@ export async function main(argv) {
     case 'about': return console.log(ABOUT);
     case 'help': return helpCommand(positionals, options);
     case 'init': return initCommand();
+    case 'choices': return choicesCommand(positionals, options);
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
     case 'persona': return personaCommand(positionals);

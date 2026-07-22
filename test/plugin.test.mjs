@@ -57,6 +57,9 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   assert.match(content, /singularity-flow agents sync sflow-workflow/);
   assert.match(content, /tools:.*ask_user.*write_bash/);
   assert.match(content, /YAML-derived options with `ask_user`/);
+  assert.match(content, /choices begin start <WORK-ID> --json/);
+  assert.match(content, /choices answer/);
+  assert.match(content, /--selection-receipt/);
   assert.match(content, /Never infer or preselect/);
   assert.match(content, /Out of sequence[\s\S]*stop immediately/);
   assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
@@ -190,6 +193,16 @@ test('interactive lifecycle skills bridge Copilot choices to the CLI picker with
   assert.match(start, /Choose workflow template/);
   assert.match(start, /Choose persona/);
   assert.match(start, /Never pass `--type` or `--persona`/);
+});
+
+test('start skill falls back to a one-time receipt when Copilot has no persistent stdin bridge', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
+  assert.match(content, /choices begin start <WORK-ID> --json/);
+  assert.match(content, /choices answer <TOKEN>/);
+  assert.match(content, /--selection-receipt <TOKEN>/);
+  assert.match(content, /15 minutes/);
+  assert.match(content, /consumes the receipt exactly once/i);
+  assert.match(content, /Never infer/);
 });
 
 test('persona skill persists only the local work-item session', async () => {

@@ -20,7 +20,11 @@ async function writeLocalJson(file, value) {
   return value;
 }
 
-async function choose(label, entries) {
+async function choose(label, entries, { selection = null } = {}) {
+  if (selection != null) {
+    if (!entries.some(([id]) => id === selection)) throw new SingularityFlowError(`Unknown ${label} '${selection}'.`);
+    return selection;
+  }
   if (label === 'persona' && process.env.SINGULARITY_FLOW_GITHUB_PERSONA) {
     const selected = process.env.SINGULARITY_FLOW_GITHUB_PERSONA;
     if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub approval persona '${selected}'.`);
@@ -46,22 +50,22 @@ async function choose(label, entries) {
   } finally { io.close(); }
 }
 
-export async function selectWorkType(definition) {
-  return choose('workflow template', Object.entries(definition.workTypes));
+export async function selectWorkType(definition, options = {}) {
+  return choose('workflow template', Object.entries(definition.workTypes), options);
 }
 
-export async function selectIntakeSource() {
+export async function selectIntakeSource(options = {}) {
   return choose('intake source', [
     ['jira', { label: 'Jira story', description: 'Retrieve the work item and configured fields from Jira.' }],
     ['manual', { label: 'Manual description and documents', description: 'Enter the request and attach local files or URLs.' }]
-  ]);
+  ], options);
 }
 
-export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null } = {}) {
+export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null, selection = null } = {}) {
   const allowed = allowedPersonas ? new Set(allowedPersonas) : null;
   const entries = Object.entries(definition.personas).filter(([id]) => !allowed || allowed.has(id));
   if (!entries.length) throw new SingularityFlowError('No configured persona is available for this action.');
-  const persona = await choose('persona', entries);
+  const persona = await choose('persona', entries, { selection });
   return setPersonaSession(root, definition, actor, persona, workId);
 }
 

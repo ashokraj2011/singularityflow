@@ -60,6 +60,8 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   assert.match(content, /choices begin start <WORK-ID> --json/);
   assert.match(content, /choices answer/);
   assert.match(content, /--selection-receipt/);
+  assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
+  assert.match(content, /never `--yes`/);
   assert.match(content, /Never infer or preselect/);
   assert.match(content, /Out of sequence[\s\S]*stop immediately/);
   assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
@@ -97,6 +99,11 @@ test('approval skill is explicitly user-invoked', async () => {
   assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /Never ask for approval based only on a filename or summary/);
+  assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
+  assert.match(content, /phase-confirmation <TYPED-PHASE>/);
+  assert.match(content, /approve <WORK-ID> --fetch --selection-receipt <TOKEN>/);
+  assert.match(content, /Never add `--yes`/);
+  assert.match(content, /consumes the receipt exactly once/i);
 });
 
 test('submit skill presents generated documents before approval', async () => {

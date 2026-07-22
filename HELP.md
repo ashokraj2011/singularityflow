@@ -299,10 +299,12 @@ Copilot uses its interactive `ask_user` facility for intake source, workflow,
 and persona choices. The choices are read from the CLI's live YAML-derived menu,
 so custom work types and personas appear automatically. With persistent terminal
 stdin, the skill sends the selected menu number back to the same CLI process. If
-that bridge is unavailable during start, it records the exact `ask_user` answers
+that bridge is unavailable during start or approval, it records the exact `ask_user` answers
 in a 15-minute one-time receipt under the Git directory and passes only its token
-to `start`. The receipt is bound to the work ID, repository HEAD, and Copilot
-session when available, and is consumed once. The skill never invents a default
+to the lifecycle command. Approval receipts additionally pin the submitted phase,
+generation, and artifact hashes and require the reviewer to type the exact phase
+ID. The receipt is bound to the work ID, repository HEAD, and Copilot session when
+available, and is consumed once. The skill never invents a default
 or uses hidden `--type`/`--persona` flags. If `ask_user` is disabled, it stops.
 
 Switch the active persona at any time without changing committed workflow state:
@@ -423,7 +425,7 @@ Approve from a terminal:
 singularity-flow approve WORK-123 --fetch
 ```
 
-The command fetches the branch, asks for a persona, displays hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation.
+The command fetches the branch, asks for a persona, displays hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sflow-approve` issues a 15-minute receipt after fetching, asks for the approval-capable persona and exact typed phase ID, then invokes `approve --selection-receipt` itself. The CLI revalidates the branch HEAD, submitted generation, artifact hashes, identity threshold, and receipt before committing and pushing the decision.
 
 Reject to an allowed target:
 
@@ -863,11 +865,11 @@ copilot skill list
 
 Only `singularity-flow@singularity-flow` should remain. Close existing Copilot sessions because sessions do not always reload newly installed skills.
 
-### Start says an interactive terminal is required
+### Start or approval says an interactive terminal is required
 
-An updated `/sflow-start` should keep you inside Copilot even when `write_bash` or persistent stdin is unavailable. It runs `singularity-flow choices begin start <WORK-ID> --json`, asks you to select the returned options, records each answer, and invokes start with the one-time receipt. If the installed skill still directs you to a terminal immediately, update the repository, run `./install.sh`, open a new terminal, and start a new Copilot session so the refreshed skill is loaded. Raw CLI start without either a TTY or a valid receipt still fails safely.
+Updated `/sflow-start` and `/sflow-approve` skills keep you inside Copilot even when `write_bash` or persistent stdin is unavailable. Start uses `singularity-flow choices begin start <WORK-ID> --json`; approval uses `singularity-flow choices begin approve <WORK-ID> --fetch --json`. Each asks you for the returned choices and invokes the lifecycle command with a one-time receipt. If an installed skill still directs you to a terminal immediately, update the repository, run `./install.sh`, open a new terminal, and start a new Copilot session so the refreshed skill is loaded. Raw non-interactive start or approval without either a TTY or a valid receipt still fails safely.
 
-Resume, persona switching, and approval confirmation continue to require their interactive picker when invoked without a dedicated UI bridge; they never reuse a start receipt.
+Resume, persona switching, and rejection continue to require their interactive picker when invoked without a dedicated UI bridge; they never reuse a start or approval receipt.
 
 ### A transition is blocked after push failure
 

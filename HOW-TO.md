@@ -362,6 +362,8 @@ singularity-flow approve WORK-123 --fetch
 
 The command fetches the branch, asks for a persona, shows hashes/checks/usage/prior approvals, warns about self-approval, and requires typing the exact phase name.
 
+In Copilot, `/sflow-approve` performs the same review without sending you to another terminal. If its shell has no persistent stdin, it fetches the branch with `choices begin approve`, asks you for an approval-capable persona, requires you to type the exact phase ID, and invokes `approve` with a 15-minute one-time receipt. The receipt is pinned to the branch HEAD, submitted generation, and artifact hashes; it is consumed once and the decision is still committed and pushed atomically.
+
 Reject to an allowed earlier phase:
 
 ```bash

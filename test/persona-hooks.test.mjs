@@ -41,7 +41,10 @@ test('new Copilot sessions require work-item selection before persona selection 
   const receipt = '00000000-0000-4000-8000-000000000000';
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow choices begin start HOOK-2 --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow choices answer ${receipt} persona architect --json` } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow choices begin approve HOOK-2 --fetch --json' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow choices answer ${receipt} phase-confirmation intake --json` } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow start HOOK-2 --story-file /tmp/story.yml --selection-receipt ${receipt}` } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow approve HOOK-2 --fetch --selection-receipt ${receipt}` } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `cd "/tmp/repository path" && singularity-flow choices status ${receipt} --json` } }), {});
   const unsafeStart = await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow start HOOK-2 --selection-receipt ${receipt}; rm -rf output` } });
   assert.equal(unsafeStart.permissionDecision, 'deny');

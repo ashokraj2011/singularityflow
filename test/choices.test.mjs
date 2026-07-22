@@ -91,3 +91,50 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   assert.equal(stale.status, 1);
   assert.match(stale.stderr, /stale because the repository HEAD changed/);
 });
+
+test('approval receipt keeps persona selection and exact phase confirmation inside Copilot', async () => {
+  const root = await repository();
+  const workId = 'CHOICE-APPROVE-1';
+  const start = JSON.parse(flow(root, ['choices', 'begin', 'start', workId, '--json']).stdout);
+  flow(root, ['choices', 'answer', start.token, 'intake-source', 'manual']);
+  flow(root, ['choices', 'answer', start.token, 'workflow-template', 'feature']);
+  flow(root, ['choices', 'answer', start.token, 'persona', 'product-owner']);
+  flow(root, ['start', workId, '--title', 'Receipt-backed approval', '--selection-receipt', start.token]);
+
+  const workflowFile = path.join(root, '.singularity', 'work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const artifactFile = path.join(root, '.singularity', 'work-items', workId, workflow.phases.intake.requiredArtifact.path);
+  const artifact = (await readFile(artifactFile, 'utf8')).replace(/TODO:[^\n]*/g, 'Reviewed scope and measurable acceptance evidence for AC-001.');
+  await writeFile(artifactFile, artifact);
+  flow(root, ['phase', 'publish', 'intake']);
+  flow(root, ['submit']);
+
+  const begun = JSON.parse(flow(root, ['choices', 'begin', 'approve', workId, '--fetch', '--json']).stdout);
+  assert.equal(begun.action, 'approve');
+  assert.equal(begun.approvalContext.phase, 'intake');
+  assert.equal(begun.approvalContext.generation, 1);
+  assert.ok(begun.approvalContext.artifacts[0].sha256);
+  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['persona', 'phase-confirmation']);
+  assert.deepEqual(begun.choiceSets[0].options.map((item) => item.id), ['product-owner']);
+
+  const wrongConfirmation = flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'requirements'], { allowFailure: true });
+  assert.equal(wrongConfirmation.status, 1);
+  assert.match(wrongConfirmation.stderr, /Allowed: intake/);
+  flow(root, ['choices', 'answer', begun.token, 'persona', 'product-owner']);
+  const incomplete = flow(root, ['approve', workId, '--selection-receipt', begun.token], { allowFailure: true });
+  assert.equal(incomplete.status, 1);
+  assert.match(incomplete.stderr, /incomplete: Exact phase confirmation/);
+  const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'intake', '--json']).stdout);
+  assert.equal(ready.ready, true);
+  const bypass = flow(root, ['approve', workId, '--yes', '--selection-receipt', begun.token], { allowFailure: true });
+  assert.equal(bypass.status, 1);
+  assert.match(bypass.stderr, /Do not combine --selection-receipt with --yes/);
+
+  const approved = flow(root, ['approve', workId, '--fetch', '--selection-receipt', begun.token]);
+  assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  assert.match(approved.stderr, /self-approved; this is not independent review/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'requirements');
+  assert.equal(workflow.phases.intake.approvals[0].channel, 'copilot-selection-receipt');
+  assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
+});

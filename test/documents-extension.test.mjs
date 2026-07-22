@@ -8,7 +8,8 @@ import {
   flowArguments,
   inferWorkId,
   parseDocumentsArguments,
-  renderDocumentsHtml
+  renderDocumentsHtml,
+  startDocumentsServer
 } from '../plugin/extensions/documents/documents.mjs';
 
 test('Documents extension parses list, work-item, view, and help commands safely', () => {
@@ -37,15 +38,18 @@ test('Documents canvas has stable identity and renders a self-contained searchab
     documents: [{ id: 'PHASE-DESIGN', type: 'artifact', phase: 'design', label: 'Design', path: '.singularity/work-items/WORK-123/artifacts/design/design.md' }],
     details: { 'PHASE-DESIGN': { record: { id: 'PHASE-DESIGN', type: 'artifact', label: 'Design' }, content: '# Design\n\nRendered evidence', binary: false } }
   };
-  const result = createDocumentsCanvasResult(snapshot);
-  const html = result.html;
-  assert.equal(result.type, 'html');
+  const result = createDocumentsCanvasResult(snapshot, 'http://127.0.0.1:43123/');
+  const html = renderDocumentsHtml(snapshot);
+  assert.equal(result.url, 'http://127.0.0.1:43123/');
+  assert.equal(result.title, 'Singularity Flow Documents');
   assert.equal(result.status, '1 document');
   assert.match(html, /<title>Singularity Flow Documents<\/title>/);
   assert.match(html, /data-filter="generated"/);
   assert.match(html, /Search ID, phase, title, or path/);
   assert.match(html, /PHASE-DESIGN/);
   assert.match(html, /Rendered evidence/);
+  assert.match(html, /recordLocation/);
+  assert.doesNotMatch(html, /const location\s*=/);
   assert.doesNotMatch(html, /fetch\(/);
   assert.doesNotMatch(html, /<script[^>]+src=/);
   assert.doesNotMatch(html, /<link[^>]+href=/);
@@ -60,8 +64,30 @@ test('Documents canvas safely embeds document text without closing its script', 
   assert.match(html, /\\u003c\/script>/);
 });
 
-test('Documents extension returns inline HTML instead of a localhost canvas URL', async () => {
+test('Documents extension returns the SDK-supported URL and serves the embedded snapshot without restrictive CSP', async () => {
   const source = await readFile(new URL('../plugin/extensions/documents/extension.mjs', import.meta.url), 'utf8');
-  assert.match(source, /createDocumentsCanvasResult\(await canvasSnapshot\(entry\)\)/);
-  assert.doesNotMatch(source, /createServer|127\.0\.0\.1|url:\s*entry\.url/);
+  assert.match(source, /createDocumentsCanvasResult\(entry\.snapshot, entry\.url\)/);
+  assert.match(source, /startDocumentsServer/);
+  assert.doesNotMatch(source, /Content-Security-Policy|type:\s*['"]html['"]/);
+});
+
+test('Documents loopback server renders a populated canvas at the returned URL', async () => {
+  const snapshot = {
+    workId: 'WORK-123',
+    documents: [{ id: 'SYS-STORY', type: 'system', label: 'User story', path: '.singularity/work-items/WORK-123/USER-STORY.md' }],
+    details: { 'SYS-STORY': { record: { id: 'SYS-STORY', type: 'system', label: 'User story' }, content: '# Visible story', binary: false } }
+  };
+  const host = await startDocumentsServer(snapshot);
+  try {
+    assert.match(host.url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+    const response = await fetch(host.url);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /^text\/html/);
+    assert.equal(response.headers.has('content-security-policy'), false);
+    const html = await response.text();
+    assert.match(html, /SYS-STORY/);
+    assert.match(html, /Visible story/);
+  } finally {
+    await new Promise((resolve) => host.server.close(resolve));
+  }
 });

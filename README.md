@@ -291,6 +291,8 @@ Artifacts live under:
 
 Managed metadata records the work type, phase, generation, actor, persona, source/config/template hashes, token usage, commit information, and approval history. Do not edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata block manually.
 
+Lifecycle commands enforce `prepare/edit → publish → submit → approve/reject`. An out-of-sequence attempt exits with code `2` before workflow or Git mutation and prints the current phase/status/generation, why the action is blocked, the exact required command, and `singularity-flow nextsteps <WORK-ID>`. Submitted phases cannot accept documents, artifacts, prompt records, or remote-output refreshes. A rejected phase must publish a fresh generation before it can be submitted again.
+
 ## Approved phase inputs
 
 Starter repositories use `inputsMode: record` and connect the full feature, bugfix, and chore phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation.

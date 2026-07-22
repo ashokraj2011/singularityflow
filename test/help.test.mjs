@@ -12,7 +12,7 @@ test('canonical help document exposes stable comprehensive topics', async () => 
   const document = parseHelpDocument(content);
   assert.equal(document.title, 'Singularity Flow Help');
   assert.ok(document.topics.length >= 20);
-  for (const topic of ['quick-start', 'jira-intake', 'personas-and-approvals', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'electron-desktop', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
+  for (const topic of ['quick-start', 'jira-intake', 'personas-and-approvals', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'electron-desktop', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
     assert.ok(document.topics.some((item) => item.id === topic), `missing ${topic}`);
   }
   assert.equal(new Set(document.topics.map((item) => item.id)).size, document.topics.length);
@@ -27,6 +27,9 @@ test('help loader returns the full manual or one focused topic', async () => {
   assert.equal(focused.selectedTopic, 'jira-intake');
   assert.match(focused.content, /## Jira intake/);
   assert.doesNotMatch(focused.content, /## Electron desktop/);
+  const sequencing = await loadHelpDocument('sequence-enforcement');
+  assert.match(sequencing.content, /exits with code `2`/);
+  assert.match(sequencing.content, /Out of sequence/);
   await assert.rejects(() => loadHelpDocument('does-not-exist'), /Available topics:/);
 });
 

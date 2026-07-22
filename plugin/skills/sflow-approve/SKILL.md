@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Approve the submitted phase
 
+If any command exits with `Out of sequence`, stop immediately, relay the actionable error, and use only `singularity-flow nextsteps` to confirm the valid next action. Never bypass sequence enforcement by editing managed state.
+
 Anyone may choose any persona, but the chosen persona must be configured to approve the phase.
 
 1. Run `singularity-flow approve <WORK-ID> --fetch` in an interactive terminal; omit the ID only when already on its branch.

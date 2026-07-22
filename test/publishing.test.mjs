@@ -20,7 +20,7 @@ test('failed required push blocks transitions until sync publishes the retained 
   flow(root, ['start', 'PUSH-1']); const artifact = path.join(root, '.singularity/work-items/PUSH-1/artifacts/intake/intake.md'); await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete publication recovery evidence for the required remote branch.'));
   run('git', ['remote', 'set-url', 'origin', path.join(base, 'missing.git')], root); const failed = flow(root, ['phase', 'publish', 'intake'], { fail: true }); assert.notEqual(failed.status, 0); assert.match(failed.stderr, /push failed/);
   assert.match(await readFile(path.join(root, '.singularity/work-items/PUSH-1/publication-pending.json'), 'utf8'), /PUSH-1/);
-  const blocked = flow(root, ['submit'], { fail: true }); assert.match(blocked.stderr, /Publication is pending/);
+  const blocked = flow(root, ['submit'], { fail: true }); assert.equal(blocked.status, 2); assert.match(blocked.stderr, /Out of sequence/); assert.match(blocked.stderr, /Publication is pending/); assert.match(blocked.stderr, /singularity-flow sync/);
   run('git', ['remote', 'set-url', 'origin', remote], root); flow(root, ['sync']); const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim(); const published = run('git', ['ls-remote', 'origin', 'refs/heads/PUSH-1'], root).stdout.split(/\s+/)[0]; assert.equal(published, local);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '');
 });

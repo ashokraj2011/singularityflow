@@ -1,10 +1,7 @@
 import { currentPhase } from './state.mjs';
+import { phaseNeedsGeneration } from './sequence.mjs';
 
-export function phaseNeedsGeneration(workflow, phase) {
-  if (phase.generation < 1) return true;
-  if (!phase.rejectedAt) return false;
-  return !(workflow.history ?? []).some((item) => item.phase === phase.id && item.event === 'phase_generated' && item.at > phase.rejectedAt);
-}
+export { phaseNeedsGeneration } from './sequence.mjs';
 
 function nextActions(workflow, phase) {
   if (!phase) return [

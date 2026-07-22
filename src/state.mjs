@@ -15,6 +15,9 @@ import {
   applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
+import {
+  assertPhaseSequence, phaseNeedsGeneration, publicationPendingError, sequenceError
+} from './sequence.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -272,11 +275,10 @@ export function currentPhase(workflow) {
   return phase;
 }
 
-function assertCurrent(workflow, requested) {
-  const phase = currentPhase(workflow);
-  if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
-  if (requested && requested !== phase.id) throw new SingularityFlowError(`Current phase is ${phase.id}, not ${requested}.`);
-  return phase;
+export async function assertNoPendingPublication(root, config, workflow, action = 'continue') {
+  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) {
+    throw publicationPendingError(workflow, action);
+  }
 }
 
 function requiredRepoPath(config, workflow, phase) { return `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}`; }
@@ -287,8 +289,8 @@ export async function preparePhase(root, config, workflow, requested = undefined
 }
 
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
-  const phase = assertCurrent(workflow, requested);
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Phase ${phase.id} is ${phase.status}; it cannot be prepared.`);
+  if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
+  const phase = assertPhaseSequence(workflow, 'prepare', { requestedPhase: requested });
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
@@ -341,10 +343,8 @@ export function inferKind(relativePath) {
 }
 
 function artifactFor(phase, relativePath) { return phase.artifacts.find((item) => item.path === relativePath); }
-function canModify(phase) { if (phase.status !== 'in_progress') throw new SingularityFlowError(`Phase ${phase.id} is ${phase.status}; it cannot accept artifact changes.`); }
-
 export async function registerArtifact(root, workflow, candidate, { phaseId, kind } = {}) {
-  const phase = assertCurrent(workflow, phaseId); canModify(phase);
+  const phase = assertPhaseSequence(workflow, 'register artifacts', { requestedPhase: phaseId });
   const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
   const info = await snapshot(absolute); const existing = artifactFor(phase, relativePath); const timestamp = nowIso();
   const record = { path: relativePath, kind: kind ?? inferKind(relativePath), status: 'pending', exists: info.exists, size: info.size, sha256: info.sha256, registeredAt: existing?.registeredAt ?? timestamp, updatedAt: timestamp };
@@ -362,7 +362,8 @@ function ignored(config, workflow, relativePath) {
 }
 
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
-  const phase = assertCurrent(workflow, phaseId); canModify(phase); const records = [];
+  await assertNoPendingPublication(root, config, workflow, 'scan or register artifacts');
+  const phase = assertPhaseSequence(workflow, 'scan artifacts', { requestedPhase: phaseId }); const records = [];
   for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item))) records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
   return records;
 }
@@ -427,8 +428,8 @@ export async function sourceTreeHash(root) {
 }
 
 export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage } = {}) {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
-  const phase = assertCurrent(workflow, phaseId); canModify(phase); const session = await loadSession(root);
+  await assertNoPendingPublication(root, config, workflow, 'publish a generation');
+  const phase = assertPhaseSequence(workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   await preparePhaseInputs(root, config, workflow, phase.id);
   const changed = changedFiles(root);
   const protectedChange = (config.governance?.protectedPaths ?? []).find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
@@ -461,9 +462,12 @@ async function qualityChecks(root, phase) {
 }
 
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true } = {}) {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
-  const phase = assertCurrent(workflow, phaseId); canModify(phase); const session = await loadSession(root);
-  if (phase.generation < 1) throw new SingularityFlowError(`Phase ${phase.id} has no published generation.`);
+  await assertNoPendingPublication(root, config, workflow, 'submit for approval');
+  const phase = assertPhaseSequence(workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
+  if (phaseNeedsGeneration(workflow, phase)) throw sequenceError(workflow, 'submit for approval', {
+    requestedPhase: phase.id,
+    reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'
+  });
   phase.generationCommit = generationCommit(root, workflow, phase);
   if (!phase.generationCommit) throw new SingularityFlowError(`Generation commit is missing for ${phase.id} generation ${phase.generation}.`);
   phase.publicationCommit = config.git?.publish === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', workflow.workItem.branch) ? phase.generationCommit : null;
@@ -486,8 +490,8 @@ async function writeDecision(root, config, workflow, phase, decision) {
 }
 
 export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal' } = {}) {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
-  const phase = assertCurrent(workflow, phaseId); if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Phase ${phase.id} must be submitted before approval.`);
+  await assertNoPendingPublication(root, config, workflow, 'approve');
+  const phase = assertPhaseSequence(workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   const session = await loadSession(root); const allowed = phase.approvalPolicy.personas ?? [];
   if (!allowed.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot approve phase '${phase.id}'. Choose one of: ${allowed.join(', ')}.`);
   const actor = session.actor; const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
@@ -518,8 +522,8 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
 }
 
 export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal' } = {}) {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
-  const phase = assertCurrent(workflow, phaseId); if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Only an awaiting_approval phase can be rejected; current status is ${phase.status}.`);
+  await assertNoPendingPublication(root, config, workflow, 'reject');
+  const phase = assertPhaseSequence(workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (!reason?.trim()) throw new SingularityFlowError('A rejection reason is required.');
   const session = await loadSession(root); const allowedPersonas = phase.approvalPolicy.personas ?? [];
   if (!allowedPersonas.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot reject phase '${phase.id}'.`);
@@ -542,7 +546,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
 
 export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
   const pending = pendingPublicationPath(root, config, workflow.workItem.id);
-  if (await exists(pending)) throw new SingularityFlowError('A previous publication is pending. Run: singularity-flow sync');
+  if (await exists(pending)) throw publicationPendingError(workflow, 'create another lifecycle commit');
   add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths])]);
   const sha = commit(root, message); const mode = config.git?.publish ?? 'required';
   if (mode === 'off') return { sha, pushed: false };

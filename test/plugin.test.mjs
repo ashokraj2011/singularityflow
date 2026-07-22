@@ -8,13 +8,22 @@ import { installPlugin, uninstallPlugin } from '../src/plugin.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = path.join(root, 'plugin');
 
-test('plugin manifest is a skills-only Copilot plugin', async () => {
+test('plugin manifest publishes collision-safe skills and a workflow agent', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   assert.equal(manifest.name, 'singularity-flow');
   assert.equal(manifest.skills, 'skills/');
+  assert.equal(manifest.agents, 'agents/');
   assert.equal(manifest.mcpServers, undefined);
   assert.equal(manifest.extensions, undefined);
   assert.equal(manifest.hooks, undefined);
+});
+
+test('bundled workflow agent self-activates and ships inert dependency tables', async () => {
+  const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
+  assert.match(content, /name:\s*sflow-workflow/);
+  assert.match(content, /singularity-flow agents sync sflow-workflow/);
+  assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
+  assert.doesNotMatch(content, /\|\s*[^-|\s][^|]*\|\s*https:\/\//);
 });
 
 test('official marketplace publishes the versioned plugin from the repository plugin directory', async () => {

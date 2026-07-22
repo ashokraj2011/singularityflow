@@ -8,6 +8,7 @@ import { SingularityFlowError, optionBoolean, optionString, run } from './util.m
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { injectPersonaPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
+import { renderAgentSkills } from './agents.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = '.singularity/worldmodel.json';
@@ -181,6 +182,14 @@ async function inject(root, options) {
     labels: source?.labels ?? []
   };
   const { text, injection } = await injectPersonaPrompt(root, definition, persona, signals);
+  const phase = workflow?.phases?.[signals.phase] ?? null;
+  if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
+  const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, persona } : null, {
+    record: !optionBoolean(options, 'dry-run'),
+    itemDirectory: path.join(root, workItemRoot, workflow.workItem.id)
+  }) : { text: '', skills: [], warnings: [] };
+  const composedText = remote.text ? `${text.trimEnd()}\n\n${remote.text}\n` : text;
+  remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   if (injection.sections.length && injection.modelCommit && injection.modelCommit !== head(root)) {
     const message = `World model injection is stale (${String(injection.modelCommit).slice(0, 10)} != ${head(root).slice(0, 10)}).`;
     if ((definition.worldModel?.staleness ?? 'warn') === 'fail') throw new SingularityFlowError(`${message} Rebuild it.`);
@@ -188,22 +197,21 @@ async function inject(root, options) {
   }
 
   if (optionBoolean(options, 'dry-run')) {
-    console.log(`rules matched: ${injection.matchedRules}  files: ${injection.sections.length}  mode: ${injection.mode}  depth: ${injection.depth}  evidence: ${injection.evidence ? 'yes' : 'no'}  applied: ${injection.applied ? 'yes' : 'no'}`);
+    console.log(`rules matched: ${injection.matchedRules}  files: ${injection.sections.length}  remote skills: ${remote.skills.length}  mode: ${injection.mode}  depth: ${injection.depth}  evidence: ${injection.evidence ? 'yes' : 'no'}  applied: ${injection.applied ? 'yes' : 'no'}`);
     injection.sections.forEach((section) => console.log(`  ${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
+    remote.skills.forEach((skill) => console.log(`  agent:${session.agent}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
   }
 
   if (workflow) {
-    const phase = workflow.phases[signals.phase];
-    if (!phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
     const { file } = await recordInjection(root, workflow, phase, { ...injection, persona }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Injection recorded: ${file}`);
   }
   const destination = optionString(options, 'out');
   if (destination) {
-    await writeFile(path.resolve(root, destination), text);
+    await writeFile(path.resolve(root, destination), composedText);
     console.log(`Injected prompt written to ${destination}.`);
-  } else process.stdout.write(text);
+  } else process.stdout.write(composedText);
 }
 
 export async function worldModelCommand(root, positionals, options) {

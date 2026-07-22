@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
+import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
 
 export const WORKFLOW_PATH = '.singularity/workflow.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,6 +17,11 @@ function assertId(value, label) {
 
 function assertRelative(value, label) {
   if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`);
+}
+
+function assertTemplate(value, label) {
+  if (isAgentTemplateReference(value)) parseAgentTemplateReference(value);
+  else assertRelative(value, label);
 }
 
 export function configuredInputsMode(definition) {
@@ -84,8 +90,8 @@ export function validateDefinition(definition) {
     if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
     assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
     const template = phase.defaultTemplate;
-    if (template) assertRelative(template, `Phase '${id}' defaultTemplate`);
-    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertRelative(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
+    if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
+    for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     for (const persona of phase.approval?.personas ?? []) {
       if (!definition.personas[persona]) throw new SingularityFlowError(`Phase '${id}' approval references unknown persona '${persona}'.`);
@@ -153,6 +159,7 @@ export async function loadDefinition(root) {
     const definition = validateDefinition(YAML.parse(await readFile(yamlPath, 'utf8')));
     for (const [id, persona] of Object.entries(definition.personas)) if (!existsSync(path.join(root, definition.personaPromptsRoot, persona.prompt))) throw new SingularityFlowError(`Persona prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
+      if (isAgentTemplateReference(phase.template)) continue;
       if (!existsSync(path.join(root, definition.templatesRoot, phase.template))) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
     }
     return definition;
@@ -215,6 +222,10 @@ export async function snapshotResolution(root, definition, resolved) {
   const definitionSnapshot = await snapshot(path.join(root, WORKFLOW_PATH));
   const templates = {};
   for (const phase of resolved.phases) {
+    if (isAgentTemplateReference(phase.template)) {
+      templates[phase.id] = await materializeAgentTemplate(root, phase.template, { phaseId: phase.id });
+      continue;
+    }
     const file = path.join(root, definition.templatesRoot, phase.template);
     if (!existsSync(file)) throw new SingularityFlowError(`Template missing for phase '${phase.id}': ${path.relative(root, file)}`);
     templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file)).sha256 };
@@ -275,7 +286,9 @@ export async function migrateLegacyConfig(root) {
 }
 
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
-  const file = path.join(root, definition.templatesRoot, resolvedPhase.template);
+  const file = variables.templateSnapshot?.source === 'agent'
+    ? path.join(root, variables.templateSnapshot.path)
+    : path.join(root, definition.templatesRoot, resolvedPhase.template);
   let text = await readFile(file, 'utf8');
   const replacements = {
     '{{work.id}}': variables.id,

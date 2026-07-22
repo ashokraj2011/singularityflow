@@ -84,3 +84,13 @@ test('nextsteps text preserves timing, skill, reason, and CLI command', () => {
   assert.match(text, /ALTERNATIVE — \/sflow-reject/);
   assert.match(text, /CLI: singularity-flow prepare intake/);
 });
+
+test('agent trust and synchronization prerequisites precede generation', () => {
+  const prerequisites = [
+    { timing: 'now', skill: null, command: 'singularity-flow agents lock architecture', reason: 'Trust hashes.' },
+    { timing: 'then', skill: null, command: 'singularity-flow agents sync architecture', reason: 'Materialize cache.' }
+  ];
+  const snapshot = nextStepsSnapshot({ workflow: workflow(), prerequisites });
+  assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.command), prerequisites.map((item) => item.command));
+  assert.equal(snapshot.actions[2].skill, '/sflow-phase');
+});

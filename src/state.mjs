@@ -1,4 +1,4 @@
-import { readFile, unlink } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -14,6 +14,7 @@ import { loadSession } from './session.mjs';
 import {
   applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
 } from './inputs.mjs';
+import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -123,6 +124,15 @@ function managedMetadata(workflow, phase) {
     sourceSha256: workflow.resolution.sourceSha256 ?? null,
     template: workflow.resolution.templates[phase.id],
     inputs: phase.inputContext ?? null,
+    remoteAgent: phase.agentContext ?? null,
+    remoteOutputs: (phase.remoteOutputs ?? []).map((output) => ({
+      agent: output.agent,
+      resource: output.resource,
+      target: output.target,
+      url: output.url,
+      sourceSha256: output.sourceSha256,
+      generation: output.generation
+    })),
     usage: phase.usage,
     approvals: phase.approvals,
     selfApproval: phase.approvals.some((approval) => approval.selfApproval && !approval.invalidatedAt),
@@ -202,6 +212,13 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     documents: { count: 0, updatedAt: null },
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
+  for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
+    if (template.source !== 'agent' || !template.cachePath) continue;
+    const destination = path.join(workDir(root, config, id), 'context/agent-templates', template.agent, `${template.resource}-${template.sha256}.md`);
+    await mkdir(path.dirname(destination), { recursive: true }); await copyFile(template.cachePath, destination);
+    template.path = posix(path.relative(root, destination)); delete template.cachePath;
+    workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
+  }
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
@@ -231,6 +248,7 @@ function upgradeWorkflow(workflow) {
     phase.approvalPolicy ??= { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [id] };
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
+    phase.remoteOutputs ??= [];
     phase.generation ??= phase.artifacts?.length ? 1 : 0;
     phase.usage ??= [];
     phase.approvals ??= phase.approvedBy ? [{ actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
@@ -274,6 +292,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
+  const session = await loadSession(root, { required: false });
+  const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory });
+  if (remote.outputs.length) {
+    phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !remote.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...remote.outputs];
+  }
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const rendered = renderInputsBlock(inputs);
@@ -285,18 +308,24 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       id: workflow.workItem.id,
       title: workflow.workItem.title,
       workType: workflow.workItem.workType,
-      inputs: rendered.text
+      inputs: rendered.text,
+      templateSnapshot: workflow.resolution.templates?.[phase.id]
     });
     text = applyInputsBlock(text, rendered.text, inputs.mode);
-    if (!(await exists(target))) text = `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`;
+    if (!/<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
     if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
       phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256, renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
       await updateArtifactMetadata(root, config, workflow, phase);
     }
+    if (remote.outputs.length) {
+      phase.agentContext = { agent: session.agent, generation: phase.generation + 1, outputs: remote.outputs.map((output) => output.resource), warnings: remote.warnings };
+      await updateArtifactMetadata(root, config, workflow, phase);
+      await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory, generation: phase.generation + 1 });
+    }
   }
-  return { phase, path: posix(path.relative(root, target)), ...inputs, renderedSha256: rendered.sha256 };
+  return { phase, path: posix(path.relative(root, target)), ...inputs, renderedSha256: rendered.sha256, remoteOutputs: remote.outputs, remoteWarnings: remote.warnings };
 }
 
 const SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.hpp', '.html', '.java', '.js', '.jsx', '.kt', '.kts', '.mjs', '.php', '.py', '.rb', '.rs', '.scala', '.scss', '.sql', '.swift', '.ts', '.tsx', '.vue']);
@@ -414,6 +443,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   phase.usage.push(normalizeUsage(rawUsage, session));
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
+  await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   addUsageAggregate(workflow, phase, phase.usage.at(-1));

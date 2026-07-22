@@ -201,8 +201,12 @@ governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:
     - .singularity/workflow.yml
+    - .singularity/agents.lock.yml
     - .singularity/templates
     - .singularity/personas
+    - .github/agents
+    - .claude/agents
+    - plugin/agents
     - plugin/skills
     - .github/skills
     - .github/workflows/singularity-flow-approve.yml

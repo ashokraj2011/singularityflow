@@ -24,7 +24,7 @@ function afterApprovalActions(workflow, phase) {
   return [action('then', '/sflow-phase', `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
 }
 
-export function workflowNextSteps(workflow, { publicationPending = false } = {}) {
+export function workflowNextSteps(workflow, { publicationPending = false, prerequisites = [] } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
   if (publicationPending) return [
@@ -42,7 +42,7 @@ export function workflowNextSteps(workflow, { publicationPending = false } = {})
   if (phase.status === 'awaiting_approval') return [...immediate, ...afterApprovalActions(workflow, phase)];
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
-  const actions = [...immediate];
+  const actions = [...prerequisites, ...immediate];
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
@@ -56,7 +56,7 @@ export function workflowNextSteps(workflow, { publicationPending = false } = {})
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, prerequisites = [] } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -90,7 +90,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
     currentPhase: workflow.currentPhase,
-    actions: workflowNextSteps(workflow, { publicationPending })
+    actions: workflowNextSteps(workflow, { publicationPending, prerequisites })
   };
 }
 

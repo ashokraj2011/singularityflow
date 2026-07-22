@@ -7,11 +7,10 @@ disable-model-invocation: true
 # Independent review phase
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `review`.
-2. Ground the phase with `singularity-flow wm context review --task "<review scope>" --concat --evidence --no-persona`. If missing or stale, run `singularity-flow wm build --phase review --task "<review scope>"`, then rerun context. Use architecture, development, testing, security, and evidence views.
-3. Run `singularity-flow wm inject --phase review` and use the returned, rule-grounded persona prompt.
-4. Read approved requirements, design, implementation summary, verification evidence, the actual diff, and selected source evidence.
-5. Review correctness, acceptance coverage, maintainability, architecture alignment, security, failures, observability, rollout, rollback, and tests.
-6. Rank findings by severity and include file/line references when available.
-7. Do not silently fix findings unless explicitly asked.
-8. If the configured workflow includes review, run `singularity-flow prepare review`, complete the decision document, remove placeholders, and run `singularity-flow phase publish review`.
-9. Do not submit or approve automatically.
+2. Run `singularity-flow wm compose --phase review --task "<review scope>" --evidence` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase review --task "<review scope>"`, then rerun the identical compose command. Use architecture, development, testing, security, and evidence grounding.
+3. Read approved requirements, design, implementation summary, verification evidence, the actual diff, and selected source evidence.
+4. Review correctness, acceptance coverage, maintainability, architecture alignment, security, failures, observability, rollout, rollback, and tests.
+5. Rank findings by severity and include file/line references when available.
+6. Do not silently fix findings unless explicitly asked.
+7. If the configured workflow includes review, run `singularity-flow prepare review`, complete the decision document, remove placeholders, and run `singularity-flow phase publish review`.
+8. Do not submit or approve automatically.

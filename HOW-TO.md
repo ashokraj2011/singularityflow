@@ -174,6 +174,19 @@ The result labels actions as:
 
 It also reports pending publication, enforced input work, stale agent locks, required agent synchronization, and remote-output conflicts.
 
+To execute the single next valid action instead of only viewing it:
+
+```text
+/sflow-next
+```
+
+```bash
+sflow-next --task "Current objective"
+```
+
+Run it again only when you deliberately want the following lifecycle action.
+It does not silently combine generation, submission, and approval.
+
 ## 5. Generate and publish a phase
 
 The normal Copilot command is:
@@ -370,9 +383,12 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 
 | Goal | Copilot | Terminal |
 |---|---|---|
+| About the product | `/sflow-about` | `sflow-about` |
 | Start work | `/sflow-start WORK-123` | `singularity-flow start WORK-123` |
 | Resume work | `/sflow-resume WORK-123` | `singularity-flow resume WORK-123 --fetch` |
+| Change session persona | `/sflow-persona` | `sflow-persona` |
 | Get next actions | `/sflow-nextsteps` | `singularity-flow nextsteps` |
+| Execute next action | `/sflow-next` | `sflow-next` |
 | Generate current phase | `/sflow-phase` | `singularity-flow prepare <phase>` |
 | Inspect phase inputs | `/sflow-inputs <phase>` | `singularity-flow inputs <phase> --dry-run` |
 | Publish generation | `/sflow-phase` | `singularity-flow phase publish <phase>` |

@@ -50,12 +50,15 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, '.singularity/agents.lock.yml');
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
+  assert.equal(snapshot.definition.sequenceGates.default, 'soft');
+  assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
 
   run(process.execPath, [bin, 'start', 'DESK-1', '--title', 'Desktop workflow'], root);
   snapshot = await desktopSnapshot(root, 'DESK-1');
   assert.equal(snapshot.progress.currentPhase, 'intake');
   assert.equal(snapshot.progress.percentage, 0);
   assert.equal(snapshot.workflow.workItem.workType, 'feature');
+  assert.equal(snapshot.workflow.resolution.sequenceGates.phaseStatus, 'soft');
   assert.ok(snapshot.documents.some((item) => item.id === 'SYS-WORKFLOW'));
 });
 

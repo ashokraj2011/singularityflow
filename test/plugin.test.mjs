@@ -22,6 +22,9 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);
   assert.match(content, /singularity-flow agents sync sflow-workflow/);
+  assert.match(content, /tools:.*ask_user.*write_bash/);
+  assert.match(content, /YAML-derived options with `ask_user`/);
+  assert.match(content, /Never infer or preselect/);
   assert.match(content, /Out of sequence[\s\S]*stop immediately/);
   assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
   assert.doesNotMatch(content, /\|\s*[^-|\s][^|]*\|\s*https:\/\//);
@@ -66,6 +69,14 @@ test('help skill is read-only and delegates to the workflow guide', async () => 
   assert.match(content, /Do not generate, submit, approve, reject, upload, commit, or push anything/);
 });
 
+test('about skill explains the brand and remains read-only', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-about', 'SKILL.md'), 'utf8');
+  assert.match(content, /disable-model-invocation:\s*true/);
+  assert.match(content, /Singularity Flow.*product.*Singularity.*brand/s);
+  assert.match(content, /Copilot uses `\/sflow-<action>`/);
+  assert.match(content, /Do not initialize a repository.*commit, or push/s);
+});
+
 test('report skill is read-only and preserves unavailable usage disclosure', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-report', 'SKILL.md'), 'utf8');
   assert.match(content, /singularity-flow report <arguments>/);
@@ -79,6 +90,38 @@ test('nextsteps skill delegates to the read-only deterministic action planner', 
   assert.match(content, /singularity-flow nextsteps <arguments>/);
   assert.match(content, /NOW.*THEN.*ALTERNATIVE/s);
   assert.match(content, /Keep this operation read-only/);
+});
+
+test('next skill executes one action and preserves explicit approval controls', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow next --task/);
+  assert.match(content, /interactive persona selection and explicit phase confirmation/);
+  assert.match(content, /Every recorded approval must produce its own commit and push/);
+  assert.match(content, /Do not automatically submit a generation you just published/);
+  assert.match(content, /ask_user/);
+  assert.match(content, /write_bash/);
+});
+
+test('interactive lifecycle skills bridge Copilot choices to the CLI picker without bypass flags', async () => {
+  for (const name of ['sflow-start', 'sflow-resume', 'sflow-approve', 'sflow-reject', 'sflow-persona']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /ask_user/, `${name} must use Copilot interactive questions`);
+    assert.match(content, /write_bash/, `${name} must answer the same interactive CLI process`);
+    assert.match(content, /Never (?:infer|select)|never choose/iu, `${name} must prohibit model-selected defaults`);
+    assert.match(content, /unavailable or disabled/, `${name} must fail safely when interactive questions are unavailable`);
+  }
+  const start = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
+  assert.match(start, /Choose workflow template/);
+  assert.match(start, /Choose persona/);
+  assert.match(start, /Never pass `--type` or `--persona`/);
+});
+
+test('persona skill persists only the local work-item session', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-persona', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow persona <WORK-ID>/);
+  assert.match(content, /\.git\/singularity-flow\/session\.json/);
+  assert.match(content, /does not commit or push/);
+  assert.match(content, /disable-model-invocation:\s*true/);
 });
 
 test('inputs skill previews and renders approved phase dataflow', async () => {

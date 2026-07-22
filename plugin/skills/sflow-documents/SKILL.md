@@ -6,7 +6,7 @@ disable-model-invocation: true
 ---
 # Manage supporting documents
 
-If an upload exits with `Out of sequence`, stop immediately and relay the required next action. Listing and viewing remain read-only; never bypass the upload guard by copying files into managed work-item folders.
+Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Listing and viewing remain read-only; never bypass the upload gate by copying files into managed work-item folders.
 
 Use the deterministic document catalog; never copy inputs into arbitrary repository locations.
 

@@ -10,3 +10,4 @@ description: Show the ordered next, subsequent, and alternative Singularity Flow
 4. If publication is pending, show `singularity-flow sync` first because later transitions are blocked.
 5. For an active phase, include generation, submission, approval/rejection, and the following phase or completion checks as applicable.
 6. Keep this operation read-only. Do not execute any returned action unless the user separately asks to perform it.
+7. If the user wants the first valid action executed, point them to the explicitly mutating `/sflow-next` command.

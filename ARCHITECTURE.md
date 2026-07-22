@@ -53,7 +53,9 @@ phase contract/template
 + evidence ledger for verification/conformance
 ```
 
-Need-based `worldModel.injection.rules` may additionally place selected model files inside the active persona prompt. Normal phase skills load mandatory views with `wm context --no-persona`, then load the rendered persona through `wm inject`; the next generation commit includes a context audit record containing the selected file hashes and model commit.
+World-model generation runs in a detached analysis worktree with a separate output directory. The CLI rejects source writes, validates manifest coverage and safe regular-file paths, records a source-tree hash, atomically installs the model, and commits/publishes it. Its source hash excludes model output and work-item lifecycle state, so those commits do not create false staleness.
+
+Normal phase skills use one `wm compose` operation. It joins the selected persona, mandatory phase/persona views, the exact task guide, applicable evidence, need-based `worldModel.injection.rules`, and active-agent skills. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` grounding gate verifies these against the committed model; missing configuration remains `off` for compatibility.
 
 Repository world models never move to remote delivery. Agent Markdown is an additional scoped layer. `.singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent beside the persona without changing the lock. Skills are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
@@ -70,7 +72,7 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ├── documents.json
 ├── inputs/
 │   └── DOC-001/<original-file>
-├── context/                 # per-generation prompt-injection audit records
+├── context/                 # per-generation grounding records and prompt snapshots
 │   ├── design-gen1.json
 │   ├── inputs-design-gen1.json
 │   ├── agents-design-gen1.json
@@ -100,7 +102,9 @@ Dynamic URL expansion permits only encoded work item, work type, phase, and gene
 
 `documents.json` is the stable supporting-input catalog. Local files are copied under `inputs/DOC-nnn/`; external links such as Figma are recorded without being downloaded. Each input is attributed to the active identity/persona and uploaded only during the profile-snapshotted allowed phases. Uploads use the same commit/push recovery protocol as lifecycle events.
 
-`guide` derives a read-only template walkthrough from `workflow.json`. It does not maintain separate state; `/sflow-help` reports the immutable phase sequence and selects its recommended next action from the current phase status and generation history. `nextsteps` reuses that recommendation engine to produce a compact ordered plan with immediate, subsequent, and alternative actions, while also handling pre-initialization, idle repositories, pending publication, and completed workflows.
+`guide` derives a read-only template walkthrough from `workflow.json`. It does not maintain separate state; `/sflow-help` reports the immutable phase sequence and selects its recommended next action from the current phase status and generation history. `nextsteps` reuses that recommendation engine to produce a compact ordered plan with immediate, subsequent, and alternative actions, while also handling pre-initialization, idle repositories, pending publication, and completed workflows. The explicitly invoked `sflow-next`/`singularity-flow next` executor performs one corresponding action at a time. It preserves generation, submission, and approval as separate durable transitions; approval continues through the interactive persona/confirmation path and its atomic commit/push protocol.
+
+Sequence guards are named policy controls resolved from global and work-type `sequenceGates`, then pinned into `workflow.resolution`. An absent policy normalizes every gate to `hard`. A hard violation fails without mutation; a soft violation requires an exact interactive confirmation and reconciles runtime state before continuing. The exception record captures prior state, action, reason, identity, persona, and timestamp, and is propagated through history, artifact metadata, status, reports, and governance warnings. Non-interactive processes cannot confirm soft exceptions, and Copilot agent contracts explicitly prohibit self-confirmation.
 
 `HELP.md` is the canonical product manual. The CLI parses its level-two headings into stable topic IDs for `singularity-flow help [TOPIC]`; `/sflow-help` loads those topics for general questions and uses `guide` for work-item-specific questions. The Electron renderer imports the same Markdown at build time and provides local topic search. This keeps help available offline without granting the renderer new filesystem or IPC capabilities.
 
@@ -114,7 +118,7 @@ Completion is the number of approved phases divided by the immutable total phase
 
 `apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, persona sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
 
-The app may visualize repository state and edit workflow, template, persona, and repository-agent source text, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
+The app may visualize repository state and edit workflow, sequence-gate policy, template, persona, and repository-agent source text, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
 
 ## Transaction and publication model
 

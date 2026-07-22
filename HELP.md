@@ -12,6 +12,20 @@ The short command reference is available with `singularity-flow --help`.
 
 For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff, phase-input, and remote-agent diagrams, open `HOW-TO.md` in the repository.
 
+## About and command namespace
+
+**Singularity Flow** is the product under the **Singularity** brand. It is a
+Git-native, configurable SDLC orchestration system that carries requirements,
+designs, implementation specifications, evidence, approvals, and reports through
+reviewable work-item branches.
+
+Run `/sflow-about` in Copilot or `sflow-about` in a terminal for the concise
+installed-version summary. All public Copilot commands use the short,
+collision-safe `/sflow-<action>` form. Terminal shortcuts use
+`sflow-<action>` where supplied. The full `singularity-flow <action>` CLI remains
+available for scripts and backward compatibility; it is not a Copilot slash-command
+prefix.
+
 ## Quick start
 
 Install the package, initialize a repository, and commit its editable process definition:
@@ -38,6 +52,7 @@ Start a new Copilot session after plugin installation. Begin work from Jira or f
 ```text
 /sflow-start WORK-123
 /sflow-nextsteps WORK-123
+/sflow-next
 /sflow-phase
 ```
 
@@ -191,6 +206,9 @@ singularity-flow nextsteps [WORK-ID]
 In Copilot, use `/sflow-nextsteps [WORK-ID]`. It labels actions as `NOW`,
 `THEN`, or `ALTERNATIVE` and never executes them automatically.
 
+Use `/sflow-next` when you want the first valid action executed. Its terminal
+equivalent is `sflow-next`, which delegates to `singularity-flow next`.
+
 ## Approved phase inputs
 
 Phase inputs make approved upstream artifacts explicit prompt dependencies. The top-level mode is pinned when the work item starts:
@@ -236,7 +254,24 @@ Start and resume ask for a persona. The active session is local:
 
 Selecting a persona alone does not create a commit. The next generation, submission, approval, rejection, or document upload records the actor and persona.
 
-The selection remains active across CLI, Copilot, and later terminal invocations in this repository until another `start`, `resume`, approval, or rejection selection replaces it. It is deliberately not pushed: a different clone must run `singularity-flow resume <WORK-ID> --fetch` and declare its own persona.
+Copilot uses its interactive `ask_user` facility for intake source, workflow,
+and persona choices. The choices are read from the CLI's live YAML-derived menu,
+so custom work types and personas appear automatically. The skill sends the
+selected menu number back to the same interactive CLI process; it never invents
+a default or uses hidden `--type`/`--persona` flags. If interactive questions are
+disabled, the skill stops and directs the contributor to the terminal picker.
+
+Switch the active persona at any time without changing committed workflow state:
+
+```text
+/sflow-persona
+```
+
+```bash
+sflow-persona
+```
+
+The selection remains active across CLI, Copilot, and later terminal invocations in this repository until another `start`, `resume`, `/sflow-persona`, approval, or rejection selection replaces it. It is deliberately not pushed: a different clone must run `singularity-flow resume <WORK-ID> --fetch` and declare its own persona.
 
 Multi-approval thresholds require distinct authenticated identities. Switching persona does not create another identity.
 
@@ -265,24 +300,68 @@ Artifact-only phases cannot modify application source. Implementation and verifi
 
 ## Sequence enforcement
 
-Lifecycle mutations are accepted only in the configured order:
+Sequence enforcement is configurable gate by gate.
+
+Lifecycle mutations normally follow the configured order:
 
 ```text
 prepare/edit → publish generation → submit → approve or reject
 ```
 
-If a command is attempted too early, against a different phase, after submission, after completion, or while publication is pending, Singularity Flow exits with code `2` before changing workflow files or creating a commit. The error always reports the attempted action, current phase/status/generation, reason, required next action, exact CLI command, and `nextsteps` command.
+Each sequence guard is configured as `hard` or `soft` in `.singularity/workflow.yml`. A missing `sequenceGates` section means every gate is `hard`, preserving existing repository behavior. Global values may be overridden for a work type. The fully resolved policy is snapshotted at work-item creation, so changing the base branch configuration does not alter an active item.
+
+```yaml
+sequenceGates:
+  default: soft
+  completion: hard
+  currentPhase: hard
+  freshGeneration: hard
+  generationCommit: hard
+  remoteGeneration: hard
+  publicationPending: hard
+
+workTypes:
+  feature:
+    # Optional overrides for this profile.
+    sequenceGates:
+      phaseStatus: soft
+      documentPhase: soft
+```
+
+The configurable gates are:
+
+| Gate | Protects |
+|---|---|
+| `completion` | Mutating a completed workflow |
+| `currentPhase` | Acting on a phase other than the active phase |
+| `phaseStatus` | Acting from the wrong phase status, such as approval before submission |
+| `freshGeneration` | Submitting without a new generation, including after rejection |
+| `generationCommit` | Submitting without the required generation commit |
+| `remoteGeneration` | Submitting before the generation reaches the configured remote |
+| `publicationPending` | Mutating while a retained local commit still needs synchronization |
+| `documentPhase` | Uploading supporting documents outside the configured intake phases |
+
+A `hard` gate exits with code `2` before changing workflow files or creating a commit. A `soft` gate displays the same current state, reason, required command, and consequences, then asks:
 
 ```text
-Singularity Flow error: Out of sequence: cannot approve for phase 'design'.
+Do you want to continue anyway? Type continue to proceed:
+```
+
+Only an interactive human can confirm a soft gate. A refusal, any answer other than `continue`, or a non-interactive terminal exits with code `2` without mutation. Copilot must show the warning and leave confirmation to the person; it must never type `continue` or otherwise self-confirm.
+
+```text
+Singularity Flow error: Out of sequence [phaseStatus]: cannot approve for phase 'design'.
 Current state: phase 'design' is in_progress at generation 1.
+Gate mode: hard.
 Required next action: Submit published phase 'design' for approval.
 Run next: singularity-flow submit --phase design
 See all valid actions: singularity-flow nextsteps WORK-123
 No workflow files, commits, or remote state were changed.
 ```
 
-Submitted phases are read-only until approved or rejected. Rejection requires a new generation before resubmission. A failed push blocks all further mutations until `singularity-flow sync` succeeds. Copilot must stop when it receives `Out of sequence`; it must not bypass the guard by editing `workflow.json`, status files, metadata, or approvals.
+Every confirmed soft override records the gate, action, reason, prior state, authenticated identity, selected persona, and time in workflow history and artifact metadata. `status`, the work-item report, and the governance gate expose these overrides; governance reports them as warnings. A soft override is an audited exception, not a successful independent control.
+
+Starter repositories use soft gates for phase-status and document-phase mistakes while keeping completion, cross-phase actions, generation integrity, remote publication, and pending synchronization hard. Teams may change those defaults before starting a work item. Never bypass either mode by editing `workflow.json`, status files, metadata, or approvals directly.
 
 ## Approval, rejection, and self-approval
 
@@ -306,7 +385,16 @@ Rejection reopens the target, invalidates target and downstream approvals, and p
 
 Self-approval is allowed when the same authenticated person generated and approved a phase, but it is marked `selfApproval: true`. It appears in artifacts, decision records, status, reports, and conformance, and is never described as independent review.
 
+Each approval—including each partial decision toward a multi-approval threshold—creates and pushes a separate atomic commit before the command succeeds. If publication fails, the approval commit remains local, publication is marked pending, and later decisions are blocked until `singularity-flow sync` publishes it.
+
 Use `/sflow-approve` and `/sflow-reject` in Copilot. These commands are explicitly user-invoked and must not run silently.
+
+Use `/sflow-next` or `sflow-next --task "<objective>"` to execute exactly one
+next valid action. Depending on state, it synchronizes a retained commit,
+prepares and grounds the current generation, submits a published generation,
+opens the interactive approval flow, or runs the final terminal gate. Generation
+and submission remain separate invocations. Approval never bypasses persona
+selection or confirmation, and its decision commit must be pushed before success.
 
 ## Progress and status
 
@@ -386,19 +474,28 @@ The world model grounds phase generation in repository facts:
 
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
-singularity-flow wm context design --concat
-singularity-flow wm inject --phase design --dry-run
+singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
+singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm check
 ```
 
-`wm inject` renders the active persona prompt with focused world-model content
-selected by declarative `worldModel.injection.rules`. Rules may match the active
-persona, phase, immutable work type, changed-path globs, and Jira/manual source
-labels. Matching model files replace `{{WORLD_MODEL}}` in the persona prompt or
-are appended, according to `mode`, under a configurable source-byte budget.
+`wm build` runs the configured generator in a detached analysis worktree. Only
+its isolated output is accepted. Singularity Flow validates the manifest and
+every declared regular file, rejects escaping paths/symlinks and unexpected
+repository writes, records a source-tree hash, atomically installs the output,
+commits it, and publishes it according to `git.publish`.
+
+`wm compose` renders the active persona prompt with mandatory phase/persona
+views, an exact task guide when `--task` is supplied, applicable evidence,
+focused `worldModel.injection.rules`, and verified active-agent skills. Rules may
+match the active persona, phase, immutable work type, committed or pending
+changed-path globs, and Jira/manual source labels. `wm inject` is a compatibility
+alias for the same command.
 
 ```yaml
 worldModel:
+  grounding: enforce        # off | warn | enforce; absent means off
+  staleness: warn           # warn | fail | ignore
   injection:
     placeholder: "{{WORLD_MODEL}}"
     mode: append             # replace | append | off
@@ -415,29 +512,40 @@ worldModel:
 Preview rule matching without writing an audit record:
 
 ```bash
-singularity-flow wm inject --phase design --dry-run
+singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 ```
 
-Every non-dry-run injection attempt writes
+Every non-dry-run composition writes
 `.singularity/work-items/<WORK-ID>/context/<phase>-gen<n>.json` with the persona,
-model commit, selected files, SHA-256 hashes, byte counts, and truncation flags.
-The next `phase publish` commit carries that record with the generation, making
-the exact prompt grounding transferable to another terminal.
+committed model revision, manifest/source hashes, required views, selected files,
+SHA-256 hashes, byte counts, and truncation flags. It also writes the exact
+rendered prompt to `context/prompts/<phase>-gen<n>.md`. The next `phase publish`
+commit carries both files with the generation.
+
+In `enforce` mode, publication fails if composition is absent, stale, uncommitted,
+uses the wrong persona, omits a required view, or differs from its committed
+manifest/prompt snapshot. `warn` reports the same problems without blocking.
+`off` skips the grounding gate and is the default for configurations created
+before this feature. The mode is pinned into work-item resolution at start, so
+later configuration changes cannot weaken or strengthen an in-flight item.
 
 Context composition is additive:
 
 ```text
-phase contract/template
++ phase skill contract
 + selected persona prompt
 + phase-required world-model views
 + persona world-model views
++ exact task guide (when requested)
 + rule-selected repository world-model files
 + active-agent remote skill Markdown
-+ approved phase-input artifacts
 + evidence ledger for verification and conformance
 ```
 
-Persona views never remove phase-required views. Verification and conformance load test/source evidence. Use the relevant phase skill in Copilot; it builds and reads routed context before generating content.
+Approved phase inputs are injected separately by `prepare` into the managed
+artifact template. Persona views never remove phase-required views. Verification
+and conformance load test/source evidence. Phase skills use `wm compose` once,
+building first with the same exact task text when needed.
 
 ## Remote agent Markdown
 
@@ -548,10 +656,13 @@ All public skills use the collision-safe `sflow-` prefix:
 
 | Copilot command | Purpose |
 |---|---|
+| `/sflow-about` | Explain the Singularity Flow brand, installed version, capabilities, and command namespace |
 | `/sflow-start` | Guided Jira or manual intake, workflow selection, and persona selection |
 | `/sflow-resume` | Fetch, fast-forward, and select a persona |
+| `/sflow-persona` | Select or change the persona for the current local work-item session |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
+| `/sflow-next` | Execute exactly one next valid lifecycle action |
 | `/sflow-inputs` | Preview or render approved upstream artifact inputs |
 | `/sflow-phase` | Generate the current phase using its contract and world model |
 | `/sflow-requirements` | Requirements-focused generation |
@@ -646,12 +757,18 @@ Review the local artifact first. `singularity-flow agents refresh-output <RESOUR
 ## CLI command reference
 
 ```text
+singularity-flow about
+sflow-about
 singularity-flow help [TOPIC] [--json]
 singularity-flow init
 singularity-flow start <WORK-ID> [--jira | --story-file FILE]
 singularity-flow resume <WORK-ID> [--fetch]
+singularity-flow persona [WORK-ID]
+sflow-persona [WORK-ID]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
+singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
+sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run]
 singularity-flow agents list
 singularity-flow agents lock <AGENT> [--update]

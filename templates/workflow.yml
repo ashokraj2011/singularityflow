@@ -1,5 +1,16 @@
 version: 1
 inputsMode: record
+
+# Sequence gates are immutable per work item. Soft gates ask for an explicit
+# interactive confirmation and audit the override; hard gates exit immediately.
+sequenceGates:
+  default: soft
+  completion: hard
+  currentPhase: hard
+  freshGeneration: hard
+  generationCommit: hard
+  remoteGeneration: hard
+  publicationPending: hard
 defaultBaseBranch: main
 workItemRoot: .singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
@@ -14,6 +25,7 @@ personaPromptsRoot: .singularity/personas
 worldModel:
   outputDir: .singularity/world-model
   promptSource: .singularity/prompts/worldmodel-builder.md
+  grounding: enforce
   staleness: warn
   injection:
     placeholder: "{{WORLD_MODEL}}"

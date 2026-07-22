@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -38,6 +39,10 @@ test('another clone resumes by work ID and fast-forwards tracked state', async (
   run('git', ['commit', '-m', 'initial'], first);
   run('git', ['remote', 'add', 'origin', remote], first);
   flow(first, ['init']);
+  const configPath = path.join(first, '.singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.singularity'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);

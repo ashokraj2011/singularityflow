@@ -49,6 +49,11 @@ function fixtureWorkflow() {
         developer: { records: 2, exactRecords: 1, unavailableRecords: 1, totalTokens: 5000 }
       }
     },
+    sequenceOverrides: [{
+      gate: 'phaseStatus', action: 'approve', requestedPhase: 'requirements',
+      reason: 'Approval was requested before submission.', at: at(110),
+      actor: { name: 'Alice' }, persona: 'product-owner', before: { currentPhase: 'requirements' }
+    }],
     history: [
       { at: at(480), actor: 'bob@example.com', persona: 'architect', event: 'phase_approved', phase: 'design', detail: 'complete' },
       { at: at(0), actor: 'alice@example.com', persona: 'product-owner', event: 'phase_generated', phase: 'requirements' },
@@ -121,12 +126,15 @@ test('markdown and HTML render escaped, script-free report summaries and limitat
   assert.match(markdown, /Token usage by model/);
   assert.match(markdown, /test-model/);
   assert.match(markdown, /Bottleneck/);
+  assert.match(markdown, /Soft sequence overrides/);
+  assert.match(markdown, /phaseStatus/);
   assert.match(markdown, /wall-clock/);
   const html = renderHtml(report);
   assert.match(html, /<svg/);
   assert.match(html, /ENG-1/);
   assert.match(html, /Token usage by model/);
   assert.match(html, /test-model/);
+  assert.match(html, /Soft sequence overrides/);
   assert.doesNotMatch(html, /<script/);
 });
 

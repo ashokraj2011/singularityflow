@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson } from './util.mjs';
+import { exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
 const MODES = new Set(['replace', 'append', 'off']);
@@ -118,8 +118,13 @@ function utf8Prefix(buffer, maxBytes) {
 export async function renderInjection(root, definition, signals = {}) {
   const resolution = resolveInjection(definition, signals);
   if (resolution.mode === 'off' || !resolution.includes.length) return { ...resolution, sections: [], text: '' };
-  const includes = resolution.evidence ? [...new Set([...resolution.includes, 'evidence.md'])] : resolution.includes;
-  const { outputDir, selected } = await selectModelFiles(root, definition, includes);
+  const outputDir = definition.worldModel?.outputDir ?? '.singularity/world-model';
+  const manifestFile = path.join(root, outputDir, 'manifest.json');
+  const manifest = await exists(manifestFile) ? await readJson(manifestFile) : null;
+  const includes = resolution.evidence && manifest?.evidence?.path
+    ? [...new Set([...resolution.includes, manifest.evidence.path])]
+    : resolution.includes;
+  const { selected } = await selectModelFiles(root, definition, includes);
   const sections = [];
   let budget = resolution.maxBytes;
   for (const relative of selected) {
@@ -135,8 +140,6 @@ export async function renderInjection(root, definition, signals = {}) {
     budget -= injectedBytes;
     sections.push({ path: posix(path.join(outputDir, relative)), sha256: info.sha256, bytes: info.size, injectedBytes, truncated, body });
   }
-  const manifestFile = path.join(root, outputDir, 'manifest.json');
-  const manifest = await exists(manifestFile) ? await readJson(manifestFile) : null;
   const modelCommit = manifest?.repository_commit ?? manifest?.repository?.commit ?? null;
   const header = `<!-- world-model injection: rules=${resolution.matchedRules} files=${sections.length} commit=${modelCommit ? String(modelCommit).slice(0, 10) : 'unknown'} -->`;
   const text = [header, ...sections.map((section) => `\n## World model: ${section.path}\n\n${section.body.trim()}\n`)].join('\n');
@@ -148,7 +151,10 @@ export async function injectPersonaPrompt(root, definition, personaId, signals =
   if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
   const base = await readFile(path.join(root, definition.personaPromptsRoot, persona.prompt), 'utf8');
   const rendered = await renderInjection(root, definition, { ...signals, persona: personaId });
-  if (rendered.mode === 'off' || !rendered.sections.length) return { text: base, injection: { ...rendered, applied: false } };
+  if (rendered.mode === 'off' || !rendered.sections.length) return {
+    text: base.replaceAll(rendered.placeholder, ''),
+    injection: { ...rendered, applied: false }
+  };
   const hasPlaceholder = base.includes(rendered.placeholder);
   const applied = hasPlaceholder || rendered.mode === 'append';
   const text = hasPlaceholder
@@ -160,11 +166,14 @@ export async function injectPersonaPrompt(root, definition, personaId, signals =
 }
 
 export async function recordInjection(root, workflow, phase, injection, { workDir }) {
+  const generation = phase.generation + 1;
+  const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
+  if (injection.renderedText != null) await writeText(promptFile, injection.renderedText);
   const record = {
     schemaVersion: 1,
     workId: workflow.workItem.id,
     phase: phase.id,
-    generation: phase.generation + 1,
+    generation,
     persona: injection.persona ?? null,
     modelCommit: injection.modelCommit ?? null,
     matchedRules: injection.matchedRules,
@@ -172,7 +181,20 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     applied: injection.applied ?? false,
     depth: injection.depth,
     evidence: injection.evidence,
-    files: injection.sections.map((section) => ({ path: section.path, sha256: section.sha256, bytes: section.bytes, injectedBytes: section.injectedBytes, truncated: section.truncated })),
+    requiredViews: injection.requiredViews ?? [],
+    task: injection.task ?? null,
+    modelSourceTreeSha256: injection.modelSourceTreeSha256 ?? null,
+    composedSourceTreeSha256: injection.composedSourceTreeSha256 ?? null,
+    worldModelCommit: injection.modelCommit ?? null,
+    manifestSha256: injection.manifestSha256 ?? null,
+    fresh: injection.fresh ?? null,
+    renderedSha256: injection.renderedSha256 ?? null,
+    promptPath: injection.renderedText != null ? posix(path.relative(root, promptFile)) : null,
+    files: injection.sections.map((section) => ({
+      path: section.path, sha256: section.sha256, bytes: section.bytes,
+      injectedBytes: section.injectedBytes, truncated: section.truncated,
+      category: section.category ?? 'rule', level: section.level ?? null, reason: section.reason ?? null
+    })),
     injectedAt: nowIso()
   };
   const file = path.join(workDir, 'context', `${phase.id}-gen${record.generation}.json`);

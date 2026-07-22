@@ -7,6 +7,7 @@
   "properties": {
     "version": { "const": 1 },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
+    "sequenceGates": { "$ref": "#/$defs/sequenceGates" },
     "defaultBaseBranch": { "type": "string", "minLength": 1 },
     "workItemRoot": { "type": "string", "minLength": 1 },
     "idPattern": { "type": "string", "minLength": 1 },
@@ -85,7 +86,8 @@
               "type": "object",
               "properties": { "inputs": { "$ref": "#/$defs/phaseInputs" } }
             }
-          }
+          },
+          "sequenceGates": { "$ref": "#/$defs/sequenceGates" }
         },
         "additionalProperties": true
       }
@@ -108,6 +110,7 @@
         "outputDir": { "type": "string", "minLength": 1 },
         "promptSource": { "type": "string", "minLength": 1 },
         "runner": { "type": "string", "minLength": 1 },
+        "grounding": { "enum": ["off", "warn", "enforce"], "default": "off" },
         "staleness": { "enum": ["warn", "fail", "ignore"] },
         "injection": {
           "type": "object",
@@ -148,6 +151,21 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "sequenceGates": {
+      "type": "object",
+      "properties": {
+        "default": { "enum": ["hard", "soft"] },
+        "completion": { "enum": ["hard", "soft"] },
+        "currentPhase": { "enum": ["hard", "soft"] },
+        "phaseStatus": { "enum": ["hard", "soft"] },
+        "freshGeneration": { "enum": ["hard", "soft"] },
+        "generationCommit": { "enum": ["hard", "soft"] },
+        "remoteGeneration": { "enum": ["hard", "soft"] },
+        "publicationPending": { "enum": ["hard", "soft"] },
+        "documentPhase": { "enum": ["hard", "soft"] }
+      },
+      "additionalProperties": false
+    },
     "phaseInputs": {
       "type": "array",
       "uniqueItems": true,

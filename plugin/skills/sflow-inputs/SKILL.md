@@ -6,7 +6,7 @@ disable-model-invocation: true
 ---
 # Inspect phase inputs
 
-If a recording command exits with `Out of sequence`, stop immediately and relay the required next action. Use `--dry-run` only for read-only inspection; never edit managed input records to bypass sequencing.
+Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `--dry-run` only for read-only inspection and never edit managed input records to bypass a gate.
 
 1. Run `singularity-flow status --json` and use only the active phase.
 2. Preview resolution with `singularity-flow inputs <phase> --dry-run`.

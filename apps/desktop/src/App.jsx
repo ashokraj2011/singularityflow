@@ -30,6 +30,11 @@ function Empty({ title, detail, action }) {
   return <div className="empty"><div className="empty-mark">S</div><h2>{title}</h2><p>{detail}</p>{action}</div>;
 }
 
+function Toast({ toast, onClose }) {
+  if (!toast) return null;
+  return <div className={`toast ${toast.tone}`} role={toast.tone === 'bad' ? 'alert' : 'status'} aria-live="polite"><span>{toast.text}</span><button type="button" aria-label="Dismiss message" onClick={onClose}>×</button></div>;
+}
+
 function ProgressRing({ value = 0 }) {
   return <div className="ring" style={{ '--progress': `${value * 3.6}deg` }}><div><strong>{value}%</strong><span>complete</span></div></div>;
 }
@@ -215,8 +220,9 @@ export default function App() {
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
 
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
+  useEffect(() => { if (toast?.tone !== 'good') return undefined; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer); }, [toast]);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
-  async function action(task, success) { setBusy(true); try { const result = await task(); if (success) setToast({ tone: 'good', text: success }); return result; } catch (error) { setToast({ tone: 'bad', text: error.message }); return null; } finally { setBusy(false); setTimeout(() => setToast(null), 5000); } }
+  async function action(task, success) { setBusy(true); setToast(null); try { const result = await task(); if (success && result != null) setToast({ tone: 'good', text: success }); return result; } catch (error) { setToast({ tone: 'bad', text: error?.message || String(error) }); return null; } finally { setBusy(false); } }
   async function openRepository() { const result = await action(() => window.singularity.chooseRepository()); if (result) { setData(result); setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' }); } }
   async function reload(workId = data?.selectedWorkId) { if (!data) return; const result = await action(() => window.singularity.snapshot(data.repository.root, workId)); if (result) setData(result); }
   async function selectWorkItem(event) { await reload(event.target.value || null); }
@@ -230,11 +236,11 @@ export default function App() {
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
-  if (!data) return <div className="welcome"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open a Git repository initialized with Singularity Flow. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<div className="row"><button className="primary large-button" onClick={openRepository}>Open repository</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)}>Open help</button></div>} /></div>;
+  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open the Git repository folder that contains .singularity/workflow.yml. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<><div className="row"><button className="primary large-button" onClick={openRepository} disabled={busy}>{busy ? 'Opening repository…' : 'Open repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</>} /><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className="shell">
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !data.repository.changes.length}>Commit & push</button></div></header>
       <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}{page === 'help' && <Help />}</div>
-    </main>{toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
+    </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
@@ -12,26 +12,16 @@ function cliPath() {
   return path.join(root, 'bin', 'singularity-flow.mjs');
 }
 
-function invokeCli(repository, args, { input = null, json = true } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cliPath(), ...args], {
-      cwd: repository,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_DESKTOP: '1' },
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) return reject(new Error(stderr.trim().replace(/^Singularity Flow error:\s*/, '') || stdout.trim() || `CLI exited with ${code}`));
-      if (!json) return resolve({ output: stdout.trim() });
-      try { resolve(JSON.parse(stdout)); }
-      catch { reject(new Error(`The CLI returned invalid data: ${stdout.slice(0, 500)}`)); }
-    });
-    if (input == null) child.stdin.end();
-    else child.stdin.end(input, 'utf8');
+function invokeCli(repository, args, { input = null, json = true, timeoutMs = undefined } = {}) {
+  return invokeCliProcess({
+    executable: process.execPath,
+    cli: cliPath(),
+    repository,
+    args,
+    input,
+    json,
+    timeoutMs,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_DESKTOP: '1' }
   });
 }
 
@@ -42,7 +32,7 @@ function assertRepository(repository) {
 }
 
 async function snapshot(repository, workId = null) {
-  const result = await invokeCli(repository, ['desktop', 'snapshot', ...(workId ? [workId] : []), '--json']);
+  const result = await invokeCli(repository, ['desktop', 'snapshot', ...(workId ? [workId] : []), '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   activeRepository = path.resolve(result.repository.root);
   return result;
 }
@@ -51,7 +41,7 @@ function registerHandlers() {
   ipcMain.handle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;
-    return snapshot(result.filePaths[0]);
+    return snapshot(await validateRepositoryDirectory(result.filePaths[0]));
   });
   ipcMain.handle('repository:snapshot', (_event, { repository, workId }) => snapshot(path.resolve(repository), workId));
   ipcMain.handle('configuration:validate', (_event, { repository }) => invokeCli(assertRepository(repository), ['desktop', 'validate', '--json']));

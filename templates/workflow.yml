@@ -60,6 +60,14 @@ collaboration:
   approvalReminderAfterHours: 24
   notifications: [terminal]
 
+session:
+  # New interactive Copilot sessions ask the contributor to choose a persona.
+  # A resumed Copilot session reuses the selection already bound to that session.
+  personaSelection: prompt
+  promptOnNewSession: true
+  promptOnResume: false
+  requireBeforeTools: true
+
 personas:
   developer:
     label: Developer

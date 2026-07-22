@@ -9,6 +9,16 @@ function sessionPath(root) {
   return path.join(root, '.git/singularity-flow/session.json');
 }
 
+function copilotSessionPath(root) {
+  return path.join(root, '.git/singularity-flow/copilot-session.json');
+}
+
+async function writeLocalJson(file, value) {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
+  return value;
+}
+
 async function choose(label, entries) {
   if (label === 'persona' && process.env.SINGULARITY_FLOW_GITHUB_PERSONA) {
     const selected = process.env.SINGULARITY_FLOW_GITHUB_PERSONA;
@@ -57,9 +67,15 @@ export async function selectPersona(root, definition, actor, workId = null, { al
 export async function setPersonaSession(root, definition, actor, persona, workId = null) {
   if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown persona '${persona}'.`);
   const existing = await loadSession(root, { required: false });
-  const record = { ...(existing?.agent ? { agent: existing.agent, agentSource: existing.agentSource, agentSelectedAt: existing.agentSelectedAt } : {}), persona, actor, workId, selectedAt: nowIso() };
-  await mkdir(path.dirname(sessionPath(root)), { recursive: true });
-  await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);
+  const copilot = await loadCopilotSession(root);
+  const binding = copilot?.workId === workId && copilot?.sessionId
+    ? { copilotSessionId: copilot.sessionId, copilotSource: copilot.source, copilotBoundAt: nowIso() }
+    : existing?.workId === workId && existing?.copilotSessionId
+      ? { copilotSessionId: existing.copilotSessionId, copilotSource: existing.copilotSource, copilotBoundAt: existing.copilotBoundAt }
+      : {};
+  const record = { ...(existing?.agent ? { agent: existing.agent, agentSource: existing.agentSource, agentSelectedAt: existing.agentSelectedAt } : {}), persona, actor, workId, selectedAt: nowIso(), ...binding };
+  await writeLocalJson(sessionPath(root), record);
+  if (copilot?.workId === workId) await writeLocalJson(copilotSessionPath(root), { ...copilot, selectionRequired: false, selectedPersona: persona, selectedAt: record.selectedAt });
   return record;
 }
 
@@ -79,4 +95,43 @@ export async function loadSession(root, { required = true } = {}) {
     return null;
   }
   return JSON.parse(await readFile(file, 'utf8'));
+}
+
+export async function loadCopilotSession(root) {
+  const file = copilotSessionPath(root);
+  return await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : null;
+}
+
+export async function recordCopilotSession(root, record) {
+  return writeLocalJson(copilotSessionPath(root), { schemaVersion: 1, ...record });
+}
+
+export function validPersonaSession(definition, session, workId, copilotSessionId = null) {
+  if (!session || session.workId !== workId || !definition.personas?.[session.persona]) return false;
+  return !copilotSessionId || session.copilotSessionId === copilotSessionId;
+}
+
+export async function bindPersonaToCopilotSession(root, definition, workId, copilot) {
+  const session = await loadSession(root, { required: false });
+  if (!validPersonaSession(definition, session, workId)) return null;
+  const record = { ...session, copilotSessionId: copilot.sessionId, copilotSource: copilot.source, copilotBoundAt: nowIso() };
+  await writeLocalJson(sessionPath(root), record);
+  return record;
+}
+
+export async function personaSessionStatus(root, definition, workflow) {
+  const [session, copilot] = await Promise.all([loadSession(root, { required: false }), loadCopilotSession(root)]);
+  const workId = workflow?.workItem?.id ?? null;
+  const baseValid = workId ? validPersonaSession(definition, session, workId) : false;
+  const bound = baseValid && (!copilot?.sessionId || session.copilotSessionId === copilot.sessionId);
+  return {
+    workId,
+    copilotSessionId: copilot?.sessionId ?? null,
+    source: copilot?.source ?? null,
+    policy: copilot?.policy ?? workflow?.resolution?.session ?? definition.session ?? { personaSelection: 'off' },
+    activePersona: baseValid ? session.persona : null,
+    bound,
+    selectionRequired: copilot?.selectionRequired === true && !bound,
+    choices: Object.entries(definition.personas ?? {}).map(([id, persona]) => ({ id, label: persona.label, description: persona.description ?? '' }))
+  };
 }

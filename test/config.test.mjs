@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizeSequenceGates, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizeSequenceGates, normalizeSessionPolicy, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
@@ -17,6 +17,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
   assert.equal(definition.worldModel.grounding, 'enforce');
+  assert.deepEqual(definition.session, { personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: true });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
@@ -31,6 +32,14 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
   assert.match(await personaPrompt(root, definition, 'product-designer'), /exported design package/i);
   assert.match(await readFile(path.join(root, '.singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('Copilot session persona policy is configurable and absent configuration stays inert', () => {
+  assert.deepEqual(normalizeSessionPolicy(), { personaSelection: 'off', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: false });
+  assert.deepEqual(normalizeSessionPolicy({ personaSelection: 'reuse', requireBeforeTools: true }), { personaSelection: 'reuse', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: true });
+  assert.throws(() => normalizeSessionPolicy({ personaSelection: 'always' }), /must be off, reuse, or prompt/);
+  assert.throws(() => normalizeSessionPolicy({ promptOnResume: 'yes' }), /must be boolean/);
+  assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);
 });
 
 test('world-model grounding is configurable and legacy-safe', async () => {

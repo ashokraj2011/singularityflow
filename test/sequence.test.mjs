@@ -111,6 +111,17 @@ test('sequence gate policy is immutable after work-item creation', async () => {
   assert.match(validation.stderr, /Sequence gate policy differs from the immutable work-type configuration snapshot/);
 });
 
+test('Copilot session persona policy is immutable after work-item creation', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  workflow.resolution.session.requireBeforeTools = false;
+  await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
+  const validation = flow(root, ['validate'], { allowFailure: true });
+  assert.equal(validation.status, 2);
+  assert.match(validation.stderr, /Session persona policy differs from the immutable configuration snapshot/);
+});
+
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {
   const root = await repository();
   const workDir = path.join(root, '.singularity/work-items/SEQ-1');

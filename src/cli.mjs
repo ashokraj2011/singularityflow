@@ -46,7 +46,7 @@ import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugi
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
-import { loadSession, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
+import { loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
@@ -71,6 +71,7 @@ import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
+import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
 
 const VERSION = '0.8.0';
 
@@ -112,6 +113,7 @@ Usage:
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow persona [WORK-ID]
+  singularity-flow session status [--json]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
@@ -966,16 +968,45 @@ async function cockpitCommand() {
 
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
-  if (event !== 'session-start') throw new SingularityFlowError(`Unknown hook event: ${event}`);
-  // Consume the hook payload so Copilot can close stdin. No values are executed.
-  await stdinText();
+  let payload = {};
+  try { payload = JSON.parse(await stdinText() || '{}'); } catch { payload = {}; }
   try {
-    const root = repoRoot();
+    const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
+    const root = repoRoot(candidate);
     if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
-    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
-    const context = phase ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}). Before changing lifecycle state, run /sflow-nextsteps. Use /sflow-documents to inspect evidence. Never approve automatically.` : `Singularity Flow work item ${workflow.workItem.id} is complete; run the governance gate before handoff.`;
-    console.log(JSON.stringify({ additionalContext: context }));
+    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+    if (event === 'session-start') return console.log(JSON.stringify(await sessionStartPersonaHook(root, config, workflow, payload)));
+    if (event === 'persona-guard') return console.log(JSON.stringify(await personaGuardHook(root, config, workflow, payload)));
+    throw new SingularityFlowError(`Unknown hook event: ${event}`);
   } catch { console.log('{}'); }
+}
+
+async function sessionCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
+  let root;
+  try { root = repoRoot(); } catch {
+    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: [] };
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
+  }
+  if (!existsSync(path.join(root, WORKFLOW_PATH))) {
+    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: [] };
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
+  }
+  const config = await loadConfig(root);
+  let workflow;
+  try { workflow = await loadWorkflow(root, config); } catch {
+    const empty = { initialized: true, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: Object.entries(config.personas).map(([id, persona]) => ({ id, label: persona.label, description: persona.description ?? '' })) };
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow work item is active on this branch.');
+  }
+  const status = await personaSessionStatus(root, config, workflow);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+  console.log(`Work item: ${status.workId}`);
+  console.log(`Persona: ${status.activePersona ?? 'not selected'}`);
+  console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
+  console.log(`Selection: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
+  console.log(`Policy: ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
+  if (status.selectionRequired) console.log('Run /sflow-persona or singularity-flow persona to choose.');
 }
 
 async function migrateConfigCommand() {
@@ -1092,6 +1123,7 @@ export async function main(argv) {
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
     case 'persona': return personaCommand(positionals);
+    case 'session': return sessionCommand(positionals, options);
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);

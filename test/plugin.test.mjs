@@ -18,14 +18,18 @@ test('plugin manifest publishes collision-safe skills, a workflow agent, and the
   assert.equal(manifest.hooks, 'hooks.json');
 });
 
-test('plugin session hook injects guidance without running a lifecycle transition', async () => {
+test('plugin hooks initialize a session persona and guard mutating tools', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
   assert.equal(hooks.version, 1);
-  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart']);
+  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart', 'preToolUse']);
   assert.equal(hooks.hooks.sessionStart[0].type, 'command');
   assert.equal(hooks.hooks.sessionStart[0].command, 'singularity-flow hook session-start');
   assert.equal(hooks.hooks.sessionStart[0].timeoutSec, 10);
+  assert.equal(hooks.hooks.sessionStart[1].type, 'prompt');
+  assert.equal(hooks.hooks.sessionStart[1].prompt, '/sflow-session');
+  assert.equal(hooks.hooks.preToolUse[0].command, 'singularity-flow hook persona-guard');
+  assert.match(hooks.hooks.preToolUse[0].matcher, /bash/);
 });
 
 test('bundled workflow agent self-activates and ships inert dependency tables', async () => {

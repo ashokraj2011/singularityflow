@@ -49,6 +49,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, />＋ New stage</);
   assert.match(source, /Artifact path/);
   assert.match(source, /Inputs from earlier stages/);
+  assert.match(source, /Copilot session policy/);
+  assert.match(source, /Block mutating tools until selected/);
   assert.match(source, /Create artifact template/);
   assert.match(source, /Create persona and prompt/);
   assert.match(source, /Create repository skill/);

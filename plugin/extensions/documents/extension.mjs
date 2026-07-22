@@ -8,7 +8,8 @@ import {
   DOCUMENTS_INSTANCE_ID,
   flowArguments,
   inferWorkId,
-  parseDocumentsArguments
+  parseDocumentsArguments,
+  startDocumentsServer
 } from './documents.mjs';
 
 const executeFile = promisify(execFile);
@@ -94,6 +95,11 @@ function requireInstance(instanceId) {
   return entry;
 }
 
+function startServer(instanceId) {
+  const entry = { instanceId, cwd: null, workId: null, selectedReference: null, snapshot: null, server: null, url: null };
+  return startDocumentsServer(() => entry.snapshot ?? {}).then((host) => Object.assign(entry, host));
+}
+
 async function openDocumentsCanvas(request) {
   const input = {};
   if (request.workId) input.workId = request.workId;
@@ -147,17 +153,20 @@ session = await joinSession({
         const cwd = await activeWorkingDirectory();
         let entry = instances.get(ctx.instanceId);
         if (!entry) {
-          entry = { instanceId: ctx.instanceId, cwd, workId: ctx.input?.workId ?? null, selectedReference: ctx.input?.reference ?? null };
+          entry = await startServer(ctx.instanceId);
           instances.set(ctx.instanceId, entry);
-        } else {
-          entry.cwd = cwd;
-          entry.workId = ctx.input?.workId ?? null;
-          entry.selectedReference = ctx.input?.reference ?? null;
         }
-        return createDocumentsCanvasResult(await canvasSnapshot(entry));
+        entry.cwd = cwd;
+        entry.workId = ctx.input?.workId ?? null;
+        entry.selectedReference = ctx.input?.reference ?? null;
+        entry.snapshot = await canvasSnapshot(entry);
+        return createDocumentsCanvasResult(entry.snapshot, entry.url);
       },
       onClose: async (ctx) => {
+        const entry = instances.get(ctx.instanceId);
+        if (!entry) return;
         instances.delete(ctx.instanceId);
+        await new Promise((resolve) => entry.server.close(resolve));
       }
     })
   ]

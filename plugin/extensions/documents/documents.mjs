@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 export const DOCUMENTS_CANVAS_ID = 'singularity-flow-documents';
@@ -64,14 +66,35 @@ function inlineJson(value) {
     .replace(/\u2029/g, '\\u2029');
 }
 
-export function createDocumentsCanvasResult(snapshot = {}) {
+export function createDocumentsCanvasResult(snapshot = {}, url) {
   const documents = Array.isArray(snapshot.documents) ? snapshot.documents : [];
   return {
-    type: 'html',
-    html: renderDocumentsHtml({ ...snapshot, documents }),
+    url,
     title: 'Singularity Flow Documents',
     status: `${documents.length} document${documents.length === 1 ? '' : 's'}`
   };
+}
+
+export function startDocumentsServer(snapshotProvider) {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url || '/', 'http://127.0.0.1');
+    if (request.method !== 'GET' || !['/', '/index.html'].includes(url.pathname)) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Not found');
+      return;
+    }
+    const snapshot = typeof snapshotProvider === 'function' ? snapshotProvider() : snapshotProvider;
+    const body = renderDocumentsHtml(snapshot ?? {});
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end(body);
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      resolve({ server, url: `http://127.0.0.1:${address.port}/` });
+    });
+  });
 }
 
 export function renderDocumentsHtml(initial = {}) {
@@ -136,7 +159,7 @@ export function renderDocumentsHtml(initial = {}) {
     <header>
       <div class="brand">SF</div>
       <div><h1>Documents</h1><div id="context" class="subtitle">Singularity Flow work-item artifacts</div></div>
-      <div class="spacer"></div><span id="status" class="status">Loading…</span><button id="refresh" class="button" type="button">Refresh help</button>
+      <div class="spacer"></div><span id="status" class="status">Loading…</span><button id="refresh" class="button" type="button">Reload</button>
     </header>
     <nav class="tabs" aria-label="Document categories">
       <button class="tab active" data-filter="all" type="button">All</button>
@@ -154,16 +177,16 @@ export function renderDocumentsHtml(initial = {}) {
     const state = { documents: bootstrap.documents, details: bootstrap.details, filter: 'all', query: '', selected: null, initial: bootstrap.selectedReference };
     const list = document.getElementById('list');
     const detail = document.getElementById('detail');
-    const status = document.getElementById('status');
+    const statusNode = document.getElementById('status');
     const context = document.getElementById('context');
     const category = record => record.type === 'artifact' ? 'generated' : (record.type === 'file' || record.type === 'url') ? 'input' : 'workflow';
-    const location = record => record.url || record.path || '';
-    const setStatus = message => { status.textContent = message; };
+    const recordLocation = record => record.url || record.path || '';
+    const setStatus = message => { statusNode.textContent = message; };
     const button = (text, className) => { const el = document.createElement('button'); el.type = 'button'; el.textContent = text; el.className = className; return el; };
 
     function visibleDocuments() {
       const query = state.query.toLowerCase();
-      return state.documents.filter(record => (state.filter === 'all' || category(record) === state.filter) && (!query || [record.id, record.label, record.phase, location(record)].some(value => String(value || '').toLowerCase().includes(query))));
+      return state.documents.filter(record => (state.filter === 'all' || category(record) === state.filter) && (!query || [record.id, record.label, record.phase, recordLocation(record)].some(value => String(value || '').toLowerCase().includes(query))));
     }
 
     function renderList() {
@@ -176,7 +199,7 @@ export function renderDocumentsHtml(initial = {}) {
         const dot = document.createElement('span'); dot.className = 'kind ' + category(record);
         const label = document.createElement('span'); label.textContent = record.label || record.id;
         title.append(dot, label);
-        const meta = document.createElement('div'); meta.className = 'document-meta'; meta.textContent = [record.id, record.phase, location(record)].filter(Boolean).join(' · ');
+        const meta = document.createElement('div'); meta.className = 'document-meta'; meta.textContent = [record.id, record.phase, recordLocation(record)].filter(Boolean).join(' · ');
         item.append(title, meta); item.addEventListener('click', () => showDocument(record.id)); list.append(item);
       }
     }
@@ -225,7 +248,7 @@ export function renderDocumentsHtml(initial = {}) {
     }
 
     document.getElementById('search').addEventListener('input', event => { state.query = event.target.value; renderList(); });
-    document.getElementById('refresh').addEventListener('click', () => setStatus('Run /documents again to reload from disk'));
+    document.getElementById('refresh').addEventListener('click', () => window.location.reload());
     for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => { for (const item of document.querySelectorAll('.tab')) item.classList.toggle('active', item === tab); state.filter = tab.dataset.filter; renderList(); });
     load();
   </script>

@@ -81,6 +81,9 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   const designArtifact = await readFile(path.join(root, '.singularity/work-items', workId, workflow.phases.design.requiredArtifact.path), 'utf8');
   assert.match(designArtifact, /"generationCommit": "[0-9a-f]{40}"/); assert.match(designArtifact, /"publicationCommit": "[0-9a-f]{40}"/);
   assert.ok(workflow.phases.design.approvals[0].selfApproval); assert.equal(workflow.workItem.workType, 'feature'); assert.ok(workflow.resolution.templates['implementation-spec'].sha256);
+  const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'complete'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
+  assert.match(flow(root, ['report', workId]).stdout, /wall-clock elapsed time/);
+  const htmlReport = path.join(root, '.git', 'workflow-report.html'); flow(root, ['report', workId, '--format', 'html', '--out', htmlReport]); assert.match(await readFile(htmlReport, 'utf8'), /<svg/);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);
 });
 

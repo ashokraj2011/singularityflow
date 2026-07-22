@@ -50,8 +50,18 @@ test('approval skill is explicitly user-invoked', async () => {
 
 test('help skill is read-only and delegates to the workflow guide', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-help', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow guide <arguments>/);
+  assert.match(content, /singularity-flow help <topic>/);
+  assert.match(content, /singularity-flow guide <WORK-ID>/);
+  assert.match(content, /HELP\.md.*canonical product manual/);
   assert.match(content, /Do not generate, submit, approve, reject, upload, commit, or push anything/);
+});
+
+test('report skill is read-only and preserves unavailable usage disclosure', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-report', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow report <arguments>/);
+  assert.match(content, /partial.*unavailable/);
+  assert.match(content, /Do not change workflow state/);
+  assert.match(content, /disable-model-invocation:\s*true/);
 });
 
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {

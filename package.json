@@ -1,6 +1,6 @@
 {
   "name": "singularity-flow",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Singularity Flow: collision-safe sflow-* Copilot skills with YAML-configured work profiles, personas, templates, Git state transfer, and deterministic governance.",
   "type": "module",
   "bin": {
@@ -15,6 +15,7 @@
     "schemas/",
     "examples/",
     "README.md",
+    "HELP.md",
     "ARCHITECTURE.md",
     "VERIFICATION.md",
     "MIGRATION.md",
@@ -28,6 +29,7 @@
     "check": "node scripts/check.mjs",
     "gate": "node scripts/gate.mjs",
     "pack:dry": "npm pack --dry-run",
+    "install:local": "node scripts/update-local-install.mjs",
     "desktop:dev": "npm run dev --workspace singularity-flow-desktop",
     "desktop:build": "npm run build --workspace singularity-flow-desktop",
     "desktop:dist": "npm run dist --workspace singularity-flow-desktop"

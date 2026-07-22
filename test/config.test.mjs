@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, personaPrompt, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, migrateLegacyConfig, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
 
 test('starter YAML resolves distinct feature and bugfix templates and personas', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -32,6 +32,15 @@ test('invalid persona approval capability is rejected', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-')); await initializeDefinition(root);
   const file = path.join(root, '.singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
   await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /must list 'design' in mayApprove/);
+});
+
+test('optional token pricing accepts non-negative per-million rates and rejects invalid rates', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pricing-')); await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.tokens.pricing = { 'provider-model': { input: 2.5, output: 10, cachedInput: 0.25 } };
+  assert.equal(validateDefinition(definition).tokens.pricing['provider-model'].output, 10);
+  definition.tokens.pricing['provider-model'].output = -1;
+  assert.throws(() => validateDefinition(definition), /must be a non-negative number/);
 });
 
 test('legacy JSON configuration migrates to YAML without deleting source state', async () => {

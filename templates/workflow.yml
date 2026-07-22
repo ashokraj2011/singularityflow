@@ -12,6 +12,10 @@ personaPromptsRoot: .singularity/personas
 
 tokens:
   mode: exact-or-unavailable
+  # Optional rates per million tokens, keyed by the exact provider model name.
+  # No pricing is assumed when this map is omitted.
+  # pricing:
+  #   provider-model-name: { input: 3, output: 15, cachedInput: 0.3 }
 
 documents:
   allowedPhases: [intake, requirements, design, implementation-spec, reproduction, fix-design, fix-spec]

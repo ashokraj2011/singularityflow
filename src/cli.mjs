@@ -8,8 +8,10 @@ import {
   optionString,
   optionStrings,
   parseArgs,
+  readJson,
   requirePositional,
-  table
+  table,
+  writeText
 } from './util.mjs';
 import { assertClean, branch, checkout, identity, repoRoot } from './git.mjs';
 import {
@@ -37,11 +39,12 @@ import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { selectIntakeSource, selectPersona, selectWorkType } from './session.mjs';
-import { readJson } from './util.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
+import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, workflowGuide } from './guide.mjs';
+import { loadHelpDocument } from './help.mjs';
 import {
   desktopSnapshot,
   publishDesktopConfiguration,
@@ -50,19 +53,21 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 
 const HELP = `Singularity Flow ${VERSION}
 
 Personal Copilot skills plus a deterministic Git-native SDLC utility.
 
 Usage:
+  singularity-flow help [TOPIC] [--json]
   singularity-flow init
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
+  singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -146,6 +151,12 @@ async function initCommand() {
   const wrote = await initializeDefinition(root);
   await worldModelCommand(root, ['wm', 'init'], {});
   console.log(wrote.length ? `Created ${wrote.join(', ')}` : `Verified ${WORKFLOW_PATH} and repository templates.`);
+}
+
+async function helpCommand(positionals, options) {
+  const document = await loadHelpDocument(positionals[1]);
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(document, null, 2));
+  else process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
 }
 
 async function startCommand(positionals, options) {
@@ -258,6 +269,26 @@ async function progressCommand(positionals, options) {
     { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
     { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }
   ])}`);
+}
+
+async function reportCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const format = optionString(options, 'format', 'md').toLowerCase();
+  if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
+  const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null });
+  const rendered = format === 'json'
+    ? `${JSON.stringify(report, null, 2)}\n`
+    : format === 'html' ? renderHtml(report) : renderMarkdown(report);
+  const outputFile = optionString(options, 'out');
+  if (outputFile) {
+    const absolute = path.resolve(root, outputFile);
+    await writeText(absolute, rendered);
+    console.log(`Report written to ${absolute}`);
+    return;
+  }
+  process.stdout.write(rendered);
 }
 
 async function guideCommand(positionals, options) {
@@ -502,14 +533,16 @@ export async function main(argv) {
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
   const { positionals, options } = parseArgs(argv);
   const command = positionals[0];
-  if (!command || command === 'help') return console.log(HELP);
+  if (!command) return console.log(HELP);
   if (command === 'version') return console.log(VERSION);
   switch (command) {
+    case 'help': return helpCommand(positionals, options);
     case 'init': return initCommand();
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
+    case 'report': return reportCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);

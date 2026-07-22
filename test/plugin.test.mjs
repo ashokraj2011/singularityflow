@@ -41,6 +41,16 @@ test('session skill selects synchronized work-item state before persona binding'
   assert.match(content, /Never create, merge, rebase, reset, force-checkout, stash, or discard work/);
 });
 
+test('inbox skill presents remote pending approvals before an explicit reviewer decision', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-inbox', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow inbox --json/);
+  assert.match(content, /ask_user/);
+  assert.match(content, /session attach <WORK-ID>/);
+  assert.match(content, /phase show <PHASE> --json/);
+  assert.match(content, /never decide or approve automatically/i);
+  assert.match(content, /disable-model-invocation:\s*true/);
+});
+
 test('bundled workflow agent self-activates and ships inert dependency tables', async () => {
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);

@@ -201,6 +201,8 @@ session:
 
 The attach path is deliberately conservative: dirty, missing, malformed, ahead, or diverged branches stop with a clear message. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `.singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.
 
+Reviewers can open `/sflow-inbox` or run `singularity-flow inbox` to fetch a repository-wide queue of committed phases awaiting approval. The inbox reads workflow state directly from remote work-item branches without checking each one out. It shows the work/Jira ID, title, phase, generation, approval threshold, waiting time, allowed reviewer personas, artifact path, self-approval warning, and exact remote commit. Selecting an item uses the same conservative session-attachment flow before displaying the complete phase documents; it never approves automatically.
+
 No ID or persona is inferred, and the declared persona never replaces the authenticated Git identity in audit records. Existing repositories without `session` behave exactly as before (`off`). The resolved policy is pinned into each work item so a base-branch YAML edit cannot weaken an active item silently.
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
@@ -510,6 +512,7 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head before persona selection. |
 | `singularity-flow session status` | Inspect work-item and persona binding readiness for the current Copilot session. |
+| `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
@@ -566,7 +569,7 @@ npm run desktop:build
 npm run desktop:dist
 ```
 
-Open an initialized repository from the app. The studio provides a progress dashboard and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. Users can create, copy, reorder, configure, or safely remove these elements while inspecting the exact YAML draft. It also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
+Open an initialized repository from the app. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
 
 Install the personal Copilot plugin with:
 

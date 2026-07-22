@@ -69,7 +69,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(source, /className="publish-scope-notice"/);
   assert.doesNotMatch(styles, /\.publish-scope-notice/);
   assert.match(source, />Download config</);
+  assert.match(source, /Approval inbox/);
+  assert.match(source, /Pending approvals/);
+  assert.match(source, /Fetch remote inbox/);
   assert.match(preload, /deleteTemplate/);
+  assert.match(preload, /refreshInbox/);
+  assert.match(preload, /attachInboxItem/);
   assert.match(preload, /downloadFile/);
   assert.match(preload, /importFile/);
   assert.match(preload, /exportBundle/);

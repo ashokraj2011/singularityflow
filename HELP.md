@@ -410,6 +410,10 @@ Starter repositories use soft gates for phase-status and document-phase mistakes
 
 ## Approval, rejection, and self-approval
 
+Use `/sflow-inbox` or `singularity-flow inbox` before choosing a work item when reviewing across a team. It fetches the configured remote and lists only valid committed work-item branches whose current phase is `awaiting_approval`, oldest first. Each row includes the work/Jira ID, phase, generation, approvals received/required, waiting time, reviewer personas, artifact path, self-approval warning, and remote commit. `singularity-flow inbox --offline` reads cached remote refs without network access.
+
+Selecting an inbox item invokes the existing safe session attachment path. The branch must fast-forward exactly to the fetched remote commit; dirty, ahead, diverged, malformed, or missing states stop without merging, rebasing, resetting, stashing, or discarding work. The reviewer then selects a persona and sees the complete generated documents before separately choosing approval or rejection. The inbox itself is read-only and never approves automatically.
+
 Approve from a terminal:
 
 ```bash
@@ -740,6 +744,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-resume` | Fetch, fast-forward, and select a persona |
 | `/sflow-persona` | Select or change the persona for the current local work-item session |
 | `/sflow-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session persona |
+| `/sflow-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sflow-next` | Execute exactly one next valid lifecycle action |

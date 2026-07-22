@@ -52,6 +52,9 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.deepEqual(snapshot.repository.unrelatedChanges, []);
   assert.equal(snapshot.repository.publishReady, false);
   assert.equal(snapshot.workItems.length, 0);
+  assert.equal(snapshot.approvalInbox.remote, 'origin');
+  assert.deepEqual(snapshot.approvalInbox.items, []);
+  assert.equal(snapshot.approvalInbox.fetched, false);
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
   assert.equal(snapshot.worldModel.repositoryOwned, true);

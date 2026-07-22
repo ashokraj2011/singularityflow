@@ -72,6 +72,7 @@ import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
+import { approvalInbox, approvalInboxText } from './inbox.mjs';
 
 const VERSION = '0.8.0';
 
@@ -115,6 +116,7 @@ Usage:
   singularity-flow persona [WORK-ID]
   singularity-flow session status|candidates [--json]
   singularity-flow session attach <WORK-ID> [--json]
+  singularity-flow inbox [--offline] [--json]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
@@ -1064,6 +1066,14 @@ async function sessionCommand(positionals, options) {
   if (status.selectionRequired) console.log('Run /sflow-persona or singularity-flow persona to choose.');
 }
 
+async function inboxCommand(options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const snapshot = await approvalInbox(root, config, { fetch: !optionBoolean(options, 'offline') });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(snapshot, null, 2));
+  process.stdout.write(approvalInboxText(snapshot));
+}
+
 async function migrateConfigCommand() {
   const root = repoRoot(); const result = await migrateLegacyConfig(root); console.log(result.migrated ? `Migrated configuration to ${result.path}; upgraded ${result.migratedWorkItems} work item(s)${result.movedStateRoot ? ' and moved the previous state root to .singularity/' : ''}.` : result.reason);
 }
@@ -1179,6 +1189,7 @@ export async function main(argv) {
     case 'resume': return resumeCommand(positionals, options);
     case 'persona': return personaCommand(positionals);
     case 'session': return sessionCommand(positionals, options);
+    case 'inbox': return inboxCommand(options);
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);

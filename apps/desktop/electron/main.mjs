@@ -56,6 +56,16 @@ function registerHandlers() {
     return snapshot(await validateRepositoryDirectory(result.filePaths[0]));
   });
   ipcMain.handle('repository:snapshot', (_event, { repository, workId }) => snapshot(path.resolve(repository), workId));
+  ipcMain.handle('inbox:refresh', async (_event, { repository }) => {
+    const root = assertRepository(repository);
+    const approvalInbox = await invokeCli(root, ['inbox', '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    return { ...await snapshot(root), approvalInbox };
+  });
+  ipcMain.handle('inbox:attach', async (_event, { repository, workId }) => {
+    const root = assertRepository(repository);
+    await invokeCli(root, ['session', 'attach', workId, '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    return snapshot(root, workId);
+  });
   ipcMain.handle('configuration:validate', (_event, { repository }) => invokeCli(assertRepository(repository), ['desktop', 'validate', '--json']));
   ipcMain.handle('configuration:save', (_event, { repository, filePath, content }) => invokeCli(assertRepository(repository), ['desktop', 'save', filePath], { input: content }));
   ipcMain.handle('configuration:delete-template', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-template', filePath, '--json']));

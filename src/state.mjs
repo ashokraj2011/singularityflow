@@ -19,6 +19,7 @@ import {
   assertPhaseSequence, enforceSequenceGate, phaseNeedsGeneration
 } from './sequence.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
+import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -105,6 +106,7 @@ function phaseState(definition, index) {
     generatedBy: null,
     generatedPersona: null,
     usage: [],
+    telemetry: [],
     approvals: [],
     artifacts: [],
     checks: []
@@ -129,6 +131,7 @@ function managedMetadata(workflow, phase) {
     template: workflow.resolution.templates[phase.id],
     inputs: phase.inputContext ?? null,
     remoteAgent: phase.agentContext ?? null,
+    telemetry: phase.telemetry ?? [],
     remoteOutputs: (phase.remoteOutputs ?? []).map((output) => ({
       agent: output.agent,
       resource: output.resource,
@@ -217,6 +220,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
       exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {}
     },
+    telemetry: { schemaVersion: 1, mode: 'work-item-sanitized' },
     documents: { count: 0, updatedAt: null },
     sequenceOverrides: [],
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
@@ -230,7 +234,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   }
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await saveWorkflow(root, config, workflow);
   await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);
@@ -250,6 +254,7 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
   workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
+  workflow.telemetry ??= { schemaVersion: 1, mode: 'legacy' };
   workflow.documents ??= { count: 0, updatedAt: null };
   workflow.sequenceOverrides ??= [];
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
@@ -263,6 +268,7 @@ function upgradeWorkflow(workflow) {
     phase.remoteOutputs ??= [];
     phase.generation ??= phase.artifacts?.length ? 1 : 0;
     phase.usage ??= [];
+    phase.telemetry ??= [];
     phase.approvals ??= phase.approvedBy ? [{ actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
   }
   return workflow;
@@ -302,6 +308,7 @@ export async function preparePhase(root, config, workflow, requested = undefined
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  if (!dryRun) await beginTelemetryCapture(root, workflow, phase);
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
@@ -396,11 +403,21 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
   return errors;
 }
 
-function normalizeUsage(raw, session) {
+function normalizeUsage(raw, session, generation = null) {
   const startedAt = raw?.startedAt ?? nowIso(); const completedAt = raw?.completedAt ?? nowIso();
   const numeric = ['inputTokens', 'outputTokens', 'cachedInputTokens', 'totalTokens'];
   const exact = raw && numeric.some((key) => Number.isFinite(raw[key]));
-  const usage = { status: exact ? 'exact' : 'unavailable', source: raw?.source ?? (exact ? 'provider' : 'copilot-unavailable'), provider: raw?.provider ?? null, model: raw?.model ?? null, inputTokens: raw?.inputTokens ?? null, outputTokens: raw?.outputTokens ?? null, cachedInputTokens: raw?.cachedInputTokens ?? null, totalTokens: raw?.totalTokens ?? (exact ? (raw.inputTokens ?? 0) + (raw.outputTokens ?? 0) : null), startedAt, completedAt, persona: session.persona };
+  const usage = {
+    status: exact ? 'exact' : 'unavailable', source: raw?.source ?? (exact ? 'provider' : 'copilot-unavailable'),
+    provider: raw?.provider ?? null, model: raw?.model ?? null,
+    inputTokens: raw?.inputTokens ?? null, outputTokens: raw?.outputTokens ?? null,
+    cachedInputTokens: raw?.cachedInputTokens ?? null, cacheWriteInputTokens: raw?.cacheWriteInputTokens ?? null,
+    totalTokens: raw?.totalTokens ?? (exact ? (raw.inputTokens ?? 0) + (raw.outputTokens ?? 0) : null),
+    providerCost: Number.isFinite(raw?.providerCost) ? raw.providerCost : null,
+    costStatus: raw?.costStatus ?? (Number.isFinite(raw?.providerCost) ? 'exact' : 'unavailable'),
+    spans: Number.isInteger(raw?.spans) ? raw.spans : null,
+    startedAt, completedAt, persona: session.persona, generation
+  };
   return usage;
 }
 
@@ -453,15 +470,27 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
     if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
   }
+  const capture = rawUsage
+    ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
+    : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase) };
+  capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
+  const normalizedUsage = (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1));
   phase.generation += 1; phase.generatedBy = session.actor; phase.generatedPersona = session.persona; phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
-  phase.usage.push(normalizeUsage(rawUsage, session));
+  phase.usage.push(...normalizedUsage);
+  const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
+    itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), {
+    generation: telemetry.generation, path: telemetry.path, sha256: telemetry.sha256, status: telemetry.status,
+    models: telemetry.models, providerCost: telemetry.providerCost
+  }];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
-  addUsageAggregate(workflow, phase, phase.usage.at(-1));
+  normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), persona: session.persona, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
   await saveWorkflow(root, config, workflow); return phase;
 }

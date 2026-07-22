@@ -449,19 +449,25 @@ singularity-flow report WORK-123 --format html --out workflow-report.html
 
 Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
 
-Durations are wall-clock time and include nights and weekends. They are not business-hours or productivity estimates. Token counts are exact only when the provider supplied them. Cost appears only when exact model pricing is configured; incomplete coverage is marked partial.
+Durations are wall-clock time and include nights and weekends. They are not business-hours or productivity estimates. Token counts are exact only when the provider supplied them. Reports prefer exact provider cost captured by Copilot telemetry and fall back to configured model pricing; incomplete coverage is marked partial.
 
 Use `/sflow-report` in Copilot.
 
 ## Token usage and optional cost
 
-When a provider exposes exact usage, save its values as JSON and publish with:
+Installer-managed Copilot sessions are captured automatically between phase preparation and publication. Raw traces remain inside the repository Git directory, while each generation commits a sanitized record at:
+
+```text
+.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
+```
+
+The committed record excludes prompt/response content, conversation identifiers, and raw traces. For another provider, save exact usage as JSON and publish with:
 
 ```bash
 singularity-flow phase publish implementation --usage-json usage.json
 ```
 
-The usage record may contain provider, model, input, output, cached-input and total tokens, timestamps, and collection source. Missing values are recorded as `unavailable`; they are never estimated silently. Markdown, HTML, and JSON reports identify the models used per phase and aggregate records and tokens by provider/model.
+The usage record may contain provider, model, input, output, cached-input and total tokens, timestamps, provider cost, and collection source. Missing values are recorded as `unavailable`; they are never estimated silently. Markdown, HTML, and JSON reports identify the models used per phase and aggregate records and tokens by provider/model. Exact provider cost is used when present; configured per-model pricing is the fallback.
 
 Optional report pricing uses rates per million tokens keyed by the exact provider model name:
 
@@ -721,7 +727,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables metadata-only Copilot OpenTelemetry in the active shell profile. Telemetry is written to `~/.copilot/singularity-flow-otel.jsonl`; prompt and response content capture remains disabled.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables metadata-only Copilot OpenTelemetry in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `.singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
 
 For a company Artifactory or registry:
 

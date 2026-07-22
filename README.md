@@ -104,7 +104,7 @@ For a non-interactive or repeatable company setup, pass the registry explicitly:
 
 The environment variable `SINGULARITY_FLOW_NPM_REGISTRY` provides the same override. Command-line selection takes precedence. Registry authentication remains in the user's or company's `.npmrc`; the script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
-The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. It installs an idempotent shell startup entry and writes telemetry to `~/.copilot/singularity-flow-otel.jsonl`; prompt and response content capture remains disabled. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
+The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper selects the active repository dynamically and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
 
 The single self-contained `install.sh` performs:
 
@@ -345,15 +345,21 @@ Use `singularity-flow inputs design --dry-run` to inspect provenance without wri
 
 ## Token usage
 
-If a provider exposes exact usage, pass it when publishing:
+With installer-managed Copilot telemetry, `prepare` opens a generation capture window and `phase publish` automatically aggregates completed model calls. The sanitized record is committed under the work item:
+
+```text
+.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
+```
+
+For another provider, or when supplying a trusted external usage record, pass it explicitly:
 
 ```bash
 singularity-flow phase publish implementation --usage-json usage.json
 ```
 
-The JSON may contain provider, model, input, output, cached-input, total tokens, start/end timestamps, and collection source. When Copilot does not expose exact values, the record is explicitly marked `unavailable`; the CLI never estimates silently. Reports identify the provider/model for every phase and aggregate token records by model as well as phase and persona.
+The JSON may contain provider, model, input, output, cached-input, total tokens, start/end timestamps, provider cost, and collection source. When Copilot does not expose exact values, the committed record is explicitly marked `unavailable`; the CLI never estimates silently. Reports identify the provider/model for every phase and aggregate token records by model as well as phase and persona.
 
-Workflow reports can calculate cost only from exact usage and optional prices configured by exact model name. Rates are currency units per million tokens; no prices are bundled or assumed because provider pricing changes over time:
+Workflow reports prefer the exact provider cost emitted by Copilot telemetry. When provider cost is absent, they can calculate cost from exact usage and optional prices configured by exact model name. Rates are currency units per million tokens; no fallback prices are bundled because provider pricing changes over time:
 
 ```yaml
 tokens:

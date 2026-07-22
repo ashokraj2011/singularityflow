@@ -90,6 +90,8 @@ test('report skill is read-only and preserves unavailable usage disclosure', asy
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-report', 'SKILL.md'), 'utf8');
   assert.match(content, /singularity-flow report <arguments>/);
   assert.match(content, /partial.*unavailable/);
+  assert.match(content, /committed .*telemetry\//i);
+  assert.match(content, /provider cost captured by Copilot OTel/i);
   assert.match(content, /Do not change workflow state/);
   assert.match(content, /disable-model-invocation:\s*true/);
 });
@@ -120,6 +122,15 @@ test('generation skills display published documents instead of reducing them to 
     assert.match(content, /visible assistant response/i, `${name} must render outside tool output`);
     assert.match(content, /Shell\/tool block.*does not (?:count|satisfy)/i, `${name} must reject collapsed Shell output as review`);
     assert.match(content, /shown above/i, `${name} must explicitly prohibit the misleading shown-above response`);
+  }
+});
+
+test('generation skills preserve sanitized work-item telemetry with each publication', async () => {
+  for (const name of ['sflow-next', 'sflow-phase']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /telemetry\/<phase>-gen<N>\.json/i, `${name} must require the committed telemetry summary`);
+    assert.match(content, /without raw traces or conversation identifiers|sanitized/i, `${name} must exclude raw Copilot traces`);
+    assert.match(content, /resolved model.*token\/cost status/i, `${name} must report captured model and cost`);
   }
 });
 

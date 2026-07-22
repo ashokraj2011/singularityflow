@@ -103,26 +103,33 @@ install_copilot_telemetry() {
     return
   fi
 
-  local config_dir env_file telemetry_dir telemetry_file shell_name profile source_line temp_file
+  local config_dir env_file shell_name profile source_line temp_file
   config_dir="$HOME/.singularity-flow"
   env_file="$config_dir/copilot-otel.sh"
-  telemetry_dir="$HOME/.copilot"
-  telemetry_file="$telemetry_dir/singularity-flow-otel.jsonl"
   source_line='[ -r "$HOME/.singularity-flow/copilot-otel.sh" ] && . "$HOME/.singularity-flow/copilot-otel.sh"'
 
-  mkdir -p "$config_dir" "$telemetry_dir"
-  chmod 700 "$config_dir" "$telemetry_dir"
+  mkdir -p "$config_dir"
+  chmod 700 "$config_dir"
   temp_file="$(mktemp "$config_dir/copilot-otel.sh.XXXXXX")"
   printf '%s\n' \
     '# Managed by the Singularity Flow installer.' \
     '# Records model, token, timing, and cost metadata. Prompt/response content remains disabled.' \
-    'if [ -z "${COPILOT_OTEL_FILE_EXPORTER_PATH:-}" ] && [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && [ -z "${COPILOT_OTEL_ENABLED:-}" ]; then' \
-    '  export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/singularity-flow-otel.jsonl"' \
-    'fi' > "$temp_file"
+    '# Raw traces stay inside each repository Git directory and are never committed.' \
+    'copilot() {' \
+    '  local sflow_git_dir sflow_telemetry_file' \
+    '  sflow_git_dir="$(command git rev-parse --absolute-git-dir 2>/dev/null || true)"' \
+    '  if [ -n "$sflow_git_dir" ] && [ -z "${COPILOT_OTEL_FILE_EXPORTER_PATH:-}" ] && [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && [ -z "${COPILOT_OTEL_ENABLED:-}" ]; then' \
+    '    sflow_telemetry_file="$sflow_git_dir/singularity-flow/copilot-otel.jsonl"' \
+    '    command mkdir -p "$sflow_git_dir/singularity-flow"' \
+    '    command touch "$sflow_telemetry_file"' \
+    '    command chmod 600 "$sflow_telemetry_file"' \
+    '    COPILOT_OTEL_FILE_EXPORTER_PATH="$sflow_telemetry_file" command copilot "$@"' \
+    '  else' \
+    '    command copilot "$@"' \
+    '  fi' \
+    '}' > "$temp_file"
   chmod 600 "$temp_file"
   mv "$temp_file" "$env_file"
-  touch "$telemetry_file"
-  chmod 600 "$telemetry_file"
 
   shell_name="${SHELL:-}"
   shell_name="${shell_name##*/}"
@@ -134,7 +141,7 @@ install_copilot_telemetry() {
     *)
       printf 'Copilot OpenTelemetry environment installed at %s\n' "$env_file"
       printf 'Add this to your shell startup file: %s\n' "$source_line"
-      printf 'Telemetry output: %s\n' "$telemetry_file"
+      printf '%s\n' 'Raw telemetry output: <repository-git-dir>/singularity-flow/copilot-otel.jsonl'
       return
       ;;
   esac
@@ -147,7 +154,7 @@ install_copilot_telemetry() {
   # Make telemetry active for the remainder of this installer too.
   . "$env_file"
   printf 'Copilot OpenTelemetry: enabled in %s\n' "$profile"
-  printf 'Telemetry output: %s\n' "$telemetry_file"
+  printf '%s\n' 'Raw telemetry output: <repository-git-dir>/singularity-flow/copilot-otel.jsonl'
   printf '%s\n' 'Prompt and response content capture remains disabled.'
 }
 

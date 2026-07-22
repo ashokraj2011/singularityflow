@@ -24,6 +24,7 @@ export function humanizeDuration(milliseconds) {
 }
 
 function usageCost(record, pricing) {
+  if (Number.isFinite(record.providerCost)) return { value: record.providerCost, complete: record.costStatus !== 'partial', source: 'provider' };
   if (record.status !== 'exact') return null;
   const price = pricing?.[record.model];
   if (!price) return null;
@@ -149,13 +150,14 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       approvals: (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved').length,
       selfApprovals,
       rejections,
+      usageRecords: usage.length,
       tokens,
       tokenStatus: tokenStatus(usage, exactRecords),
       models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
       modelUsage: usageByModel(usage),
       personas: [...new Set(usage.map((record) => record.persona).filter(Boolean))],
       cost: costs.length ? costs.reduce((sum, item) => sum + item.value, 0) : null,
-      costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === exactRecords.length && exactRecords.length === usage.length ? 'exact' : 'partial',
+      costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === usage.length ? 'exact' : 'partial',
       checks,
       cycles: wait.cycles
     };
@@ -169,6 +171,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const elapsedMs = startedAt != null && effectiveEnd != null && effectiveEnd >= startedAt ? effectiveEnd - startedAt : null;
   const waitingMs = phases.reduce((sum, phase) => sum + (phase.waitingMs ?? 0), 0);
   const costValues = phases.map((phase) => phase.cost).filter((value) => value != null);
+  const costPhases = phases.filter((phase) => phase.usageRecords > 0);
   const modelUsage = usageByModel(workflow.phaseOrder.flatMap((id) => workflow.phases[id].usage ?? []));
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
@@ -202,7 +205,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       byModel: modelUsage
     },
     cost: costValues.length ? costValues.reduce((sum, value) => sum + value, 0) : null,
-    costStatus: phases.some((phase) => phase.costStatus === 'partial') || (costValues.length && phases.some((phase) => phase.costStatus === 'unavailable')) ? 'partial' : costValues.length ? 'exact' : 'unavailable',
+    costStatus: costPhases.some((phase) => phase.costStatus === 'partial') || (costValues.length && costPhases.some((phase) => phase.costStatus === 'unavailable')) ? 'partial' : costValues.length ? 'exact' : 'unavailable',
     bottleneck: bottleneck ? {
       phase: bottleneck.id,
       waitingMs: bottleneck.waitingMs,

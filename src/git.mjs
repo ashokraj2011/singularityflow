@@ -21,6 +21,12 @@ export function head(root) {
   return git(['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
 }
 
+export function gitDir(root) {
+  const value = git(['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
+  invariant(value, 'Unable to resolve the repository Git directory.');
+  return path.resolve(value);
+}
+
 export function identity(root) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return { name: process.env.SINGULARITY_FLOW_TEST_IDENTITY, email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`, login: null };

@@ -32,6 +32,15 @@ test('plugin hooks initialize a session persona and guard mutating tools', async
   assert.match(hooks.hooks.preToolUse[0].matcher, /bash/);
 });
 
+test('session skill selects synchronized work-item state before persona binding', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
+  assert.match(content, /session candidates --json/);
+  assert.match(content, /session attach <WORK-ID>/);
+  assert.match(content, /work ID or Jira ID/i);
+  assert.match(content, /Only after `workItemSelectionRequired` is false may persona selection begin/);
+  assert.match(content, /Never create, merge, rebase, reset, force-checkout, stash, or discard work/);
+});
+
 test('bundled workflow agent self-activates and ships inert dependency tables', async () => {
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);

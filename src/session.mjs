@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { exists } from './util.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import { normalizeSessionPolicy } from './config.mjs';
 
 function sessionPath(root) {
   return path.join(root, '.git/singularity-flow/session.json');
@@ -119,19 +120,51 @@ export async function bindPersonaToCopilotSession(root, definition, workId, copi
   return record;
 }
 
+export async function activateWorkItemSession(root, definition, workflow) {
+  const copilot = await loadCopilotSession(root);
+  const policy = normalizeSessionPolicy(workflow.resolution?.session ?? definition.session ?? {});
+  const existing = await loadSession(root, { required: false });
+  const valid = validPersonaSession(definition, existing, workflow.workItem.id);
+  const selectionRequired = policy.personaSelection !== 'off'
+    && (!valid || (policy.personaSelection === 'prompt' && policy.promptOnNewSession === true));
+  const record = await recordCopilotSession(root, {
+    ...(copilot ?? {}),
+    sessionId: copilot?.sessionId ?? null,
+    source: copilot?.source ?? 'startup',
+    repositoryRoot: root,
+    workId: workflow.workItem.id,
+    candidateWorkId: workflow.workItem.id,
+    phase: workflow.currentPhase,
+    policy,
+    workItemSelectionRequired: false,
+    selectionRequired,
+    selectedPersona: selectionRequired ? null : valid ? existing.persona : null,
+    workItemSelectedAt: nowIso()
+  });
+  if (!selectionRequired && valid && record.sessionId) await bindPersonaToCopilotSession(root, definition, workflow.workItem.id, record);
+  return record;
+}
+
 export async function personaSessionStatus(root, definition, workflow) {
   const [session, copilot] = await Promise.all([loadSession(root, { required: false }), loadCopilotSession(root)]);
-  const workId = workflow?.workItem?.id ?? null;
+  const policy = normalizeSessionPolicy(copilot?.policy ?? workflow?.resolution?.session ?? definition.session ?? {});
+  const workItemSelectionRequired = copilot
+    ? copilot.workItemSelectionRequired === true
+    : policy.workItemSelection === 'prompt' || (policy.workItemSelection === 'reuse' && !workflow);
+  const workId = workItemSelectionRequired ? null : workflow?.workItem?.id ?? copilot?.workId ?? null;
   const baseValid = workId ? validPersonaSession(definition, session, workId) : false;
   const bound = baseValid && (!copilot?.sessionId || session.copilotSessionId === copilot.sessionId);
   return {
     workId,
+    candidateWorkId: copilot?.candidateWorkId ?? workflow?.workItem?.id ?? null,
     copilotSessionId: copilot?.sessionId ?? null,
     source: copilot?.source ?? null,
-    policy: copilot?.policy ?? workflow?.resolution?.session ?? definition.session ?? { personaSelection: 'off' },
+    policy,
     activePersona: baseValid ? session.persona : null,
     bound,
-    selectionRequired: copilot?.selectionRequired === true && !bound,
+    workItemSelectionRequired,
+    selectionRequired: !workItemSelectionRequired && copilot?.selectionRequired === true && !bound,
+    ready: !workItemSelectionRequired && !(copilot?.selectionRequired === true && !bound),
     choices: Object.entries(definition.personas ?? {}).map(([id, persona]) => ({ id, label: persona.label, description: persona.description ?? '' }))
   };
 }

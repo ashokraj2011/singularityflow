@@ -17,7 +17,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
   assert.equal(definition.worldModel.grounding, 'enforce');
-  assert.deepEqual(definition.session, { personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: true });
+  assert.deepEqual(definition.session, { workItemSelection: 'prompt', personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: true });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
@@ -35,8 +35,9 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
 });
 
 test('Copilot session persona policy is configurable and absent configuration stays inert', () => {
-  assert.deepEqual(normalizeSessionPolicy(), { personaSelection: 'off', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: false });
-  assert.deepEqual(normalizeSessionPolicy({ personaSelection: 'reuse', requireBeforeTools: true }), { personaSelection: 'reuse', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: true });
+  assert.deepEqual(normalizeSessionPolicy(), { workItemSelection: 'off', personaSelection: 'off', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: false });
+  assert.deepEqual(normalizeSessionPolicy({ workItemSelection: 'prompt', personaSelection: 'reuse', requireBeforeTools: true }), { workItemSelection: 'prompt', personaSelection: 'reuse', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: true });
+  assert.throws(() => normalizeSessionPolicy({ workItemSelection: 'always' }), /workItemSelection must be off, reuse, or prompt/);
   assert.throws(() => normalizeSessionPolicy({ personaSelection: 'always' }), /must be off, reuse, or prompt/);
   assert.throws(() => normalizeSessionPolicy({ promptOnResume: 'yes' }), /must be boolean/);
   assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);

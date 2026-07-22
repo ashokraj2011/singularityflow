@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,7 @@ function identity(root, name) {
   run('git', ['config', 'user.email', `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`], root);
 }
 
-test('another clone resumes by work ID and fast-forwards tracked state', async () => {
+test('another clone discovers a remote work ID, attaches safely, and fast-forwards each new Copilot session', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-handoff-'));
   const remote = path.join(base, 'remote.git');
   const first = path.join(base, 'first');
@@ -58,8 +58,23 @@ test('another clone resumes by work ID and fast-forwards tracked state', async (
 
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Contributor');
-  flow(second, ['resume', 'HAND-101', '--fetch'], 'architect');
+  const started = spawnSync(process.execPath, [bin, 'hook', 'session-start'], {
+    cwd: second, encoding: 'utf8', input: JSON.stringify({ cwd: second, sessionId: 'copilot-second-1', source: 'startup' }),
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Second Contributor' }
+  });
+  assert.equal(started.status, 0);
+  assert.match(JSON.parse(started.stdout).additionalContext, /work-item selection is required/);
+  const candidates = JSON.parse(flow(second, ['session', 'candidates', '--json']).stdout);
+  assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
+  assert.match(flow(second, ['session', 'attach', 'HAND-101']).stdout, /Attached to HAND-101 from origin\/HAND-101/);
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'HAND-101');
+  let session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
+  assert.equal(session.workItemSelectionRequired, false);
+  assert.equal(session.selectionRequired, true);
+  flow(second, ['persona', 'HAND-101'], 'architect');
+  session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
+  assert.equal(session.ready, true);
+  assert.equal(session.activePersona, 'architect');
   const workflow = JSON.parse(await readFile(path.join(second, '.singularity', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
 
@@ -68,7 +83,29 @@ test('another clone resumes by work ID and fast-forwards tracked state', async (
   run('git', ['commit', '-m', 'HAND-101 add handoff note'], first);
   run('git', ['push'], first);
 
-  flow(second, ['resume', 'HAND-101', '--fetch'], 'developer');
+  const restarted = spawnSync(process.execPath, [bin, 'hook', 'session-start'], {
+    cwd: second, encoding: 'utf8', input: JSON.stringify({ cwd: second, sessionId: 'copilot-second-2', source: 'startup' }),
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Second Contributor' }
+  });
+  assert.match(JSON.parse(restarted.stdout).additionalContext, /work-item selection is required/);
+  flow(second, ['session', 'attach', 'HAND-101']);
   assert.equal(await readFile(path.join(second, 'handoff-note.txt'), 'utf8'), 'Remote handoff update\n');
   assert.equal(run('git', ['status', '--porcelain'], second).stdout.trim(), '');
+
+  await writeFile(path.join(second, 'local-only.txt'), 'preserve me\n');
+  const dirty = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
+  assert.equal(dirty.status, 1);
+  assert.match(dirty.stderr, /Working tree is not clean/);
+  assert.equal(await readFile(path.join(second, 'local-only.txt'), 'utf8'), 'preserve me\n');
+  await unlink(path.join(second, 'local-only.txt'));
+
+  await writeFile(path.join(second, 'ahead.txt'), 'local commit must survive\n');
+  run('git', ['add', 'ahead.txt'], second);
+  run('git', ['commit', '-m', 'local unpushed work'], second);
+  const aheadHead = run('git', ['rev-parse', 'HEAD'], second).stdout.trim();
+  const ahead = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
+  assert.equal(ahead.status, 1);
+  assert.match(ahead.stderr, /contains commits that are not on origin\/HAND-101/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], second).stdout.trim(), aheadHead);
+  assert.equal(await readFile(path.join(second, 'ahead.txt'), 'utf8'), 'local commit must survive\n');
 });

@@ -15,7 +15,7 @@ import {
   table,
   writeText
 } from './util.mjs';
-import { assertClean, branch, changes, checkout, fetchOrigin, hasUpstream, identity, pullFastForward, repoRoot } from './git.mjs';
+import { assertClean, branch, changes, checkout, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import {
   approvePhase,
   assertNoPendingPublication,
@@ -45,8 +45,8 @@ import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs'
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
-import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
-import { loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
+import { initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { activateWorkItemSession, loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
@@ -113,7 +113,8 @@ Usage:
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow persona [WORK-ID]
-  singularity-flow session status [--json]
+  singularity-flow session status|candidates [--json]
+  singularity-flow session attach <WORK-ID> [--json]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
@@ -974,7 +975,8 @@ async function hookCommand(positionals) {
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = repoRoot(candidate);
     if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
-    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+    const config = await loadConfig(root); let workflow = null;
+    try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartPersonaHook(root, config, workflow, payload)));
     if (event === 'persona-guard') return console.log(JSON.stringify(await personaGuardHook(root, config, workflow, payload)));
     throw new SingularityFlowError(`Unknown hook event: ${event}`);
@@ -983,7 +985,6 @@ async function hookCommand(positionals) {
 
 async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
-  if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let root;
   try { root = repoRoot(); } catch {
     const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: [] };
@@ -994,18 +995,72 @@ async function sessionCommand(positionals, options) {
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
   }
   const config = await loadConfig(root);
-  let workflow;
-  try { workflow = await loadWorkflow(root, config); } catch {
-    const empty = { initialized: true, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: Object.entries(config.personas).map(([id, persona]) => ({ id, label: persona.label, description: persona.description ?? '' })) };
-    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow work item is active on this branch.');
+  if (subcommand === 'candidates') {
+    const remote = config.git?.remote ?? 'origin';
+    fetchRemote(root, remote);
+    const candidates = [];
+    for (const id of remoteBranches(root, remote)) {
+      try { validateId(config, id); } catch { continue; }
+      const ref = `${remote}/${id}`;
+      const content = fileAtRef(root, ref, `${String(config.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`);
+      if (!content) continue;
+      try {
+        const workflow = JSON.parse(content);
+        if (workflow.workItem?.id !== id || workflow.workItem?.branch !== id) continue;
+        validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
+        candidates.push({ id, title: workflow.workItem.title, status: workflow.status, phase: workflow.currentPhase, commit: refHead(root, ref)?.slice(0, 8) ?? '' });
+      } catch { /* A malformed remote workflow is not selectable. */ }
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(candidates, null, 2));
+    if (!candidates.length) return console.log(`No remote Singularity Flow work-item branches were found on ${remote}.`);
+    return console.log(table(candidates, [
+      { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
+      { key: 'commit', label: 'REMOTE COMMIT' }
+    ]));
   }
+  if (subcommand === 'attach') {
+    const id = requirePositional(positionals, 2, 'work or Jira ID');
+    validateId(config, id);
+    assertClean(root);
+    const remote = config.git?.remote ?? 'origin';
+    fetchRemote(root, remote);
+    const remoteRef = `refs/remotes/${remote}/${id}`;
+    const remoteSha = refHead(root, remoteRef);
+    if (!remoteSha) throw new SingularityFlowError(`No committed work-item branch '${id}' exists on ${remote}. Start it with /sflow-start or verify the work/Jira ID.`);
+    const remoteName = `${remote}/${id}`;
+    const itemPath = `${String(config.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`;
+    const remoteWorkflow = fileAtRef(root, remoteName, itemPath);
+    const remoteDefinition = fileAtRef(root, remoteName, WORKFLOW_PATH);
+    try {
+      const parsedWorkflow = JSON.parse(remoteWorkflow ?? 'null');
+      if (parsedWorkflow?.workItem?.id !== id || parsedWorkflow?.workItem?.branch !== id) throw new Error('identity mismatch');
+      validateDefinition(YAML.parse(remoteDefinition ?? ''));
+    } catch { throw new SingularityFlowError(`Remote branch ${remote}/${id} is not a valid Singularity Flow work-item branch. Expected a matching ${itemPath} and valid ${WORKFLOW_PATH}.`); }
+    const materialization = checkout(root, id, { base: config.defaultBaseBranch, existingOnly: true, remote });
+    try { fastForwardTo(root, remoteName); }
+    catch { throw new SingularityFlowError(`Local branch '${id}' cannot fast-forward to ${remote}/${id}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
+    if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${id}' contains commits that are not on ${remote}/${id}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
+    const attachedConfig = await loadConfig(root);
+    const workflow = await loadWorkflow(root, attachedConfig, id);
+    const session = await activateWorkItemSession(root, attachedConfig, workflow);
+    const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, personaSelectionRequired: session.selectionRequired };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Attached to ${id} from ${remote}/${id} at ${remoteSha.slice(0, 8)}.`);
+    console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
+    console.log(session.selectionRequired ? 'Next: choose a persona with /sflow-persona.' : 'The existing valid persona is bound to this Copilot session.');
+    return;
+  }
+  if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
+  let workflow;
+  try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
   const status = await personaSessionStatus(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
-  console.log(`Work item: ${status.workId}`);
+  console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
   console.log(`Persona: ${status.activePersona ?? 'not selected'}`);
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
-  console.log(`Selection: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
-  console.log(`Policy: ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
+  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · persona: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
+  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · persona ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
+  if (status.workItemSelectionRequired) console.log('Run /sflow-session or singularity-flow session attach <WORK-ID>.');
   if (status.selectionRequired) console.log('Run /sflow-persona or singularity-flow persona to choose.');
 }
 

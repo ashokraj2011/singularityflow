@@ -164,13 +164,18 @@ New repositories enable the session hook policy in `.singularity/workflow.yml`:
 
 ```yaml
 session:
+  workItemSelection: prompt # off | reuse | prompt
   personaSelection: prompt # off | reuse | prompt
   promptOnNewSession: true
   promptOnResume: false
   requireBeforeTools: true
 ```
 
-`/sflow-session` applies this policy. A new Copilot session shows the configured persona options; a resumed session reuses a still-valid binding unless `promptOnResume` is enabled. `/sflow-persona` changes the binding at any time. No persona is inferred, and the declared persona never replaces the authenticated Git identity in audit records. Existing repositories without `session` behave exactly as before (`off`). The resolved policy is pinned into each work item so a base-branch YAML edit cannot weaken an active item silently.
+`/sflow-session` applies this policy in order. For each new Copilot session it asks for the exact work ID or Jira ID, lists committed work-item branches from the configured Git remote, fetches the remote, checks out a missing local tracking branch, and fast-forwards to the exact remote head. Only then does it ask for or reuse a persona. A resumed conversation with the same Copilot session ID retains the binding. `/sflow-persona` changes the persona at any time.
+
+The attach path is deliberately conservative: dirty, missing, malformed, ahead, or diverged branches stop with a clear message. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `.singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.
+
+No ID or persona is inferred, and the declared persona never replaces the authenticated Git identity in audit records. Existing repositories without `session` behave exactly as before (`off`). The resolved policy is pinned into each work item so a base-branch YAML edit cannot weaken an active item silently.
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
 
@@ -476,7 +481,9 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `singularity-flow start <ID> [--jira \| --story-file FILE]` | Import Jira or manual story details, attach optional documents, choose workflow template/persona, and create/push the work branch. |
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `sflow-persona [ID]` | Select or change the persona for the current local work-item session. |
-| `singularity-flow session status` | Inspect whether the persona is bound to the current Copilot session and whether selection is required. |
+| `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
+| `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head before persona selection. |
+| `singularity-flow session status` | Inspect work-item and persona binding readiness for the current Copilot session. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |

@@ -527,6 +527,9 @@ alias for the same command.
 
 ```yaml
 worldModel:
+  # Governed view IDs. A view cannot be removed while a phase, persona,
+  # workflow override, injection rule, or Markdown prompt still references it.
+  views: [business, architecture, development, testing, release, operations, security]
   grounding: enforce        # off | warn | enforce; absent means off
   staleness: warn           # warn | fail | ignore
   injection:
@@ -680,7 +683,7 @@ The desktop app provides:
 - Artifact-template library with guided creation, source/preview editing, and safe deletion when unreferenced
 - Repository prompt and skill Markdown editors, including guided repository-skill creation
 - Repository agent Markdown editor and read-only remote lock status
-- A repository-only world-model explorer with an editable builder prompt and downloadable generated views
+- A repository-only world-model control plane with a governed view registry, editable builder prompt, dependency references, and downloadable generated views
 - Individual YAML/Markdown downloads plus a portable configuration-folder export
 - Supporting-document catalog and upload
 - Searchable help manual
@@ -692,7 +695,9 @@ Use **Workflow** for the visual designer. Changes update the YAML draft shown be
 
 Use **Prompts & skills** for repository persona prompts, the world-model builder prompt, and repository-specific Copilot skills under `.github/skills/<id>/SKILL.md`. Use **Agents & remote Markdown** for repository agent files and their explicit remote skill/template/output tables. Installed plugin skills remain product defaults; repository skills and agents are the portable project overrides.
 
-Use **Repository world model** to inspect and download generated grounding files. World-model content is never imported from an agent or remote URL: it is built from the open repository and remains read-only in the desktop. Its YAML policy and builder prompt are configurable. Select **Download config** to export the workflow YAML, artifact templates, prompts, repository skills, repository agents, and current world-model snapshots as an ordinary folder tree. Imports accept `.yml`, `.yaml`, and `.md` files and stay uncommitted until **Commit & push**.
+Use **Repository world model** to manage the declared view registry, edit or import the builder prompt in place, and inspect or download generated grounding files. Each view shows every structured dependency (phase, persona, workflow override, or injection rule) and each Markdown file containing an explicit `views/<id>.md` reference. The **Remove** action stays disabled until those references are removed. Manual YAML or prompt edits receive the same validation; invalid saves are rolled back atomically.
+
+World-model content is never imported from an agent or remote URL: it is built from the open repository and remains read-only in the desktop. Select **Download config** to export the workflow YAML, artifact templates, prompts, repository skills, repository agents, and current world-model snapshots as an ordinary folder tree. Imports accept `.yml`, `.yaml`, and `.md` files and stay uncommitted until **Commit & push**.
 
 ## Copilot commands
 

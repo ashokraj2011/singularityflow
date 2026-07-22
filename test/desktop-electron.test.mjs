@@ -43,6 +43,7 @@ test('Electron welcome screen renders persistent repository errors and loading f
 
 test('Electron desktop exposes guided workflow and portable repository configuration controls', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   assert.match(source, />＋ Workflow</);
   assert.match(source, />＋ New stage</);
@@ -52,6 +53,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Create persona and prompt/);
   assert.match(source, /Create repository skill/);
   assert.match(source, /Repository-owned world model/);
+  assert.match(source, /Editable builder prompt/);
+  assert.match(source, /World-model views/);
+  assert.match(source, /referenced view cannot be removed/i);
+  assert.match(styles, /Avenir Next/);
+  assert.match(styles, /color-scheme: light/);
+  assert.match(styles, /--navy-950/);
   assert.match(source, />Download config</);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /downloadFile/);

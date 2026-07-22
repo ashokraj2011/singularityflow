@@ -55,6 +55,9 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
   assert.equal(snapshot.worldModel.repositoryOwned, true);
+  assert.equal(snapshot.worldModel.views.length, 7);
+  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').structuredReferences.includes("persona 'architect' prompt"));
+  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('.singularity/prompts/worldmodel-builder.md'));
   assert.equal(snapshot.worldModelPrompt.path, '.singularity/prompts/worldmodel-builder.md');
   assert.equal(snapshot.worldModelPrompt.missing, false);
   assert.deepEqual(snapshot.repositorySkills, []);
@@ -104,6 +107,21 @@ test('desktop configuration saves validate atomically and publish scoped changes
   assert.equal(published.pushed, false);
   assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure desktop template/);
+});
+
+test('desktop rolls back world-model view deletions while YAML or Markdown still refers to the view', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, '.singularity/workflow.yml');
+  const originalWorkflow = await readFile(workflowPath, 'utf8');
+  const definition = YAML.parse(originalWorkflow);
+  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'architecture');
+  await assert.rejects(() => saveDesktopFile(root, '.singularity/workflow.yml', YAML.stringify(definition)), /architecture.*not declared/i);
+  assert.equal(await readFile(workflowPath, 'utf8'), originalWorkflow);
+
+  const promptPath = path.join(root, '.singularity/prompts/worldmodel-builder.md');
+  const originalPrompt = await readFile(promptPath, 'utf8');
+  await assert.rejects(() => saveDesktopFile(root, '.singularity/prompts/worldmodel-builder.md', `${originalPrompt}\nLoad views/unknown-governance.md.\n`), /unknown-governance.*not declared/i);
+  assert.equal(await readFile(promptPath, 'utf8'), originalPrompt);
 });
 
 test('desktop creates templates and only deletes them when no workflow references them', async () => {

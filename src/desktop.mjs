@@ -3,13 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { add, branch, changedFiles, commit, identity, pushBranch } from './git.mjs';
-import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadDefinition, validateDefinition, worldModelPromptViewReferences, WORKFLOW_PATH } from './config.mjs';
 import { documentCatalog } from './documents.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
 import { loadWorkflow } from './state.mjs';
 import { exists, posix, readJson, repoRelative, run, SingularityFlowError, writeText } from './util.mjs';
 import { AGENT_LOCK_PATH, agentStatus, discoverAgents } from './agents.mjs';
+import { structuredWorldModelViewReferences, worldModelViewCatalog } from './world-model-views.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -105,6 +106,10 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   const agents = await discoverAgents(root);
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
   const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model');
+  const builderPrompt = await worldModelPrompt(root, definition);
+  const promptViewReferences = await worldModelPromptViewReferences(root, definition);
+  const structuredViewReferences = structuredWorldModelViewReferences(definition);
+  const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
   return {
     schemaVersion: 1,
     repository: { root, branch: currentBranch, changes, ...changeScope },
@@ -114,8 +119,21 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
-    worldModelPrompt: await worldModelPrompt(root, definition),
-    worldModel: { root: modelRoot, repositoryOwned: true, files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] }) },
+    worldModelPrompt: builderPrompt,
+    worldModel: {
+      root: modelRoot,
+      repositoryOwned: true,
+      views: viewCatalog.map((id) => ({
+        id,
+        structuredReferences: structuredViewReferences.get(id) ?? [],
+        promptReferences: promptViewReferences.get(id) ?? [],
+        references: [
+          ...(structuredViewReferences.get(id) ?? []),
+          ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
+        ]
+      })),
+      files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
+    },
     agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
     agentStatus: await agentStatus(root),
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') : '# No remote agents are trusted yet.\n' },

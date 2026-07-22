@@ -1,4 +1,5 @@
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export { addWorldModelView, removeWorldModelView, worldModelViewCatalog, worldModelViewReferences } from '../../../src/world-model-views.mjs';
 
 function assertId(id, label) {
   if (!ID_PATTERN.test(id)) throw new Error(`${label} must be lower-case kebab-case.`);

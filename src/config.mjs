@@ -7,6 +7,7 @@ import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs'
 import { validateInjectionDefinition } from './inject.mjs';
 import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
+import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 
 export const WORKFLOW_PATH = '.singularity/workflow.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -82,6 +83,11 @@ export function validateDefinition(definition) {
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
+  if (definition.worldModel?.views != null) {
+    if (!Array.isArray(definition.worldModel.views) || !definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must be a non-empty array when configured.');
+    if (new Set(definition.worldModel.views).size !== definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must not contain duplicates.');
+    for (const view of definition.worldModel.views) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be lower-case kebab-case.`);
+  }
   validateInjectionDefinition(definition);
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
@@ -133,7 +139,59 @@ export function validateDefinition(definition) {
       }
     }
   }
+  if (definition.worldModel?.views) {
+    const configuredViews = new Set(definition.worldModel.views);
+    for (const [view, references] of structuredWorldModelViewReferences(definition)) {
+      if (!configuredViews.has(view)) throw new SingularityFlowError(`World-model view '${view}' is used by ${references.join(', ')} but is not declared in worldModel.views.`);
+    }
+  }
   return definition;
+}
+
+async function markdownFiles(directory) {
+  if (!existsSync(directory)) return [];
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await markdownFiles(absolute));
+    else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) files.push(absolute);
+  }
+  return files;
+}
+
+export async function worldModelPromptViewReferences(root, definition) {
+  const locations = [
+    definition.templatesRoot,
+    definition.personaPromptsRoot,
+    '.github/skills',
+    '.github/agents',
+    '.claude/agents'
+  ];
+  const source = definition.worldModel?.promptSource;
+  const promptFiles = source && source !== 'builtin' ? [path.join(root, source)] : [];
+  for (const location of locations) promptFiles.push(...await markdownFiles(path.join(root, location)));
+  const references = new Map();
+  for (const file of [...new Set(promptFiles)]) {
+    if (!existsSync(file)) continue;
+    const content = await readFile(file, 'utf8');
+    for (const view of markdownWorldModelViews(content)) {
+      const list = references.get(view) ?? [];
+      const relative = path.relative(root, file).replaceAll(path.sep, '/');
+      if (!list.includes(relative)) list.push(relative);
+      references.set(view, list);
+    }
+  }
+  return references;
+}
+
+export async function validateWorldModelPromptViewReferences(root, definition) {
+  if (!definition.worldModel?.views) return new Map();
+  const configured = new Set(definition.worldModel.views);
+  const references = await worldModelPromptViewReferences(root, definition);
+  for (const [view, files] of references) {
+    if (!configured.has(view)) throw new SingularityFlowError(`World-model view '${view}' is referenced by ${files.join(', ')} but is not declared in worldModel.views.`);
+  }
+  return references;
 }
 
 function legacyDefinition(config, worldModel = {}) {
@@ -186,6 +244,7 @@ export async function loadDefinition(root) {
       if (isAgentTemplateReference(phase.template)) continue;
       if (!existsSync(path.join(root, definition.templatesRoot, phase.template))) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
     }
+    await validateWorldModelPromptViewReferences(root, definition);
     return definition;
   }
   const legacyPath = path.join(root, '.singularity/config.json');

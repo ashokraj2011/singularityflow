@@ -104,6 +104,8 @@ For a non-interactive or repeatable company setup, pass the registry explicitly:
 
 The environment variable `SINGULARITY_FLOW_NPM_REGISTRY` provides the same override. Command-line selection takes precedence. Registry authentication remains in the user's or company's `.npmrc`; the script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
+The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. It installs an idempotent shell startup entry and writes telemetry to `~/.copilot/singularity-flow-otel.jsonl`; prompt and response content capture remains disabled. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
+
 The single self-contained `install.sh` performs:
 
 ```text
@@ -117,9 +119,10 @@ npm pack --json
 npm uninstall --global singularity-flow
 npm install --global <generated-tarball> --registry=<selected-registry>
 singularity-flow plugin install
+configure metadata-only Copilot OpenTelemetry
 ```
 
-The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Start a new Copilot session after it finishes.
+The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Open a new terminal and start a new Copilot session after it finishes so the telemetry environment and refreshed skills are loaded.
 
 ## Configuration
 

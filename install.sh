@@ -4,13 +4,15 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
 REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-}"
+ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry]' \
     '' \
     'Pull, build, test, package, and globally install Singularity Flow,' \
-    'then replace all previous Copilot plugin copies with the current one.'
+    'replace all previous Copilot plugin copies, and enable metadata-only' \
+    'Copilot OpenTelemetry for model, token, and cost collection.'
 }
 
 while (($#)); do
@@ -24,6 +26,10 @@ while (($#)); do
       REGISTRY_OVERRIDE="${1#--registry=}"
       shift
       ;;
+    --no-copilot-telemetry)
+      ENABLE_COPILOT_TELEMETRY="off"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -35,6 +41,11 @@ while (($#)); do
       ;;
   esac
 done
+
+case "$ENABLE_COPILOT_TELEMETRY" in
+  on|off) ;;
+  *) printf '%s\n' 'Error: SINGULARITY_FLOW_COPILOT_TELEMETRY must be on or off.' >&2; exit 1 ;;
+esac
 
 for command in git node npm copilot; do
   command -v "$command" >/dev/null 2>&1 || { printf 'Error: required command not found: %s\n' "$command" >&2; exit 1; }
@@ -86,6 +97,60 @@ choose_registry() {
   esac
 }
 
+install_copilot_telemetry() {
+  if [[ "$ENABLE_COPILOT_TELEMETRY" == "off" ]]; then
+    printf '%s\n' 'Copilot OpenTelemetry setup: skipped.'
+    return
+  fi
+
+  local config_dir env_file telemetry_dir telemetry_file shell_name profile source_line temp_file
+  config_dir="$HOME/.singularity-flow"
+  env_file="$config_dir/copilot-otel.sh"
+  telemetry_dir="$HOME/.copilot"
+  telemetry_file="$telemetry_dir/singularity-flow-otel.jsonl"
+  source_line='[ -r "$HOME/.singularity-flow/copilot-otel.sh" ] && . "$HOME/.singularity-flow/copilot-otel.sh"'
+
+  mkdir -p "$config_dir" "$telemetry_dir"
+  chmod 700 "$config_dir" "$telemetry_dir"
+  temp_file="$(mktemp "$config_dir/copilot-otel.sh.XXXXXX")"
+  printf '%s\n' \
+    '# Managed by the Singularity Flow installer.' \
+    '# Records model, token, timing, and cost metadata. Prompt/response content remains disabled.' \
+    'if [ -z "${COPILOT_OTEL_FILE_EXPORTER_PATH:-}" ] && [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && [ -z "${COPILOT_OTEL_ENABLED:-}" ]; then' \
+    '  export COPILOT_OTEL_FILE_EXPORTER_PATH="$HOME/.copilot/singularity-flow-otel.jsonl"' \
+    'fi' > "$temp_file"
+  chmod 600 "$temp_file"
+  mv "$temp_file" "$env_file"
+  touch "$telemetry_file"
+  chmod 600 "$telemetry_file"
+
+  shell_name="${SHELL:-}"
+  shell_name="${shell_name##*/}"
+  case "$shell_name" in
+    zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash)
+      if [[ -f "$HOME/.bash_profile" ]]; then profile="$HOME/.bash_profile"; else profile="$HOME/.bashrc"; fi
+      ;;
+    *)
+      printf 'Copilot OpenTelemetry environment installed at %s\n' "$env_file"
+      printf 'Add this to your shell startup file: %s\n' "$source_line"
+      printf 'Telemetry output: %s\n' "$telemetry_file"
+      return
+      ;;
+  esac
+
+  mkdir -p "$(dirname "$profile")"
+  touch "$profile"
+  if ! grep -Fqx "$source_line" "$profile"; then
+    printf '\n%s\n%s\n' '# Singularity Flow: Copilot model/token/cost telemetry' "$source_line" >> "$profile"
+  fi
+  # Make telemetry active for the remainder of this installer too.
+  . "$env_file"
+  printf 'Copilot OpenTelemetry: enabled in %s\n' "$profile"
+  printf 'Telemetry output: %s\n' "$telemetry_file"
+  printf '%s\n' 'Prompt and response content capture remains disabled.'
+}
+
 cd "$PROJECT_DIR"
 
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -123,8 +188,11 @@ npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
 printf '%s\n' 'Replacing previous Copilot plugin copies...'
 singularity-flow plugin install
 
+printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
+install_copilot_telemetry
+
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 printf 'Distribution tarball: %s/%s\n' "$PROJECT_DIR" "$TARBALL"
 printf 'Registry: %s\n' "$REGISTRY"
 copilot plugin list
-printf '%s\n' 'Start a new Copilot session to load the refreshed skills.'
+printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'

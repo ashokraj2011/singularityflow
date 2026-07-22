@@ -3,9 +3,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { head } from './git.mjs';
+import { changedFiles, head } from './git.mjs';
 import { SingularityFlowError, optionBoolean, optionString, run } from './util.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { injectPersonaPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -137,7 +138,7 @@ async function context(root, config, phase, options) {
     if (relative && existsSync(path.join(root, config.outputDir, relative)) && !selected.some((item) => item.relative === relative)) selected.push({ relative, level, reason });
   };
   for (const relative of config.context.always ?? []) add(relative, 0, 'shared repository core');
-  if (config.personaPrompt && existsSync(path.join(root, config.personaPrompt))) selected.push({ relative: path.relative(config.outputDir, config.personaPrompt), absolute: config.personaPrompt, level: 0, reason: 'active persona prompt' });
+  if (optionBoolean(options, 'persona', true) && config.personaPrompt && existsSync(path.join(root, config.personaPrompt))) selected.push({ relative: path.relative(config.outputDir, config.personaPrompt), absolute: config.personaPrompt, level: 0, reason: 'active persona prompt' });
   for (const view of phaseConfig.views ?? []) add(model.views?.[view]?.path ?? `views/${view}.md`, 1, `${phase} view: ${view}`);
   if (config.context.includeDomains !== 'none') {
     for (const domain of model.domains ?? []) {
@@ -156,9 +157,59 @@ async function context(root, config, phase, options) {
   }
 }
 
+async function inject(root, options) {
+  const definition = await loadDefinition(root);
+  const session = await loadSession(root, { required: false });
+  const persona = optionString(options, 'persona') ?? session?.persona;
+  if (!persona) throw new SingularityFlowError('Provide --persona or start a persona session first.');
+
+  const workItemRoot = definition.workItemRoot ?? '.singularity/work-items';
+  const activeId = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+  const statePath = path.join(root, workItemRoot, activeId, 'workflow.json');
+  const workflow = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : null;
+  const requestedPhase = optionString(options, 'phase');
+  if (workflow && requestedPhase && requestedPhase !== workflow.currentPhase && !optionBoolean(options, 'dry-run')) {
+    throw new SingularityFlowError(`Current phase is ${workflow.currentPhase}, not ${requestedPhase}. Use --dry-run to preview another phase.`);
+  }
+  const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
+  const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
+  const signals = {
+    persona,
+    phase: requestedPhase ?? workflow?.currentPhase ?? null,
+    workType: workflow?.workItem?.workType ?? null,
+    changedPaths: changedFiles(root),
+    labels: source?.labels ?? []
+  };
+  const { text, injection } = await injectPersonaPrompt(root, definition, persona, signals);
+  if (injection.sections.length && injection.modelCommit && injection.modelCommit !== head(root)) {
+    const message = `World model injection is stale (${String(injection.modelCommit).slice(0, 10)} != ${head(root).slice(0, 10)}).`;
+    if ((definition.worldModel?.staleness ?? 'warn') === 'fail') throw new SingularityFlowError(`${message} Rebuild it.`);
+    if ((definition.worldModel?.staleness ?? 'warn') === 'warn') console.error(`Warning: ${message}`);
+  }
+
+  if (optionBoolean(options, 'dry-run')) {
+    console.log(`rules matched: ${injection.matchedRules}  files: ${injection.sections.length}  mode: ${injection.mode}  depth: ${injection.depth}  evidence: ${injection.evidence ? 'yes' : 'no'}  applied: ${injection.applied ? 'yes' : 'no'}`);
+    injection.sections.forEach((section) => console.log(`  ${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
+    return;
+  }
+
+  if (workflow) {
+    const phase = workflow.phases[signals.phase];
+    if (!phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
+    const { file } = await recordInjection(root, workflow, phase, { ...injection, persona }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
+    console.error(`Injection recorded: ${file}`);
+  }
+  const destination = optionString(options, 'out');
+  if (destination) {
+    await writeFile(path.resolve(root, destination), text);
+    console.log(`Injected prompt written to ${destination}.`);
+  } else process.stdout.write(text);
+}
+
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   if (command === 'init') return init(root);
+  if (command === 'inject') return inject(root, options);
   const config = await load(root);
   if (command === 'prompt') return prompt(root, config, options);
   if (command === 'build') return build(root, config, options);
@@ -169,5 +220,5 @@ export async function worldModelCommand(root, positionals, options) {
     if (!state.fresh) throw new SingularityFlowError('World model is stale.', { exitCode: 2 });
     return;
   }
-  throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|check');
+  throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|inject|check');
 }

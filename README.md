@@ -22,7 +22,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.7.2.tgz
+npm install --global ./singularity-flow-0.8.0.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -350,10 +350,13 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm context design --concat
+singularity-flow wm inject --phase design --dry-run
 singularity-flow wm check
 ```
 
 Phase views provide required grounding. Persona views add perspective without removing phase-required views. Verification and conformance also load the evidence ledger. The selected persona prompt is included in the generated context.
+
+Optional `worldModel.injection.rules` add need-based context directly to that persona prompt. Rules can match persona, phase, immutable work type, changed-path globs, and source labels. Preview them with `singularity-flow wm inject --phase <phase> --dry-run`; a normal injection records selected file hashes and the model commit under the work item's `context/` directory for publication with the next generation.
 
 ## Useful commands
 

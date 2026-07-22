@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs';
+import { validateInjectionDefinition } from './inject.mjs';
 
 export const WORKFLOW_PATH = '.singularity/workflow.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,6 +25,9 @@ export function validateDefinition(definition) {
   assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
+  if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
+  if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
+  validateInjectionDefinition(definition);
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
     if (!model.trim()) throw new SingularityFlowError('tokens.pricing model names must not be empty.');

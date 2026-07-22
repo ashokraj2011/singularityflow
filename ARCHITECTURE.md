@@ -46,6 +46,8 @@ phase instructions
 + evidence ledger for verification/conformance
 ```
 
+Need-based `worldModel.injection.rules` may additionally place selected model files inside the active persona prompt. Normal phase skills load mandatory views with `wm context --no-persona`, then load the rendered persona through `wm inject`; the next generation commit includes a context audit record containing the selected file hashes and model commit.
+
 Suggested personas improve discoverability but do not authorize phase access. Any contributor may assume any configured persona. A persona's `mayApprove` list provides decision authority.
 
 ## Work-item layout
@@ -59,6 +61,8 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ├── documents.json
 ├── inputs/
 │   └── DOC-001/<original-file>
+├── context/                 # per-generation prompt-injection audit records
+│   └── design-gen1.json
 ├── artifacts/
 │   ├── intake/intake.md
 │   ├── implementation-spec/implementation-spec.md

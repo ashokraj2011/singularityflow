@@ -15,8 +15,8 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.7.2
-sflow --version             → 0.7.2
+singularity-flow --version  → 0.8.0
+sflow --version             → 0.8.0
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
@@ -141,6 +141,7 @@ For an unreachable remote, verify the local commit is retained, transitions are 
 - Phase-required views are always present.
 - Persona views are added and do not replace required views.
 - The persona prompt is present in phase context.
+- Need-based injection rules match persona, phase, work type, changed paths, and source labels; applied context is byte-bounded and recorded with file hashes and the world-model commit.
 - Verification and conformance include the evidence ledger.
 - `singularity-flow wm check` detects a stale manifest.
 

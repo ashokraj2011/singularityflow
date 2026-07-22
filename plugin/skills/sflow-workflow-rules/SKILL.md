@@ -19,6 +19,6 @@ When `.singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutab
 10. End every successful artifact generation with `singularity-flow phase publish <phase>`; generation is incomplete until its commit is pushed.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
-13. Before phase reasoning, load `singularity-flow wm context <phase> --task "<current objective>" --concat`; rebuild the phase model when missing or stale. Load evidence only for verification, review, or release decisions.
+13. Before phase reasoning, load `singularity-flow wm context <phase> --task "<current objective>" --concat --no-persona`, then load `singularity-flow wm inject --phase <phase>` as the active persona prompt. Rebuild the phase model when missing or stale. Load evidence only for verification, review, or release decisions.
 14. Treat `.singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
-14. Never choose a workflow template or persona for the user. Anyone may choose any persona; phase mappings are recommendations, while approval capability comes from persona configuration.
+15. Never choose a workflow template or persona for the user. Anyone may choose any persona; phase mappings are recommendations, while approval capability comes from persona configuration.

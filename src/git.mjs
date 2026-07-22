@@ -65,9 +65,11 @@ export function assertClean(root) {
   if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }
 
-export function fetchOrigin(root) {
-  if (hasRemote(root)) git(['fetch', '--prune', 'origin'], { cwd: root, stdio: 'inherit' });
+export function fetchRemote(root, remote = 'origin') {
+  if (hasRemote(root, remote)) git(['fetch', '--prune', remote], { cwd: root, stdio: 'inherit' });
 }
+
+export function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
 
 export function hasUpstream(root) {
   return git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0;
@@ -80,10 +82,11 @@ export function pullFastForward(root) {
 export function checkout(root, name, {
   base = 'main',
   fetch = false,
-  existingOnly = false
+  existingOnly = false,
+  remote = 'origin'
 } = {}) {
   validBranch(root, name);
-  if (fetch) fetchOrigin(root);
+  if (fetch) fetchRemote(root, remote);
   if (branch(root) === name) {
     if (fetch) pullFastForward(root);
     return 'already-current';
@@ -93,18 +96,41 @@ export function checkout(root, name, {
     if (fetch) pullFastForward(root);
     return 'checked-out-local';
   }
-  if (refExists(root, `refs/remotes/origin/${name}`)) {
-    git(['switch', '--track', '-c', name, `origin/${name}`], { cwd: root, stdio: 'inherit' });
+  if (refExists(root, `refs/remotes/${remote}/${name}`)) {
+    git(['switch', '--track', '-c', name, `${remote}/${name}`], { cwd: root, stdio: 'inherit' });
     return 'tracked-remote';
   }
-  if (existingOnly) throw new SingularityFlowError(`Branch ${name} does not exist locally or on origin.`);
+  if (existingOnly) throw new SingularityFlowError(`Branch ${name} does not exist locally or on ${remote}.`);
   const baseRef = refExists(root, `refs/heads/${base}`)
     ? base
-    : refExists(root, `refs/remotes/origin/${base}`)
-      ? `origin/${base}`
+    : refExists(root, `refs/remotes/${remote}/${base}`)
+      ? `${remote}/${base}`
       : 'HEAD';
   git(['switch', '-c', name, baseRef], { cwd: root, stdio: 'inherit' });
   return `created-from-${baseRef}`;
+}
+
+export function refHead(root, ref) {
+  const result = git(['rev-parse', '--verify', ref], { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+export function fastForwardTo(root, ref) {
+  git(['merge', '--ff-only', ref], { cwd: root, stdio: 'inherit' });
+  return head(root);
+}
+
+export function remoteBranches(root, remote = 'origin') {
+  if (!hasRemote(root, remote)) return [];
+  const prefix = `refs/remotes/${remote}/`;
+  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root }).stdout
+    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+    .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== 'HEAD');
+}
+
+export function fileAtRef(root, ref, file) {
+  const result = git(['show', `${ref}:${file}`], { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout : null;
 }
 
 function nullList(value) {

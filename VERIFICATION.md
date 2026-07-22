@@ -44,7 +44,9 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Non-interactive start/resume fails instead of choosing a default.
 - Any configured persona may be selected in any phase.
 - Persona selection alone changes only `.git/singularity-flow/session.json` and creates no commit.
-- A new Copilot session follows the immutable `session` policy, records its session binding only under `.git/singularity-flow/`, and blocks matching mutating tools until an explicitly required persona choice is complete.
+- A new Copilot session follows the immutable `session` policy, asks for an exact work/Jira ID, discovers only committed remote work-item branches, and blocks matching mutating tools until remote synchronization and explicit persona selection are complete.
+- Session attachment creates a tracking branch when needed, fast-forwards to the exact remote head, and refuses dirty, missing, malformed, ahead, or diverged state without resetting, rebasing, merging, stashing, or discarding work.
+- A second clone can attach by work ID, reconstruct state solely from the remote branch, and receive a later contributor's commit on the next session attachment.
 - Resume reuses a valid session persona when `promptOnResume` is false; absent `session` configuration remains inert.
 
 ## Jira and manual intake checks

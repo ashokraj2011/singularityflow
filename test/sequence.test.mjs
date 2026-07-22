@@ -122,6 +122,16 @@ test('Copilot session persona policy is immutable after work-item creation', asy
   assert.match(validation.stderr, /Session persona policy differs from the immutable configuration snapshot/);
 });
 
+test('older work-item session snapshots without work-item selection remain backward compatible', async () => {
+  const root = await repository();
+  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  delete workflow.resolution.session.workItemSelection;
+  await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
+  const validation = flow(root, ['validate'], { allowFailure: true });
+  assert.equal(validation.status, 0, validation.stderr);
+});
+
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {
   const root = await repository();
   const workDir = path.join(root, '.singularity/work-items/SEQ-1');

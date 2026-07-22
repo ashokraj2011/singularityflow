@@ -64,6 +64,7 @@
     "session": {
       "type": "object",
       "properties": {
+        "workItemSelection": { "enum": ["off", "reuse", "prompt"] },
         "personaSelection": { "enum": ["off", "reuse", "prompt"] },
         "promptOnNewSession": { "type": "boolean" },
         "promptOnResume": { "type": "boolean" },

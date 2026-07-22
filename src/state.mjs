@@ -254,10 +254,10 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
   workflow.resolution.documents ??= {};
   workflow.resolution.collaboration ??= { assignmentMode: 'off', notifications: ['terminal'] };
-  if (!workflow.resolution.session) {
-    workflow.resolution.session = normalizeSessionPolicy({});
+  if (!workflow.resolution.session || workflow.resolution.session.workItemSelection == null) {
+    workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session ?? {});
     workflow.resolution.sessionLegacy = true;
-  }
+  } else workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };

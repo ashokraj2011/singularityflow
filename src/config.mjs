@@ -73,11 +73,14 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
 
 export function normalizeSessionPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
-  for (const key of Object.keys(value)) if (!['personaSelection', 'promptOnNewSession', 'promptOnResume', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
+  for (const key of Object.keys(value)) if (!['workItemSelection', 'personaSelection', 'promptOnNewSession', 'promptOnResume', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
+  const workItemSelection = value.workItemSelection ?? 'off';
+  if (!PERSONA_SELECTION_MODES.has(workItemSelection)) throw new SingularityFlowError('session.workItemSelection must be off, reuse, or prompt.');
   const personaSelection = value.personaSelection ?? 'off';
   if (!PERSONA_SELECTION_MODES.has(personaSelection)) throw new SingularityFlowError('session.personaSelection must be off, reuse, or prompt.');
   for (const field of ['promptOnNewSession', 'promptOnResume', 'requireBeforeTools']) if (value[field] != null && typeof value[field] !== 'boolean') throw new SingularityFlowError(`session.${field} must be boolean.`);
   return {
+    workItemSelection,
     personaSelection,
     promptOnNewSession: value.promptOnNewSession ?? false,
     promptOnResume: value.promptOnResume ?? false,

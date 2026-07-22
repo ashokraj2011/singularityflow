@@ -60,8 +60,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /Iowan Old Style/);
   assert.match(styles, /color-scheme: light/);
   assert.match(styles, /--navy-950/);
-  assert.match(styles, /background: #347c32/);
+  assert.match(styles, /background: #181817/);
   assert.match(styles, /border-radius: 999px/);
+  assert.match(styles, /body \{[^}]*font-size: 15px/s);
+  assert.match(source, /fontSize: 14/);
+  assert.doesNotMatch(source, /className="publish-scope-notice"/);
+  assert.doesNotMatch(styles, /\.publish-scope-notice/);
   assert.match(source, />Download config</);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /downloadFile/);

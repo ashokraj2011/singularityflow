@@ -144,6 +144,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     agentStatus: await agentStatus(root),
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') : '# No remote agents are trusted yet.\n' },
     workItems: items,
+    approvalInbox: { remote: definition.git?.remote ?? 'origin', fetched: false, generatedAt: null, count: 0, items: [] },
     selectedWorkId: selectedId,
     workflow,
     progress,

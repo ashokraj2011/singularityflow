@@ -407,6 +407,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Change session persona | `/sflow-persona` | `sflow-persona` |
 | Select and synchronize session work | `/sflow-session` | `singularity-flow session candidates` then `singularity-flow session attach <ID>` |
 | Inspect Copilot session readiness | `/sflow-session` | `singularity-flow session status` |
+| Review the team approval queue | `/sflow-inbox` | `singularity-flow inbox` |
 | Get next actions | `/sflow-nextsteps` | `singularity-flow nextsteps` |
 | Execute next action | `/sflow-next` | `sflow-next` |
 | Generate current phase | `/sflow-phase` | `singularity-flow prepare <phase>` |

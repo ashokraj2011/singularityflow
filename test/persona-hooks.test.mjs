@@ -38,6 +38,7 @@ test('new Copilot sessions require work-item selection before persona selection 
   const denied = await personaGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } });
   assert.equal(denied.permissionDecision, 'deny');
   assert.match(denied.permissionDecisionReason, /work\/Jira ID/);
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow inbox --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session candidates --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session attach HOOK-1' } }), {});
 

@@ -61,6 +61,7 @@ function commandText(toolArgs) {
 
 function isPersonaToolCall(payload) {
   const command = commandText(payload.toolArgs);
+  if (/^(?:singularity-flow|sflow) inbox(?:(?: --json| --offline)){0,2}(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session attach [A-Za-z0-9._-]+(?: 2>&1)?$/.test(command)) return true;

@@ -33,8 +33,17 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow nextsteps \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inputs \[PHASE\]/);
     assert.match(result.stdout, /singularity-flow persona \[WORK-ID\]/);
+    assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
   }
+});
+
+test('package exposes the standalone sflow-inbox executable', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(packageJson.bin['sflow-inbox'], 'bin/sflow-inbox.mjs');
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  assert.equal(lock.packages[''].bin['sflow-inbox'], 'bin/sflow-inbox.mjs');
+  assert.match(await readFile(path.join(root, 'bin/sflow-inbox.mjs'), 'utf8'), /main\(\['inbox'/);
 });
 
 test('package exposes the sflow-next executable', async () => {

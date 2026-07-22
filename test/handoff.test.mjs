@@ -54,7 +54,18 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   await writeFile(intakePath, intake);
   flow(first, ['phase', 'publish', 'intake']);
   flow(first, ['submit']);
+  const pending = JSON.parse(flow(first, ['inbox', '--json']).stdout);
+  assert.equal(pending.remote, 'origin');
+  assert.equal(pending.count, 1);
+  assert.equal(pending.items[0].id, 'HAND-101');
+  assert.equal(pending.items[0].phase, 'intake');
+  assert.equal(pending.items[0].approvalsReceived, 0);
+  assert.equal(pending.items[0].approvalsRequired, 1);
+  assert.match(pending.items[0].artifact, /HAND-101\/artifacts\/intake\/intake\.md$/);
+  assert.match(pending.items[0].commands.attach, /session attach HAND-101/);
+  assert.match(flow(first, ['inbox']).stdout, /Pending approval inbox[\s\S]*HAND-101[\s\S]*intake/);
   flow(first, ['approve', '--yes']);
+  assert.equal(JSON.parse(flow(first, ['inbox', '--json']).stdout).count, 0);
 
   run('git', ['clone', '--no-hardlinks', remote, second], base);
   identity(second, 'Second Contributor');

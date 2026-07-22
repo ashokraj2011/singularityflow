@@ -69,6 +69,46 @@ test('artifact-only phases reject source changes', async () => {
   assert.notEqual(result.status, 0); assert.match(result.stderr, /artifact-only/);
 });
 
+test('publication commits sanitized Copilot telemetry under the work item and reports provider cost', async () => {
+  const root = await repository(); const workId = 'TELEMETRY-1';
+  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const completedAt = new Date().toISOString();
+  const span = {
+    name: 'chat claude-sonnet-4.6',
+    startTime: new Date(Date.now() - 1000).toISOString(),
+    endTime: completedAt,
+    attributes: {
+      'gen_ai.operation.name': 'chat', 'gen_ai.provider.name': 'github',
+      'gen_ai.request.model': 'auto', 'gen_ai.response.model': 'claude-sonnet-4.6',
+      'gen_ai.usage.input_tokens': 1200, 'gen_ai.usage.output_tokens': 300,
+      'gen_ai.usage.cache_read.input_tokens': 200, 'github.copilot.cost': 0.0123,
+      'gen_ai.conversation.id': 'local-conversation-id'
+    }
+  };
+  await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${JSON.stringify(span)}\n`);
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+
+  const published = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const usage = published.phases.intake.usage[0];
+  assert.equal(usage.source, 'copilot-otel'); assert.equal(usage.model, 'claude-sonnet-4.6');
+  assert.equal(usage.totalTokens, 1500); assert.equal(usage.providerCost, 0.0123);
+  const context = published.phases.intake.telemetry[0];
+  assert.equal(context.status, 'exact'); assert.deepEqual(context.models, ['claude-sonnet-4.6']);
+  const telemetryRecord = JSON.parse(await readFile(path.join(root, context.path), 'utf8'));
+  assert.equal(telemetryRecord.workId, workId); assert.equal(telemetryRecord.rawTraceCommitted, false);
+  assert.equal(telemetryRecord.usage[0].providerCost, 0.0123);
+  assert.doesNotMatch(JSON.stringify(telemetryRecord), /local-conversation-id/);
+  const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout);
+  assert.equal(report.phases[0].models[0], 'claude-sonnet-4.6'); assert.equal(report.cost, 0.0123); assert.equal(report.costStatus, 'exact');
+  const committed = execute('git', ['show', '--name-only', '--format=', 'HEAD'], root).stdout;
+  assert.match(committed, /\.singularity\/work-items\/TELEMETRY-1\/telemetry\/intake-gen1\.json/);
+  assert.doesNotMatch(committed, /copilot-otel\.jsonl/);
+  assert.equal(flow(root, ['gate']).status, 0);
+});
+
 test('next executes one valid lifecycle action at a time', async () => {
   const root = await repository(); const workId = 'NEXT-AUTO-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });

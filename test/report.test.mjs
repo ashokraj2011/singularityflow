@@ -92,6 +92,17 @@ test('deriveReport prices only exact usage with configured per-million model pri
   assert.equal(report.costStatus, 'partial');
 });
 
+test('deriveReport prefers exact provider cost captured from Copilot telemetry', () => {
+  const workflow = fixtureWorkflow();
+  workflow.phases.requirements.usage[0].providerCost = 0.031;
+  workflow.phases.requirements.usage[0].costStatus = 'exact';
+  workflow.phases.design.usage = [];
+  const report = deriveReport(workflow, { now: at(480) });
+  assert.equal(report.cost, 0.031);
+  assert.equal(report.costStatus, 'exact');
+  assert.equal(report.phases[0].cost, 0.031);
+});
+
 test('deriveReport does not invent a zero cost when only total tokens are available', () => {
   const workflow = fixtureWorkflow();
   workflow.phases.requirements.usage = [{

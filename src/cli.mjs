@@ -686,6 +686,15 @@ async function phaseCommand(positionals, options) {
   const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
   const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
+  const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);
+  const tokens = generationUsage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
+  const costs = generationUsage.map((item) => item.providerCost).filter(Number.isFinite);
+  const providerCost = costs.length ? costs.reduce((sum, value) => sum + value, 0) : null;
+  if (telemetry) {
+    console.log(`Telemetry: ${telemetry.status} | Models: ${telemetry.models.join(', ') || 'unavailable'} | Tokens: ${tokens || 'unavailable'} | Provider cost: ${providerCost == null ? 'unavailable' : `$${providerCost.toFixed(6)}`}`);
+    console.log(`Telemetry record: ${telemetry.path}`);
+  }
   printPhaseReview(await phaseReview(root, config, workflow, phase));
 }
 

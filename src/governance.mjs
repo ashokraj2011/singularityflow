@@ -5,6 +5,7 @@ import { exists, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
+import { verifyPhaseTelemetry } from './telemetry.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -71,6 +72,12 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
         else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
         if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
+      }
+      if (workflow.telemetry?.mode === 'work-item-sanitized' || (phase.telemetry ?? []).some((item) => item.generation === generation)) {
+        const telemetry = await verifyPhaseTelemetry(root, workflow, phase, generation);
+        errors.push(...telemetry.errors); passes.push(...telemetry.passes);
+        const telemetryPath = (phase.telemetry ?? []).find((item) => item.generation === generation)?.path;
+        if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`telemetry audit was not committed with ${phaseId} generation ${generation}`);
       }
       const agentContextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {

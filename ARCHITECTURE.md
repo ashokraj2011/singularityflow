@@ -34,7 +34,7 @@ This resolution is copied into `.singularity/work-items/<ID>/workflow.json`. The
 
 ## Persona session and prompt composition
 
-`start` selects a work type and persona; `resume` selects a persona. Selection requires an interactive terminal. The session lives at `.git/singularity-flow/session.json` and is intentionally local and uncommitted.
+`start` first selects Jira or manual intake, captures the story and supporting documents, and then selects a workflow template and persona; `resume` selects a persona. Selection requires an interactive terminal unless explicit Jira/manual source inputs were supplied, but template and persona selection are never bypassed. The session lives at `.git/singularity-flow/session.json` and is intentionally local and uncommitted.
 
 For generation, context is additive:
 
@@ -55,6 +55,7 @@ Suggested personas improve discoverability but do not authorize phase access. An
 ├── workflow.json
 ├── STATUS.md
 ├── source.json
+├── USER-STORY.md
 ├── documents.json
 ├── inputs/
 │   └── DOC-001/<original-file>
@@ -71,6 +72,8 @@ Suggested personas improve discoverability but do not authorize phase access. An
 `workflow.json` is authoritative runtime state. `STATUS.md` is a generated human view. Artifacts contain a machine-managed metadata comment. Approval event files are append-only records; phase summary files are derived snapshots.
 
 `documents.json` is the stable supporting-input catalog. Local files are copied under `inputs/DOC-nnn/`; external links such as Figma are recorded without being downloaded. Each input is attributed to the active identity/persona and uploaded only during the profile-snapshotted allowed phases. Uploads use the same commit/push recovery protocol as lifecycle events.
+
+`guide` derives a read-only template walkthrough from `workflow.json`. It does not maintain separate state; `/sflow-help` reports the immutable phase sequence and selects its recommended next action from the current phase status and generation history.
 
 ## Progress model
 

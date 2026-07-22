@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.6
+# Singularity Flow Lite 0.7
 
 Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, personas, world-model views, approvals, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
 
@@ -21,7 +21,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.6.2.tgz
+npm install --global ./singularity-flow-0.7.0.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -80,9 +80,79 @@ singularity-flow start ENG-142 --title "Add invoice export" --fetch
 singularity-flow resume ENG-142 --fetch
 ```
 
-`start` always prompts for a work type and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit.
+With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always prompts for a workflow template (`feature`, `bugfix`, `chore`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit.
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
+
+### Jira intake
+
+Jira access uses Atlassian REST directly. Provide an Atlassian account email and API token; never use or commit an Atlassian password:
+
+```bash
+export JIRA_BASE_URL="https://company.atlassian.net"
+export JIRA_EMAIL="person@company.com"
+export JIRA_API_TOKEN="<api-token-from-atlassian>"
+```
+
+The CLI does not load `.env` files. Set these values for the current shell, inject them from a password manager, or configure them as protected CI secrets. Discover optional custom-field IDs and then export the fields used by your Jira site:
+
+```bash
+singularity-flow jira fields --query "Acceptance Criteria"
+singularity-flow jira fields --query "Story Points"
+singularity-flow jira fields --query "Sprint"
+
+export SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD="customfield_12345"
+export SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD="customfield_10016"
+export SINGULARITY_FLOW_JIRA_SPRINT_FIELD="customfield_10020"
+# Optional comma-separated additional fields:
+export SINGULARITY_FLOW_JIRA_EXTRA_FIELDS="customfield_10001,customfield_10002"
+```
+
+Verify access before starting work:
+
+```bash
+singularity-flow jira pull ENG-142
+singularity-flow jira list --project ENG
+singularity-flow start ENG-142 --jira
+```
+
+### Manual story intake without Jira
+
+Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
+
+```bash
+singularity-flow start WORK-123 \
+  --story-file ./manual-story.yml \
+  --document ./additional-context.pdf \
+  --document-url https://www.figma.com/design/example
+```
+
+`--document` and `--document-url` may be repeated. A story file may also declare a `documents` list containing paths, URLs, optional labels, and kinds. Relative document paths are resolved from the story file's directory. The command creates and pushes `source.json`, a readable `USER-STORY.md`, the workflow state, and each copied document with a stable `DOC-nnn` identifier. It still asks the contributor to choose the workflow template and persona interactively.
+
+For a short manual request without a story file:
+
+```bash
+singularity-flow start WORK-123 \
+  --title "Add invoice export" \
+  --description "Finance needs a repeatable export of filtered invoices." \
+  --acceptance-criteria "An authorized user can export the filtered invoice set."
+```
+
+### Help for the selected workflow template
+
+At any time after starting work, show the chosen template, its complete phase sequence, artifacts, suggested and approval-capable personas, approval thresholds, current position, and exact next action:
+
+```bash
+singularity-flow guide WORK-123
+```
+
+From Copilot, use:
+
+```text
+/sflow-help WORK-123
+```
+
+The guide is read-only. Depending on state, it recommends `/sflow-phase`, `/sflow-submit`, `/sflow-approve` or `/sflow-reject`, and `/sflow-progress` after completion.
 
 ## Progress
 
@@ -211,13 +281,17 @@ Phase views provide required grounding. Persona views add perspective without re
 | Command | Purpose |
 |---|---|
 | `singularity-flow init` | Install editable YAML, templates, persona prompts, and world-model builder prompt. |
-| `singularity-flow start <ID>` | Interactively choose work type/persona and create/push the work branch. |
+| `singularity-flow start <ID> [--jira \| --story-file FILE]` | Import Jira or manual story details, attach optional documents, choose workflow template/persona, and create/push the work branch. |
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
+| `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <PATH...>` | Copy, hash, catalog, commit, and push supporting files during configured initial phases. |
+| `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |
+| `singularity-flow jira list` | List assigned Jira work with optional project, type, limit, and JQL filters. |
+| `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
 | `singularity-flow submit` | Run checks and publish an approval request. |
@@ -281,6 +355,7 @@ The plugin package remains named `singularity-flow`, while every public skill ha
 /sflow-start ENG-142 --title "Add invoice export"
 /sflow-phase
 /sflow-progress
+/sflow-help
 /sflow-documents list
 /sflow-status
 /sflow-submit

@@ -6,6 +6,7 @@ import {
   optionBoolean,
   optionNumber,
   optionString,
+  optionStrings,
   parseArgs,
   requirePositional,
   table
@@ -35,10 +36,12 @@ import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugi
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
-import { selectPersona, selectWorkType } from './session.mjs';
+import { selectIntakeSource, selectPersona, selectWorkType } from './session.mjs';
 import { readJson } from './util.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
+import { loadManualStory, promptManualStory } from './intake.mjs';
+import { guideText, workflowGuide } from './guide.mjs';
 import {
   desktopSnapshot,
   publishDesktopConfiguration,
@@ -47,7 +50,7 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 
-const VERSION = '0.6.2';
+const VERSION = '0.7.0';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -55,10 +58,12 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 
 Usage:
   singularity-flow init
-  singularity-flow start <WORK-ID> [--title TEXT] [--description TEXT] [--base BRANCH] [--jira] [--fetch] [--allow-dirty]
+  singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
+    [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
+  singularity-flow guide [WORK-ID] [--json]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
@@ -148,20 +153,29 @@ async function startCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   validateId(config, id);
+  const jira = optionBoolean(options, 'jira');
+  const storyFile = optionString(options, 'story-file');
+  if (jira && storyFile) throw new SingularityFlowError('Choose either --jira or --story-file, not both.');
+  const title = optionString(options, 'title');
+  const description = optionString(options, 'description');
+  const acceptanceCriteria = optionString(options, 'acceptance-criteria');
+  const explicitFiles = optionStrings(options, 'document');
+  const explicitUrls = optionStrings(options, 'document-url');
+  const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
+  const sourceMode = jira ? 'jira' : hasManualInput ? 'manual' : await selectIntakeSource();
+  const manual = sourceMode === 'manual'
+    ? (storyFile || title || description || acceptanceCriteria
+        ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
+        : await promptManualStory(id))
+    : null;
+  const source = sourceMode === 'jira' ? await getIssue(id) : manual.source;
+  const supportingDocuments = [
+    ...(manual?.documents ?? []),
+    ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
+    ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
+  ];
   const workType = await selectWorkType(config);
   const selectedPersona = await selectPersona(root, config, actionActor(root), id);
-
-  const source = optionBoolean(options, 'jira')
-    ? await getIssue(id)
-    : {
-        type: 'manual',
-        id,
-        key: null,
-        url: null,
-        title: optionString(options, 'title', id),
-        description: optionString(options, 'description', ''),
-        acceptanceCriteria: ''
-      };
 
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const base = optionString(options, 'base', config.defaultBaseBranch);
@@ -176,7 +190,18 @@ async function startCommand(positionals, options) {
     resolved: resolveWorkType(config, workType)
   });
   await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
+  for (const document of supportingDocuments) {
+    const records = await addDocuments(root, config, workflow, {
+      files: document.type === 'file' ? [document.path] : [],
+      url: document.type === 'url' ? document.url : null,
+      label: document.label,
+      kind: document.kind
+    });
+    await commitAndPublish(root, config, workflow, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+  }
   summary(workflow);
+  if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
+  console.log('\nTemplate help: /sflow-help');
   console.log('\nNext in Copilot: /sflow-phase');
 }
 
@@ -233,6 +258,15 @@ async function progressCommand(positionals, options) {
     { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
     { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }
   ])}`);
+}
+
+async function guideCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const guide = workflowGuide(workflow);
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
+  else process.stdout.write(guideText(guide));
 }
 
 async function documentsCommand(positionals, options) {
@@ -476,6 +510,7 @@ export async function main(argv) {
     case 'resume': return resumeCommand(positionals, options);
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
+    case 'guide': return guideCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);

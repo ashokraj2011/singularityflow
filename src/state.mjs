@@ -32,6 +32,18 @@ export function pendingPublicationPath(root, config, id) { return path.join(work
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
+function markdownValue(value) {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) return value.map((item) => `- ${typeof item === 'string' ? item : JSON.stringify(item)}`).join('\n');
+  if (typeof value === 'object') return Object.entries(value).map(([key, item]) => `- ${key}: ${typeof item === 'string' ? item : JSON.stringify(item)}`).join('\n');
+  return String(value);
+}
+
+function sourceSection(label, value, fallback = null) {
+  const text = markdownValue(value);
+  return text || fallback ? `\n## ${label}\n\n${text || fallback}\n` : '';
+}
+
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
@@ -41,7 +53,20 @@ function sourceMarkdown(source) {
     source.assignee ? `- Assignee: ${source.assignee}` : null
   ].filter(Boolean).join('\n');
   const subtasks = source.subtasks?.length ? source.subtasks.map((item) => `- ${item.key}${item.status ? ` [${item.status}]` : ''}${item.title ? ` — ${item.title}` : ''}`).join('\n') : '_None._';
-  return `# ${source.key ?? source.id} — ${source.title}\n\n${details}\n\n## Description\n\n${source.description || '_No description provided._'}\n\n## Acceptance criteria\n\n${source.acceptanceCriteria || '_Not provided._'}\n\n## Subtasks\n\n${subtasks}\n`;
+  return `# ${source.key ?? source.id} — ${source.title}\n\n${details}\n`
+    + sourceSection('User or audience', source.user ?? source.audience)
+    + sourceSection('Description', source.description ?? source.problem, '_No description provided._')
+    + sourceSection('Desired outcome', source.desiredOutcome)
+    + sourceSection('Scope', source.scope)
+    + sourceSection('Out of scope', source.outOfScope)
+    + sourceSection('Stakeholders', source.stakeholders)
+    + sourceSection('Priority and urgency', source.urgency ?? source.priority)
+    + sourceSection('Constraints', source.constraints)
+    + sourceSection('Dependencies', source.dependencies)
+    + sourceSection('Acceptance criteria', source.acceptanceCriteria, '_Not provided._')
+    + sourceSection('Risks', source.risks)
+    + sourceSection('Notes', source.notes)
+    + `\n## Subtasks\n\n${subtasks}\n`;
 }
 
 function phaseState(definition, index) {
@@ -173,8 +198,8 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
   await writeJson(sourcePath(root, config, id), source);
-  if (source.type === 'jira') await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n${source.type === 'jira' ? '- [USER-STORY.md](./USER-STORY.md) — Jira snapshot\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   await saveWorkflow(root, config, workflow);
   await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);

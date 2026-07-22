@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 20
       - name: Install pinned workflow CLI
-        run: npm install --global singularity-flow@0.6.2
+        run: npm install --global singularity-flow@0.7.0
       - name: Apply authenticated decision
         env:
           SINGULARITY_FLOW_GITHUB_ACTOR: ${{ github.actor }}

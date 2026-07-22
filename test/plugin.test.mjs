@@ -48,6 +48,12 @@ test('approval skill is explicitly user-invoked', async () => {
   assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
 });
 
+test('help skill is read-only and delegates to the workflow guide', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-help', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow guide <arguments>/);
+  assert.match(content, /Do not generate, submit, approve, reject, upload, commit, or push anything/);
+});
+
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {
   const calls = [];
   const execute = (command, args, options) => {

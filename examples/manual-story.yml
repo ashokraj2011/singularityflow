@@ -1,0 +1,33 @@
+title: Add invoice export
+user: Finance operations analyst
+problem: Finance teams currently assemble invoice exports manually.
+desiredOutcome: Authorized users can export the filtered invoice set in a reusable format.
+scope:
+  in:
+    - Export invoices matching the active filters
+    - Preserve displayed totals and currency values
+  out:
+    - Scheduled exports
+    - Changes to invoice calculation rules
+stakeholders:
+  - Finance operations
+  - Billing engineering
+urgency: Needed before the next month-end close.
+constraints:
+  - Existing authorization rules must apply to exports.
+dependencies:
+  - Invoice search API
+acceptanceCriteria:
+  - An authorized user can export the currently filtered invoices.
+  - The export contains invoice ID, customer, status, currency, and total.
+  - Unauthorized users cannot start or download an export.
+risks:
+  - Large result sets may require asynchronous generation.
+notes: Confirm the required output format during requirements.
+documents:
+  - path: ./invoice-export-brief.pdf
+    label: Product brief
+    kind: requirements
+  - url: https://www.figma.com/design/example
+    label: Invoice export design
+    kind: figma

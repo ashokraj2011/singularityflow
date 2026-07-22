@@ -1,7 +1,7 @@
 {
   "name": "singularity-flow",
   "description": "Singularity Flow provides collision-safe sflow-* skills for a Git-native SDLC lifecycle with deterministic branch, artifact, phase, approval, and optional Jira read operations.",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "author": {
     "name": "Singularity Flow"
   },

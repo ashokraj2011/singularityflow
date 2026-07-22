@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.6 verification
+# Singularity Flow Lite 0.7 verification
 
 Use this checklist before packaging or rolling the workflow into a repository.
 
@@ -15,8 +15,8 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.6.2
-sflow --version             → 0.6.2
+singularity-flow --version  → 0.7.0
+sflow --version             → 0.7.0
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
@@ -32,12 +32,25 @@ The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schem
 
 ## Interactive selection checks
 
-- `start` always asks for work type and persona.
+- With no source flags, `start` first asks for Jira story or manual description/documents.
+- Manual interactive intake collects story details and zero or more local paths or HTTPS URLs before template selection.
+- After source intake, `start` always asks for workflow template and persona.
 - `resume` always asks for persona.
 - No public `--type` or `--persona` option bypasses the picker.
 - Non-interactive start/resume fails instead of choosing a default.
 - Any configured persona may be selected in any phase.
 - Persona selection alone changes only `.git/singularity-flow/session.json` and creates no commit.
+
+## Jira and manual intake checks
+
+- Jira commands fail clearly when `JIRA_BASE_URL`, `JIRA_EMAIL`, or `JIRA_API_TOKEN` is missing and never request or persist an Atlassian password.
+- `jira fields` discovers site-specific acceptance-criteria, story-point, sprint, and additional custom-field IDs.
+- `start <ID> --jira` writes normalized `source.json` and a readable `USER-STORY.md` without downloading Jira attachments.
+- `start <ID> --story-file <YAML|JSON|Markdown>` preserves supplied story details without contacting Jira.
+- Structured manual stories capture user, problem, outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, and notes.
+- Story-file document paths resolve relative to the story file; files and HTTPS references receive stable `DOC-nnn` records and atomic pushed commits.
+- Repeatable `--document` and `--document-url` inputs are imported in addition to documents declared in the story file.
+- `guide` and `/sflow-help` are read-only, show the selected template and all phase contracts, and recommend the correct next action for generation, submission, approval/rejection, or completion.
 
 ## GitHub Copilot plugin checks
 
@@ -49,8 +62,8 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 18 skills and every skill name begins with `sflow-`.
-- `/sflow-start`, `/sflow-phase`, and `/sflow-progress` are available in Copilot.
+- The plugin exposes exactly 19 skills and every skill name begins with `sflow-`.
+- `/sflow-start`, `/sflow-help`, `/sflow-phase`, and `/sflow-progress` are available in Copilot.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 

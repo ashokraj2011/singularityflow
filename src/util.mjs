@@ -63,6 +63,14 @@ export function optionString(options, key, fallback = undefined) {
   return String(Array.isArray(value) ? value.at(-1) : value);
 }
 
+export function optionStrings(options, key) {
+  const value = options[key];
+  if (value === undefined || value === false) return [];
+  const values = Array.isArray(value) ? value : [value];
+  if (values.some((item) => item === true)) throw new SingularityFlowError(`Option --${key} requires a value.`);
+  return values.map(String);
+}
+
 export function optionBoolean(options, key, fallback = false) {
   const value = options[key];
   if (value === undefined) return fallback;

@@ -17,7 +17,9 @@ async function choose(label, entries) {
   }
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_SELECTION) {
-      const selected = JSON.parse(process.env.SINGULARITY_FLOW_TEST_SELECTION)[label === 'work type' ? 'workType' : 'persona'];
+      const selection = JSON.parse(process.env.SINGULARITY_FLOW_TEST_SELECTION);
+      const selected = selection[label === 'workflow template' ? 'workType' : label === 'intake source' ? 'source' : 'persona']
+        ?? (label === 'intake source' ? 'manual' : undefined);
       if (entries.some(([id]) => id === selected)) return selected;
     }
     throw new SingularityFlowError(`Selecting a ${label} requires an interactive terminal.`);
@@ -34,7 +36,14 @@ async function choose(label, entries) {
 }
 
 export async function selectWorkType(definition) {
-  return choose('work type', Object.entries(definition.workTypes));
+  return choose('workflow template', Object.entries(definition.workTypes));
+}
+
+export async function selectIntakeSource() {
+  return choose('intake source', [
+    ['jira', { label: 'Jira story', description: 'Retrieve the work item and configured fields from Jira.' }],
+    ['manual', { label: 'Manual description and documents', description: 'Enter the request and attach local files or URLs.' }]
+  ]);
 }
 
 export async function selectPersona(root, definition, actor, workId = null) {

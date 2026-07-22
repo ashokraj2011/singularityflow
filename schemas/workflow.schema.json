@@ -21,7 +21,14 @@
       "additionalProperties": true
     },
     "status": { "enum": ["in_progress", "complete"] },
-    "resolution": { "type": "object" },
+    "resolution": {
+      "type": "object",
+      "properties": {
+        "inputsMode": { "enum": ["off", "record", "enforce"] },
+        "phases": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
     "usage": { "type": "object" },
     "documents": {
       "type": "object",
@@ -45,6 +52,7 @@
           "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved"] },
           "requiredArtifact": { "type": ["object", "null"] },
           "qualityCommands": { "type": "array", "items": { "type": "string" } },
+          "inputs": { "type": "array", "items": { "type": "object" } },
           "artifacts": { "type": "array", "items": { "type": "object" } },
           "checks": { "type": "array", "items": { "type": "object" } }
         },

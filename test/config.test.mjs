@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
 
 test('starter YAML resolves distinct feature and bugfix templates and personas', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -14,6 +14,26 @@ test('starter YAML resolves distinct feature and bugfix templates and personas',
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
+  assert.equal(definition.inputsMode, 'record');
+  assert.deepEqual(feature.phases.find((item) => item.id === 'design').inputs, [{ phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }]);
+  assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
+});
+
+test('phase inputs normalize shorthand and reject invalid declarations', async () => {
+  assert.deepEqual(normalizePhaseInputs(['requirements', { phase: 'design', optional: true, maxBytes: 128 }]), [
+    { phase: 'requirements', optional: false, maxBytes: null },
+    { phase: 'design', optional: true, maxBytes: 128 }
+  ]);
+  assert.throws(() => normalizePhaseInputs(['requirements', 'requirements']), /more than once/);
+  assert.throws(() => normalizePhaseInputs([{ phase: 'requirements', maxBytes: 0 }]), /positive integer/);
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-input-order-')); await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.workTypes.feature.phaseOverrides.design.inputs = ['verification'];
+  assert.throws(() => validateDefinition(definition), /must precede the consumer/);
+  definition.workTypes.feature.phaseOverrides.design.inputs = ['reproduction'];
+  assert.throws(() => validateDefinition(definition), /inactive phase/);
+  definition.inputsMode = 'sometimes';
+  assert.throws(() => validateDefinition(definition), /inputsMode must be off, record, or enforce/);
 });
 
 test('work-type phase overrides merge world model, quality, comparison, and approval policy', async () => {

@@ -25,6 +25,7 @@ import {
   loadWorkflow,
   pendingPublicationPath,
   preparePhase,
+  preparePhaseInputs,
   publishGeneration,
   registerArtifact,
   rejectPhase,
@@ -74,6 +75,7 @@ Usage:
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
+  singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
@@ -363,6 +365,35 @@ async function prepareCommand(positionals) {
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
+  await saveWorkflow(root, config, workflow);
+}
+
+async function inputsCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config);
+  const dryRun = optionBoolean(options, 'dry-run');
+  const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
+  if (!dryRun) await saveWorkflow(root, config, workflow);
+  console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
+  if (!result.records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
+  else console.log(table(result.records.map((entry) => ({
+    phase: entry.phase,
+    status: entry.status,
+    optional: entry.optional ? 'yes' : 'no',
+    sha256: entry.sha256?.slice(0, 12) ?? '',
+    bytes: entry.status === 'captured' ? `${entry.injectedBytes}/${entry.bytes}${entry.truncated ? ' truncated' : ''}` : '',
+    path: entry.path ?? ''
+  })), [
+    { key: 'phase', label: 'INPUT' },
+    { key: 'status', label: 'STATUS' },
+    { key: 'optional', label: 'OPTIONAL' },
+    { key: 'sha256', label: 'SHA256' },
+    { key: 'bytes', label: 'BYTES' },
+    { key: 'path', label: 'PATH' }
+  ]));
+  result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
 }
 
 async function phaseCommand(positionals, options) {
@@ -574,6 +605,7 @@ export async function main(argv) {
     case 'guide': return guideCommand(positionals, options);
     case 'nextsteps':
     case 'next-steps': return nextStepsCommand(positionals, options);
+    case 'inputs': return inputsCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);

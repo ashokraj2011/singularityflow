@@ -11,6 +11,9 @@ import {
   WORKFLOW_PATH, loadDefinition, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
+import {
+  applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
+} from './inputs.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -83,6 +86,7 @@ function phaseState(definition, index) {
     worldModel: structuredClone(definition.worldModel ?? {}),
     writeScope: definition.writeScope ?? 'artifact-only',
     comparison: structuredClone(definition.comparison ?? {}),
+    inputs: structuredClone(definition.inputs ?? []),
     approvalPolicy: structuredClone(definition.approval ?? { personas: [], minimum: 0, rejectTo: [definition.id] }),
     qualityCommands: [...(definition.qualityCommands ?? [])],
     startedAt: index === 0 ? nowIso() : null,
@@ -118,6 +122,7 @@ function managedMetadata(workflow, phase) {
     configSha256: workflow.resolution.configSha256,
     sourceSha256: workflow.resolution.sourceSha256 ?? null,
     template: workflow.resolution.templates[phase.id],
+    inputs: phase.inputContext ?? null,
     usage: phase.usage,
     approvals: phase.approvals,
     selfApproval: phase.approvals.some((approval) => approval.selfApproval && !approval.invalidatedAt),
@@ -207,13 +212,15 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
 }
 
 function upgradeWorkflow(workflow) {
-  if (workflow.schemaVersion === 2) return workflow;
-  workflow.schemaVersion = 2;
-  workflow.workItem.workType ??= 'legacy';
+  if (workflow.schemaVersion !== 2) {
+    workflow.schemaVersion = 2;
+    workflow.workItem.workType ??= 'legacy';
+  }
   workflow.resolution ??= { configSha256: null, templates: {}, phases: [] };
   workflow.resolution.workType ??= workflow.workItem.workType;
   workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
   workflow.resolution.documents ??= {};
+  workflow.resolution.inputsMode ??= 'off';
   workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
   workflow.documents ??= { count: 0, updatedAt: null };
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
@@ -223,6 +230,7 @@ function upgradeWorkflow(workflow) {
     phase.suggestedPersonas ??= phase.owner ? [phase.owner] : [];
     phase.approvalPolicy ??= { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [id] };
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
+    phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
     phase.generation ??= phase.artifacts?.length ? 1 : 0;
     phase.usage ??= [];
     phase.approvals ??= phase.approvedBy ? [{ actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
@@ -256,15 +264,39 @@ function assertCurrent(workflow, requested) {
 function requiredRepoPath(config, workflow, phase) { return `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}`; }
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
+  const result = await preparePhaseInputs(root, config, workflow, requested);
+  return result.path;
+}
+
+export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
   const phase = assertCurrent(workflow, requested);
-  const target = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
-  if (!(await exists(target))) {
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Phase ${phase.id} is ${phase.status}; it cannot be prepared.`);
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const target = path.join(itemDirectory, phase.requiredArtifact.path);
+  const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
+  if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
+  const rendered = renderInputsBlock(inputs);
+  if (!dryRun) {
     let text;
-    if (config._legacy) text = `# ${workflow.workItem.id} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`;
-    else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), { id: workflow.workItem.id, title: workflow.workItem.title, workType: workflow.workItem.workType });
-    await writeText(target, `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`);
+    if (await exists(target)) text = await readFile(target, 'utf8');
+    else if (config._legacy) text = `# ${workflow.workItem.id} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`;
+    else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), {
+      id: workflow.workItem.id,
+      title: workflow.workItem.title,
+      workType: workflow.workItem.workType,
+      inputs: rendered.text
+    });
+    text = applyInputsBlock(text, rendered.text, inputs.mode);
+    if (!(await exists(target))) text = `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`;
+    await writeText(target, text);
+    if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
+      const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
+      phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256, renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
+      await updateArtifactMetadata(root, config, workflow, phase);
+    }
   }
-  return posix(path.relative(root, target));
+  return { phase, path: posix(path.relative(root, target)), ...inputs, renderedSha256: rendered.sha256 };
 }
 
 const SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.hpp', '.html', '.java', '.js', '.jsx', '.kt', '.kts', '.mjs', '.php', '.py', '.rb', '.rs', '.scala', '.scss', '.sql', '.swift', '.ts', '.tsx', '.vue']);
@@ -368,6 +400,7 @@ export async function sourceTreeHash(root) {
 export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage } = {}) {
   if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before continuing.');
   const phase = assertCurrent(workflow, phaseId); canModify(phase); const session = await loadSession(root);
+  await preparePhaseInputs(root, config, workflow, phase.id);
   const changed = changedFiles(root);
   const protectedChange = (config.governance?.protectedPaths ?? []).find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
   if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);

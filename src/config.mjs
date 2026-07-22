@@ -8,6 +8,7 @@ import { validateInjectionDefinition } from './inject.mjs';
 
 export const WORKFLOW_PATH = '.singularity/workflow.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 
 function assertId(value, label) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
@@ -15,6 +16,30 @@ function assertId(value, label) {
 
 function assertRelative(value, label) {
   if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`);
+}
+
+export function configuredInputsMode(definition) {
+  const mode = definition.inputsMode ?? 'off';
+  if (!INPUT_MODES.has(mode)) throw new SingularityFlowError(`inputsMode must be off, record, or enforce; got '${mode}'.`);
+  return mode;
+}
+
+export function normalizePhaseInputs(value, label = 'Phase inputs') {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new SingularityFlowError(`${label} must be an array.`);
+  const seen = new Set();
+  return value.map((entry, index) => {
+    const source = typeof entry === 'string' ? { phase: entry } : entry;
+    const entryLabel = `${label}[${index}]`;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${entryLabel} must be a phase ID or object.`);
+    for (const key of Object.keys(source)) if (!['phase', 'optional', 'maxBytes'].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
+    assertId(source.phase, `${entryLabel}.phase`);
+    if (source.optional != null && typeof source.optional !== 'boolean') throw new SingularityFlowError(`${entryLabel}.optional must be boolean.`);
+    if (source.maxBytes != null && (!Number.isInteger(source.maxBytes) || source.maxBytes < 1)) throw new SingularityFlowError(`${entryLabel}.maxBytes must be a positive integer.`);
+    if (seen.has(source.phase)) throw new SingularityFlowError(`${label} references '${source.phase}' more than once.`);
+    seen.add(source.phase);
+    return { phase: source.phase, optional: source.optional ?? false, maxBytes: source.maxBytes ?? null };
+  });
 }
 
 export function validateDefinition(definition) {
@@ -25,6 +50,7 @@ export function validateDefinition(definition) {
   assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
+  configuredInputsMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
   validateInjectionDefinition(definition);
@@ -65,6 +91,17 @@ export function validateDefinition(definition) {
       if (!definition.personas[persona]) throw new SingularityFlowError(`Phase '${id}' approval references unknown persona '${persona}'.`);
       if (!(definition.personas[persona].mayApprove ?? []).includes(id)) throw new SingularityFlowError(`Persona '${persona}' must list '${id}' in mayApprove.`);
     }
+    normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
+  }
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
+    const resolved = resolveWorkType(definition, workTypeId);
+    for (const consumer of resolved.phases) {
+      for (const input of consumer.inputs) {
+        const producer = resolved.phases.find((phase) => phase.id === input.phase);
+        if (!producer) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input references inactive phase '${input.phase}'.`);
+        if (producer.order >= consumer.order) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input '${input.phase}' must precede the consumer.`);
+      }
+    }
   }
   return definition;
 }
@@ -90,6 +127,7 @@ function legacyDefinition(config, worldModel = {}) {
   }
   return {
     version: 1,
+    inputsMode: 'off',
     defaultBaseBranch: config.defaultBaseBranch ?? 'main',
     workItemRoot: config.workItemRoot ?? '.singularity/work-items',
     idPattern: config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
@@ -148,7 +186,7 @@ export async function initializeDefinition(root) {
 export function resolveWorkType(definition, workTypeId) {
   const workType = definition.workTypes[workTypeId];
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
-  const phases = workType.phases.map((id, order) => {
+  let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(definition.phases[id]);
     const override = structuredClone(workType.phaseOverrides?.[id] ?? {});
     const merged = {
@@ -160,11 +198,17 @@ export function resolveWorkType(definition, workTypeId) {
       comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
     };
     const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
-    return { id, order, ...merged, template };
+    const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
+    return { id, order, ...merged, inputs, template };
   });
+  const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
+  phases = phases.map((phase) => ({
+    ...phase,
+    inputs: phase.inputs.map((input) => ({ ...input, path: phaseById[input.phase]?.artifact?.path ?? null }))
+  }));
   const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
-  return { id: workTypeId, label: workType.label, documents, phases };
+  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), documents, phases };
 }
 
 export async function snapshotResolution(root, definition, resolved) {
@@ -175,7 +219,7 @@ export async function snapshotResolution(root, definition, resolved) {
     if (!existsSync(file)) throw new SingularityFlowError(`Template missing for phase '${phase.id}': ${path.relative(root, file)}`);
     templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file)).sha256 };
   }
-  return { configSha256: definitionSnapshot.sha256, templates };
+  return { configSha256: definitionSnapshot.sha256, inputsMode: resolved.inputsMode ?? configuredInputsMode(definition), templates };
 }
 
 export async function migrateLegacyConfig(root) {
@@ -238,7 +282,8 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     '{{work.title}}': variables.title,
     '{{work.type}}': variables.workType,
     '{{phase.id}}': resolvedPhase.id,
-    '{{phase.label}}': resolvedPhase.label
+    '{{phase.label}}': resolvedPhase.label,
+    '{{inputs}}': variables.inputs ?? ''
   };
   for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
   return text;

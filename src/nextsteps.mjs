@@ -43,6 +43,10 @@ export function workflowNextSteps(workflow, { publicationPending = false } = {})
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const actions = [...immediate];
+  const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
+  if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
+    actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
+  }
   if (needsGeneration) actions.push(action('then', '/sflow-submit', `singularity-flow submit --phase ${phase.id}`, `After publishing ${phase.id}, run its checks and submit it for approval.`));
   actions.push(
     action('then', '/sflow-approve', `singularity-flow approve ${workId} --fetch`, `After submission, approve ${phase.id} using an approval-capable persona.`),

@@ -71,6 +71,12 @@ test('nextsteps skill delegates to the read-only deterministic action planner', 
   assert.match(content, /Keep this operation read-only/);
 });
 
+test('inputs skill previews and renders approved phase dataflow', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-inputs', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow inputs <phase> --dry-run/);
+  assert.match(content, /managed input block/);
+});
+
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {
   const calls = [];
   const execute = (command, args, options) => {

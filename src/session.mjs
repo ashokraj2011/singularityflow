@@ -53,7 +53,17 @@ export async function selectPersona(root, definition, actor, workId = null) {
 
 export async function setPersonaSession(root, definition, actor, persona, workId = null) {
   if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown persona '${persona}'.`);
-  const record = { persona, actor, workId, selectedAt: nowIso() };
+  const existing = await loadSession(root, { required: false });
+  const record = { ...(existing?.agent ? { agent: existing.agent, agentSource: existing.agentSource, agentSelectedAt: existing.agentSelectedAt } : {}), persona, actor, workId, selectedAt: nowIso() };
+  await mkdir(path.dirname(sessionPath(root)), { recursive: true });
+  await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);
+  return record;
+}
+
+export async function setAgentSession(root, agent, actor = null) {
+  const existing = await loadSession(root, { required: false });
+  const record = { ...(existing ?? {}), agent: agent.id, agentSource: agent.source, agentSelectedAt: nowIso() };
+  if (actor && !record.actor) record.actor = actor;
   await mkdir(path.dirname(sessionPath(root)), { recursive: true });
   await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);
   return record;

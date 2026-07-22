@@ -6,6 +6,7 @@
   "required": ["version", "git", "templatesRoot", "personaPromptsRoot", "personas", "workTypes", "phases"],
   "properties": {
     "version": { "const": 1 },
+    "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
     "defaultBaseBranch": { "type": "string", "minLength": 1 },
     "workItemRoot": { "type": "string", "minLength": 1 },
     "idPattern": { "type": "string", "minLength": 1 },
@@ -80,13 +81,26 @@
           "phaseOverrides": {
             "type": "object",
             "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields.",
-            "additionalProperties": { "type": "object" }
+            "additionalProperties": {
+              "type": "object",
+              "properties": { "inputs": { "$ref": "#/$defs/phaseInputs" } }
+            }
           }
         },
         "additionalProperties": true
       }
     },
-    "phases": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "object", "properties": { "writeScope": { "enum": ["artifact-only", "source-and-artifact"] } } } },
+    "phases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
+          "inputs": { "$ref": "#/$defs/phaseInputs" }
+        }
+      }
+    },
     "governance": { "type": "object" },
     "worldModel": {
       "type": "object",
@@ -132,5 +146,26 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "phaseInputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          {
+            "type": "object",
+            "required": ["phase"],
+            "properties": {
+              "phase": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "optional": { "type": "boolean" },
+              "maxBytes": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  }
 }

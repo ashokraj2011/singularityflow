@@ -14,5 +14,6 @@
     "approval",
     "jira"
   ],
-  "skills": "skills/"
+  "skills": "skills/",
+  "agents": "agents/"
 }

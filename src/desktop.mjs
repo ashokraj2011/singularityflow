@@ -8,6 +8,7 @@ import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
 import { loadWorkflow } from './state.mjs';
 import { exists, posix, readJson, repoRelative, run, SingularityFlowError, writeText } from './util.mjs';
+import { AGENT_LOCK_PATH, agentStatus, discoverAgents } from './agents.mjs';
 
 async function textFiles(root, relativeRoot) {
   const absoluteRoot = path.join(root, relativeRoot);
@@ -67,6 +68,8 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     progress = progressSnapshot(workflow);
     documents = await documentCatalog(root, definition, workflow);
   }
+  const agents = await discoverAgents(root);
+  const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
   return {
     schemaVersion: 1,
     repository: { root, branch: currentBranch, changes: changedFiles(root) },
@@ -75,6 +78,9 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),
+    agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
+    agentStatus: await agentStatus(root),
+    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') : '# No remote agents are trusted yet.\n' },
     workItems: items,
     selectedWorkId: selectedId,
     workflow,
@@ -87,13 +93,15 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
 function allowedConfigurationPath(definition, relative) {
   return relative === WORKFLOW_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
-    || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`);
+    || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`)
+    || relative.startsWith('.github/agents/')
+    || relative.startsWith('.claude/agents/');
 }
 
 export async function saveDesktopFile(root, requestedPath, content) {
   const definition = await loadDefinition(root);
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative)) throw new SingularityFlowError(`Desktop editing is restricted to ${WORKFLOW_PATH}, ${definition.templatesRoot}, and ${definition.personaPromptsRoot}.`);
+  if (!allowedConfigurationPath(definition, relative)) throw new SingularityFlowError(`Desktop editing is restricted to ${WORKFLOW_PATH}, templates, persona prompts, and repository agent Markdown. Agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try { validateDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
@@ -104,6 +112,7 @@ export async function saveDesktopFile(root, requestedPath, content) {
   await writeText(absolute, content);
   try {
     await loadDefinition(root);
+    await discoverAgents(root);
   } catch (error) {
     if (existed) await writeText(absolute, previous);
     else await unlink(absolute);
@@ -114,11 +123,13 @@ export async function saveDesktopFile(root, requestedPath, content) {
 
 export async function validateDesktopConfiguration(root) {
   const definition = await loadDefinition(root);
+  const agents = await discoverAgents(root);
   return {
     valid: true,
     workTypes: Object.keys(definition.workTypes).length,
     personas: Object.keys(definition.personas).length,
-    phases: Object.keys(definition.phases).length
+    phases: Object.keys(definition.phases).length,
+    agents: agents.length
   };
 }
 
@@ -126,7 +137,7 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   const definition = await loadDefinition(root);
   const changed = changedFiles(root);
   const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file));
-  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, template, or persona changes are ready to publish.');
+  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, template, persona, or agent changes are ready to publish.');
   const unrelated = changed.filter((file) => !configurationChanges.includes(file));
   if (unrelated.length) throw new SingularityFlowError(`Publish is blocked by unrelated working-tree changes: ${unrelated.join(', ')}`);
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);

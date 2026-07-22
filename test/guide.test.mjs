@@ -39,3 +39,13 @@ test('workflow guide recommends the valid next skill for each lifecycle state', 
   guide = workflowGuide(workflow('complete', 1));
   assert.equal(guide.nextActions[0].skill, '/sflow-progress');
 });
+
+test('workflow guide requires regeneration after rejection to an earlier generated phase', () => {
+  const rejected = workflow('in_progress', 2);
+  rejected.phases.intake.rejectedAt = '2026-01-02T00:00:00.000Z';
+  rejected.history.push({ phase: 'requirements', event: 'phase_rejected', at: rejected.phases.intake.rejectedAt });
+  assert.equal(workflowGuide(rejected).nextActions[0].skill, '/sflow-phase');
+  assert.match(workflowGuide(rejected).nextActions[0].reason, /Regenerate/);
+  rejected.history.push({ phase: 'intake', event: 'phase_generated', at: '2026-01-03T00:00:00.000Z' });
+  assert.equal(workflowGuide(rejected).nextActions[0].skill, '/sflow-submit');
+});

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow remote agent lock",
+  "type": "object",
+  "required": ["version", "agents"],
+  "properties": {
+    "version": { "const": 1 },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "sourceSha256", "lockedAt", "dependencies"],
+        "properties": {
+          "source": { "type": "string" },
+          "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "lockedAt": { "type": "string" },
+          "dependencies": { "type": "array", "items": { "type": "object", "required": ["id", "type"] } }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

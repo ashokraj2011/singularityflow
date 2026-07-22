@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir } from './state.mjs';
 import { exists, snapshot, run } from './util.mjs';
+import { verifyInputsIntegrity } from './inputs.mjs';
+import { verifyAgentIntegrity } from './agents.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -74,7 +76,24 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           else passes.push(`prompt context audit: ${phaseId} generation ${generation}`);
         }
       }
+      const agentContextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
+      if (await exists(path.join(root, agentContextRelative))) {
+        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote agent context was not committed with ${phaseId} generation ${generation}`);
+        else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
+      }
+      for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
+        const outputRecord = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
+        if (!(await exists(path.join(root, outputRecord)))) errors.push(`remote output provenance is missing: ${outputRecord}`);
+        else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote output provenance was not committed with ${phaseId} generation ${generation}`);
+      }
     }
+    const inputIntegrity = await verifyInputsIntegrity(root, workflow, phase, {
+      itemDirectory: workDir(root, config, workflow.workItem.id),
+      itemRelative: path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id)
+    });
+    errors.push(...inputIntegrity.errors); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
+    const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    errors.push(...agentIntegrity.errors); warnings.push(...agentIntegrity.warnings); passes.push(...agentIntegrity.passes);
     if (phase.status !== 'approved') continue;
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));

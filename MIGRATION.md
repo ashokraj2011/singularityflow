@@ -58,6 +58,22 @@ Version 0.6.1 replaces generic Copilot skill names with collision-safe commands 
 
 Version 0.7 adds a Jira-or-manual intake picker before workflow-template selection, structured manual stories through `--story-file`, repeatable document and URL imports, a committed `USER-STORY.md` for both sources, and the read-only `/sflow-help` template guide.
 
+Version 0.8.0 keeps existing repositories and in-flight work items compatible:
+
+- Missing `inputsMode` resolves to `off`, so phase-input declarations have no runtime effect until enabled. New `singularity-flow init` repositories start in `record` mode.
+- Existing schema-v2 work items without input fields resolve to `off`; their immutable configuration snapshot is not rewritten.
+- Agents without the three dependency headings remain local-only and perform no network access.
+- No live remote URLs ship with the bundled agent. Remote Markdown is used only after teams add table entries and make an interactive lock decision.
+- Local templates continue to resolve normally. A remote template is selected only through an explicit `agent:<agent>/<resource>` reference in workflow YAML.
+
+After upgrading an existing clone at the same package version, use the forced reinstall path so both the global CLI and Copilot plugin cache are replaced:
+
+```bash
+./install.sh
+```
+
+To adopt input recording deliberately, add `inputsMode: record`, declare profile-valid upstream inputs, validate, and commit the configuration on the base branch. Existing work items retain their previously pinned `off` mode; new work items receive the new snapshot.
+
 GitHub decisions now require an explicit persona:
 
 ```text

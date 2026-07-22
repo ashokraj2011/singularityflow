@@ -1,6 +1,7 @@
 import readline from 'node:readline/promises';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
+import { existsSync } from 'node:fs';
 import {
   SingularityFlowError,
   optionBoolean,
@@ -22,7 +23,9 @@ import {
   currentPhase,
   loadConfig,
   loadWorkflow,
+  pendingPublicationPath,
   preparePhase,
+  preparePhaseInputs,
   publishGeneration,
   registerArtifact,
   rejectPhase,
@@ -31,20 +34,24 @@ import {
   submitPhase,
   syncPublication,
   validateId,
-  validateWorkflow
+  validateWorkflow,
+  workflowPath,
+  workDir
 } from './state.mjs';
 import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
-import { selectIntakeSource, selectPersona, selectWorkType } from './session.mjs';
+import { loadSession, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
 import { progressBar, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, workflowGuide } from './guide.mjs';
+import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
+import { agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
   desktopSnapshot,
   publishDesktopConfiguration,
@@ -69,6 +76,13 @@ Usage:
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow guide [WORK-ID] [--json]
+  singularity-flow nextsteps [WORK-ID] [--json]
+  singularity-flow inputs [PHASE] [--dry-run]
+  singularity-flow agents list
+  singularity-flow agents lock <AGENT> [--update]
+  singularity-flow agents sync <AGENT>
+  singularity-flow agents status [AGENT]
+  singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
@@ -145,6 +159,16 @@ async function confirm(phase) {
   } finally {
     io.close();
   }
+}
+
+async function confirmExact(prompt, expected) {
+  if (!input.isTTY || !output.isTTY) {
+    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
+    throw new SingularityFlowError(`Trusting remote agent '${expected}' requires an interactive terminal and exact agent-name confirmation.`);
+  }
+  const io = readline.createInterface({ input, output });
+  try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
+  finally { io.close(); }
 }
 
 async function initCommand() {
@@ -301,6 +325,39 @@ async function guideCommand(positionals, options) {
   else process.stdout.write(guideText(guide));
 }
 
+async function nextStepsCommand(positionals, options) {
+  const root = repoRoot();
+  const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, '.singularity/config.json'));
+  let snapshot;
+  if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
+  else {
+    const config = await loadConfig(root);
+    const requestedWorkId = positionals[1] ?? null;
+    const id = requestedWorkId ?? branch(root);
+    if (existsSync(workflowPath(root, config, id))) {
+      const workflow = await loadWorkflow(root, config, id);
+      const prerequisites = [];
+      const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
+      if (active?.status === 'in_progress' && session?.agent) {
+        const status = (await agentStatus(root, session.agent))[0];
+        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available agent.` });
+        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
+        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
+      }
+      snapshot = nextStepsSnapshot({
+        branch: branch(root),
+        workflow,
+        publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id)),
+        prerequisites
+      });
+    } else snapshot = nextStepsSnapshot({ branch: branch(root), requestedWorkId });
+  }
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
+  else process.stdout.write(nextStepsText(snapshot));
+}
+
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot(); const config = await loadConfig(root);
   if (subcommand === 'list') {
@@ -336,6 +393,93 @@ async function prepareCommand(positionals) {
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
+  await saveWorkflow(root, config, workflow);
+}
+
+async function inputsCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config);
+  const dryRun = optionBoolean(options, 'dry-run');
+  const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
+  if (!dryRun) await saveWorkflow(root, config, workflow);
+  console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
+  if (!result.records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
+  else console.log(table(result.records.map((entry) => ({
+    phase: entry.phase,
+    status: entry.status,
+    optional: entry.optional ? 'yes' : 'no',
+    sha256: entry.sha256?.slice(0, 12) ?? '',
+    bytes: entry.status === 'captured' ? `${entry.injectedBytes}/${entry.bytes}${entry.truncated ? ' truncated' : ''}` : '',
+    path: entry.path ?? ''
+  })), [
+    { key: 'phase', label: 'INPUT' },
+    { key: 'status', label: 'STATUS' },
+    { key: 'optional', label: 'OPTIONAL' },
+    { key: 'sha256', label: 'SHA256' },
+    { key: 'bytes', label: 'BYTES' },
+    { key: 'path', label: 'PATH' }
+  ]));
+  result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  result.remoteWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
+}
+
+async function agentsCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'agents subcommand');
+  const root = repoRoot();
+  if (subcommand === 'list') {
+    const agents = await discoverAgents(root);
+    if (!agents.length) return console.log('No repository or bundled agents found.');
+    return console.log(table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
+      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
+    ]));
+  }
+  if (subcommand === 'lock') {
+    const agentId = requirePositional(positionals, 2, 'agent');
+    const update = optionBoolean(options, 'update');
+    const preview = await lockAgent(root, agentId, { update });
+    console.log(`Agent: ${agentId}\nSource: ${preview.agent.source}\nAgent SHA-256: ${preview.agent.sha256}`);
+    if (preview.resolution.dependencies.length) console.log(table(preview.resolution.dependencies.map((entry) => { const previous = preview.existing?.dependencies?.find((item) => item.id === entry.id && item.type === entry.type); return { id: entry.id, type: entry.type, previous: previous?.sha256?.slice(0, 12) ?? '', sha256: entry.sha256?.slice(0, 16) ?? entry.status ?? 'dynamic', bytes: entry.size ?? '', url: entry.url ?? entry.urlTemplate }; }), [
+      { key: 'id', label: 'RESOURCE' }, { key: 'type', label: 'TYPE' }, { key: 'previous', label: 'PREVIOUS' }, { key: 'sha256', label: 'NEW SHA256' }, { key: 'bytes', label: 'BYTES' }, { key: 'url', label: 'URL' }
+    ]));
+    if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Agent lock cancelled.');
+    await lockAgent(root, agentId, { update, accepted: true, resolution: preview.resolution });
+    return console.log(`Locked '${agentId}' in .singularity/agents.lock.yml.`);
+  }
+  if (subcommand === 'sync') {
+    const agentId = requirePositional(positionals, 2, 'agent');
+    const result = await syncAgent(root, agentId);
+    await setAgentSession(root, result.agent, actionActor(root));
+    result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    console.log(`Active agent: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
+    return;
+  }
+  if (subcommand === 'status') {
+    const requested = positionals[2] ?? null;
+    const rows = await agentStatus(root, requested);
+    if (requested && !rows.length) throw new SingularityFlowError(`Unknown agent '${requested}'.`);
+    if (!rows.length) return console.log('No repository or bundled agents found.');
+    console.log(table(rows.map((entry) => ({ id: entry.id, scope: entry.scope, status: entry.status, source: entry.source, resources: entry.dependencies.length })), [
+      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
+    ]));
+    for (const entry of rows) for (const dependency of entry.dependencies) console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}\t${dependency.sha256?.slice(0, 12) ?? ''}`);
+    return;
+  }
+  if (subcommand === 'refresh-output') {
+    const resourceId = requirePositional(positionals, 2, 'resource ID');
+    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
+    if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
+    const session = await loadSession(root);
+    const itemDirectory = workDir(root, config, workflow.workItem.id);
+    const refreshed = await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId });
+    phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !refreshed.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...refreshed.outputs];
+    await preparePhaseInputs(root, config, workflow, phase.id);
+    await saveWorkflow(root, config, workflow);
+    refreshed.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
+  }
+  throw new SingularityFlowError(`Unknown agents subcommand: ${subcommand}`);
 }
 
 async function phaseCommand(positionals, options) {
@@ -545,6 +689,10 @@ export async function main(argv) {
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
+    case 'nextsteps':
+    case 'next-steps': return nextStepsCommand(positionals, options);
+    case 'inputs': return inputsCommand(positionals, options);
+    case 'agents': return agentsCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);

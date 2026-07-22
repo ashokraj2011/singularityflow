@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.7 verification
+# Singularity Flow Lite 0.8.0 verification
 
 Use this checklist before packaging or rolling the workflow into a repository.
 
@@ -8,7 +8,9 @@ Use this checklist before packaging or rolling the workflow into a repository.
 npm install
 npm test
 npm run check
+npm run desktop:build
 npm pack --dry-run
+bash -n install.sh
 git diff --check
 ```
 
@@ -52,7 +54,7 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Structured manual stories capture user, problem, outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, and notes.
 - Story-file document paths resolve relative to the story file; files and HTTPS references receive stable `DOC-nnn` records and atomic pushed commits.
 - Repeatable `--document` and `--document-url` inputs are imported in addition to documents declared in the story file.
-- `guide` and `/sflow-help` are read-only, show the selected template and all phase contracts, and recommend the correct next action for generation, submission, approval/rejection, or completion.
+- `guide`, `/sflow-help`, and `/sflow-nextsteps` are read-only; nextsteps returns ordered immediate, subsequent, and alternative actions for initialization, start/resume, pending publication, generation, submission, approval/rejection, following phases, and completion.
 
 ## Help manual checks
 
@@ -72,8 +74,9 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 20 skills and every skill name begins with `sflow-`.
-- `/sflow-start`, `/sflow-help`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
+- The plugin exposes exactly 22 skills and every skill name begins with `sflow-`.
+- The plugin manifest exposes `agents/`, and `sflow-workflow.agent.md` is discovered with empty, inert remote dependency tables.
+- `/sflow-start`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 
@@ -89,6 +92,29 @@ Run a feature and bugfix through every configured phase. For each generation ver
 - A second clone can fetch, fast-forward, resume, and reconstruct state solely from the branch.
 
 For an unreachable remote, verify the local commit is retained, transitions are blocked, and `singularity-flow sync` publishes the same history after connectivity returns.
+
+## Phase-input checks
+
+- Missing `inputsMode` and explicit `off` validate declarations but do not render blocks, create records, or change legacy behavior.
+- String and object declarations normalize correctly; duplicates, unknown/later phases, inactive work-type references, and invalid byte limits fail.
+- Work-type `phaseOverrides.<phase>.inputs` replaces the phase default.
+- `record` warns for required unavailable/tampered input; `enforce` blocks it. Optional absent input is recorded as omitted, while optional present-but-tampered input follows mode severity.
+- Omitted `maxBytes` injects the complete UTF-8 artifact. Explicit limits truncate safely and report source/injected byte counts.
+- Repeated prepare replaces only the managed marker block and preserves authored content. `--dry-run` writes nothing.
+- Publication recollects inputs and writes the correct final-generation audit. The gate detects missing records, producer hash changes, and rendered-block changes with warning/error severity by mode.
+- Feature, bugfix, and chore profiles carry their complete input chains through verification and conformance.
+
+## Remote agent Markdown checks
+
+- Only exact dependency tables are parsed; ordinary prose links remain inert. Malformed tables, duplicate IDs, HTTP/private literal hosts, credentials, unknown URL tokens, escaping targets, invalid UTF-8, empty content, redirect overflow, and limits above 10 MiB fail.
+- First `agents lock` and every `--update` require exact interactive agent-name confirmation. Non-interactive first trust fails.
+- Lock entries preserve agent source hashes, original/resolved URLs, resource hashes, bytes, and timestamps. Sync never changes the lock and reuses only a hash-valid cache.
+- A changed agent or changed remote resource fails sync until deliberate lock update. No agent dependency headings and local-only templates perform no network access.
+- Remote skills match active phase and persona, enter only that agent's prompt, and create committed per-generation snapshots/audits rather than slash commands.
+- An explicit `agent:<agent>/<template>` reference enforces phase scope and is copied into immutable work-item context before generation.
+- Dynamic outputs encode only allowed variables, remain under `artifacts/<phase>/`, fetch once per prospective generation, reuse snapshots, preserve local edits, and require refresh plus `--replace` before overwrite.
+- Agent sync preserves the persona session. Nextsteps reports stale locks, required sync, enforced input work, and remote-output conflicts.
+- Electron lists repository/bundled agents, edits only repository Markdown, displays lock status read-only, and publishes agent configuration through the validated path.
 
 ## Progress and supporting-document checks
 

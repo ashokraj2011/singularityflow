@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,9 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.workItems.length, 0);
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
+  assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
+  assert.equal(snapshot.agentsLock.path, '.singularity/agents.lock.yml');
+  assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
 
   run(process.execPath, [bin, 'start', 'DESK-1', '--title', 'Desktop workflow'], root);
   snapshot = await desktopSnapshot(root, 'DESK-1');
@@ -66,10 +69,14 @@ test('desktop configuration saves validate atomically and publish scoped changes
   const templatePath = '.singularity/templates/feature/design.md';
   const template = await readFile(path.join(root, templatePath), 'utf8');
   await saveDesktopFile(root, templatePath, `${template}\nDesktop-only design guidance.\n`);
+  await assert.rejects(() => saveDesktopFile(root, '.singularity/agents.lock.yml', 'version: 1\nagents: {}\n'), /read-only/i);
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
+  await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
+  await saveDesktopFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
   assert.equal((await validateDesktopConfiguration(root)).valid, true);
   const published = await publishDesktopConfiguration(root, 'Configure desktop template');
   assert.equal(published.pushed, false);
-  assert.deepEqual(published.files, [templatePath]);
+  assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure desktop template/);
 });
 

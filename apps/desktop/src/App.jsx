@@ -8,6 +8,7 @@ const nav = [
   ['workflow', 'Workflow', '◇'],
   ['personas', 'Personas & approvals', '◎'],
   ['templates', 'Artifact templates', '▤'],
+  ['agents', 'Agents & remote Markdown', '⌬'],
   ['documents', 'Documents', '▣'],
   ['help', 'Help', '?']
 ];
@@ -161,6 +162,15 @@ function Templates({ data, editor, setEditor, chooseTemplate, saveEditor }) {
     </main></div>;
 }
 
+function Agents({ data, editor, setEditor, chooseAgent, saveEditor }) {
+  const [lockView, setLockView] = useState(false);
+  const current = data.agents.find((agent) => agent.path === editor.path) ?? data.agents[0];
+  const status = data.agentStatus.find((entry) => entry.id === current?.id);
+  return <div className="template-layout"><aside className="file-list"><header><span className="eyebrow">Agent registry</span><h2>Agents</h2><p className="muted">Remote links are inert until explicitly locked.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!lockView && current?.path === agent.path ? 'active' : ''} onClick={() => { setLockView(false); chooseAgent(agent); }}><span>AG</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<button className={lockView ? 'active' : ''} onClick={() => setLockView(true)}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only · refresh with CLI</small></div></button></aside>
+    <main className="template-main">{lockView ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned trust state</span><h1>{data.agentsLock.path}</h1></div><Pill>Read only</Pill></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository Markdown' : 'bundled plugin agent'}</small></span><code>singularity-flow agents {status?.locked ? 'sync' : 'lock'} {current.id}</code></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} /></> : <Empty title="No agents found" detail="Add agent Markdown under .github/agents or .claude/agents." />}</main>
+  </div>;
+}
+
 function Documents({ data, action, reload }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
@@ -200,14 +210,16 @@ export default function App() {
   async function publish() { const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
   function workflowPage() { setPage('workflow'); setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }
   function chooseTemplate(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'template' }); }
+  function chooseAgent(agent) { setEditor({ path: agent.path, content: agent.content, original: agent.content, kind: 'agent' }); }
   function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'persona' }); setPage('templates'); }
+  function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (!data) return <div className="welcome"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open a Git repository initialized with Singularity Flow. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<div className="row"><button className="primary large-button" onClick={openRepository}>Open repository</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)}>Open help</button></div>} /></div>;
   return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !data.repository.changes.length}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}{page === 'help' && <Help />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}{page === 'help' && <Help />}</div>
     </main>{toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
   </div>;
 }

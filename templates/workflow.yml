@@ -1,4 +1,5 @@
 version: 1
+inputsMode: record
 defaultBaseBranch: main
 workItemRoot: .singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
@@ -79,6 +80,13 @@ workTypes:
       requirements: feature/requirements.md
       design: feature/design.md
       implementation-spec: feature/implementation-spec.md
+    phaseOverrides:
+      requirements: { inputs: [intake] }
+      design: { inputs: [requirements] }
+      implementation-spec: { inputs: [requirements, design] }
+      implementation: { inputs: [implementation-spec] }
+      verification: { inputs: [implementation-spec, implementation] }
+      conformance: { inputs: [implementation-spec, implementation, verification] }
   bugfix:
     label: Bug fix
     phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
@@ -87,11 +95,22 @@ workTypes:
       reproduction: bugfix/reproduction.md
       fix-design: bugfix/fix-design.md
       fix-spec: bugfix/fix-spec.md
+    phaseOverrides:
+      reproduction: { inputs: [intake] }
+      fix-design: { inputs: [reproduction] }
+      fix-spec: { inputs: [reproduction, fix-design] }
+      implementation: { inputs: [fix-spec] }
+      verification: { inputs: [fix-spec, implementation] }
+      conformance: { inputs: [fix-spec, implementation, verification] }
   chore:
     label: Chore
     phases: [intake, implementation, verification, conformance]
     templateOverrides:
       intake: chore/intake.md
+    phaseOverrides:
+      implementation: { inputs: [intake] }
+      verification: { inputs: [implementation] }
+      conformance: { inputs: [implementation, verification] }
 
 phases:
   intake:
@@ -182,8 +201,12 @@ governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:
     - .singularity/workflow.yml
+    - .singularity/agents.lock.yml
     - .singularity/templates
     - .singularity/personas
+    - .github/agents
+    - .claude/agents
+    - plugin/agents
     - plugin/skills
     - .github/skills
     - .github/workflows/singularity-flow-approve.yml

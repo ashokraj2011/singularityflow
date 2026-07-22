@@ -86,6 +86,29 @@ function tokenStatus(usage, exactRecords) {
   return exactRecords.length === usage.length ? 'exact' : 'partial';
 }
 
+function usageByModel(records) {
+  const aggregates = new Map();
+  for (const record of records) {
+    const provider = record.provider || 'unavailable';
+    const model = record.model || 'unavailable';
+    const key = JSON.stringify([provider, model]);
+    const aggregate = aggregates.get(key) ?? {
+      provider,
+      model,
+      records: 0,
+      exactRecords: 0,
+      unavailableRecords: 0,
+      totalTokens: 0
+    };
+    aggregate.records += 1;
+    aggregate[record.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
+    aggregate.totalTokens += record.totalTokens ?? 0;
+    aggregates.set(key, aggregate);
+  }
+  return [...aggregates.values()].sort((left, right) =>
+    `${left.provider}/${left.model}`.localeCompare(`${right.provider}/${right.model}`));
+}
+
 export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) {
   const reportTime = timestamp(now);
   const history = [...(workflow.history ?? [])].sort(compareEvents);
@@ -129,6 +152,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       tokens,
       tokenStatus: tokenStatus(usage, exactRecords),
       models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
+      modelUsage: usageByModel(usage),
       personas: [...new Set(usage.map((record) => record.persona).filter(Boolean))],
       cost: costs.length ? costs.reduce((sum, item) => sum + item.value, 0) : null,
       costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === exactRecords.length && exactRecords.length === usage.length ? 'exact' : 'partial',
@@ -145,6 +169,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const elapsedMs = startedAt != null && effectiveEnd != null && effectiveEnd >= startedAt ? effectiveEnd - startedAt : null;
   const waitingMs = phases.reduce((sum, phase) => sum + (phase.waitingMs ?? 0), 0);
   const costValues = phases.map((phase) => phase.cost).filter((value) => value != null);
+  const modelUsage = usageByModel(workflow.phaseOrder.flatMap((id) => workflow.phases[id].usage ?? []));
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
     .sort((left, right) => right.waitingMs - left.waitingMs)[0] ?? null;
@@ -172,7 +197,8 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       exactRecords: workflow.usage?.exactRecords ?? null,
       unavailableRecords: workflow.usage?.unavailableRecords ?? null,
       byPersona: workflow.usage?.byPersona ?? {},
-      byPhase: workflow.usage?.byPhase ?? {}
+      byPhase: workflow.usage?.byPhase ?? {},
+      byModel: modelUsage
     },
     cost: costValues.length ? costValues.reduce((sum, value) => sum + value, 0) : null,
     costStatus: phases.some((phase) => phase.costStatus === 'partial') || (costValues.length && phases.some((phase) => phase.costStatus === 'unavailable')) ? 'partial' : costValues.length ? 'exact' : 'unavailable',
@@ -195,6 +221,11 @@ function tokenCell(phase) {
   return `${phase.tokens.toLocaleString('en-US')}${phase.tokenStatus === 'partial' ? '*' : ''}`;
 }
 
+function modelCell(phase) {
+  if (!phase.modelUsage.length) return '—';
+  return phase.modelUsage.map(({ provider, model }) => `${provider}/${model}`).join(', ');
+}
+
 function costCell(phase) {
   if (phase.cost == null) return '—';
   return `${money(phase.cost)}${phase.costStatus === 'partial' ? '*' : ''}`;
@@ -209,10 +240,10 @@ export function renderMarkdown(report) {
     `${report.reworkCycles} rework cycle${report.reworkCycles === 1 ? '' : 's'}`,
     `${report.tokens.total.toLocaleString('en-US')} exact tokens${report.cost != null ? ` (~${money(report.cost)}${report.costStatus === 'partial' ? ', partial pricing' : ''})` : ''}`
   ].join(' · '), '');
-  lines.push('| Phase | Status | Active | Waiting | Gens | Tokens | Cost |');
-  lines.push('|-------|--------|--------|---------|------|--------|------|');
+  lines.push('| Phase | Status | Active | Waiting | Gens | Provider / model | Tokens | Cost |');
+  lines.push('|-------|--------|--------|---------|------|------------------|--------|------|');
   for (const phase of report.phases) {
-    lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.status} | ${humanizeDuration(phase.activeMs)} | ${humanizeDuration(phase.waitingMs)} | ${phase.generations} | ${tokenCell(phase)} | ${costCell(phase)} |`);
+    lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.status} | ${humanizeDuration(phase.activeMs)} | ${humanizeDuration(phase.waitingMs)} | ${phase.generations} | ${modelCell(phase)} | ${tokenCell(phase)} | ${costCell(phase)} |`);
   }
   lines.push('');
   if (report.bottleneck) {
@@ -229,6 +260,11 @@ export function renderMarkdown(report) {
   if (personas.length) {
     lines.push('## Token usage by persona', '', '| Persona | Records | Exact | Tokens |', '|---------|---------|-------|--------|');
     for (const [persona, aggregate] of personas) lines.push(`| ${persona} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregate.totalTokens.toLocaleString('en-US')} |`);
+    lines.push('');
+  }
+  if (report.tokens.byModel.length) {
+    lines.push('## Token usage by model', '', '| Provider | Model | Records | Exact | Unavailable | Tokens |', '|----------|-------|---------|-------|-------------|--------|');
+    for (const aggregate of report.tokens.byModel) lines.push(`| ${aggregate.provider} | ${aggregate.model} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregate.unavailableRecords} | ${aggregate.totalTokens.toLocaleString('en-US')} |`);
     lines.push('');
   }
   if (report.phases.some((phase) => phase.tokenStatus === 'partial')) lines.push('_* Token totals are partial because one or more provider records were unavailable._', '');
@@ -261,7 +297,9 @@ export function renderHtml(report) {
   const item = report.workItem;
   const elapsedChart = barChart(report.phases, { valueKey: 'elapsedMs', labelKey: 'label', formatValue: humanizeDuration, color: '#4f6df5' });
   const tokenChart = barChart(report.phases, { valueKey: 'tokens', labelKey: 'label', formatValue: (value) => value.toLocaleString('en-US'), color: '#2fa66a' });
-  const rows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${escapeHtml(phase.status)}</td><td>${humanizeDuration(phase.activeMs)}</td><td>${humanizeDuration(phase.waitingMs)}</td><td>${phase.generations}</td><td>${escapeHtml(tokenCell(phase))}</td><td>${escapeHtml(costCell(phase))}</td></tr>`).join('');
+  const rows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${escapeHtml(phase.status)}</td><td>${humanizeDuration(phase.activeMs)}</td><td>${humanizeDuration(phase.waitingMs)}</td><td>${phase.generations}</td><td>${escapeHtml(modelCell(phase))}</td><td>${escapeHtml(tokenCell(phase))}</td><td>${escapeHtml(costCell(phase))}</td></tr>`).join('');
+  const modelRows = report.tokens.byModel.map((aggregate) => `<tr><td>${escapeHtml(aggregate.provider)}</td><td>${escapeHtml(aggregate.model)}</td><td>${aggregate.records}</td><td>${aggregate.exactRecords}</td><td>${aggregate.unavailableRecords}</td><td>${aggregate.totalTokens.toLocaleString('en-US')}</td></tr>`).join('');
+  const modelTable = modelRows ? `<h2>Token usage by model</h2>\n<table><thead><tr><th>Provider</th><th>Model</th><th>Records</th><th>Exact</th><th>Unavailable</th><th>Tokens</th></tr></thead><tbody>${modelRows}</tbody></table>` : '';
   const bottleneck = report.bottleneck ? `<p><strong>Bottleneck:</strong> approval latency on <code>${escapeHtml(report.bottleneck.phase)}</code> (${humanizeDuration(report.bottleneck.waitingMs)}${report.bottleneck.share != null ? `, ${report.bottleneck.share}% of elapsed` : ''}).</p>` : '';
   const governance = report.selfApprovals ? `<p><strong>Governance note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '';
   return `<!doctype html>
@@ -285,11 +323,12 @@ footer { color: #777; font-size: 12px; margin-top: 2rem; }
 ${bottleneck}
 ${governance}
 <h2>Phases</h2>
-<table><thead><tr><th>Phase</th><th>Status</th><th>Active</th><th>Waiting</th><th>Gens</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>
+<table><thead><tr><th>Phase</th><th>Status</th><th>Active</th><th>Waiting</th><th>Gens</th><th>Provider / model</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Elapsed time by phase</h2>
 ${elapsedChart}
 <h2>Tokens by phase</h2>
 ${tokenChart}
+${modelTable}
 <footer>Durations are wall-clock elapsed time, including nights and weekends. Generated ${escapeHtml(report.generatedAt)} by singularity-flow.</footer>
 </body>
 </html>

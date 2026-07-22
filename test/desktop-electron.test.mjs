@@ -57,8 +57,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /World-model views/);
   assert.match(source, /referenced view cannot be removed/i);
   assert.match(styles, /Avenir Next/);
+  assert.match(styles, /Iowan Old Style/);
   assert.match(styles, /color-scheme: light/);
   assert.match(styles, /--navy-950/);
+  assert.match(styles, /background: #347c32/);
+  assert.match(styles, /border-radius: 999px/);
   assert.match(source, />Download config</);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /downloadFile/);

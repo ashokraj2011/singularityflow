@@ -10,6 +10,24 @@ git:
 templatesRoot: .singularity/templates
 personaPromptsRoot: .singularity/personas
 
+worldModel:
+  outputDir: .singularity/world-model
+  promptSource: .singularity/prompts/worldmodel-builder.md
+  staleness: warn
+  injection:
+    placeholder: "{{WORLD_MODEL}}"
+    mode: append
+    maxBytes: 32768
+    rules: []
+    # Rules add focused context to the active persona prompt. Phase-required
+    # views below are always loaded separately and cannot be removed by rules.
+    # - when: { persona: architect, phase: design }
+    #   include: [domains/payments.md]
+    # - when: { changedPaths: "src/api/**" }
+    #   include: [domains/api.md]
+    # - when: { labels: security }
+    #   include: [views/security.md]
+
 tokens:
   mode: exact-or-unavailable
   # Optional rates per million tokens, keyed by the exact provider model name.

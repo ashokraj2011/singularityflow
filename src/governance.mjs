@@ -59,6 +59,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         if (published.status !== 0) errors.push(`${phaseId} generation ${generation} is not present on the remote branch`);
       }
+      const contextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`);
+      const contextFile = path.join(root, contextRelative);
+      if (await exists(contextFile)) {
+        const context = JSON.parse(await readFile(contextFile, 'utf8'));
+        if (context.workId !== workflow.workItem.id || context.phase !== phase.id || context.generation !== generation) errors.push(`prompt context identity mismatch: ${contextRelative}`);
+        if (!context.persona || typeof context.matchedRules !== 'number' || !Array.isArray(context.files)) errors.push(`prompt context metadata is incomplete: ${contextRelative}`);
+        for (const file of context.files ?? []) {
+          if (!file.path?.startsWith('.singularity/world-model/') || !/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) errors.push(`prompt context file reference is invalid: ${contextRelative}`);
+          if (!Number.isInteger(file.injectedBytes) || file.injectedBytes < 0 || file.injectedBytes > file.bytes) errors.push(`prompt context byte accounting is invalid: ${contextRelative}`);
+        }
+        if (found) {
+          if (run('git', ['cat-file', '-e', `${found[0]}:${contextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`prompt context was not committed with ${phaseId} generation ${generation}`);
+          else passes.push(`prompt context audit: ${phaseId} generation ${generation}`);
+        }
+      }
     }
     if (phase.status !== 'approved') continue;
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');

@@ -53,7 +53,7 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 
-const VERSION = '0.7.2';
+const VERSION = '0.8.0';
 
 const HELP = `Singularity Flow ${VERSION}
 
@@ -85,7 +85,8 @@ Usage:
   singularity-flow gate [--terminal]
   singularity-flow wm init
   singularity-flow wm build [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep]
-  singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence]
+  singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence] [--no-persona]
+  singularity-flow wm inject [--persona ID] [--phase ID] [--dry-run] [--out FILE]
   singularity-flow wm check
   singularity-flow jira list [--project KEY] [--type Story] [--limit 25] [--jql JQL] [--json]
   singularity-flow jira pull <WORK-ID> [--json]

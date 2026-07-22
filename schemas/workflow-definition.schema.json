@@ -88,7 +88,49 @@
     },
     "phases": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "object", "properties": { "writeScope": { "enum": ["artifact-only", "source-and-artifact"] } } } },
     "governance": { "type": "object" },
-    "worldModel": { "type": "object" }
+    "worldModel": {
+      "type": "object",
+      "properties": {
+        "outputDir": { "type": "string", "minLength": 1 },
+        "promptSource": { "type": "string", "minLength": 1 },
+        "runner": { "type": "string", "minLength": 1 },
+        "staleness": { "enum": ["warn", "fail", "ignore"] },
+        "injection": {
+          "type": "object",
+          "properties": {
+            "placeholder": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["replace", "append", "off"] },
+            "maxBytes": { "type": "integer", "minimum": 1 },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["include"],
+                "properties": {
+                  "when": {
+                    "type": "object",
+                    "properties": {
+                      "persona": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
+                      "phase": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
+                      "workType": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
+                      "changedPaths": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
+                      "labels": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] }
+                    },
+                    "additionalProperties": false
+                  },
+                  "include": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+                  "evidence": { "type": "boolean" },
+                  "depth": { "enum": ["quick", "standard", "deep"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

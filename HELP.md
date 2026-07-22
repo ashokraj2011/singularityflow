@@ -15,7 +15,7 @@ The short command reference is available with `singularity-flow --help`.
 Install the package, initialize a repository, and commit its editable process definition:
 
 ```bash
-npm install --global ./singularity-flow-0.7.2.tgz
+npm install --global ./singularity-flow-0.8.0.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -320,8 +320,42 @@ The world model grounds phase generation in repository facts:
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm context design --concat
+singularity-flow wm inject --phase design --dry-run
 singularity-flow wm check
 ```
+
+`wm inject` renders the active persona prompt with focused world-model content
+selected by declarative `worldModel.injection.rules`. Rules may match the active
+persona, phase, immutable work type, changed-path globs, and Jira/manual source
+labels. Matching model files replace `{{WORLD_MODEL}}` in the persona prompt or
+are appended, according to `mode`, under a configurable source-byte budget.
+
+```yaml
+worldModel:
+  injection:
+    placeholder: "{{WORLD_MODEL}}"
+    mode: append             # replace | append | off
+    maxBytes: 32768
+    rules:
+      - when: { persona: architect, phase: design }
+        include: [domains/payments.md]
+      - when: { changedPaths: "src/api/**" }
+        include: [domains/api.md]
+      - when: { labels: security }
+        include: [views/security.md]
+```
+
+Preview rule matching without writing an audit record:
+
+```bash
+singularity-flow wm inject --phase design --dry-run
+```
+
+Every non-dry-run injection attempt writes
+`.singularity/work-items/<WORK-ID>/context/<phase>-gen<n>.json` with the persona,
+model commit, selected files, SHA-256 hashes, byte counts, and truncation flags.
+The next `phase publish` commit carries that record with the generation, making
+the exact prompt grounding transferable to another terminal.
 
 Context composition is additive:
 
@@ -509,7 +543,7 @@ singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build|context|check
+singularity-flow wm build|context|inject|check
 singularity-flow jira list|pull|fields
 singularity-flow plugin install|uninstall|list|path
 singularity-flow desktop snapshot|validate|save|publish|session

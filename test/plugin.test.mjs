@@ -22,6 +22,7 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);
   assert.match(content, /singularity-flow agents sync sflow-workflow/);
+  assert.match(content, /Out of sequence[\s\S]*stop immediately/);
   assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
   assert.doesNotMatch(content, /\|\s*[^-|\s][^|]*\|\s*https:\/\//);
 });

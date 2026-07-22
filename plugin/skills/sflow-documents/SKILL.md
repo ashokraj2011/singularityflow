@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Manage supporting documents
 
+If an upload exits with `Out of sequence`, stop immediately and relay the required next action. Listing and viewing remain read-only; never bypass the upload guard by copying files into managed work-item folders.
+
 Use the deterministic document catalog; never copy inputs into arbitrary repository locations.
 
 - List all uploaded inputs, generated phase documents, status, and source context with `singularity-flow documents list [WORK-ID]`.

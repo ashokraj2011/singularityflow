@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Inspect phase inputs
 
+If a recording command exits with `Out of sequence`, stop immediately and relay the required next action. Use `--dry-run` only for read-only inspection; never edit managed input records to bypass sequencing.
+
 1. Run `singularity-flow status --json` and use only the active phase.
 2. Preview resolution with `singularity-flow inputs <phase> --dry-run`.
 3. Explain every missing, unapproved, truncated, or hash-mismatched producer artifact before continuing.

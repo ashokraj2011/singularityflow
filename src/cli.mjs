@@ -17,6 +17,7 @@ import {
 import { assertClean, branch, checkout, identity, repoRoot } from './git.mjs';
 import {
   approvePhase,
+  assertNoPendingPublication,
   commitAndPublish,
   CONFIG_PATH,
   createWorkflow,
@@ -38,6 +39,7 @@ import {
   workflowPath,
   workDir
 } from './state.mjs';
+import { assertPhaseSequence } from './sequence.mjs';
 import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
@@ -469,7 +471,8 @@ async function agentsCommand(positionals, options) {
   if (subcommand === 'refresh-output') {
     const resourceId = requirePositional(positionals, 2, 'resource ID');
     const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
-    if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
+    await assertNoPendingPublication(root, config, workflow, 'refresh remote generated output');
+    assertPhaseSequence(workflow, 'refresh remote generated output');
     const session = await loadSession(root);
     const itemDirectory = workDir(root, config, workflow.workItem.id);
     const refreshed = await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId });
@@ -497,6 +500,7 @@ async function artifactCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config);
+  await assertNoPendingPublication(root, config, workflow, 'change artifact registration');
   const phaseId = optionString(options, 'phase');
   if (subcommand === 'add') {
     const paths = positionals.slice(2);
@@ -530,21 +534,24 @@ async function submitCommand(options) {
   console.log('Next in Copilot: /sflow-approve');
 }
 
-async function decisionWorkflow(positionals, options) {
+async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const requestedId = positionals[1];
   let config = await loadConfig(root);
   const workId = requestedId ?? branch(root);
   if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   config = await loadConfig(root); const workflow = await loadWorkflow(root, config, workId);
+  await assertNoPendingPublication(root, config, workflow, action);
+  const phase = assertPhaseSequence(workflow, action, {
+    requestedPhase: optionString(options, 'phase'),
+    allowedStatuses: ['awaiting_approval']
+  });
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
-  return { root, config, workflow, session };
+  return { root, config, workflow, phase, session };
 }
 
 async function approveCommand(positionals, options) {
-  const { root, config, workflow, session } = await decisionWorkflow(positionals, options);
-  const phase = currentPhase(workflow);
-  if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
+  const { root, config, workflow, phase, session } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id} as ${session.persona}`);
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
@@ -564,7 +571,7 @@ async function approveCommand(positionals, options) {
 }
 
 async function rejectCommand(positionals, options) {
-  const { root, config, workflow, session } = await decisionWorkflow(positionals, options); const current = currentPhase(workflow);
+  const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Rejecting ${current.id} to ${target} as ${session.persona}; approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });

@@ -79,7 +79,7 @@ test('wm inject renders matched persona context and records the generation audit
   await mkdir(workDir, { recursive: true });
   await writeFile(path.join(workDir, 'workflow.json'), JSON.stringify({
     workItem: { id: 'WM-1', workType: 'feature' }, currentPhase: 'design',
-    phases: { design: { id: 'design', generation: 0 } }
+    phases: { design: { id: 'design', status: 'in_progress', generation: 0 } }
   }));
   await writeFile(path.join(workDir, 'source.json'), JSON.stringify({ type: 'manual', labels: [] }));
 

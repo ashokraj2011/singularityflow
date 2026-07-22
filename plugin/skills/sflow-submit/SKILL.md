@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Submit the current phase
 
+If any command exits with `Out of sequence`, stop immediately, relay the actionable error, and use only `singularity-flow nextsteps` to confirm the valid next action. Never bypass sequence enforcement by editing managed state.
+
 1. Run `singularity-flow status --json` and confirm the current phase has a published generation and no pending synchronization.
 2. Do not use `--skip-checks` unless explicitly authorized.
 3. Run `singularity-flow submit <arguments>`.

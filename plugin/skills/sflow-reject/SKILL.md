@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Reject the submitted phase
 
+If any command exits with `Out of sequence`, stop immediately, relay the actionable error, and use only `singularity-flow nextsteps` to confirm the valid next action. Never bypass sequence enforcement by editing managed state.
+
 1. Require a specific rejection reason and target phase; do not invent either.
 2. Run `singularity-flow reject <WORK-ID> --fetch --to <phase> --reason "..."` in an interactive terminal.
 3. Let the reviewer choose a persona and show which approvals and later phases will be invalidated.

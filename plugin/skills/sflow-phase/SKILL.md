@@ -6,6 +6,8 @@ disable-model-invocation: true
 ---
 # Generate the active phase
 
+If any command exits with `Out of sequence`, stop immediately, relay the actionable error, and use only `singularity-flow nextsteps` to confirm the valid next action. Never bypass sequence enforcement by editing managed state.
+
 1. Run `singularity-flow status --json`; use only the active phase and current persona session.
 2. Run `singularity-flow wm context <phase> --task "<work objective>" --concat --no-persona`, adding `--evidence` when configured. Rebuild the model if missing or stale. This loads mandatory phase/persona views without duplicating the persona prompt.
 3. Run `singularity-flow wm inject --phase <phase>` and use the returned persona prompt. It applies matching `worldModel.injection.rules` and records the exact injected file hashes for the next generation.

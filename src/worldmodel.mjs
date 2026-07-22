@@ -9,6 +9,8 @@ import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { injectPersonaPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
+import { assertNoPendingPublication } from './state.mjs';
+import { assertPhaseSequence } from './sequence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = '.singularity/worldmodel.json';
@@ -169,8 +171,10 @@ async function inject(root, options) {
   const statePath = path.join(root, workItemRoot, activeId, 'workflow.json');
   const workflow = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : null;
   const requestedPhase = optionString(options, 'phase');
-  if (workflow && requestedPhase && requestedPhase !== workflow.currentPhase && !optionBoolean(options, 'dry-run')) {
-    throw new SingularityFlowError(`Current phase is ${workflow.currentPhase}, not ${requestedPhase}. Use --dry-run to preview another phase.`);
+  const dryRun = optionBoolean(options, 'dry-run');
+  if (workflow && !dryRun) {
+    await assertNoPendingPublication(root, definition, workflow, 'compose and record a generation prompt');
+    assertPhaseSequence(workflow, 'compose and record a generation prompt', { requestedPhase });
   }
   const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
@@ -185,7 +189,7 @@ async function inject(root, options) {
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
   const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, persona } : null, {
-    record: !optionBoolean(options, 'dry-run'),
+    record: !dryRun,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id)
   }) : { text: '', skills: [], warnings: [] };
   const composedText = remote.text ? `${text.trimEnd()}\n\n${remote.text}\n` : text;
@@ -196,7 +200,7 @@ async function inject(root, options) {
     if ((definition.worldModel?.staleness ?? 'warn') === 'warn') console.error(`Warning: ${message}`);
   }
 
-  if (optionBoolean(options, 'dry-run')) {
+  if (dryRun) {
     console.log(`rules matched: ${injection.matchedRules}  files: ${injection.sections.length}  remote skills: ${remote.skills.length}  mode: ${injection.mode}  depth: ${injection.depth}  evidence: ${injection.evidence ? 'yes' : 'no'}  applied: ${injection.applied ? 'yes' : 'no'}`);
     injection.sections.forEach((section) => console.log(`  ${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session.agent}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));

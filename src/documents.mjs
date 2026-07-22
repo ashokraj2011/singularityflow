@@ -1,8 +1,9 @@
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { currentPhase, pendingPublicationPath, saveWorkflow, workDir, workDirRelative } from './state.mjs';
+import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
+import { assertPhaseSequence, sequenceError } from './sequence.mjs';
 
 const TEXT_EXTENSIONS = new Set(['.adoc', '.csv', '.html', '.ini', '.json', '.md', '.mdx', '.rst', '.sql', '.svg', '.toml', '.tsv', '.txt', '.xml', '.yaml', '.yml']);
 const MIME_TYPES = {
@@ -26,10 +27,13 @@ function documentPolicy(workflow, config) {
 }
 
 export async function addDocuments(root, config, workflow, { files = [], url = null, label = null, kind = null } = {}) {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) throw new SingularityFlowError('Publication is pending; run singularity-flow sync before uploading documents.');
-  const phase = currentPhase(workflow); if (!phase) throw new SingularityFlowError(`${workflow.workItem.id} is complete.`);
+  await assertNoPendingPublication(root, config, workflow, 'upload documents');
+  const phase = assertPhaseSequence(workflow, 'upload documents');
   const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
-  if (!allowed.includes(phase.id)) throw new SingularityFlowError(`Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is ${phase.id}.`);
+  if (!allowed.includes(phase.id)) throw sequenceError(workflow, 'upload documents', {
+    requestedPhase: phase.id,
+    reason: `Documents may be uploaded only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
+  });
   if (!files.length && !url) throw new SingularityFlowError('Provide one or more files or --url <https-url>.');
   if (label && files.length + (url ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
   if (url && !/^https?:\/\/\S+$/i.test(url)) throw new SingularityFlowError('Document URL must use http:// or https://.');

@@ -263,6 +263,27 @@ Publishing validates write scope, artifact requirements, hashes, traceability, a
 
 Artifact-only phases cannot modify application source. Implementation and verification may modify source only when their configured write scope permits it.
 
+## Sequence enforcement
+
+Lifecycle mutations are accepted only in the configured order:
+
+```text
+prepare/edit → publish generation → submit → approve or reject
+```
+
+If a command is attempted too early, against a different phase, after submission, after completion, or while publication is pending, Singularity Flow exits with code `2` before changing workflow files or creating a commit. The error always reports the attempted action, current phase/status/generation, reason, required next action, exact CLI command, and `nextsteps` command.
+
+```text
+Singularity Flow error: Out of sequence: cannot approve for phase 'design'.
+Current state: phase 'design' is in_progress at generation 1.
+Required next action: Submit published phase 'design' for approval.
+Run next: singularity-flow submit --phase design
+See all valid actions: singularity-flow nextsteps WORK-123
+No workflow files, commits, or remote state were changed.
+```
+
+Submitted phases are read-only until approved or rejected. Rejection requires a new generation before resubmission. A failed push blocks all further mutations until `singularity-flow sync` succeeds. Copilot must stop when it receives `Out of sequence`; it must not bypass the guard by editing `workflow.json`, status files, metadata, or approvals.
+
 ## Approval, rejection, and self-approval
 
 Approve from a terminal:

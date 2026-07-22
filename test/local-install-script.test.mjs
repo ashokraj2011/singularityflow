@@ -23,6 +23,10 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm uninstall --global singularity-flow/);
   assert.match(script, /npm install --global "\$PROJECT_DIR\/\$TARBALL" --registry="\$REGISTRY"/);
   assert.match(script, /singularity-flow plugin install/);
+  assert.match(script, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
+  assert.match(script, /singularity-flow-otel\.jsonl/);
+  assert.match(script, /--no-copilot-telemetry/);
+  assert.match(script, /Prompt\/response content remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('npm pack --json') < script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"'));
@@ -65,10 +69,19 @@ if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-f
   const result = spawnSync('bash', [path.join(fixture, 'install.sh'), '--registry', registry], {
     cwd: fixture,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, INSTALL_TEST_LOG: log }
+    env: { ...process.env, HOME: fixture, SHELL: '/bin/zsh', PATH: `${bin}:${process.env.PATH}`, INSTALL_TEST_LOG: log }
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, new RegExp(`Installed Singularity Flow ${version.replaceAll('.', '\\.')}`));
+  assert.match(result.stdout, /Copilot OpenTelemetry: enabled/);
+  assert.match(result.stdout, /Prompt and response content capture remains disabled/);
+  const telemetryEnv = await readFile(path.join(fixture, '.singularity-flow', 'copilot-otel.sh'), 'utf8');
+  const shellProfile = await readFile(path.join(fixture, '.zshrc'), 'utf8');
+  assert.match(telemetryEnv, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
+  assert.match(telemetryEnv, /\.copilot\/singularity-flow-otel\.jsonl/);
+  assert.doesNotMatch(telemetryEnv, /CAPTURE_MESSAGE_CONTENT=true/);
+  assert.match(shellProfile, /\.singularity-flow\/copilot-otel\.sh/);
+  assert.ok((await stat(path.join(fixture, '.copilot', 'singularity-flow-otel.jsonl'))).isFile());
   const commands = await readFile(log, 'utf8');
   for (const expected of [
     'git pull --ff-only',

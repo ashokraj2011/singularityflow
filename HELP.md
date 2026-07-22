@@ -721,7 +721,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, and installs the current marketplace plugin.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables metadata-only Copilot OpenTelemetry in the active shell profile. Telemetry is written to `~/.copilot/singularity-flow-otel.jsonl`; prompt and response content capture remains disabled.
 
 For a company Artifactory or registry:
 
@@ -730,6 +730,16 @@ For a company Artifactory or registry:
 ```
 
 Or set `SINGULARITY_FLOW_NPM_REGISTRY`. Authentication remains in `.npmrc`; do not embed credentials or tokens in the URL. The installer rejects dirty checkouts and never resets, rebases, or force-pushes.
+
+If Copilot telemetry is managed centrally, opt out of the local file exporter:
+
+```bash
+./install.sh --no-copilot-telemetry
+# or
+SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh
+```
+
+The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPORTER_PATH`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or explicit `COPILOT_OTEL_ENABLED` setting. Open a new terminal after installation.
 
 ## Troubleshooting
 

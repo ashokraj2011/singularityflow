@@ -78,3 +78,19 @@ test('progress and document commands upload, list, and view files, images, and F
   const late = flow(root, ['documents', 'upload', notes], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);
 });
+
+test('source-code documents are rendered as reviewable text instead of binary metadata', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-documents-'));
+  const java = path.join(uploads, 'RuleEngineService.java');
+  await writeFile(java, 'public final class RuleEngineService {\n  boolean evaluate() { return true; }\n}\n');
+  flow(root, ['start', 'SOURCE-DOCS-1', '--title', 'Source document review']);
+  flow(root, ['documents', 'upload', java, '--kind', 'source']);
+
+  const review = JSON.parse(flow(root, ['documents', 'view', 'DOC-001', '--json']).stdout);
+  assert.equal(review.binary, false);
+  assert.equal(review.record.mimeType, 'text/x-java-source');
+  assert.match(review.content, /public final class RuleEngineService/);
+  const consoleOutput = flow(root, ['documents', 'view', 'DOC-001']).stdout;
+  assert.match(consoleOutput, /RuleEngineService\.java/);
+  assert.match(consoleOutput, /boolean evaluate\(\) \{ return true; \}/);
+});

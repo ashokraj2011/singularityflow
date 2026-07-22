@@ -116,6 +116,21 @@ test('generation skills display published documents instead of reducing them to 
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /published text document in full/i, `${name} must display published document content`);
     assert.match(content, /never replace (?:it|the published document) with a summary/i, `${name} must prohibit summary-only publication output`);
+    assert.match(content, /phase show .*--json/i, `${name} must load a deterministic document payload`);
+    assert.match(content, /visible assistant response/i, `${name} must render outside tool output`);
+    assert.match(content, /Shell\/tool block.*does not (?:count|satisfy)/i, `${name} must reject collapsed Shell output as review`);
+    assert.match(content, /shown above/i, `${name} must explicitly prohibit the misleading shown-above response`);
+  }
+});
+
+test('submission and approval reproduce exact artifacts outside collapsible Shell output', async () => {
+  for (const name of ['sflow-submit', 'sflow-approve']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
+    assert.match(content, /visible assistant response/i, `${name} must put artifacts in the response`);
+    assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);
+    assert.match(content, /Shell\/tool block[\s\S]*does not satisfy artifact review/i, `${name} must not rely on collapsed command output`);
+    assert.match(content, /Never say .*shown above/i, `${name} must prohibit false visibility claims`);
   }
 });
 

@@ -13,5 +13,5 @@ disable-model-invocation: true
 5. Cover components, interfaces, data flow, alternatives, compatibility, security, privacy, observability, migration, rollout, rollback, risks, and an ordered implementation plan.
 6. State assumptions and tradeoffs. Do not implement production code.
 7. Remove every placeholder and run `singularity-flow phase publish design`.
-8. Show every published text document in full with its path and hash; never replace it with a summary. For binary documents, show the path and open instruction.
+8. Run `singularity-flow phase show design --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
 9. Report the publication commit and token status. Do not submit or approve automatically.

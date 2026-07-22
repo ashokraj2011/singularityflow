@@ -1,18 +1,19 @@
 import { execFile } from 'node:child_process';
-import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 import { createCanvas, joinSession } from '@github/copilot-sdk/extension';
 import {
+  createDocumentsCanvasResult,
   DOCUMENTS_CANVAS_ID,
   DOCUMENTS_HELP,
   DOCUMENTS_INSTANCE_ID,
   flowArguments,
   inferWorkId,
-  parseDocumentsArguments,
-  renderDocumentsHtml
+  parseDocumentsArguments
 } from './documents.mjs';
 
 const executeFile = promisify(execFile);
+const MAX_CANVAS_PREVIEW_BYTES = 256 * 1024;
+const MAX_CANVAS_TOTAL_PREVIEW_BYTES = 4 * 1024 * 1024;
 const instances = new Map();
 let currentWorkingDirectory;
 let session;
@@ -54,54 +55,42 @@ async function view(entry, reference) {
   return runFlow(flowArguments({ action: 'view', workId: entry.workId ?? null, reference }, { json: true }), { json: true, cwd: entry.cwd });
 }
 
+function truncatePreview(content, byteLimit) {
+  const data = Buffer.from(content, 'utf8');
+  if (data.length <= byteLimit) return content;
+  return `${data.subarray(0, Math.max(0, byteLimit)).toString('utf8')}\n… canvas preview truncated …\n`;
+}
+
+async function canvasSnapshot(entry) {
+  const state = await catalog(entry);
+  const loaded = new Map();
+  const queue = [...state.documents];
+  const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+    while (queue.length) {
+      const record = queue.shift();
+      try { loaded.set(record.id, await view(entry, record.id)); }
+      catch (error) { loaded.set(record.id, { record, error: error?.message ?? String(error) }); }
+    }
+  });
+  await Promise.all(workers);
+
+  let remaining = MAX_CANVAS_TOTAL_PREVIEW_BYTES;
+  const details = {};
+  for (const record of state.documents) {
+    const result = loaded.get(record.id) ?? { record, error: 'Document preview was unavailable.' };
+    if (typeof result.content === 'string') {
+      const allowance = Math.min(MAX_CANVAS_PREVIEW_BYTES, remaining);
+      result.content = truncatePreview(result.content, allowance);
+      remaining = Math.max(0, remaining - Buffer.byteLength(result.content, 'utf8'));
+    }
+    details[record.id] = result;
+  }
+  return { ...state, details };
+}
+
 function requireInstance(instanceId) {
   const entry = instances.get(instanceId);
   if (!entry) throw new Error(`Documents canvas instance '${instanceId}' is not open.`);
-  return entry;
-}
-
-function writeJson(response, status, value) {
-  const body = JSON.stringify(value);
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
-  response.end(body);
-}
-
-function writeHtml(response) {
-  const body = renderDocumentsHtml();
-  response.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'"
-  });
-  response.end(body);
-}
-
-async function handleRequest(entry, request, response) {
-  try {
-    const url = new URL(request.url || '/', entry.url);
-    if (request.method === 'GET' && url.pathname === '/') return writeHtml(response);
-    if (request.method === 'GET' && url.pathname === '/api/state') return writeJson(response, 200, await catalog(entry));
-    if (request.method === 'GET' && url.pathname === '/api/document') {
-      const reference = url.searchParams.get('reference');
-      if (!reference) return writeJson(response, 400, { error: 'A document reference is required.' });
-      return writeJson(response, 200, await view(entry, reference));
-    }
-    return writeJson(response, 404, { error: 'Not found.' });
-  } catch (error) {
-    return writeJson(response, 500, { error: error?.message ?? String(error) });
-  }
-}
-
-async function startServer(instanceId, input, cwd) {
-  const entry = { instanceId, cwd, workId: input?.workId ?? null, selectedReference: input?.reference ?? null, server: null, url: '' };
-  entry.server = createServer((request, response) => { handleRequest(entry, request, response); });
-  await new Promise((resolve, reject) => {
-    entry.server.once('error', reject);
-    entry.server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = entry.server.address();
-  entry.url = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}/`;
   return entry;
 }
 
@@ -158,21 +147,17 @@ session = await joinSession({
         const cwd = await activeWorkingDirectory();
         let entry = instances.get(ctx.instanceId);
         if (!entry) {
-          entry = await startServer(ctx.instanceId, ctx.input, cwd);
+          entry = { instanceId: ctx.instanceId, cwd, workId: ctx.input?.workId ?? null, selectedReference: ctx.input?.reference ?? null };
           instances.set(ctx.instanceId, entry);
         } else {
           entry.cwd = cwd;
           entry.workId = ctx.input?.workId ?? null;
           entry.selectedReference = ctx.input?.reference ?? null;
         }
-        const state = await catalog(entry);
-        return { title: 'Singularity Flow Documents', status: `${state.documents.length} document${state.documents.length === 1 ? '' : 's'}`, url: entry.url };
+        return createDocumentsCanvasResult(await canvasSnapshot(entry));
       },
       onClose: async (ctx) => {
-        const entry = instances.get(ctx.instanceId);
-        if (!entry) return;
         instances.delete(ctx.instanceId);
-        await new Promise((resolve) => entry.server.close(resolve));
       }
     })
   ]

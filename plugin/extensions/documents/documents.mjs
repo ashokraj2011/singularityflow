@@ -57,7 +57,31 @@ export function inferWorkId(records = []) {
   return null;
 }
 
-export function renderDocumentsHtml() {
+function inlineJson(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+export function createDocumentsCanvasResult(snapshot = {}) {
+  const documents = Array.isArray(snapshot.documents) ? snapshot.documents : [];
+  return {
+    type: 'html',
+    html: renderDocumentsHtml({ ...snapshot, documents }),
+    title: 'Singularity Flow Documents',
+    status: `${documents.length} document${documents.length === 1 ? '' : 's'}`
+  };
+}
+
+export function renderDocumentsHtml(initial = {}) {
+  const bootstrap = inlineJson({
+    documents: Array.isArray(initial.documents) ? initial.documents : [],
+    details: initial.details && typeof initial.details === 'object' ? initial.details : {},
+    selectedReference: initial.selectedReference ?? null,
+    workId: initial.workId ?? null,
+    cwd: initial.cwd ?? null
+  });
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -112,7 +136,7 @@ export function renderDocumentsHtml() {
     <header>
       <div class="brand">SF</div>
       <div><h1>Documents</h1><div id="context" class="subtitle">Singularity Flow work-item artifacts</div></div>
-      <div class="spacer"></div><span id="status" class="status">Loading…</span><button id="refresh" class="button" type="button">Refresh</button>
+      <div class="spacer"></div><span id="status" class="status">Loading…</span><button id="refresh" class="button" type="button">Refresh help</button>
     </header>
     <nav class="tabs" aria-label="Document categories">
       <button class="tab active" data-filter="all" type="button">All</button>
@@ -126,7 +150,8 @@ export function renderDocumentsHtml() {
     </main>
   </div>
   <script>
-    const state = { documents: [], filter: 'all', query: '', selected: null, initial: null };
+    const bootstrap = ${bootstrap};
+    const state = { documents: bootstrap.documents, details: bootstrap.details, filter: 'all', query: '', selected: null, initial: bootstrap.selectedReference };
     const list = document.getElementById('list');
     const detail = document.getElementById('detail');
     const status = document.getElementById('status');
@@ -180,31 +205,27 @@ export function renderDocumentsHtml() {
       else { const content = document.createElement('pre'); content.textContent = result.content == null ? 'This document has no text preview.' : result.content; detail.append(content); }
     }
 
-    async function showDocument(reference) {
+    function showDocument(reference) {
       state.selected = reference; renderList(); setStatus('Loading document…');
       try {
-        const response = await fetch('/api/document?reference=' + encodeURIComponent(reference));
-        const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Unable to load document.');
+        const record = state.documents.find(item => item.id === reference || item.path === reference);
+        if (!record) throw new Error('Document is no longer in this snapshot.');
+        const result = state.details[record.id] || { record, content: null, binary: record.type !== 'url', absolutePath: record.path };
+        if (result.error) throw new Error(result.error);
         renderDetail(result); setStatus('Ready');
       } catch (error) { detail.innerHTML = ''; const box = document.createElement('div'); box.className = 'error'; box.textContent = error.message; detail.append(box); setStatus('Error'); }
     }
 
-    async function load(refresh = false) {
-      setStatus('Loading…');
-      try {
-        const response = await fetch('/api/state' + (refresh ? '?refresh=1' : '')); const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Unable to load document catalog.');
-        state.documents = result.documents || []; state.initial = result.selectedReference || state.initial;
-        context.textContent = [result.workId, result.cwd].filter(Boolean).join(' · ') || 'Singularity Flow work-item artifacts';
-        renderList(); setStatus(state.documents.length + ' document' + (state.documents.length === 1 ? '' : 's'));
-        const preferred = state.initial && state.documents.find(record => record.id === state.initial || record.path === state.initial);
-        if (preferred) { state.initial = null; await showDocument(preferred.id); }
-        else if (!state.selected && state.documents.length) await showDocument(state.documents[0].id);
-      } catch (error) { list.innerHTML = ''; const box = document.createElement('div'); box.className = 'error'; box.textContent = error.message; list.append(box); setStatus('Error'); }
+    function load() {
+      context.textContent = [bootstrap.workId, bootstrap.cwd].filter(Boolean).join(' · ') || 'Singularity Flow work-item artifacts';
+      renderList(); setStatus(state.documents.length + ' document' + (state.documents.length === 1 ? '' : 's'));
+      const preferred = state.initial && state.documents.find(record => record.id === state.initial || record.path === state.initial);
+      if (preferred) { state.initial = null; showDocument(preferred.id); }
+      else if (!state.selected && state.documents.length) showDocument(state.documents[0].id);
     }
 
     document.getElementById('search').addEventListener('input', event => { state.query = event.target.value; renderList(); });
-    document.getElementById('refresh').addEventListener('click', () => load(true));
+    document.getElementById('refresh').addEventListener('click', () => setStatus('Run /documents again to reload from disk'));
     for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => { for (const item of document.querySelectorAll('.tab')) item.classList.toggle('active', item === tab); state.filter = tab.dataset.filter; renderList(); });
     load();
   </script>

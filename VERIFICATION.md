@@ -15,8 +15,8 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.7.1
-sflow --version             → 0.7.1
+singularity-flow --version  → 0.7.2
+sflow --version             → 0.7.2
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.

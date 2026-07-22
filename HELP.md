@@ -15,7 +15,7 @@ The short command reference is available with `singularity-flow --help`.
 Install the package, initialize a repository, and commit its editable process definition:
 
 ```bash
-npm install --global ./singularity-flow-0.7.1.tgz
+npm install --global ./singularity-flow-0.7.2.tgz
 cd your-repository
 singularity-flow init
 git add .singularity

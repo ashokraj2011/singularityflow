@@ -1,6 +1,6 @@
 {
   "name": "singularity-flow-desktop",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "Visual workflow, approval, persona, artifact-template, and evidence studio for Singularity Flow.",
   "author": "Ashok Raj",
@@ -39,6 +39,7 @@
     "extraResources": [
       { "from": "../../bin", "to": "cli/bin" },
       { "from": "../../src", "to": "cli/src" },
+      { "from": "../../HELP.md", "to": "cli/HELP.md" },
       { "from": "../../node_modules/yaml", "to": "cli/node_modules/yaml" },
       { "from": "../../package.json", "to": "cli/package.json" }
     ],

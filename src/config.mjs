@@ -24,6 +24,15 @@ export function validateDefinition(definition) {
   assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
+  if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
+  for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
+    if (!model.trim()) throw new SingularityFlowError('tokens.pricing model names must not be empty.');
+    if (!pricing || typeof pricing !== 'object' || Array.isArray(pricing)) throw new SingularityFlowError(`Token pricing for '${model}' must be an object.`);
+    for (const field of ['input', 'output', 'cachedInput']) {
+      if (pricing[field] != null && (!Number.isFinite(pricing[field]) || pricing[field] < 0)) throw new SingularityFlowError(`tokens.pricing.${model}.${field} must be a non-negative number.`);
+    }
+    if (pricing.input == null && pricing.output == null && pricing.cachedInput == null) throw new SingularityFlowError(`Token pricing for '${model}' must define input, output, or cachedInput.`);
+  }
   for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
   if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
   for (const [id, persona] of Object.entries(definition.personas)) {

@@ -20,7 +20,27 @@
     },
     "templatesRoot": { "type": "string", "minLength": 1 },
     "personaPromptsRoot": { "type": "string", "minLength": 1 },
-    "tokens": { "type": "object" },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "mode": { "const": "exact-or-unavailable" },
+        "pricing": {
+          "type": "object",
+          "description": "Optional per-million-token prices keyed by exact provider model name. No prices are assumed by default.",
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "properties": {
+              "input": { "type": "number", "minimum": 0 },
+              "output": { "type": "number", "minimum": 0 },
+              "cachedInput": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "documents": {
       "type": "object",
       "properties": {

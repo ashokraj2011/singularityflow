@@ -7,6 +7,7 @@ The package contains:
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
 - A secure Electron desktop studio for visual workflow, persona, approval, template, progress, and document management.
 - A skills-only GitHub Copilot plugin.
+- A canonical searchable help manual shared by the CLI, Copilot, and Electron desktop.
 - Editable feature, bugfix, and chore profiles.
 - Editable persona prompts and artifact templates.
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
@@ -21,7 +22,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.7.0.tgz
+npm install --global ./singularity-flow-0.7.1.tgz
 cd your-repository
 singularity-flow init
 git add .singularity
@@ -49,6 +50,56 @@ Initialization installs:
 ```
 
 These files are ordinary reviewed repository files and remain fully editable.
+
+## Built-in help
+
+The canonical product manual is [HELP.md](HELP.md). Load all help or one focused topic from the terminal:
+
+```bash
+singularity-flow help
+singularity-flow help quick-start
+singularity-flow help jira-intake
+singularity-flow help troubleshooting
+singularity-flow help --json
+```
+
+In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help WORK-123` loads the selected work item's immutable workflow guide. Singularity Flow Desktop includes the same manual in a searchable **Help** page, bundled for offline use.
+
+### One-command local update and installation
+
+From a clean clone, update the tracked branch, create the distribution tarball, install it globally, remove any previous Copilot plugin identities, and install one current marketplace plugin:
+
+```bash
+npm run install:local
+```
+
+Before `npm install`, the script asks you to choose:
+
+1. The registry currently returned by `npm config get registry`.
+2. The public npm registry.
+3. A custom company registry or Artifactory URL.
+
+For a non-interactive or repeatable company setup, pass the registry explicitly:
+
+```bash
+npm run install:local -- \
+  --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
+```
+
+The environment variable `SINGULARITY_FLOW_NPM_REGISTRY` provides the same override. Command-line selection takes precedence. Registry authentication remains in the user's or company's `.npmrc`; the script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
+
+This runs `scripts/update-local-install.mjs`, which performs:
+
+```text
+git pull --ff-only
+choose configured, public, or custom npm registry
+npm install --registry=<selected-registry>
+npm pack --json
+npm install --global <generated-tarball> --registry=<selected-registry>
+singularity-flow plugin install
+```
+
+The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Start a new Copilot session after it finishes.
 
 ## Configuration
 
@@ -163,6 +214,20 @@ singularity-flow progress ENG-142 --json
 
 Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows a progress bar, percentage, current phase and position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase.
 
+## Workflow performance reports
+
+Generate a report from the committed work-item history without changing lifecycle state:
+
+```bash
+singularity-flow report ENG-142
+singularity-flow report ENG-142 --format json
+singularity-flow report ENG-142 --format html --out workflow-report.html
+```
+
+From Copilot, use `/sflow-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, exact token usage, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
+
+Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
+
 ## Supporting documents and designs
 
 Supporting inputs are managed under `.singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
@@ -219,6 +284,20 @@ singularity-flow phase publish implementation --usage-json usage.json
 ```
 
 The JSON may contain provider, model, input, output, cached-input, total tokens, start/end timestamps, and collection source. When Copilot does not expose exact values, the record is explicitly marked `unavailable`; the CLI never estimates silently. Status and state aggregate usage by phase, persona, work type, and work item.
+
+Workflow reports can calculate cost only from exact usage and optional prices configured by exact model name. Rates are currency units per million tokens; no prices are bundled or assumed because provider pricing changes over time:
+
+```yaml
+tokens:
+  mode: exact-or-unavailable
+  pricing:
+    provider-model-name:
+      input: 3
+      output: 15
+      cachedInput: 0.3
+```
+
+Missing usage or pricing remains visibly `unavailable`; a mixture of priced and unpriced records is labeled `partial`.
 
 ## Approval and rejection
 
@@ -285,6 +364,7 @@ Phase views provide required grounding. Persona views add perspective without re
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
+| `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
@@ -333,7 +413,7 @@ npm run desktop:build
 npm run desktop:dist
 ```
 
-Open an initialized repository from the app. The studio provides a progress dashboard, visual phase graph, persona and approval-rule inspection, validated YAML editing, artifact-template source/preview, supporting-document upload/view, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
+Open an initialized repository from the app. The studio provides a progress dashboard, visual phase graph, persona and approval-rule inspection, validated YAML editing, artifact-template source/preview, supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem, Git, and CLI access outside the UI process.
 
 Install the personal Copilot plugin with:
 
@@ -355,6 +435,7 @@ The plugin package remains named `singularity-flow`, while every public skill ha
 /sflow-start ENG-142 --title "Add invoice export"
 /sflow-phase
 /sflow-progress
+/sflow-report
 /sflow-help
 /sflow-documents list
 /sflow-status

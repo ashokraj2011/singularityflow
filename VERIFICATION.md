@@ -15,11 +15,13 @@ git diff --check
 Expected CLI versions:
 
 ```text
-singularity-flow --version  → 0.7.0
-sflow --version             → 0.7.0
+singularity-flow --version  → 0.7.1
+sflow --version             → 0.7.1
 ```
 
-The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
+The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
+
+For a disposable clean clone, run `npm run install:local` and verify it fast-forwards without a merge, prompts for configured/public/custom npm registry before dependency installation, creates the current versioned tarball, installs that tarball globally through the same registry, replaces prior direct/marketplace plugin identities, and leaves only the current `singularity-flow@singularity-flow` plugin. Confirm that `--registry` and `SINGULARITY_FLOW_NPM_REGISTRY` work non-interactively, credentials-in-URL are rejected, `.npmrc` is unchanged, and a dirty checkout is rejected before `git pull`.
 
 ## Configuration checks
 
@@ -52,6 +54,14 @@ The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schem
 - Repeatable `--document` and `--document-url` inputs are imported in addition to documents declared in the story file.
 - `guide` and `/sflow-help` are read-only, show the selected template and all phase contracts, and recommend the correct next action for generation, submission, approval/rejection, or completion.
 
+## Help manual checks
+
+- `HELP.md` is packaged and contains quick start, intake, personas, lifecycle, approvals, reports, Git recovery, world model, configuration, desktop, Copilot, installation, troubleshooting, and CLI-reference topics.
+- `singularity-flow help` prints the complete canonical manual and `singularity-flow help <topic>` prints one unambiguous section.
+- Unknown or ambiguous topics fail with the available stable topic IDs.
+- `/sflow-help` loads canonical manual content for general questions and uses `guide` for work-item-specific questions.
+- The Electron **Help** page imports the same `HELP.md`, supports local search, renders headings, tables, lists, inline code, links, and fenced code blocks, and requires no new renderer filesystem permission.
+
 ## GitHub Copilot plugin checks
 
 Register the repository as a marketplace, install the plugin, and inspect the discovered skills:
@@ -62,8 +72,8 @@ copilot plugin install singularity-flow@singularity-flow
 copilot skill list
 ```
 
-- The plugin exposes exactly 19 skills and every skill name begins with `sflow-`.
-- `/sflow-start`, `/sflow-help`, `/sflow-phase`, and `/sflow-progress` are available in Copilot.
+- The plugin exposes exactly 20 skills and every skill name begins with `sflow-`.
+- `/sflow-start`, `/sflow-help`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 
@@ -90,6 +100,17 @@ For an unreachable remote, verify the local commit is retained, transitions are 
 - `documents view` prints text and returns usable paths/URLs for binary or external documents.
 - Upload outside `documents.allowedPhases` and above `maxFileBytes` fails without a lifecycle commit.
 
+## Workflow report checks
+
+- Markdown, JSON, and script-free HTML reports derive from committed workflow state without changing lifecycle state.
+- Phase timing pairs submissions with approvals/rejections even when history input is not already ordered.
+- An awaiting-approval phase counts its open waiting interval through report generation.
+- Rework generations, rejection history, self-approval warnings, quality-check duration, and the approval-latency bottleneck are present.
+- Durations explicitly state that they are wall-clock values including nights and weekends.
+- Exact token records are totaled; unavailable records remain disclosed and are never estimated.
+- Optional per-million model pricing rejects negative values, prices only exact records for matching model names, and labels incomplete coverage as partial.
+- `--out` writes the requested format but does not mutate workflow state, commit, or push.
+
 ## Approval checks
 
 - Only a persona whose `mayApprove` includes the phase can approve or reject it.
@@ -113,6 +134,7 @@ For an unreachable remote, verify the local commit is retained, transitions are 
 - Exact provider usage preserves provider, model, input/output/cached/total counts, timestamps, and collection source.
 - Missing provider values are recorded as `unavailable`, never guessed.
 - Aggregates are correct by phase, persona, work type, and work item.
+- Report costs are absent unless the exact model has configured pricing; unavailable usage never becomes a zero-cost estimate.
 
 ## World-model checks
 

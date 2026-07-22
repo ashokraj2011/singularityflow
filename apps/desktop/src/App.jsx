@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import YAML from 'yaml';
+import helpMarkdown from '../../../HELP.md?raw';
 
 const nav = [
   ['dashboard', 'Overview', '⌁'],
   ['workflow', 'Workflow', '◇'],
   ['personas', 'Personas & approvals', '◎'],
   ['templates', 'Artifact templates', '▤'],
-  ['documents', 'Documents', '▣']
+  ['documents', 'Documents', '▣'],
+  ['help', 'Help', '?']
 ];
 
 function Pill({ children, tone = 'neutral' }) { return <span className={`pill ${tone}`}>{children}</span>; }
@@ -88,15 +90,65 @@ function Personas({ data, openPrompt }) {
   </div>;
 }
 
-function TemplatePreview({ content }) {
-  return <div className="markdown-preview">{content.split('\n').map((line, index) => {
-    if (line.startsWith('# ')) return <h1 key={index}>{line.slice(2)}</h1>;
-    if (line.startsWith('## ')) return <h2 key={index}>{line.slice(3)}</h2>;
-    if (line.startsWith('### ')) return <h3 key={index}>{line.slice(4)}</h3>;
-    if (line.startsWith('- ')) return <div className="preview-list" key={index}>• {line.slice(2)}</div>;
-    if (line.startsWith('|')) return <code className="preview-table" key={index}>{line}</code>;
-    return line ? <p key={index}>{line}</p> : <br key={index} />;
-  })}</div>;
+function InlineMarkdown({ text }) {
+  const pieces = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\))/g).filter(Boolean);
+  return pieces.map((piece, index) => {
+    if (piece.startsWith('**') && piece.endsWith('**')) return <strong key={index}>{piece.slice(2, -2)}</strong>;
+    if (piece.startsWith('`') && piece.endsWith('`')) return <code key={index}>{piece.slice(1, -1)}</code>;
+    const link = piece.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+    if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>;
+    return <React.Fragment key={index}>{piece}</React.Fragment>;
+  });
+}
+
+function markdownBlocks(content) {
+  const lines = content.split('\n');
+  const blocks = [];
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index];
+    if (line.startsWith('```')) {
+      const language = line.slice(3).trim(); const code = []; index += 1;
+      while (index < lines.length && !lines[index].startsWith('```')) { code.push(lines[index]); index += 1; }
+      blocks.push(<pre className="preview-code" key={`code-${index}`}><code data-language={language}>{code.join('\n')}</code></pre>); index += 1; continue;
+    }
+    if (line.startsWith('|')) {
+      const rows = []; while (index < lines.length && lines[index].startsWith('|')) { rows.push(lines[index].split('|').slice(1, -1).map((cell) => cell.trim())); index += 1; }
+      const dataRows = rows.filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
+      const [header, ...body] = dataRows;
+      blocks.push(<div className="preview-table-wrap" key={`table-${index}`}><table className="preview-table"><thead><tr>{header?.map((cell, cellIndex) => <th key={cellIndex}><InlineMarkdown text={cell} /></th>)}</tr></thead><tbody>{body.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}><InlineMarkdown text={cell} /></td>)}</tr>)}</tbody></table></div>); continue;
+    }
+    if (line.startsWith('# ')) blocks.push(<h1 key={index}><InlineMarkdown text={line.slice(2)} /></h1>);
+    else if (line.startsWith('## ')) blocks.push(<h2 key={index}><InlineMarkdown text={line.slice(3)} /></h2>);
+    else if (line.startsWith('### ')) blocks.push(<h3 key={index}><InlineMarkdown text={line.slice(4)} /></h3>);
+    else if (line.startsWith('- ')) blocks.push(<div className="preview-list" key={index}>• <InlineMarkdown text={line.slice(2)} /></div>);
+    else if (/^\d+\.\s/.test(line)) blocks.push(<div className="preview-list numbered" key={index}><InlineMarkdown text={line} /></div>);
+    else if (line.startsWith('> ')) blocks.push(<blockquote key={index}><InlineMarkdown text={line.slice(2)} /></blockquote>);
+    else if (line) blocks.push(<p key={index}><InlineMarkdown text={line} /></p>);
+    index += 1;
+  }
+  return blocks;
+}
+
+function TemplatePreview({ content, className = '' }) {
+  return <div className={`markdown-preview ${className}`}>{markdownBlocks(content)}</div>;
+}
+
+const helpMatches = [...helpMarkdown.matchAll(/^##\s+(.+)$/gm)];
+const helpTopics = helpMatches.map((match, index) => ({
+  id: match[1].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+  title: match[1].trim(),
+  content: helpMarkdown.slice(match.index + match[0].length, helpMatches[index + 1]?.index ?? helpMarkdown.length).trim()
+}));
+
+function Help() {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(helpTopics[0]?.id);
+  const filtered = helpTopics.filter((topic) => `${topic.title}\n${topic.content}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const topic = helpTopics.find((item) => item.id === selected && filtered.includes(item)) ?? filtered[0];
+  return <div className="help-layout">
+    <aside className="help-toc"><header><span className="eyebrow">Built-in manual</span><h2>Help</h2><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search help…" /></header><div className="help-topic-list">{filtered.map((item) => <button key={item.id} className={topic?.id === item.id ? 'active' : ''} onClick={() => setSelected(item.id)}>{item.title}</button>)}</div>{!filtered.length && <p className="help-empty">No help topic matches “{query}”.</p>}</aside>
+    <main className="help-main"><header className="help-header"><div><span className="eyebrow">Singularity Flow manual</span><h1>{topic?.title ?? 'No results'}</h1></div>{topic && <code>singularity-flow help {topic.id}</code>}</header>{topic && <TemplatePreview className="help-preview" content={`## ${topic.title}\n\n${topic.content}`} />}</main>
+  </div>;
 }
 
 function Templates({ data, editor, setEditor, chooseTemplate, saveEditor }) {
@@ -134,6 +186,7 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  const [standaloneHelp, setStandaloneHelp] = useState(false);
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
 
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
@@ -149,11 +202,12 @@ export default function App() {
   function chooseTemplate(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'template' }); }
   function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'persona' }); setPage('templates'); }
 
-  if (!data) return <div className="welcome"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open a Git repository initialized with Singularity Flow. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<button className="primary large-button" onClick={openRepository}>Open repository</button>} /></div>;
+  if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
+  if (!data) return <div className="welcome"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open a Git repository initialized with Singularity Flow. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<div className="row"><button className="primary large-button" onClick={openRepository}>Open repository</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)}>Open help</button></div>} /></div>;
   return <div className="shell">
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !data.repository.changes.length}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}{page === 'help' && <Help />}</div>
     </main>{toast && <div className={`toast ${toast.tone}`}>{toast.text}</div>}
   </div>;
 }

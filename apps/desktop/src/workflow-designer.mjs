@@ -14,6 +14,45 @@ function normalizedTemplateName(value) {
   return name;
 }
 
+function normalizedMarkdownName(value, label) {
+  const name = String(value ?? '').trim().replace(/^\/+/, '');
+  if (!name || !name.endsWith('.md') || name.split('/').includes('..')) throw new Error(`${label} must be a relative .md path without "..".`);
+  return name;
+}
+
+export function createPersona(definition, values) {
+  const id = String(values.id ?? '').trim();
+  assertId(id, 'Persona ID');
+  if (definition.personas[id]) throw new Error(`Persona '${id}' already exists.`);
+  const next = clone(definition);
+  next.personas[id] = {
+    label: String(values.label || id).trim() || id,
+    description: String(values.description || `Guidance for the ${values.label || id} persona.`).trim(),
+    prompt: normalizedMarkdownName(values.prompt || `${id}.md`, 'Persona prompt'),
+    suggestedPhases: [],
+    worldModelViews: [],
+    mayApprove: []
+  };
+  return next;
+}
+
+export function removePersona(definition, id, replacementId) {
+  if (!definition.personas[id]) throw new Error(`Persona '${id}' does not exist.`);
+  if (Object.keys(definition.personas).length === 1) throw new Error('At least one persona must remain.');
+  if (!definition.personas[replacementId] || replacementId === id) throw new Error('Choose a different replacement persona.');
+  const next = clone(definition);
+  for (const [phaseId, phase] of Object.entries(next.phases)) {
+    if (phase.suggestedPersonas?.includes(id)) phase.suggestedPersonas = [...new Set(phase.suggestedPersonas.map((persona) => persona === id ? replacementId : persona))];
+    if (phase.approval?.personas?.includes(id)) {
+      phase.approval.personas = [...new Set(phase.approval.personas.map((persona) => persona === id ? replacementId : persona))];
+      const capability = next.personas[replacementId].mayApprove ??= [];
+      if (!capability.includes(phaseId)) capability.push(phaseId);
+    }
+  }
+  delete next.personas[id];
+  return next;
+}
+
 export function createWorkType(definition, { id, label, copyFrom }) {
   assertId(id, 'Workflow ID');
   if (definition.workTypes[id]) throw new Error(`Workflow '${id}' already exists.`);
@@ -135,4 +174,13 @@ export function setWorkTypeInputs(definition, workTypeId, phaseId, inputs) {
 
 export function templateRepositoryPath(definition, name) {
   return `${String(definition.templatesRoot).replace(/\/$/, '')}/${normalizedTemplateName(name)}`;
+}
+
+export function personaPromptRepositoryPath(definition, name) {
+  return `${String(definition.personaPromptsRoot).replace(/\/$/, '')}/${normalizedMarkdownName(name, 'Persona prompt')}`;
+}
+
+export function repositorySkillPath(id) {
+  assertId(id, 'Skill ID');
+  return `.github/skills/${id}/SKILL.md`;
 }

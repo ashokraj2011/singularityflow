@@ -4,11 +4,15 @@ import YAML from 'yaml';
 import helpMarkdown from '../../../HELP.md?raw';
 import {
   addPhaseToWorkType,
+  createPersona,
   createPhase,
   createWorkType,
   deleteUnusedPhase,
+  personaPromptRepositoryPath,
   removePhaseFromWorkType,
+  removePersona,
   removeWorkType,
+  repositorySkillPath,
   setWorkTypeInputs,
   templateRepositoryPath
 } from './workflow-designer.mjs';
@@ -18,7 +22,9 @@ const nav = [
   ['workflow', 'Workflow', '◇'],
   ['personas', 'Personas & approvals', '◎'],
   ['templates', 'Artifact templates', '▤'],
+  ['resources', 'Prompts & skills', '✦'],
   ['agents', 'Agents & remote Markdown', '⌬'],
+  ['world-model', 'Repository world model', '◉'],
   ['documents', 'Documents', '▣'],
   ['help', 'Help', '?']
 ];
@@ -51,10 +57,10 @@ function ProgressRing({ value = 0 }) {
 
 function StatusDot({ status }) { return <span className={`status-dot ${String(status).replaceAll('_', '-')}`} title={status} />; }
 
-function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave }) {
+function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false }) {
   return <section className="editor-panel">
-    <header className="editor-header"><div><span className="eyebrow">Repository source</span><strong>{path}</strong></div><div className="row"><Pill tone={dirty ? 'warn' : 'good'}>{dirty ? 'Unsaved' : 'Saved'}</Pill><button className="primary compact" disabled={!dirty} onClick={onSave}>Save</button></div></header>
-    <Editor height="calc(100vh - 245px)" language={language} theme="vs-dark" value={value} onChange={(next) => onChange(next ?? '')} options={{ minimap: { enabled: false }, fontSize: 13, lineHeight: 21, wordWrap: 'on', padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true }} />
+    <header className="editor-header"><div><span className="eyebrow">{readOnly ? 'Repository-owned source' : 'Repository source'}</span><strong>{path}</strong></div><div className="row">{onImport && <button className="ghost compact" onClick={onImport}>Import</button>}{onDownload && <button className="secondary compact" onClick={onDownload}>Download</button>}<Pill tone={readOnly ? 'neutral' : dirty ? 'warn' : 'good'}>{readOnly ? 'Read only' : dirty ? 'Unsaved' : 'Saved'}</Pill>{!readOnly && <button className="primary compact" disabled={!dirty} onClick={onSave}>Save</button>}</div></header>
+    <Editor height="calc(100vh - 245px)" language={language} theme="vs-dark" value={value} onChange={(next) => !readOnly && onChange(next ?? '')} options={{ readOnly, minimap: { enabled: false }, fontSize: 13, lineHeight: 21, wordWrap: 'on', padding: { top: 16 }, scrollBeyondLastLine: false, automaticLayout: true }} />
   </section>;
 }
 
@@ -88,7 +94,7 @@ function Dashboard({ data }) {
   </div>;
 }
 
-function Workflow({ data, editor, setEditor, saveEditor }) {
+function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWorkflow }) {
   const draft = useMemo(() => { try { return YAML.parse(editor.content); } catch { return data.definition; } }, [editor.content, data.definition]);
   const [workType, setWorkType] = useState(Object.keys(draft.workTypes)[0]);
   const [phaseId, setPhaseId] = useState(draft.workTypes[workType]?.phases[0]);
@@ -153,7 +159,7 @@ function Workflow({ data, editor, setEditor, saveEditor }) {
         <div className="choice-group"><span>Allowed rejection targets</span><div>{profile.phases.slice(0, phaseIndex + 1).map((id) => <label key={id} className={phase.approval?.rejectTo?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={phase.approval?.rejectTo?.includes(id)} onChange={() => toggleRejectTarget(id)} />{draft.phases[id].label}</label>)}</div></div>
       </section>}
     </div>
-    <SourceEditor path={data.definitionPath} value={editor.content} dirty={editor.content !== editor.original} onChange={(content) => setEditor({ ...editor, content })} language="yaml" onSave={saveEditor} />
+    <SourceEditor path={data.definitionPath} value={editor.content} dirty={editor.content !== editor.original} onChange={(content) => setEditor({ ...editor, content })} language="yaml" onSave={saveEditor} onDownload={() => downloadFile(data.definitionPath)} onImport={importWorkflow} />
     {modal?.kind === 'new-workflow' && <DesignerModal title="Create workflow" detail={`Create a new profile by copying ${profile.label}, then adjust its stages.`} submitLabel="Create workflow" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><label><span>Workflow ID</span><input autoFocus value={modal.values.id} placeholder="security-review" onChange={(event) => field('id', event.target.value)} /></label><label><span>Display name</span><input value={modal.values.label} placeholder="Security review" onChange={(event) => field('label', event.target.value)} /></label></DesignerModal>}
     {modal?.kind === 'delete-workflow' && <DesignerModal title={`Delete ${profile.label}?`} detail="The workflow profile will be removed from the YAML draft. Shared stage definitions and templates remain available." submitLabel="Delete workflow" danger error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal} />}
     {modal?.kind === 'add-stage' && <DesignerModal title="Add an existing stage" detail="The stage is appended and receives the current last stage as its initial input." submitLabel="Add stage" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><label><span>Available stage</span><select value={modal.values.phaseId} onChange={(event) => field('phaseId', event.target.value)}>{inactivePhases.map((id) => <option key={id} value={id}>{draft.phases[id].label} · {id}</option>)}</select></label></DesignerModal>}
@@ -162,14 +168,26 @@ function Workflow({ data, editor, setEditor, saveEditor }) {
   </div>;
 }
 
-function Personas({ data, openPrompt }) {
+function Personas({ data, openPrompt, savePersona, createPersonaConfig, deletePersonaConfig, downloadFile }) {
   const [selected, setSelected] = useState(Object.keys(data.definition.personas)[0]);
-  const persona = data.definition.personas[selected];
-  const prompt = data.personaPrompts.find((item) => item.name === persona.prompt);
-  return <div className="page"><header className="page-heading"><span className="eyebrow">Identity and authority</span><h1>Personas & approvals</h1><p>Personas guide generation and grant approval authority. Any contributor may assume any persona.</p></header>
-    <div className="persona-grid">{Object.entries(data.definition.personas).map(([id, item]) => <button key={id} className={`persona-card ${selected === id ? 'selected' : ''}`} onClick={() => setSelected(id)}><span className="avatar">{item.label.slice(0, 2).toUpperCase()}</span><strong>{item.label}</strong><small>{item.description}</small><div className="tags">{item.worldModelViews?.map((view) => <Pill key={view}>{view}</Pill>)}</div></button>)}</div>
-    <div className="two-column"><section className="panel persona-detail"><header className="panel-heading"><div><span className="eyebrow">Persona contract</span><h2>{persona.label}</h2></div>{prompt && <button className="secondary" onClick={() => openPrompt(prompt)}>Edit prompt</button>}</header><p>{persona.description}</p><dl><div><dt>Suggested phases</dt><dd>{persona.suggestedPhases?.join(', ') || 'None'}</dd></div><div><dt>Approval authority</dt><dd>{persona.mayApprove?.join(', ') || 'None'}</dd></div><div><dt>Additional world-model views</dt><dd>{persona.worldModelViews?.join(', ') || 'None'}</dd></div><div><dt>Prompt file</dt><dd>{persona.prompt}</dd></div></dl></section>
-      <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval coverage</span><h2>Configured rules</h2></div></header><div className="rule-list">{Object.entries(data.definition.phases).filter(([, phase]) => phase.approval?.personas?.includes(selected)).map(([id, phase]) => <div key={id}><StatusDot status="approved" /><span><strong>{phase.label}</strong><small>{phase.approval.minimum} required · reject to {phase.approval.rejectTo?.join(', ')}</small></span></div>)}</div></section></div>
+  const [draft, setDraft] = useState(structuredClone(data.definition.personas[selected]));
+  const [modal, setModal] = useState(null);
+  useEffect(() => { if (!data.definition.personas[selected]) setSelected(Object.keys(data.definition.personas)[0]); }, [data, selected]);
+  useEffect(() => { setDraft(structuredClone(data.definition.personas[selected] ?? Object.values(data.definition.personas)[0])); }, [data, selected]);
+  const personaId = data.definition.personas[selected] ? selected : Object.keys(data.definition.personas)[0];
+  const persona = data.definition.personas[personaId];
+  const prompt = data.personaPrompts.find((item) => item.name === persona?.prompt);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(persona);
+  function field(name, value) { setDraft((current) => ({ ...current, [name]: value })); }
+  function toggle(name, value) { const values = draft[name] ?? []; field(name, values.includes(value) ? values.filter((item) => item !== value) : [...values, value]); }
+  async function submitNew() { const result = await createPersonaConfig(modal.values); if (result) { setSelected(modal.values.id.trim()); setModal(null); } }
+  async function submitDelete() { const result = await deletePersonaConfig(personaId, modal.replacement); if (result) { setSelected(modal.replacement); setModal(null); } }
+  return <div className="page"><header className="page-heading row-between"><div><span className="eyebrow">Identity, prompt, and authority</span><h1>Personas & approvals</h1><p>Create personas, edit their prompt perspective, and configure phase and approval coverage.</p></div><div className="row"><button className="secondary" disabled={Object.keys(data.definition.personas).length === 1} onClick={() => setModal({ kind: 'delete', replacement: Object.keys(data.definition.personas).find((id) => id !== selected) })}>Delete persona</button><button className="primary" onClick={() => setModal({ kind: 'new', error: null, values: { id: '', label: '', description: '', prompt: '' } })}>＋ Persona</button></div></header>
+    <div className="persona-grid">{Object.entries(data.definition.personas).map(([id, item]) => <button key={id} className={`persona-card ${personaId === id ? 'selected' : ''}`} onClick={() => setSelected(id)}><span className="avatar">{item.label.slice(0, 2).toUpperCase()}</span><strong>{item.label}</strong><small>{item.description}</small><div className="tags">{item.worldModelViews?.map((view) => <Pill key={view}>{view}</Pill>)}</div></button>)}</div>
+    <div className="two-column"><section className="panel persona-detail"><header className="panel-heading"><div><span className="eyebrow">Persona contract</span><h2>{persona.label}</h2></div><div className="row">{prompt && <button className="ghost compact" onClick={() => downloadFile(prompt.path)}>Download prompt</button>}{prompt && <button className="secondary compact" onClick={() => openPrompt(prompt)}>Edit prompt</button>}<button className="primary compact" disabled={!dirty} onClick={() => savePersona(personaId, draft)}>Save persona</button></div></header><div className="persona-form"><label><span>Display name</span><input value={draft.label} onChange={(event) => field('label', event.target.value)} /></label><label><span>Description</span><textarea value={draft.description ?? ''} onChange={(event) => field('description', event.target.value)} /></label><label><span>Prompt file</span><select value={draft.prompt} onChange={(event) => field('prompt', event.target.value)}>{data.personaPrompts.map((file) => <option key={file.name} value={file.name}>{file.name}</option>)}</select></label><label><span>Repository world-model views</span><input value={draft.worldModelViews?.join(', ') ?? ''} onChange={(event) => field('worldModelViews', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="architecture, security" /></label></div><div className="choice-group persona-choices"><span>Suggested stages</span><div>{Object.entries(data.definition.phases).map(([id, phase]) => <label key={id} className={draft.suggestedPhases?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={draft.suggestedPhases?.includes(id)} onChange={() => toggle('suggestedPhases', id)} />{phase.label}</label>)}</div></div><div className="choice-group persona-choices"><span>May approve</span><div>{Object.entries(data.definition.phases).map(([id, phase]) => <label key={id} className={draft.mayApprove?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={draft.mayApprove?.includes(id)} onChange={() => toggle('mayApprove', id)} />{phase.label}</label>)}</div></div></section>
+      <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval coverage</span><h2>Configured rules</h2></div></header><div className="rule-list">{Object.entries(data.definition.phases).filter(([, phase]) => phase.approval?.personas?.includes(personaId)).map(([id, phase]) => <div key={id}><StatusDot status="approved" /><span><strong>{phase.label}</strong><small>{phase.approval.minimum} required · reject to {phase.approval.rejectTo?.join(', ')}</small></span></div>)}</div></section></div>
+    {modal?.kind === 'new' && <DesignerModal title="Create persona and prompt" detail="A configurable Markdown prompt is created in the repository and linked from workflow.yml." submitLabel="Create persona" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitNew}><div className="modal-grid"><label><span>Persona ID</span><input autoFocus value={modal.values.id} placeholder="security-reviewer" onChange={(event) => setModal({ ...modal, values: { ...modal.values, id: event.target.value, prompt: modal.values.prompt || `${event.target.value}.md` } })} /></label><label><span>Display name</span><input value={modal.values.label} placeholder="Security reviewer" onChange={(event) => setModal({ ...modal, values: { ...modal.values, label: event.target.value } })} /></label><label className="full"><span>Description</span><input value={modal.values.description} placeholder="Review threats, controls, and evidence." onChange={(event) => setModal({ ...modal, values: { ...modal.values, description: event.target.value } })} /></label><label className="full"><span>Prompt filename</span><input value={modal.values.prompt} placeholder="security-reviewer.md" onChange={(event) => setModal({ ...modal, values: { ...modal.values, prompt: event.target.value } })} /></label></div></DesignerModal>}
+    {modal?.kind === 'delete' && <DesignerModal title={`Delete ${persona.label}?`} detail="Every stage reference will move to the replacement persona. The old prompt is removed only when nothing else references it." submitLabel="Delete persona" danger onCancel={() => setModal(null)} onSubmit={submitDelete}><label><span>Replacement persona</span><select value={modal.replacement} onChange={(event) => setModal({ ...modal, replacement: event.target.value })}>{Object.entries(data.definition.personas).filter(([id]) => id !== selected).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}</select></label></DesignerModal>}
   </div>;
 }
 
@@ -234,7 +252,7 @@ function Help() {
   </div>;
 }
 
-function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, createTemplate, deleteTemplate }) {
+function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, createTemplate, deleteTemplate, downloadFile, importTemplate }) {
   const [search, setSearch] = useState('');
   const [preview, setPreview] = useState(false);
   const [modal, setModal] = useState(null);
@@ -242,9 +260,9 @@ function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, create
   const current = data.templates.find((file) => file.path === editor.path) ?? null;
   async function submitCreate() { if (!modal.name.trim()) return setModal({ ...modal, error: 'Enter a relative Markdown filename.' }); const result = await createTemplate(modal.name.trim()); if (result) setModal(null); }
   async function submitDelete() { const result = await deleteTemplate(current); if (result) setModal(null); }
-  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Artifact library</span><h2>Templates</h2></div><button className="icon-button" title="Create template" onClick={() => setModal({ kind: 'create', name: '', error: null })}>＋</button></div><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter templates…" /></header>{files.map((file) => <button key={file.path} className={editor.path === file.path ? 'active' : ''} onClick={() => chooseTemplate(file)}><span>MD</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
-    <main className="template-main"><header className="template-toolbar"><div><span className="eyebrow">Template studio</span><h1>{editor.path?.split('/').at(-1)}</h1></div><div className="row"><div className="segmented small"><button className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Source</button><button className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div><Pill tone={editor.content !== editor.original ? 'warn' : 'good'}>{editor.content !== editor.original ? 'Unsaved' : 'Saved'}</Pill><button className="primary compact" disabled={editor.content === editor.original} onClick={saveEditor}>Save</button></div></header>
-      <div className="template-contract-bar"><span>Templates define the generated artifact structure and may use <code>{'{{work.id}}'}</code>, <code>{'{{phase.label}}'}</code>, and <code>{'{{inputs}}'}</code>.</span><button className="ghost compact" disabled={!current} onClick={() => setModal({ kind: 'delete', error: null })}>Delete template</button></div>
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Artifact library</span><h2>Templates</h2></div><div className="row"><button className="icon-button" title="Import template" onClick={importTemplate}>⇧</button><button className="icon-button" title="Create template" onClick={() => setModal({ kind: 'create', name: '', error: null })}>＋</button></div></div><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter templates…" /></header>{files.map((file) => <button key={file.path} className={editor.path === file.path ? 'active' : ''} onClick={() => chooseTemplate(file)}><span>MD</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
+    <main className="template-main"><header className="template-toolbar"><div><span className="eyebrow">Template studio</span><h1>{editor.path?.split('/').at(-1)}</h1></div><div className="row"><div className="segmented small"><button className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Source</button><button className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div><button className="secondary compact" disabled={!current} onClick={() => downloadFile(current.path)}>Download</button><Pill tone={editor.content !== editor.original ? 'warn' : 'good'}>{editor.content !== editor.original ? 'Unsaved' : 'Saved'}</Pill><button className="primary compact" disabled={editor.content === editor.original} onClick={saveEditor}>Save</button></div></header>
+      <div className="template-contract-bar"><span>Templates define the generated artifact structure and may use <code>{'{{work.id}}'}</code>, <code>{'{{phase.label}}'}</code>, and <code>{'{{inputs}}'}</code>.</span><div className="row"><button className="ghost compact" onClick={importTemplate}>Import Markdown</button><button className="ghost compact" disabled={!current} onClick={() => setModal({ kind: 'delete', error: null })}>Delete template</button></div></div>
       {preview ? <TemplatePreview content={editor.content} /> : <Editor height="calc(100vh - 186px)" language="markdown" theme="vs-dark" value={editor.content} onChange={(content) => setEditor({ ...editor, content: content ?? '' })} options={{ minimap: { enabled: false }, fontSize: 13, lineHeight: 21, wordWrap: 'on', padding: { top: 20 }, scrollBeyondLastLine: false, automaticLayout: true }} />}
     </main>
     {modal?.kind === 'create' && <DesignerModal title="Create artifact template" detail="Create repository Markdown under the configured templates root. You can assign it to a stage from the Workflow page." submitLabel="Create template" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitCreate}><label><span>Relative template path</span><input autoFocus value={modal.name} placeholder="security/security-review.md" onChange={(event) => setModal({ ...modal, name: event.target.value, error: null })} /></label></DesignerModal>}
@@ -252,16 +270,41 @@ function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, create
   </div>;
 }
 
-function Agents({ data, editor, setEditor, chooseAgent, saveEditor }) {
-  const [lockView, setLockView] = useState(false);
-  const current = data.agents.find((agent) => agent.path === editor.path) ?? data.agents[0];
-  const status = data.agentStatus.find((entry) => entry.id === current?.id);
-  return <div className="template-layout"><aside className="file-list"><header><span className="eyebrow">Agent registry</span><h2>Agents</h2><p className="muted">Remote links are inert until explicitly locked.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!lockView && current?.path === agent.path ? 'active' : ''} onClick={() => { setLockView(false); chooseAgent(agent); }}><span>AG</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<button className={lockView ? 'active' : ''} onClick={() => setLockView(true)}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only · refresh with CLI</small></div></button></aside>
-    <main className="template-main">{lockView ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned trust state</span><h1>{data.agentsLock.path}</h1></div><Pill>Read only</Pill></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository Markdown' : 'bundled plugin agent'}</small></span><code>singularity-flow agents {status?.locked ? 'sync' : 'lock'} {current.id}</code></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} /></> : <Empty title="No agents found" detail="Add agent Markdown under .github/agents or .claude/agents." />}</main>
+function Resources({ data, editor, setEditor, chooseResource, saveEditor, createSkill, deleteFile, downloadFile, importResource, materializeWorldModelPrompt }) {
+  const [category, setCategory] = useState(editor.kind === 'skill' ? 'skills' : 'prompts');
+  const [modal, setModal] = useState(null);
+  const promptFiles = [...data.personaPrompts, { ...data.worldModelPrompt, name: `world-model/${data.worldModelPrompt.name}`, worldModelBuilder: true }];
+  const files = category === 'skills' ? data.repositorySkills : promptFiles;
+  const current = files.find((file) => file.path === editor.path) ?? files[0];
+  useEffect(() => { if (current && editor.path !== current.path) chooseResource(current, category === 'skills' ? 'skill' : 'prompt'); }, [category]);
+  async function submitSkill() { const result = await createSkill(modal.id.trim()); if (result) setModal(null); }
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Repository Markdown</span><h2>Prompts & skills</h2></div><button className="icon-button" title={category === 'skills' ? 'Create skill' : 'Import prompt'} onClick={() => category === 'skills' ? setModal({ kind: 'skill', id: '', error: null }) : importResource('prompt')}>＋</button></div><div className="segmented resource-tabs"><button className={category === 'prompts' ? 'active' : ''} onClick={() => setCategory('prompts')}>Prompts</button><button className={category === 'skills' ? 'active' : ''} onClick={() => setCategory('skills')}>Skills</button></div></header>{files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => chooseResource(file, category === 'skills' ? 'skill' : 'prompt')}><span>{category === 'skills' ? 'SK' : 'PR'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : category === 'skills' ? 'repository skill' : 'persona prompt'}</small></div></button>)}</aside>
+    <main className="template-main">{current ? <><div className="resource-summary"><div><Pill tone="accent">{current.worldModelBuilder ? 'Builder prompt' : category === 'skills' ? 'Repository skill' : 'Persona prompt'}</Pill><span>{current.worldModelBuilder ? 'Controls repository world-model generation.' : category === 'skills' ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span></div><div className="row"><button className="ghost compact" onClick={() => importResource(current.worldModelBuilder ? 'world-prompt' : category === 'skills' ? 'skill' : 'prompt')}>Import</button>{!current.missing && <button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>}{category === 'skills' && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}{current.worldModelBuilder && current.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}</div></div><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={editor.path === current.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: current.path, content, original: current.content, kind: category === 'skills' ? 'skill' : 'prompt' })} onSave={current.worldModelBuilder && current.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={current.missing ? null : () => downloadFile(current.path)} onImport={() => importResource(current.worldModelBuilder ? 'world-prompt' : category === 'skills' ? 'skill' : 'prompt')} /></> : <Empty title={category === 'skills' ? 'No repository skills yet' : 'No prompts found'} detail={category === 'skills' ? 'Create or import Markdown skills under .github/skills.' : 'Persona and builder prompts live in the repository.'} action={category === 'skills' && <button className="primary" onClick={() => setModal({ kind: 'skill', id: '', error: null })}>Create first skill</button>} />}</main>
+    {modal?.kind === 'skill' && <DesignerModal title="Create repository skill" detail="The skill is stored as .github/skills/<id>/SKILL.md and is loaded by Copilot for this repository." submitLabel="Create skill" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitSkill}><label><span>Skill ID</span><input autoFocus value={modal.id} placeholder="security-review" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
 
-function Documents({ data, action, reload }) {
+function WorldModel({ data, downloadFile, openWorldModelPrompt }) {
+  const [selected, setSelected] = useState(data.worldModel.files[0]?.path ?? null);
+  const current = data.worldModel.files.find((file) => file.path === selected) ?? data.worldModel.files[0];
+  return <div className="template-layout"><aside className="file-list"><header><span className="eyebrow">Repository grounding</span><h2>World model</h2><div className="repo-only"><StatusDot status="approved" /><span>Repository only</span></div></header>{data.worldModel.files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => setSelected(file.path)}><span>{file.name.endsWith('.md') ? 'MD' : 'JS'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
+    <main className="template-main"><div className="world-model-banner"><div><span className="eyebrow">Source boundary</span><h1>Repository-owned world model</h1><p>No remote world-model source is used. Generated views come from this repository and are committed through the world-model lifecycle.</p></div><dl><div><dt>Output</dt><dd>{data.worldModel.root}</dd></div><div><dt>Grounding</dt><dd>{data.definition.worldModel?.grounding ?? 'off'}</dd></div><div><dt>Builder</dt><dd>{data.definition.worldModel?.promptSource ?? 'builtin'}</dd></div></dl><button className="secondary compact" onClick={openWorldModelPrompt}>Edit builder prompt</button></div>{current ? <SourceEditor path={current.path} value={current.content} readOnly onChange={() => {}} onDownload={() => downloadFile(current.path)} /> : <Empty title="World model not generated" detail="Run singularity-flow wm build to generate repository-grounded Markdown and evidence." />}</main>
+  </div>;
+}
+
+function Agents({ data, editor, setEditor, chooseAgent, saveEditor, createAgent, deleteFile, downloadFile, importAgent }) {
+  const [lockView, setLockView] = useState(false);
+  const [modal, setModal] = useState(null);
+  const current = data.agents.find((agent) => agent.path === editor.path) ?? data.agents[0];
+  const status = data.agentStatus.find((entry) => entry.id === current?.id);
+  async function submitAgent() { const result = await createAgent(modal.id.trim()); if (result) setModal(null); }
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Agent registry</span><h2>Agents</h2></div><div className="row"><button className="icon-button" title="Import agent" onClick={importAgent}>⇧</button><button className="icon-button" title="Create agent" onClick={() => setModal({ id: '', error: null })}>＋</button></div></div><p className="muted">Remote links are inert until explicitly locked.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!lockView && current?.path === agent.path ? 'active' : ''} onClick={() => { setLockView(false); chooseAgent(agent); }}><span>AG</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<button className={lockView ? 'active' : ''} onClick={() => setLockView(true)}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only · refresh with CLI</small></div></button></aside>
+    <main className="template-main">{lockView ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned trust state</span><h1>{data.agentsLock.path}</h1></div><div className="row"><button className="secondary compact" disabled={!data.agentsLock.exists} onClick={() => downloadFile(data.agentsLock.path)}>Download</button><Pill>Read only</Pill></div></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository Markdown' : 'bundled plugin agent'}</small></span><span className="row"><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>{current.editable && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}<code>singularity-flow agents {status?.locked ? 'sync' : 'lock'} {current.id}</code></span></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} onDownload={() => downloadFile(current.path)} onImport={current.editable ? importAgent : null} readOnly={!current.editable} /></> : <Empty title="No agents found" detail="Create or import agent Markdown under .github/agents." action={<button className="primary" onClick={() => setModal({ id: '', error: null })}>Create first agent</button>} />}</main>
+    {modal && <DesignerModal title="Create repository agent" detail="Create editable agent Markdown with remote-skill, remote-template, and generated-output dependency tables." submitLabel="Create agent" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitAgent}><label><span>Agent ID</span><input autoFocus value={modal.id} placeholder="architecture" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
+  </div>;
+}
+
+function Documents({ data, action, reload, downloadFile }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [preview, setPreview] = useState(null);
@@ -277,7 +320,7 @@ function Documents({ data, action, reload }) {
     {!canMutate && <div className="notice warn">Work item {data.selectedWorkId} is on branch <strong>{activeBranch}</strong>. Resume that branch before uploading documents.</div>}
     <section className="upload-panel"><button className="primary" onClick={upload} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>＋ Upload files</button><span>or</span><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a Figma or reference URL" disabled={!canMutate} /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label (optional)" disabled={!canMutate} /><button className="secondary" onClick={addUrl} disabled={!canMutate || !url.trim()}>Add link</button></section>
     <section className="panel document-panel"><div className="document-header"><span>Document</span><span>Phase</span><span>Type</span><span>Size</span><span /></div>{data.documents.map((record) => <button className="document-row" key={record.id} onClick={() => inspect(record)}><div><span className="doc-icon">{record.mimeType?.startsWith('image/') ? 'IMG' : record.type === 'url' ? 'URL' : 'DOC'}</span><span><strong>{record.label}</strong><small>{record.id} · {record.path ?? record.url}</small></span></div><span>{record.phase ?? 'system'}</span><Pill>{record.kind}</Pill><span>{record.size ? `${Math.ceil(record.size / 1024)} KB` : '—'}</span><span>View →</span></button>)}</section>
-    {preview && <div className="modal-backdrop" onClick={() => setPreview(null)}><div className="preview-modal" onClick={(event) => event.stopPropagation()}><header><div><span className="eyebrow">{preview.record.id}</span><h2>{preview.record.label}</h2></div><button onClick={() => setPreview(null)}>×</button></header><pre>{preview.content}</pre></div></div>}
+    {preview && <div className="modal-backdrop" onClick={() => setPreview(null)}><div className="preview-modal" onClick={(event) => event.stopPropagation()}><header><div><span className="eyebrow">{preview.record.id}</span><h2>{preview.record.label}</h2></div><div className="row">{preview.record.path?.startsWith(`${String(data.definition.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '')}/`) && <button className="secondary compact" onClick={() => downloadFile(preview.record.path)}>Download</button>}<button onClick={() => setPreview(null)}>×</button></div></header><pre>{preview.content}</pre></div></div>}
   </div>;
 }
 
@@ -295,7 +338,7 @@ export default function App() {
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
-  const publishHint = !configurationChanges.length ? 'No workflow, template, persona, or agent changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
+  const publishHint = !configurationChanges.length ? 'No workflow, template, persona, prompt, skill, or agent changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
   async function action(task, success) { setBusy(true); setToast(null); try { const result = await task(); if (success && result != null) setToast({ tone: 'good', text: success }); return result; } catch (error) { setToast({ tone: 'bad', text: error?.message || String(error) }); return null; } finally { setBusy(false); } }
   async function openRepository() { const result = await action(() => window.singularity.chooseRepository()); if (result) { setData(result); setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' }); } }
   async function reload(workId = data?.selectedWorkId) { if (!data) return null; const result = await action(() => window.singularity.snapshot(data.repository.root, workId)); if (result) setData(result); return result; }
@@ -304,6 +347,27 @@ export default function App() {
   async function validate() { await action(() => window.singularity.validate(data.repository.root), 'Configuration is valid'); }
   async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
   function workflowPage() { setPage('workflow'); setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }
+  async function downloadFile(filePath) {
+    if (!filePath) return null;
+    const result = await action(() => window.singularity.downloadFile(data.repository.root, filePath));
+    if (result && !result.canceled) setToast({ tone: 'good', text: `Downloaded ${filePath} to ${result.path}` });
+    return result;
+  }
+  async function exportBundle() {
+    const result = await action(() => window.singularity.exportBundle(data.repository.root));
+    if (result && !result.canceled) setToast({ tone: 'good', text: `Exported ${result.files} YAML/Markdown files to ${result.path}. World-model files remain repository-owned snapshots.` });
+    return result;
+  }
+  async function importFile(options, success) {
+    const result = await action(() => window.singularity.importFile(data.repository.root, options), success);
+    if (!result || result.canceled) return null;
+    const snapshot = await reload();
+    return { result, snapshot };
+  }
+  async function importWorkflow() {
+    const imported = await importFile({ targetPath: data.definitionPath }, 'Workflow YAML imported and validated');
+    if (imported) setEditor({ path: imported.snapshot.definitionPath, content: imported.snapshot.definitionText, original: imported.snapshot.definitionText, kind: 'workflow' });
+  }
   function chooseTemplate(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'template' }); }
   async function createTemplate(name) {
     const content = '# {{work.id}} — {{phase.label}}\n\n## Purpose\n\nDescribe the artifact outcome.\n\n{{inputs}}\n\n## Evidence\n\nAdd traceable evidence here.\n';
@@ -322,17 +386,142 @@ export default function App() {
     setEditor(replacement ? { path: replacement.path, content: replacement.content, original: replacement.content, kind: 'template' } : { path: '', content: '', original: '', kind: 'template' });
     return result;
   }
+  async function importTemplate() {
+    const imported = await importFile({ targetDirectory: data.definition.templatesRoot, kind: 'template' }, 'Artifact template imported');
+    if (!imported) return null;
+    const file = imported.snapshot.templates.find((item) => item.path === imported.result.path);
+    if (file) chooseTemplate(file);
+    return imported.result;
+  }
+  async function savePersona(personaId, persona) {
+    const next = structuredClone(data.definition);
+    next.personas[personaId] = persona;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Persona '${personaId}' saved and validated`);
+    if (result) await reload();
+    return result;
+  }
+  async function createPersonaConfig(values) {
+    let next;
+    try { next = createPersona(data.definition, values); }
+    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
+    const id = values.id.trim();
+    const persona = next.personas[id];
+    const promptPath = personaPromptRepositoryPath(next, persona.prompt);
+    const prompt = `# ${persona.label}\n\n${persona.description}\n\n## Perspective\n\nAct as the **${persona.label}** persona. Apply this perspective to the current phase while preserving its governed contract, required repository world-model views, approved inputs, and evidence requirements.\n`;
+    const promptResult = await action(() => window.singularity.saveFile(data.repository.root, promptPath, prompt));
+    if (!promptResult) return null;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Persona '${id}' and prompt created`);
+    if (result) await reload();
+    return result;
+  }
+  async function deletePersonaConfig(personaId, replacementId) {
+    let next;
+    try { next = removePersona(data.definition, personaId, replacementId); }
+    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
+    const oldPrompt = data.definition.personas[personaId].prompt;
+    const promptStillUsed = Object.values(next.personas).some((persona) => persona.prompt === oldPrompt);
+    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Persona '${personaId}' removed; references moved to '${replacementId}'`);
+    if (!result) return null;
+    if (!promptStillUsed && data.personaPrompts.some((file) => file.name === oldPrompt)) await action(() => window.singularity.deleteFile(data.repository.root, personaPromptRepositoryPath(data.definition, oldPrompt)));
+    await reload();
+    return result;
+  }
+  function chooseResource(file, kind) { setEditor({ path: file.path, content: file.content, original: file.content, kind }); }
+  function resourcesPage() {
+    setPage('resources');
+    const file = data.personaPrompts[0] ?? data.worldModelPrompt ?? data.repositorySkills[0];
+    if (file) chooseResource(file, data.repositorySkills.includes(file) ? 'skill' : 'prompt');
+  }
+  async function importResource(kind) {
+    const options = kind === 'skill'
+      ? { targetDirectory: '.github/skills', kind: 'skill' }
+      : kind === 'world-prompt'
+        ? { targetPath: data.worldModelPrompt.path, kind: 'prompt' }
+        : { targetDirectory: data.definition.personaPromptsRoot, kind: 'prompt' };
+    const imported = await importFile(options, `${kind === 'skill' ? 'Repository skill' : 'Prompt'} imported`);
+    if (!imported) return null;
+    let snapshot = imported.snapshot;
+    if (kind === 'world-prompt' && (data.definition.worldModel?.promptSource ?? 'builtin') === 'builtin') {
+      const next = structuredClone(data.definition);
+      next.worldModel ??= {};
+      next.worldModel.promptSource = data.worldModelPrompt.path;
+      const configured = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), 'World-model builder prompt imported and configured');
+      if (!configured) return null;
+      snapshot = await reload();
+    }
+    const files = kind === 'skill' ? snapshot.repositorySkills : [...snapshot.personaPrompts, snapshot.worldModelPrompt];
+    const file = files.find((item) => item.path === imported.result.path);
+    if (file) chooseResource(file, kind === 'skill' ? 'skill' : 'prompt');
+    return imported.result;
+  }
+  async function createSkill(skillId) {
+    let skillPath;
+    try { skillPath = repositorySkillPath(skillId); }
+    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
+    const content = `---\nname: ${skillId}\ndescription: Repository-specific ${skillId.replaceAll('-', ' ')} guidance.\n---\n\n# ${skillId.replaceAll('-', ' ')}\n\nUse this skill when its repository-specific guidance applies.\n\n## Instructions\n\n- Ground decisions in the current repository and approved Singularity Flow artifacts.\n- Preserve phase boundaries, traceability, and configured approval rules.\n`;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, skillPath, content), `Repository skill '${skillId}' created`);
+    if (!result) return null;
+    const snapshot = await reload();
+    const file = snapshot?.repositorySkills.find((item) => item.path === skillPath);
+    if (file) chooseResource(file, 'skill');
+    return result;
+  }
+  async function deleteFile(file) {
+    if (!file?.path) return null;
+    const result = await action(() => window.singularity.deleteFile(data.repository.root, file.path), `${file.path} deleted`);
+    if (!result) return null;
+    const snapshot = await reload();
+    const candidates = page === 'agents' ? snapshot?.agents.filter((item) => item.editable) : snapshot?.repositorySkills;
+    const replacement = candidates?.[0];
+    setEditor(replacement ? { path: replacement.path, content: replacement.content, original: replacement.content, kind: page === 'agents' ? 'agent' : 'skill' } : { path: '', content: '', original: '', kind: page === 'agents' ? 'agent' : 'skill' });
+    return result;
+  }
+  async function materializeWorldModelPrompt(content = data.worldModelPrompt.content) {
+    const prompt = data.worldModelPrompt;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, prompt.path, content));
+    if (!result) return null;
+    if ((data.definition.worldModel?.promptSource ?? 'builtin') === 'builtin') {
+      const next = structuredClone(data.definition);
+      next.worldModel ??= {};
+      next.worldModel.promptSource = prompt.path;
+      const definitionResult = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), 'Repository world-model builder prompt created and configured');
+      if (!definitionResult) return null;
+    }
+    const snapshot = await reload();
+    chooseResource(snapshot.worldModelPrompt, 'prompt');
+    return result;
+  }
   function chooseAgent(agent) { setEditor({ path: agent.path, content: agent.content, original: agent.content, kind: 'agent' }); }
-  function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'persona' }); setPage('templates'); }
+  async function createAgent(agentId) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) { setToast({ tone: 'bad', text: 'Agent ID must be lower-case kebab-case.' }); return null; }
+    const agentPath = `.github/agents/${agentId}.agent.md`;
+    const title = agentId.replaceAll('-', ' ');
+    const content = `---\nname: ${agentId}\ndescription: Repository agent for ${title}.\n---\n\n# ${title}\n\nActivate the relevant Singularity Flow session and use approved repository artifacts as governed context.\n\n## Remote skills\n\n| ID | URL | Phases | Personas | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n`;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, agentPath, content), `Repository agent '${agentId}' created`);
+    if (!result) return null;
+    const snapshot = await reload();
+    const agent = snapshot?.agents.find((item) => item.path === agentPath);
+    if (agent) chooseAgent(agent);
+    return result;
+  }
+  async function importAgent() {
+    const imported = await importFile({ targetDirectory: '.github/agents', kind: 'agent' }, 'Repository agent imported and validated');
+    if (!imported) return null;
+    const agent = imported.snapshot.agents.find((item) => item.path === imported.result.path);
+    if (agent) chooseAgent(agent);
+    return imported.result;
+  }
+  function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'prompt' }); setPage('resources'); }
+  function openWorldModelPrompt() { openPrompt(data.worldModelPrompt); }
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open the Git repository folder that contains .singularity/workflow.yml. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<><div className="row"><button className="primary large-button" onClick={openRepository} disabled={busy}>{busy ? 'Opening repository…' : 'Open repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</>} /><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
-    <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
+    <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
       {!!unrelatedChanges.length && <div className="publish-scope-notice" role="status"><strong>Desktop publishing is configuration-only.</strong><span>{unrelatedChanges.length} source, runtime, or work-item change(s) remain under their normal Singularity Flow or Git lifecycle.</span><code>{unrelatedChanges.slice(0, 3).join(', ')}{unrelatedChanges.length > 3 ? `, +${unrelatedChanges.length - 3} more` : ''}</code></div>}
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} />}{page === 'templates' && <Templates data={data} editor={editor.kind === 'workflow' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} />}{page === 'help' && <Help />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} downloadFile={downloadFile} openWorldModelPrompt={openWorldModelPrompt} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

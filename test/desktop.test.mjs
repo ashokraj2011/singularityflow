@@ -7,9 +7,12 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  deleteDesktopFile,
   deleteDesktopTemplate,
+  desktopExportBundle,
   desktopSnapshot,
   publishDesktopConfiguration,
+  readDesktopFile,
   saveDesktopFile,
   selectDesktopPersona,
   validateDesktopConfiguration
@@ -51,6 +54,10 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.workItems.length, 0);
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
   assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
+  assert.equal(snapshot.worldModel.repositoryOwned, true);
+  assert.equal(snapshot.worldModelPrompt.path, '.singularity/prompts/worldmodel-builder.md');
+  assert.equal(snapshot.worldModelPrompt.missing, false);
+  assert.deepEqual(snapshot.repositorySkills, []);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, '.singularity/agents.lock.yml');
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
@@ -106,6 +113,27 @@ test('desktop creates templates and only deletes them when no workflow reference
   assert.equal((await deleteDesktopTemplate(root, templatePath)).deleted, true);
   await assert.rejects(() => deleteDesktopTemplate(root, '.singularity/templates/feature/design.md'), /still referenced by/);
   await assert.rejects(() => deleteDesktopTemplate(root, 'README.md'), /restricted to/);
+});
+
+test('desktop manages repository prompts and skills and exports portable YAML and Markdown', async () => {
+  const root = await repository();
+  const skillPath = '.github/skills/security-review/SKILL.md';
+  const skill = '---\nname: security-review\ndescription: Review repository security.\n---\n\n# Security review\n';
+  await saveDesktopFile(root, skillPath, skill);
+  const read = await readDesktopFile(root, skillPath);
+  assert.equal(read.content, skill);
+  assert.equal(Buffer.from(read.contentBase64, 'base64').toString('utf8'), skill);
+  assert.equal(read.bytes, Buffer.byteLength(skill));
+
+  const snapshot = await desktopSnapshot(root);
+  assert.ok(snapshot.repositorySkills.some((item) => item.path === skillPath));
+  const bundle = await desktopExportBundle(root);
+  assert.equal(bundle.worldModelRepositoryOwned, true);
+  assert.ok(bundle.files.some((item) => item.path === '.singularity/workflow.yml'));
+  assert.ok(bundle.files.some((item) => item.path === '.singularity/prompts/worldmodel-builder.md'));
+  assert.ok(bundle.files.some((item) => item.path === skillPath));
+  assert.equal((await deleteDesktopFile(root, skillPath)).deleted, true);
+  await assert.rejects(() => readDesktopFile(root, 'README.md'), /not an exportable/i);
 });
 
 test('desktop persona selection remains local and requires the active work branch', async () => {

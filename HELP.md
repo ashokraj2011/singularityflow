@@ -676,9 +676,12 @@ The desktop app provides:
 - Visual workflow profiles: create a profile by copying an existing workflow, rename it, or remove it
 - Stage designer: create stages, add shared stages, reorder or remove them, and select upstream artifact inputs
 - Artifact contracts: configure each stage's output path, kind, minimum size, write scope, template, quality commands, personas, approvals, and world-model views
-- Persona and approval-capability inspection
+- Persona creation, editing, prompt selection, phase recommendations, and approval-capability design
 - Artifact-template library with guided creation, source/preview editing, and safe deletion when unreferenced
+- Repository prompt and skill Markdown editors, including guided repository-skill creation
 - Repository agent Markdown editor and read-only remote lock status
+- A repository-only world-model explorer with an editable builder prompt and downloadable generated views
+- Individual YAML/Markdown downloads plus a portable configuration-folder export
 - Supporting-document catalog and upload
 - Searchable help manual
 - Validated configuration save, commit, and push
@@ -686,6 +689,10 @@ The desktop app provides:
 Open an initialized repository. The desktop is a control plane over the same CLI and Git state; it does not maintain a second workflow database. Renderer sandboxing, context isolation, and a narrow preload API keep filesystem and Git access outside the UI.
 
 Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically. Use **Artifact templates** to create the Markdown structure first, then return to **Workflow** and assign it to a stage. Template deletion is refused while any default or workflow override still references it.
+
+Use **Prompts & skills** for repository persona prompts, the world-model builder prompt, and repository-specific Copilot skills under `.github/skills/<id>/SKILL.md`. Use **Agents & remote Markdown** for repository agent files and their explicit remote skill/template/output tables. Installed plugin skills remain product defaults; repository skills and agents are the portable project overrides.
+
+Use **Repository world model** to inspect and download generated grounding files. World-model content is never imported from an agent or remote URL: it is built from the open repository and remains read-only in the desktop. Its YAML policy and builder prompt are configurable. Select **Download config** to export the workflow YAML, artifact templates, prompts, repository skills, repository agents, and current world-model snapshots as an ordinary folder tree. Imports accept `.yml`, `.yaml`, and `.md` files and stay uncommitted until **Commit & push**.
 
 ## Copilot commands
 

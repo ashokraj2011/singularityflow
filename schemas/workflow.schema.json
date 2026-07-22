@@ -27,6 +27,17 @@
         "inputsMode": { "enum": ["off", "record", "enforce"] },
         "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
         "sequenceGates": { "type": "object", "additionalProperties": { "enum": ["hard", "soft"] } },
+        "session": {
+          "type": "object",
+          "properties": {
+            "personaSelection": { "enum": ["off", "reuse", "prompt"] },
+            "promptOnNewSession": { "type": "boolean" },
+            "promptOnResume": { "type": "boolean" },
+            "requireBeforeTools": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "sessionLegacy": { "type": "boolean" },
         "phases": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": true

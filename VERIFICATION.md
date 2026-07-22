@@ -44,6 +44,8 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Non-interactive start/resume fails instead of choosing a default.
 - Any configured persona may be selected in any phase.
 - Persona selection alone changes only `.git/singularity-flow/session.json` and creates no commit.
+- A new Copilot session follows the immutable `session` policy, records its session binding only under `.git/singularity-flow/`, and blocks matching mutating tools until an explicitly required persona choice is complete.
+- Resume reuses a valid session persona when `promptOnResume` is false; absent `session` configuration remains inert.
 
 ## Jira and manual intake checks
 

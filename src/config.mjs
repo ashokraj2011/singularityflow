@@ -17,6 +17,7 @@ export const SEQUENCE_GATE_IDS = [
   'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase'
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
+const PERSONA_SELECTION_MODES = new Set(['off', 'reuse', 'prompt']);
 
 function assertId(value, label) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
@@ -70,6 +71,20 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
   });
 }
 
+export function normalizeSessionPolicy(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
+  for (const key of Object.keys(value)) if (!['personaSelection', 'promptOnNewSession', 'promptOnResume', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
+  const personaSelection = value.personaSelection ?? 'off';
+  if (!PERSONA_SELECTION_MODES.has(personaSelection)) throw new SingularityFlowError('session.personaSelection must be off, reuse, or prompt.');
+  for (const field of ['promptOnNewSession', 'promptOnResume', 'requireBeforeTools']) if (value[field] != null && typeof value[field] !== 'boolean') throw new SingularityFlowError(`session.${field} must be boolean.`);
+  return {
+    personaSelection,
+    promptOnNewSession: value.promptOnNewSession ?? false,
+    promptOnResume: value.promptOnResume ?? false,
+    requireBeforeTools: value.requireBeforeTools ?? false
+  };
+}
+
 export function validateDefinition(definition) {
   if (definition?.version !== 1) throw new SingularityFlowError('workflow.yml version must be 1.');
   if (!definition.personas || !Object.keys(definition.personas).length) throw new SingularityFlowError('workflow.yml must define at least one persona.');
@@ -80,6 +95,7 @@ export function validateDefinition(definition) {
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
+  normalizeSessionPolicy(definition.session ?? {});
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');

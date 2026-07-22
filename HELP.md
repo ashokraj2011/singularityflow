@@ -257,6 +257,22 @@ Normal execution updates the marker-delimited managed input block and writes `co
 
 Personas add prompt perspective, world-model views, and approval capabilities. Starter personas include product owner, architect, developer, and QA.
 
+### Copilot session persona hook
+
+Repositories may make persona selection part of Copilot session startup:
+
+```yaml
+session:
+  personaSelection: prompt # off | reuse | prompt
+  promptOnNewSession: true
+  promptOnResume: false
+  requireBeforeTools: true
+```
+
+`off` preserves the previous behavior. `reuse` binds a valid local selection to a new Copilot session without asking again. `prompt` can ask on every new session and, when configured, on resume. `requireBeforeTools` denies mutating Copilot tools until the contributor completes `/sflow-session`; the status and `/sflow-persona` paths remain available so the guard cannot deadlock selection.
+
+The binding is stored only under `.git/singularity-flow/` and creates no commit. It records the Copilot session ID separately from the authenticated Git identity. Anyone may still choose any configured persona, and `/sflow-persona` can change it during the session. Run `singularity-flow session status` to inspect the current binding. The policy is snapshotted into the work item at creation. If `session` is absent, it resolves to `off` for backward compatibility.
+
 Persona suggestions are not restrictions. Anyone may choose any configured persona for any phase. Approval authority comes from the selected persona's `mayApprove` list, while accountability comes from the authenticated GitHub or Git identity.
 
 Start and resume ask for a persona. The active session is local:
@@ -711,6 +727,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-start` | Guided Jira or manual intake, workflow selection, and persona selection |
 | `/sflow-resume` | Fetch, fast-forward, and select a persona |
 | `/sflow-persona` | Select or change the persona for the current local work-item session |
+| `/sflow-session` | Apply or inspect the configured persona binding for this Copilot session |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sflow-next` | Execute exactly one next valid lifecycle action |
@@ -810,7 +827,7 @@ singularity-flow recover WORK-123 --fetch
 singularity-flow recover WORK-123 --fetch --apply
 ```
 
-Recovery is plan-first. Apply only retries retained publication or performs a clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards work. The bundled read-only Copilot `sessionStart` hook injects current-phase guidance and recommends `/sflow-nextsteps` and `/sflow-documents`; it performs no mutation and never approves.
+Recovery is plan-first. Apply only retries retained publication or performs a clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards work. The bundled Copilot `sessionStart` command hook records local session context, injects current-phase guidance, and applies the immutable persona policy; it does not change committed workflow state and never approves. A prompt hook opens `/sflow-session` in new interactive sessions, and the optional `preToolUse` guard holds mutating tools until required selection is complete.
 
 ## Troubleshooting
 

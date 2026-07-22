@@ -6,6 +6,18 @@
         "type": "command",
         "command": "singularity-flow hook session-start",
         "timeoutSec": 10
+      },
+      {
+        "type": "prompt",
+        "prompt": "/sflow-session"
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "command": "singularity-flow hook persona-guard",
+        "matcher": "bash|powershell|edit|create|task",
+        "timeoutSec": 10
       }
     ]
   }

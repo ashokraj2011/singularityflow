@@ -158,7 +158,19 @@ singularity-flow start ENG-142 --title "Add invoice export" --fetch
 singularity-flow resume ENG-142 --fetch
 ```
 
-With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always prompts for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit.
+With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` always prompts for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type) and persona. `resume` always prompts for a persona. There are deliberately no public `--type` or `--persona` bypass flags, and a non-interactive invocation fails clearly. The active persona is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. The optional Copilot session hook binds that declaration to the current Copilot session ID and can prevent mutating tools until the contributor selects a persona.
+
+New repositories enable the session hook policy in `.singularity/workflow.yml`:
+
+```yaml
+session:
+  personaSelection: prompt # off | reuse | prompt
+  promptOnNewSession: true
+  promptOnResume: false
+  requireBeforeTools: true
+```
+
+`/sflow-session` applies this policy. A new Copilot session shows the configured persona options; a resumed session reuses a still-valid binding unless `promptOnResume` is enabled. `/sflow-persona` changes the binding at any time. No persona is inferred, and the declared persona never replaces the authenticated Git identity in audit records. Existing repositories without `session` behave exactly as before (`off`). The resolved policy is pinned into each work item so a base-branch YAML edit cannot weaken an active item silently.
 
 On another terminal, `resume --fetch` fetches and fast-forwards the work-item branch. Committed branch state is the handoff protocol; the local session file is not part of it.
 
@@ -464,6 +476,7 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `singularity-flow start <ID> [--jira \| --story-file FILE]` | Import Jira or manual story details, attach optional documents, choose workflow template/persona, and create/push the work branch. |
 | `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
 | `sflow-persona [ID]` | Select or change the persona for the current local work-item session. |
+| `singularity-flow session status` | Inspect whether the persona is bound to the current Copilot session and whether selection is required. |
 | `singularity-flow status [ID]` | Show phase, persona, artifacts, approvals, usage, and warnings. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |

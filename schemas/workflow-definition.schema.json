@@ -61,6 +61,16 @@
       },
       "additionalProperties": false
     },
+    "session": {
+      "type": "object",
+      "properties": {
+        "personaSelection": { "enum": ["off", "reuse", "prompt"] },
+        "promptOnNewSession": { "type": "boolean" },
+        "promptOnResume": { "type": "boolean" },
+        "requireBeforeTools": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
     "personas": {
       "type": "object",
       "minProperties": 1,

@@ -405,6 +405,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Start work | `/sflow-start WORK-123` | `singularity-flow start WORK-123` |
 | Resume work | `/sflow-resume WORK-123` | `singularity-flow resume WORK-123 --fetch` |
 | Change session persona | `/sflow-persona` | `sflow-persona` |
+| Inspect/apply Copilot session binding | `/sflow-session` | `singularity-flow session status` |
 | Get next actions | `/sflow-nextsteps` | `singularity-flow nextsteps` |
 | Execute next action | `/sflow-next` | `sflow-next` |
 | Generate current phase | `/sflow-phase` | `singularity-flow prepare <phase>` |

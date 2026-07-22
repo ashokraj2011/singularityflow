@@ -8,7 +8,7 @@ import {
 } from './util.mjs';
 import { add, branch, changedFiles, commit, head, identity, pushBranch, remoteContains } from './git.mjs';
 import {
-  WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, renderArtifactTemplate, resolveWorkType, snapshotResolution
+  WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
 import {
@@ -210,6 +210,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       sequenceGates: snapshotState.sequenceGates ?? resolution.sequenceGates ?? { default: 'hard' },
       documents: structuredClone(resolution.documents ?? config.documents ?? {}),
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
+      session: normalizeSessionPolicy(config.session ?? {}),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
     },
@@ -253,6 +254,10 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
   workflow.resolution.documents ??= {};
   workflow.resolution.collaboration ??= { assignmentMode: 'off', notifications: ['terminal'] };
+  if (!workflow.resolution.session) {
+    workflow.resolution.session = normalizeSessionPolicy({});
+    workflow.resolution.sessionLegacy = true;
+  }
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
@@ -637,6 +642,11 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
     const expectedGates = resolveWorkType(config, workflow.workItem.workType).sequenceGates;
     const pinnedGates = normalizeSequenceGates(workflow.resolution?.sequenceGates ?? {});
     if (JSON.stringify(pinnedGates) !== JSON.stringify(expectedGates)) errors.push('Sequence gate policy differs from the immutable work-type configuration snapshot.');
+    if (!workflow.resolution?.sessionLegacy) {
+      const expectedSession = normalizeSessionPolicy(config.session ?? {});
+      const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
+      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session persona policy differs from the immutable configuration snapshot.');
+    }
   }
   let activeCount = 0;
   for (const phaseId of workflow.phaseOrder) {

@@ -46,7 +46,23 @@ test('progress and document commands upload, list, and view files, images, and F
 
   const workflowFile = path.join(root, '.singularity/work-items/DOCS-1/workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); const intake = path.join(root, '.singularity/work-items/DOCS-1', workflow.phases.intake.requiredArtifact.path);
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
-  flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
+  flow(root, ['phase', 'publish', 'intake']);
+  const review = flow(root, ['phase', 'show', 'intake']);
+  assert.match(review.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
+  assert.match(review.stdout, /PHASE-INTAKE/);
+  assert.match(review.stdout, /artifacts\/intake\/intake\.md/);
+  assert.match(review.stdout, /SHA-256: [0-9a-f]{64}/);
+  assert.match(review.stdout, /Complete intake evidence/);
+  const reviewJson = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
+  assert.equal(reviewJson.documents.length, 1); assert.equal(reviewJson.documents[0].id, 'PHASE-INTAKE'); assert.match(reviewJson.documents[0].content, /Complete intake evidence/);
+  const submission = flow(root, ['submit']);
+  assert.match(submission.stdout, /Submitted intake phase for approval/);
+  assert.match(submission.stdout, /Generated documents ready for review/);
+  assert.match(submission.stdout, /Complete intake evidence/);
+  assert.match(submission.stdout, /Status: intake is awaiting approval with 1 generated document/);
+  const approval = flow(root, ['approve', '--yes']);
+  assert.match(approval.stdout, /Generated documents ready for review/);
+  assert.ok(approval.stdout.indexOf('Complete intake evidence') < approval.stdout.indexOf('Reviewing DOCS-1 \/ intake'));
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 14); assert.equal(progress.approvedPhases, 1); assert.equal(progress.currentPhase, 'requirements');
   const late = flow(root, ['documents', 'upload', notes], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);

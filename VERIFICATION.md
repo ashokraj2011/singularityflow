@@ -79,6 +79,7 @@ copilot skill list
 - The plugin manifest exposes `agents/`, and `sflow-workflow.agent.md` is discovered with empty, inert remote dependency tables.
 - `/sflow-about`, `/sflow-start`, `/sflow-persona`, `/sflow-help`, `/sflow-nextsteps`, `/sflow-next`, `/sflow-phase`, `/sflow-progress`, and `/sflow-report` are available in Copilot.
 - Start, resume, approval, rejection, and persona skills use `ask_user` for YAML-derived selectable options and `write_bash` to answer the same CLI picker; they never infer a default or pass hidden type/persona flags.
+- Submission and approval show all generated current-phase documents before a decision, including content for text/Markdown and paths plus metadata for binary/image artifacts; `phase show` is read-only and repeatable.
 - Generic names such as `/start`, `/phase`, `/progress`, and `/approve` are not registered by this plugin.
 - Reinstalling through `singularity-flow plugin install` removes both direct and marketplace copies, refreshes the marketplace and plugin cache, and leaves only `singularity-flow@singularity-flow` installed.
 

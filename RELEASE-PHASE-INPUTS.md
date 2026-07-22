@@ -8,6 +8,7 @@ This delivery combines deterministic next-action guidance, the one-script local 
 
 - `/sflow-about` and `sflow-about` identify Singularity Flow as the product under the Singularity brand and document `/sflow-<action>` as the only public Copilot command namespace.
 - Start, resume, approval, rejection, and `/sflow-persona` mirror YAML-derived CLI menus through Copilot's interactive `ask_user` selection UI; unavailable interaction fails without choosing a default.
+- Submission and approval display every generated phase document with content or binary path, stable ID, size, and hash; `singularity-flow phase show` provides the same review view on demand.
 - `/sflow-nextsteps` and `singularity-flow nextsteps` return valid `NOW`, `THEN`, and `ALTERNATIVE` actions before initialization, throughout lifecycle/recovery, and after completion.
 - `/sflow-next`, `sflow-next`, and `singularity-flow next` execute one valid lifecycle action at a time while preserving explicit approval and atomic decision publication.
 - `install.sh` performs fast-forward pull, selectable npm/Artifactory registry use, locked dependency install, desktop build, tests/checks, package creation, global CLI replacement, and forced Copilot plugin replacement.

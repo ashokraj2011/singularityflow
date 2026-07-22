@@ -12,4 +12,6 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 2. Do not use `--skip-checks` unless explicitly authorized.
 3. Run `singularity-flow submit <arguments>`.
 4. If validation fails, fix only current-phase artifacts or checks, register again, and resubmit.
-5. Show the submission commit, push result, artifact hashes, token usage, and checks. Do not approve; approval is a separate `/sflow-approve` action.
+5. The command prints every generated current-phase document with its stable document ID, path, kind, byte count, SHA-256, and Markdown/text content. For binary or image artifacts, present the absolute path and metadata instead of dumping bytes.
+6. If any registered document was not rendered, run `singularity-flow phase show <phase>` and then `singularity-flow documents view <DOCUMENT-ID>` for that item. Do not summarize away the documents: show them before offering approval or rejection.
+7. Show the submission commit, push result, artifact hashes, token usage, and checks. Do not approve; approval is a separate `/sflow-approve` action.

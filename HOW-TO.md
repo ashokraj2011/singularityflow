@@ -393,6 +393,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Inspect phase inputs | `/sflow-inputs <phase>` | `singularity-flow inputs <phase> --dry-run` |
 | Publish generation | `/sflow-phase` | `singularity-flow phase publish <phase>` |
 | Submit | `/sflow-submit` | `singularity-flow submit` |
+| Review generated documents | `/sflow-submit` or `/sflow-approve` | `singularity-flow phase show <phase>` |
 | Approve | `/sflow-approve` | `singularity-flow approve WORK-123 --fetch` |
 | Reject | `/sflow-reject` | `singularity-flow reject WORK-123 --fetch --to <phase> --reason <reason>` |
 | Check completion | `/sflow-progress` | `singularity-flow progress WORK-123` |

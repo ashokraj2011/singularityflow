@@ -33,6 +33,7 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow nextsteps \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inputs \[PHASE\]/);
     assert.match(result.stdout, /singularity-flow persona \[WORK-ID\]/);
+    assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
   }
 });
 

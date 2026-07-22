@@ -119,6 +119,7 @@ Usage:
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <PATH...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow prepare [PHASE]
+  singularity-flow phase show [PHASE] [--json]
   singularity-flow phase publish [PHASE] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
   singularity-flow artifact scan [--phase PHASE]
@@ -601,10 +602,85 @@ async function agentsCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown agents subcommand: ${subcommand}`);
 }
 
+async function phaseReview(root, config, workflow, phase) {
+  const records = (await documentCatalog(root, config, workflow))
+    .filter((record) => record.type === 'artifact' && record.phase === phase.id);
+  const documents = [];
+  for (const record of records) {
+    try {
+      const viewed = await viewDocument(root, config, workflow, record.id);
+      documents.push({
+        id: record.id,
+        label: record.label,
+        kind: record.kind,
+        path: record.path,
+        mimeType: record.mimeType,
+        size: record.size,
+        sha256: record.sha256,
+        generation: record.generation ?? phase.generation,
+        binary: viewed.binary,
+        absolutePath: viewed.absolutePath ?? pathForDisplay(root, record.path),
+        content: viewed.content
+      });
+    } catch (error) {
+      documents.push({
+        id: record.id,
+        label: record.label,
+        kind: record.kind,
+        path: record.path,
+        mimeType: record.mimeType,
+        size: record.size,
+        sha256: record.sha256,
+        generation: record.generation ?? phase.generation,
+        error: error?.message ?? String(error)
+      });
+    }
+  }
+  return {
+    schemaVersion: 1,
+    workId: workflow.workItem.id,
+    phase: phase.id,
+    phaseLabel: phase.label,
+    status: phase.status,
+    generation: phase.generation,
+    documents
+  };
+}
+
+function printPhaseReview(review) {
+  console.log(`\nGenerated documents ready for review — ${review.workId} / ${review.phase} / generation ${review.generation}`);
+  if (!review.documents.length) {
+    console.log('No generated documents are registered for this phase.');
+    return;
+  }
+  for (const [index, document] of review.documents.entries()) {
+    console.log(`\n[${index + 1}] ${document.label} (${document.id})`);
+    console.log(`Path: ${document.path}`);
+    console.log(`Kind: ${document.kind ?? 'artifact'} | Type: ${document.mimeType ?? 'unknown'} | Bytes: ${document.size ?? 'unknown'} | SHA-256: ${document.sha256 ?? 'unavailable'}`);
+    console.log(`View again: singularity-flow documents view ${document.id} --work-id ${review.workId}`);
+    if (document.error) console.warn(`Warning: document preview unavailable: ${document.error}`);
+    else if (document.binary) console.log(`Binary document: open ${document.absolutePath}`);
+    else if (document.content != null) {
+      console.log(`\n--- BEGIN ${document.path} ---`);
+      process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
+      console.log(`--- END ${document.path} ---`);
+    }
+  }
+}
+
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
-  if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  if (subcommand === 'show') {
+    const phaseId = positionals[2] ?? workflow.currentPhase;
+    const phase = workflow.phases[phaseId];
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    const review = await phaseReview(root, config, workflow, phase);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
+    else printPhaseReview(review);
+    return;
+  }
+  if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
   const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
   const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
   const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
@@ -645,8 +721,12 @@ async function submitCommand(options) {
     phaseId: optionString(options, 'phase'),
     runChecks: !optionBoolean(options, 'skip-checks')
   });
-  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, phase.artifacts.map((item) => item.path));
-  console.log(`Phase ${phase.id} is awaiting approval with ${phase.artifacts.length} artifact(s).`);
+  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, phase.artifacts.map((item) => item.path));
+  console.log(`\nSubmitted ${phase.id} phase for approval.`);
+  console.log(`Commit: ${publication.sha.slice(0, 8)} — request approval (${workflow.workItem.id})`);
+  console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflow.workItem.branch}` : 'disabled by git.publish: off'}`);
+  printPhaseReview(await phaseReview(root, config, workflow, phase));
+  console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
   console.log('Next in Copilot: /sflow-approve');
 }
 
@@ -681,6 +761,7 @@ async function decisionWorkflow(positionals, options, action) {
 async function approveCommand(positionals, options) {
   const { root, config, workflow, phase, session } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
+  printPhaseReview(await phaseReview(root, config, workflow, phase));
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id} as ${session.persona}`);
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);

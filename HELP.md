@@ -61,8 +61,9 @@ The normal phase loop is:
 1. Generate or edit the current artifact.
 2. Publish the generation.
 3. Submit it for approval.
-4. Approve it or reject it to an allowed earlier phase.
-5. Continue until conformance is approved.
+4. Review every generated phase document displayed by submission.
+5. Approve it or reject it to an allowed earlier phase.
+6. Continue until conformance is approved.
 
 Use `/sflow-progress` for deterministic completion and `/sflow-report` for timing, waiting, rework, and token metrics.
 
@@ -388,6 +389,18 @@ Self-approval is allowed when the same authenticated person generated and approv
 Each approval—including each partial decision toward a multi-approval threshold—creates and pushes a separate atomic commit before the command succeeds. If publication fails, the approval commit remains local, publication is marked pending, and later decisions are blocked until `singularity-flow sync` publishes it.
 
 Use `/sflow-approve` and `/sflow-reject` in Copilot. These commands are explicitly user-invoked and must not run silently.
+
+Submission automatically displays every generated current-phase document before
+recommending approval. It includes the stable document ID, repository path, kind,
+byte count, SHA-256, and Markdown/text content. Binary and image artifacts are
+shown as absolute paths with metadata. Approval displays the same documents again
+before the exact phase-name confirmation. Review them at any time with:
+
+```bash
+singularity-flow phase show requirements
+singularity-flow phase show requirements --json
+singularity-flow documents view PHASE-REQUIREMENTS
+```
 
 Use `/sflow-next` or `sflow-next --task "<objective>"` to execute exactly one
 next valid action. Depending on state, it synchronizes a retained commit,
@@ -782,6 +795,7 @@ singularity-flow documents list [WORK-ID] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID]
 singularity-flow documents upload <PATH...> [--url URL]
 singularity-flow prepare [PHASE]
+singularity-flow phase show [PHASE] [--json]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]

@@ -462,6 +462,7 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 | `singularity-flow jira list` | List assigned Jira work with optional project, type, limit, and JQL filters. |
 | `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
+| `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
 | `singularity-flow submit` | Run checks and publish an approval request. |
 | `singularity-flow approve [ID] --fetch` | Select an approval persona and record/push the decision. |

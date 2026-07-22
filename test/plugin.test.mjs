@@ -59,6 +59,15 @@ test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
+  assert.match(content, /singularity-flow phase show <phase>/);
+  assert.match(content, /Never ask for approval based only on a filename or summary/);
+});
+
+test('submit skill presents generated documents before approval', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
+  assert.match(content, /every generated current-phase document/);
+  assert.match(content, /singularity-flow phase show <phase>/);
+  assert.match(content, /show them before offering approval or rejection/);
 });
 
 test('help skill is read-only and delegates to the workflow guide', async () => {

@@ -104,6 +104,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Saved locations/);
   assert.match(source, /Open another repository/);
   assert.match(source, /Remove .* from recent repositories/);
+  assert.match(source, /The Git-backed/);
+  assert.match(source, /Artifact Studio/);
+  assert.match(source, /Requirement workspace/);
+  assert.match(source, /Impact Analysis Studio/);
+  assert.match(source, /Singularity intelligence/);
+  assert.match(source, /Singularity analysis/);
+  assert.doesNotMatch(source, /SDLC Planner/);
   assert.match(styles, /\.cost-dashboard/);
   assert.match(styles, /\.timing-dashboard/);
   assert.match(styles, /\.timing-row/);
@@ -113,6 +120,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.initiative-lanes/);
   assert.match(styles, /\.initiative-metrics/);
   assert.match(styles, /\.repository-menu/);
+  assert.match(styles, /\.studio-flow-track/);
+  assert.match(styles, /\.requirement-layout/);
+  assert.match(styles, /\.impact-graph/);
+  assert.match(styles, /\.welcome-visual/);
   assert.match(preload, /recentRepositories/);
   assert.match(preload, /openRepository/);
   assert.match(preload, /forgetRepository/);

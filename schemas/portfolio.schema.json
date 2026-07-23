@@ -8,6 +8,42 @@
     "version": { "const": 1 },
     "initiativeRoot": { "type": "string" },
     "templatesRoot": { "type": "string" },
+    "jira": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "connection": { "type": "string", "minLength": 1 },
+        "deployment": { "enum": ["cloud", "data-center"] },
+        "allowedHosts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "allowedProjects": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" }, "uniqueItems": true },
+        "authentication": {
+          "type": "object",
+          "properties": {
+            "permitted": { "type": "array", "items": { "enum": ["user-token", "service-account", "pat"] }, "uniqueItems": true },
+            "tokenExpiryWarningDays": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "read": {
+          "type": "object",
+          "properties": {
+            "epics": { "type": "boolean" },
+            "stories": { "type": "boolean" },
+            "attachmentPolicy": { "enum": ["none", "metadata-only"] },
+            "cacheMinutes": { "type": "integer", "minimum": 0, "maximum": 1440 }
+          },
+          "additionalProperties": false
+        },
+        "write": { "type": ["boolean", "object"] },
+        "writeMode": { "enum": ["off", "preview", "approved"] },
+        "writeOperations": { "type": "array", "items": { "enum": ["create-epic", "create-story", "update-owned-fields", "add-comment"] }, "uniqueItems": true },
+        "allowedFields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "projectKey": { "type": "string" },
+        "epicIssueType": { "type": "string" },
+        "storyIssueType": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "repositories": {
       "type": "object",
       "additionalProperties": {

@@ -6,9 +6,29 @@ git:
   remote: origin
   publish: required
 
-# Jira creation is opt-in. Credentials remain environment variables
-# (JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_TOKEN), never repository data.
+# Jira policy is repository configuration; credentials are never repository
+# data. The desktop encrypts them with the operating-system credential store.
+# CLI users may continue to use JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN, or
+# JIRA_BASE_URL/JIRA_PAT for Data Center.
 jira:
+  enabled: false
+  connection: corporate-jira
+  deployment: cloud
+  allowedHosts: []
+  allowedProjects: []
+  authentication:
+    permitted: [user-token, service-account]
+    tokenExpiryWarningDays: 14
+  read:
+    epics: true
+    stories: true
+    attachmentPolicy: metadata-only
+    cacheMinutes: 10
+  writeMode: off
+  writeOperations: [create-epic, create-story, update-owned-fields]
+  allowedFields: [summary, description, parent, labels, components]
+  # Backward-compatible materialization switch. New Jira writes additionally
+  # require writeMode: approved and an exact reviewed write-plan hash.
   write: false
   projectKey: ""
   epicIssueType: Epic

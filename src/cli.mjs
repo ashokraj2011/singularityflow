@@ -45,7 +45,10 @@ import {
 } from './state.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
-import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
+import {
+  discoverJiraConnection, getIssue, getMyPermissions, issueToMarkdown,
+  listEpicStories, listEpics, listFields, listMyIssues, listProjects
+} from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
@@ -94,6 +97,9 @@ import { rejectInitiative } from './initiative-graph.mjs';
 import {
   initiativeBreakdownReview, materializeInitiative, syncInitiativeRepositories
 } from './initiative-repositories.mjs';
+import {
+  adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan, previewJiraAdoption
+} from './jira-initiative.mjs';
 import { interfaceContractStatus, registerInterfaceContract } from './initiative-contracts.mjs';
 import {
   deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
@@ -194,6 +200,11 @@ Usage:
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
   singularity-flow jira list [--project KEY] [--type Story] [--limit 25] [--jql JQL] [--json]
+  singularity-flow jira status
+  singularity-flow jira projects [--query TEXT]
+  singularity-flow jira epics --project KEY
+  singularity-flow jira children EPIC-KEY
+  singularity-flow jira permissions --project KEY
   singularity-flow jira pull <WORK-ID> [--json]
   singularity-flow jira show <WORK-ID> [--json]      Alias for jira pull
   singularity-flow jira fields [--query TEXT] [--json]
@@ -225,6 +236,9 @@ Usage:
   singularity-flow initiative reject <OUTPUT|CHECK|phase> --reason TEXT
   singularity-flow initiative breakdown [--probe] [--json]
   singularity-flow initiative materialize [--dry-run]
+  singularity-flow initiative jira-adopt EPIC-KEY [--repository JIRA-KEY=REPO] [--dry-run]
+  singularity-flow initiative jira-plan
+  singularity-flow initiative jira-apply --plan SHA256
   singularity-flow initiative sync
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
@@ -234,6 +248,9 @@ Optional Jira environment:
   JIRA_BASE_URL=https://company.atlassian.net
   JIRA_EMAIL=user@company.com
   JIRA_API_TOKEN=...
+  # Data Center alternative:
+  JIRA_DEPLOYMENT=data-center
+  JIRA_PAT=...
   SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD=customfield_12345
   SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD=customfield_10016
   SINGULARITY_FLOW_JIRA_SPRINT_FIELD=customfield_10020
@@ -1282,6 +1299,52 @@ async function gateCommand(options) {
 
 async function jiraCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'Jira subcommand');
+  if (subcommand === 'status') {
+    const result = await discoverJiraConnection();
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Connected to ${result.server.serverTitle ?? result.baseUrl} (${result.deployment}).`);
+      console.log(`Account: ${result.account.displayName ?? result.account.accountId}${result.account.email ? ` <${result.account.email}>` : ''}`);
+      console.log(`Visible projects: ${result.projects.length}`);
+    }
+    return;
+  }
+  if (subcommand === 'projects') {
+    const projects = await listProjects({ query: optionString(options, 'query'), limit: optionNumber(options, 'limit', 50) });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(projects, null, 2));
+    else console.log(table(projects, [
+      { key: 'key', label: 'KEY' }, { key: 'name', label: 'PROJECT' }, { key: 'projectType', label: 'TYPE' }
+    ]));
+    return;
+  }
+  if (subcommand === 'epics') {
+    const project = optionString(options, 'project');
+    if (!project) throw new SingularityFlowError('jira epics requires --project KEY.');
+    const issues = await listEpics(project, { issueType: optionString(options, 'type', 'Epic'), limit: optionNumber(options, 'limit', 100) });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(issues, null, 2));
+    else console.log(table(issues, [
+      { key: 'key', label: 'EPIC' }, { key: 'status', label: 'STATUS' }, { key: 'title', label: 'SUMMARY' }, { key: 'updatedAt', label: 'UPDATED' }
+    ]));
+    return;
+  }
+  if (subcommand === 'children') {
+    const issues = await listEpicStories(requirePositional(positionals, 2, 'Jira Epic key'), { limit: optionNumber(options, 'limit', 100) });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(issues, null, 2));
+    else console.log(table(issues, [
+      { key: 'key', label: 'STORY' }, { key: 'status', label: 'STATUS' }, { key: 'issueType', label: 'TYPE' }, { key: 'title', label: 'SUMMARY' }
+    ]));
+    return;
+  }
+  if (subcommand === 'permissions') {
+    const project = optionString(options, 'project');
+    if (!project) throw new SingularityFlowError('jira permissions requires --project KEY.');
+    const permissions = await getMyPermissions(project);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(permissions, null, 2));
+    else console.log(table(Object.entries(permissions).map(([key, value]) => ({ key, allowed: value.havePermission, name: value.name })), [
+      { key: 'key', label: 'PERMISSION' }, { key: 'allowed', label: 'ALLOWED' }, { key: 'name', label: 'NAME' }
+    ]));
+    return;
+  }
   if (subcommand === 'list') {
     const result = await listMyIssues({
       project: optionString(options, 'project'),
@@ -1395,6 +1458,14 @@ async function confirmInitiativeExact(prompt, expected) {
 function initiativeFlowText(progress) {
   const symbols = { approved: '✓', in_progress: '●', awaiting_approval: '◆', stale: '!', not_started: '○' };
   return progress.phases.map((phase) => `[${symbols[phase.status] ?? '?'} ${phase.label}]`).join(' → ');
+}
+
+function repositoryMappings(options) {
+  return Object.fromEntries(optionStrings(options, 'repository').map((entry) => {
+    const separator = entry.indexOf('=');
+    if (separator < 1 || separator === entry.length - 1) throw new SingularityFlowError(`Invalid repository mapping '${entry}'. Use JIRA-KEY=REPOSITORY.`);
+    return [entry.slice(0, separator), entry.slice(separator + 1)];
+  }));
 }
 
 async function initiativeChoicesCommand(root, config, portfolio, positionals, options) {
@@ -1656,6 +1727,65 @@ async function initiativeCommand(positionals, options) {
       console.log(`${review.initiativeId}: ${review.epics} epics, ${review.stories.length} repository stories`);
       console.log(table(review.stories, [{ key: 'id', label: 'STORY' }, { key: 'epicId', label: 'EPIC' }, { key: 'repository', label: 'REPOSITORY' }, { key: 'blocking', label: 'BLOCKING' }]));
     }
+    return;
+  }
+  if (subcommand === 'jira-adopt') {
+    const epicKey = requirePositional(positionals, 2, 'Jira Epic key');
+    const repositoryMap = repositoryMappings(options);
+    if (optionBoolean(options, 'dry-run')) {
+      const preview = await previewJiraAdoption(root, initiativeId, epicKey, { repositoryMap });
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
+      else {
+        console.log(`Jira Epic ${epicKey}: ${preview.draft.epics[0].stories.length} child stories.`);
+        console.log(table(preview.draft.epics[0].stories, [
+          { key: 'id', label: 'WORK ID' }, { key: 'jiraKey', label: 'JIRA ID' },
+          { key: 'repository', label: 'REPOSITORY' }, { key: 'title', label: 'SUMMARY' }
+        ]));
+        if (preview.unresolved.length) console.warn(`Repository mapping required: ${preview.unresolved.map((story) => story.jiraKey).join(', ')}`);
+      }
+      return;
+    }
+    const result = await adoptJiraEpic(root, initiativeId, epicKey, {
+      repositoryMap,
+      replace: optionBoolean(options, 'replace'),
+      actor: identity(root).email?.toLowerCase() ?? identity(root).name
+    });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
+    console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    return;
+  }
+  if (subcommand === 'jira-plan') {
+    const result = await createJiraWritePlan(root, initiativeId);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
+    else {
+      console.log(`Jira write plan ${result.plan.sha256} contains ${result.plan.operations.length} operations.`);
+      console.log(table(result.plan.operations.map((operation) => ({
+        id: operation.id,
+        action: operation.action,
+        target: operation.subject.jiraKey ?? operation.subject.id,
+        fields: Object.keys(operation.fields ?? operation.issue ?? {}).join(', ')
+      })), [
+        { key: 'id', label: 'OPERATION' }, { key: 'action', label: 'ACTION' },
+        { key: 'target', label: 'TARGET' }, { key: 'fields', label: 'FIELDS' }
+      ]));
+      console.log(`Committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}. Review the plan before applying it.`);
+    }
+    return;
+  }
+  if (subcommand === 'jira-apply') {
+    const planSha256 = optionString(options, 'plan');
+    if (!planSha256) throw new SingularityFlowError('jira-apply requires --plan with the exact reviewed write-plan SHA-256.');
+    if (!(await confirmInitiativeExact(`Apply reviewed Jira plan ${planSha256} for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Jira apply cancelled.');
+    const result = await applyJiraWritePlan(root, initiativeId, {
+      planSha256,
+      confirmation: initiativeId,
+      actor: identity(root).email?.toLowerCase() ?? identity(root).name
+    });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    console.log(`Applied ${result.results.length} Jira operations. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
   }
   if (subcommand === 'materialize') {

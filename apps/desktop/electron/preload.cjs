@@ -27,6 +27,17 @@ contextBridge.exposeInMainWorld('singularity', {
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
+  jiraStatus: (repository) => ipcRenderer.invoke('jira:status', { repository }),
+  connectJira: (repository, connection) => ipcRenderer.invoke('jira:connect', { repository, connection }),
+  disconnectJira: (repository, name) => ipcRenderer.invoke('jira:disconnect', { repository, name }),
+  jiraProjects: (repository, query = '', refresh = false) => ipcRenderer.invoke('jira:projects', { repository, query, refresh }),
+  jiraEpics: (repository, projectKey, refresh = false) => ipcRenderer.invoke('jira:epics', { repository, projectKey, refresh }),
+  jiraChildren: (repository, epicKey, refresh = false) => ipcRenderer.invoke('jira:children', { repository, epicKey, refresh }),
+  previewJiraAdoption: (repository, initiativeId, epicKey, repositoryMap = {}) => ipcRenderer.invoke('jira:adopt-preview', { repository, initiativeId, epicKey, repositoryMap }),
+  adoptJiraEpic: (repository, initiativeId, epicKey, repositoryMap = {}, replace = false) => ipcRenderer.invoke('jira:adopt', { repository, initiativeId, epicKey, repositoryMap, replace }),
+  createJiraWritePlan: (repository, initiativeId) => ipcRenderer.invoke('jira:write-plan', { repository, initiativeId }),
+  applyJiraWritePlan: (repository, initiativeId, planSha256, confirmation) => ipcRenderer.invoke('jira:apply', { repository, initiativeId, planSha256, confirmation }),
+  openJira: (repository, url) => ipcRenderer.invoke('jira:open', { repository, url }),
   onPlanningEvent: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('planning:event', handler);

@@ -295,6 +295,75 @@ export async function listFields({
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export async function searchIssues(jql, {
+  fields = ['summary', 'status', 'issuetype', 'parent', 'labels'],
+  limit = 50,
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (!String(jql ?? '').trim()) throw new SingularityFlowError('Jira search requires JQL.');
+  const { payload, credentials } = await request('/rest/api/3/search/jql', {
+    method: 'POST',
+    body: { jql: String(jql), fields, maxResults: Math.max(1, Math.min(Number(limit) || 50, 100)) },
+    env,
+    fetchImpl
+  });
+  return (payload?.issues ?? []).map((issue) => normalizeIssue(issue, { baseUrl: credentials.baseUrl }));
+}
+
+function adfParagraph(text) {
+  return {
+    type: 'doc',
+    version: 1,
+    content: String(text ?? '').split(/\r?\n/).filter(Boolean).map((lineValue) => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text: lineValue }]
+    }))
+  };
+}
+
+export async function createIssue({
+  projectKey,
+  issueType,
+  summary,
+  description,
+  parentKey = null,
+  labels = [],
+  fields = {}
+} = {}, {
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (!projectKey || !issueType || !summary) throw new SingularityFlowError('Jira issue creation requires projectKey, issueType, and summary.');
+  const body = {
+    fields: {
+      project: { key: projectKey },
+      issuetype: { name: issueType },
+      summary,
+      description: adfParagraph(description),
+      labels: [...new Set(labels)],
+      ...(parentKey ? { parent: { key: parentKey } } : {}),
+      ...fields
+    }
+  };
+  const { payload, credentials } = await request('/rest/api/3/issue', { method: 'POST', body, env, fetchImpl });
+  return {
+    id: payload?.id ?? null,
+    key: payload?.key ?? null,
+    url: payload?.key ? `${credentials.baseUrl}/browse/${payload.key}` : null
+  };
+}
+
+export async function findOrCreateIssue({
+  idempotencyLabel,
+  ...issue
+} = {}, options = {}) {
+  if (!idempotencyLabel || !/^[A-Za-z0-9_-]+$/.test(idempotencyLabel)) throw new SingularityFlowError('Jira idempotencyLabel must contain letters, numbers, underscores, or hyphens.');
+  const existing = await searchIssues(`labels = ${JSON.stringify(idempotencyLabel)} ORDER BY created ASC`, { ...options, limit: 2 });
+  if (existing.length) return { id: existing[0].id, key: existing[0].key, url: existing[0].url, created: false };
+  return { ...await createIssue({ ...issue, labels: [...(issue.labels ?? []), idempotencyLabel] }, options), created: true };
+}
+
 function line(label, value) {
   if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return null;
   return `- ${label}: ${Array.isArray(value) ? value.join(', ') : value}`;

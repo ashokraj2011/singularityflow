@@ -37,7 +37,7 @@ test('desktop imports the canonical help manual and exposes searchable help navi
   const app = await readFile(path.join(root, 'apps/desktop/src/App.jsx'), 'utf8');
   const desktopPackage = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'));
   assert.match(app, /import helpMarkdown from '\.\.\/\.\.\/\.\.\/HELP\.md\?raw'/);
-  assert.match(app, /\['help', 'Help'/);
+  assert.match(app, /\['help', 'Help & guides'/);
   assert.match(app, /placeholder="Search help…"/);
   assert.match(app, /page === 'help'/);
   assert.match(app, />Open help</);

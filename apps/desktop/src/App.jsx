@@ -32,34 +32,68 @@ import {
 
 const navSections = [
   {
-    label: 'Workspace',
+    label: 'Delivery',
     items: [
-      ['dashboard', 'Overview', '⌁'],
-      ['studio', 'Artifact Studio', '◫'],
-      ['documents', 'Requirements', '▤'],
-      ['planning', 'Planning Copilot', '✦'],
-      ['impact', 'Impact analysis', '⌬'],
-      ['inbox', 'Approval inbox', '✓']
+      ['dashboard', 'Overview'],
+      ['documents', 'Requirements'],
+      ['planning', 'Planning Copilot'],
+      ['studio', 'Artifact Studio'],
+      ['impact', 'Impact analysis'],
+      ['initiatives', 'Initiatives']
     ]
   },
   {
-    label: 'Governance',
+    label: 'Decisions',
     items: [
-      ['initiatives', 'Initiatives', '◈'],
-      ['workflow', 'Workflow designer', '◇'],
-      ['templates', 'Artifact designer', '▱'],
-      ['personas', 'Personas & approvals', '◎'],
-      ['resources', 'Prompts & skills', '✧'],
-      ['agents', 'Remote agents', '⎔'],
-      ['world-model', 'Repository model', '◉'],
-      ['review', 'Review bundle', '○']
+      ['inbox', 'Approval inbox'],
+      ['review', 'Review bundle']
     ]
   },
   {
-    label: 'Support',
-    items: [['help', 'Help', '?']]
+    label: 'Studio',
+    items: [
+      ['workflow', 'Workflow designer'],
+      ['templates', 'Artifact designer'],
+      ['personas', 'Personas & approvals'],
+      ['resources', 'Prompts & skills'],
+      ['world-model', 'Repository model'],
+      ['agents', 'Remote agents']
+    ]
+  },
+  {
+    label: 'Learn',
+    items: [['help', 'Help & guides']]
   }
 ];
+
+const navIconPaths = {
+  dashboard: ['M4 4h6v6H4z M14 4h6v4h-6z M14 12h6v8h-6z M4 14h6v6H4z'],
+  documents: ['M6 3h8l4 4v14H6z M14 3v5h5 M9 12h6 M9 16h6'],
+  planning: ['M12 3l1.2 4.1L17 8.3l-3.8 1.2L12 14l-1.2-4.5L7 8.3l3.8-1.2z M18.5 15l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z'],
+  studio: ['M12 3l9 5-9 5-9-5z M5 12l7 4 7-4 M5 16l7 4 7-4'],
+  impact: ['M12 5v5 M7 19H4v-4 M17 19h3v-4 M4 15l6-4 M20 15l-6-4 M9 3h6v4H9z M2 19h4v3H2z M18 19h4v3h-4z'],
+  initiatives: ['M5 4h6v5H5z M13 15h6v5h-6z M8 9v3h8v3 M16 9v3'],
+  inbox: ['M4 5h16v14H4z M4 14h5l2 2h2l2-2h5'],
+  review: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12l2.5 2.5L16 9'],
+  workflow: ['M5 4h5v4H5z M14 16h5v4h-5z M14 4h5v4h-5z M10 6h4 M8 8v10h6'],
+  templates: ['M5 3h14v18H5z M9 7h6 M9 11h6 M9 15h4'],
+  personas: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M3 21v-2a6 6 0 0 1 12 0v2 M17 11a3 3 0 0 0 0-6 M18 21v-2a5 5 0 0 0-2-4'],
+  resources: ['M5 4h14v16H5z M8 9l2 2-2 2 M12 15h4'],
+  'world-model': ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18'],
+  agents: ['M7 8h10a3 3 0 0 1 3 3v7H4v-7a3 3 0 0 1 3-3z M9 13h.01 M15 13h.01 M9 17h6 M12 3v5 M9 3h6'],
+  help: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9.7 9a2.5 2.5 0 1 1 3.2 2.4c-.9.4-.9 1-.9 1.6 M12 17h.01'],
+  collapse: ['M14 5l-7 7 7 7 M20 5v14'],
+  expand: ['M10 5l7 7-7 7 M4 5v14'],
+  refresh: ['M20 7v5h-5 M4 17v-5h5 M6.1 8A7 7 0 0 1 18 6l2 6 M17.9 16A7 7 0 0 1 6 18l-2-6'],
+  download: ['M12 3v12 M7 10l5 5 5-5 M5 21h14'],
+  validate: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12l2.5 2.5L16 9'],
+  publish: ['M4 20h16 M12 4v12 M7 9l5-5 5 5']
+};
+
+function NavIcon({ name }) {
+  const paths = navIconPaths[name] ?? navIconPaths.dashboard;
+  return <svg className="nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths.map((item) => <path d={item} key={item} />)}</svg>;
+}
 
 const sequenceGates = [
   ['completion', 'Completed workflow'],
@@ -873,7 +907,7 @@ function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWor
   const inactivePhases = Object.keys(draft.phases).filter((id) => !profile.phases.includes(id));
   const effectiveInputs = (profile.phaseOverrides?.[phaseId]?.inputs ?? phase?.inputs ?? []).map((entry) => typeof entry === 'string' ? entry : entry.phase);
   const defaults = { persona: Object.keys(draft.personas)[0], template: templateNames[0], writeScope: 'artifact-only', minimumBytes: 200 };
-  return <div className="split-page">
+  return <div className="split-page workflow-layout">
     <div className="design-pane"><header className="page-heading"><span className="eyebrow">Visual configuration</span><h1>Workflow designer</h1><p>Inspect phase order, approval authority, rejection paths, and template resolution.</p></header>
       <div className="designer-toolbar"><div className="segmented">{Object.entries(draft.workTypes).map(([id, item]) => <button className={id === workType ? 'active' : ''} key={id} onClick={() => setWorkType(id)}>{item.label}</button>)}</div><div className="row"><button className="secondary compact" onClick={() => openModal('new-workflow', { id: '', label: '' })}>＋ Workflow</button><button className="ghost compact" disabled={Object.keys(draft.workTypes).length === 1} onClick={() => openModal('delete-workflow')}>Delete</button></div></div>
       <section className="profile-card"><label><span>Workflow name</span><input value={profile.label} onChange={(event) => change((next) => { next.workTypes[workType].label = event.target.value; })} /></label><code>{workType}</code><div className="row"><button className="secondary compact" disabled={!inactivePhases.length} onClick={() => openModal('add-stage', { phaseId: inactivePhases[0] })}>＋ Existing stage</button><button className="primary compact" onClick={() => openModal('new-stage', { ...defaults, id: '', label: '', artifactFile: '', kind: '' })}>＋ New stage</button></div></section>
@@ -1110,6 +1144,7 @@ export default function App() {
   const [standaloneHelp, setStandaloneHelp] = useState(false);
   const [recentRepositories, setRecentRepositories] = useState([]);
   const [repositoryMenu, setRepositoryMenu] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('singularity.sidebar.collapsed') === 'true');
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
 
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
@@ -1127,7 +1162,11 @@ export default function App() {
     document.addEventListener('mousedown', closeOutside); document.addEventListener('keydown', closeEscape);
     return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeEscape); };
   }, [repositoryMenu]);
+  useEffect(() => {
+    window.localStorage.setItem('singularity.sidebar.collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
+  const activeNavigation = useMemo(() => navSections.flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label }))).find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [page]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
@@ -1362,10 +1401,10 @@ export default function App() {
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open a Singularity repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Overview</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Active workflow</span><h3>Requirement to delivery</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
-  return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav>{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
-    <main className="content"><header className="topbar"><div><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
+  return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow workspace</small></div></div><nav aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</em></div></div></aside>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><button className="sidebar-toggle" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed(!sidebarCollapsed)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-actions"><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

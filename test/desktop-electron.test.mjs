@@ -111,6 +111,15 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Open another repository/);
   assert.match(source, /Remove .* from recent repositories/);
   assert.match(source, /The Git-backed/);
+  assert.match(source, /label: 'Delivery'/);
+  assert.match(source, /label: 'Decisions'/);
+  assert.match(source, /label: 'Studio'/);
+  assert.match(source, /label: 'Learn'/);
+  assert.match(source, /Flow workspace/);
+  assert.match(source, /singularity\.sidebar\.collapsed/);
+  assert.match(source, /sidebar-collapsed/);
+  assert.match(source, /className="page-stage"/);
+  assert.match(source, /function NavIcon/);
   assert.match(source, /Artifact Studio/);
   assert.match(source, /Requirement workspace/);
   assert.match(source, /VisualComparisonReview/);
@@ -140,6 +149,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.pinned-media-strip/);
   assert.match(styles, /\.impact-graph/);
   assert.match(styles, /\.welcome-visual/);
+  assert.match(styles, /SF Pro Display/);
+  assert.match(styles, /\.shell\.sidebar-collapsed/);
+  assert.match(styles, /\.workflow-layout > \.design-pane/);
+  assert.match(styles, /@keyframes page-arrive/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(preload, /recentRepositories/);
   assert.match(preload, /openRepository/);
   assert.match(preload, /forgetRepository/);

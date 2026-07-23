@@ -174,6 +174,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /--evergreen-950: #092d20/);
   assert.match(styles, /\.sidebar-edge-toggle/);
   assert.match(styles, /\.shell\.sidebar-collapsed \{ grid-template-columns: 72px/);
+  assert.match(styles, /Operational enterprise workspace/);
+  assert.match(styles, /\.topbar-title/);
+  assert.match(source, /className="topbar-title"/);
+  assert.match(styles, /\.sidebar \{[\s\S]*background: #fff/);
+  assert.match(styles, /\.workspace-command,[\s\S]*border: 1\.5px solid #65b783/);
   assert.doesNotMatch(styles, /#712ae2/i);
   assert.match(styles, /\.shell\.sidebar-collapsed/);
   assert.match(styles, /\.workflow-layout > \.design-pane/);

@@ -95,6 +95,27 @@ The configured default branch is only the starting baseline for a new initiative
 
 Use `singularity-flow initiative materialize --dry-run` before creating story branches. The real operation requires exact initiative-ID confirmation. Story seeds recommend a work type and pin approved initiative inputs/contracts without bypassing the contributor’s interactive work-type and persona selection.
 
+## Copilot Planning Studio
+
+Open **Planning Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
+
+Choose the current phase output, a persona, and the decision objective. **Build governed context** deterministically composes the phase contract, persona prompt, repository world model, active remote-agent skills, approved inputs, source requirement, current draft, and exact promotion target. It records source and prompt hashes in a private pack below `.git/singularity-flow/planning/` without changing Git state. Inspect the complete prompt before selecting **Start Copilot Plan mode**.
+
+Use follow-up turns to compare alternatives, expose assumptions, refine acceptance criteria, create cross-repository story boundaries, define interface contracts, or improve delivery sequencing. The planning lens changes for discovery, design, product gate, inception, elaboration/specification, construction, and delivery/conformance work while the profile's configured phase contract remains authoritative.
+
+Copilot conversation remains transient. Review and edit the complete proposed artifact in the adjacent panel. **Promote, commit & push** rechecks the branch HEAD, current phase, immutable target, input readiness, and target format; it then preserves managed metadata, stores the exact prompt/artifact/manifest audit bundle, and publishes one planning commit. It does not submit, approve, materialize stories, merge, or advance the phase.
+
+Configure it in `singularity/workflow.yml`:
+
+```yaml
+planning:
+  enabled: true
+  promptSource: singularity/prompts/copilot-planning.md
+  maxContextBytes: 1048576
+```
+
+The prompt is editable in **Prompts & skills**. The context limit may be 16 KiB through 10 MiB. Tool permission requests are rejected, renderer sandboxing remains enabled, and a plan file is read only when it remains inside the open repository. ACP model/token usage is displayed only when Copilot supplies exact values. See `PLANNING-STUDIO.md` for the complete architecture and walkthrough.
+
 Flow Studio’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.

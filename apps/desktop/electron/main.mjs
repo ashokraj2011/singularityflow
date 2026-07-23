@@ -5,10 +5,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
 import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
+import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
+const planningPacks = new Map();
+const planningBridges = new Map();
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
 
@@ -165,6 +168,88 @@ function registerHandlers() {
   });
   ipcMain.handle('configuration:publish', (_event, { repository, message }) => invokeCli(assertRepository(repository), ['desktop', 'publish', '--message', message || 'Configure Singularity Flow workflow', '--json']));
   ipcMain.handle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
+  ipcMain.handle('planning:preflight', (_event, { repository }) => {
+    assertRepository(repository);
+    return copilotPlanningPreflight();
+  });
+  ipcMain.handle('planning:context', async (_event, {
+    repository, scope, id, phase, persona, target, objective
+  }) => {
+    const root = assertRepository(repository);
+    const result = await invokeCli(root, [
+      'desktop', 'planning-context',
+      '--scope', scope,
+      '--id', id,
+      '--phase', phase,
+      '--persona', persona,
+      '--target', target,
+      ...(objective?.trim() ? ['--objective', objective.trim()] : []),
+      '--json'
+    ], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    planningPacks.set(result.sessionId, {
+      repository: root,
+      contextPath: result.contextPath,
+      manifestPath: result.manifestPath
+    });
+    return result;
+  });
+  ipcMain.handle('planning:start', async (event, { repository, planningSessionId, model }) => {
+    const root = assertRepository(repository);
+    const pack = planningPacks.get(planningSessionId);
+    if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
+    const existing = planningBridges.get(planningSessionId);
+    if (existing) await existing.stop();
+    const bridge = new CopilotPlanningBridge({
+      repository: root,
+      emit: (update) => {
+        if (!event.sender.isDestroyed()) event.sender.send('planning:event', { planningSessionId, ...update });
+      }
+    });
+    planningBridges.set(planningSessionId, bridge);
+    try {
+      const result = await bridge.start({
+        model: model?.trim() || null,
+        prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
+      });
+      return { ...result, planningSessionId };
+    } catch (error) {
+      planningBridges.delete(planningSessionId);
+      await bridge.stop();
+      throw error;
+    }
+  });
+  ipcMain.handle('planning:prompt', (_event, { repository, planningSessionId, text }) => {
+    assertRepository(repository);
+    const bridge = planningBridges.get(planningSessionId);
+    if (!bridge) throw new Error('Copilot planning session is not active.');
+    void bridge.prompt(text).catch(() => {});
+    return { accepted: true };
+  });
+  ipcMain.handle('planning:stop', async (_event, { repository, planningSessionId }) => {
+    assertRepository(repository);
+    const bridge = planningBridges.get(planningSessionId);
+    if (!bridge) return { stopped: false };
+    planningBridges.delete(planningSessionId);
+    return bridge.stop();
+  });
+  ipcMain.handle('planning:promote', async (_event, { repository, planningSessionId, persona, content }) => {
+    const root = assertRepository(repository);
+    const pack = planningPacks.get(planningSessionId);
+    if (!pack || pack.repository !== root) throw new Error('Planning context is not available for promotion.');
+    const result = await invokeCli(root, [
+      'desktop', 'planning-promote',
+      '--session', planningSessionId,
+      ...(persona ? ['--persona', persona] : []),
+      '--json'
+    ], { input: content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    const bridge = planningBridges.get(planningSessionId);
+    if (bridge) {
+      planningBridges.delete(planningSessionId);
+      await bridge.stop();
+    }
+    planningPacks.delete(planningSessionId);
+    return result;
+  });
   ipcMain.handle('documents:upload', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Add supporting documents' });
@@ -223,5 +308,10 @@ app.whenReady().then(() => {
   registerHandlers();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+app.on('before-quit', () => {
+  for (const bridge of planningBridges.values()) void bridge.stop();
+  planningBridges.clear();
+  planningPacks.clear();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

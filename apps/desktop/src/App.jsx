@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import YAML from 'yaml';
 import helpMarkdown from '../../../HELP.md?raw';
@@ -22,6 +22,7 @@ import {
 const nav = [
   ['dashboard', 'Overview', '⌁'],
   ['initiatives', 'Initiatives', '◈'],
+  ['planning', 'Planning Studio', '✧'],
   ['inbox', 'Approval inbox', '◫'],
   ['workflow', 'Workflow', '◇'],
   ['personas', 'Personas & approvals', '◎'],
@@ -219,6 +220,249 @@ function ApprovalInbox({ data, busy, refresh, attach }) {
     <header className="page-heading row-between"><div><span className="eyebrow">Remote reviewer queue</span><h1>Pending approvals</h1><p>Committed work-item branches awaiting a governed decision, ordered by waiting time.</p></div><button className="secondary" onClick={refresh} disabled={busy}>↻ Fetch remote inbox</button></header>
     <div className="metrics inbox-metrics"><div className="metric"><span>Awaiting review</span><strong>{items.length}</strong><small>committed phases</small></div><div className="metric"><span>Remote</span><strong>{inbox?.remote ?? 'origin'}</strong><small>{inbox?.fetched ? 'freshly fetched' : 'fetch required'}</small></div><div className="metric"><span>Oldest wait</span><strong>{items[0]?.waiting ?? '—'}</strong><small>{items[0]?.id ?? 'nothing pending'}</small></div></div>
     {!items.length ? <Empty title="Inbox clear" detail="No committed remote work-item phase is awaiting approval. Fetch the remote inbox to check for new submissions." /> : <section className="panel inbox-panel"><div className="inbox-header"><span>Work item</span><span>Phase</span><span>Approvals</span><span>Waiting</span><span>Review personas</span><span /></div>{items.map((item) => <div className="inbox-row" key={`${item.id}:${item.phase}:${item.commit}`}><div><StatusDot status={item.status} /><span><strong>{item.id} — {item.title}</strong><small>{item.artifact ?? 'No required artifact'} · {item.commit?.slice(0, 8)}</small></span></div><span>{item.phaseLabel}<small>generation {item.generation}</small></span><span>{item.approvalsReceived}/{item.approvalsRequired}{item.selfApprovalWarning && <small className="warning-copy">self-approval</small>}</span><span>{item.waiting}</span><span>{item.reviewerPersonas.join(', ') || 'Any configured persona'}</span><button className="secondary compact" onClick={() => attach(item.id)} disabled={busy}>Open review</button></div>)}</section>}
+  </div>;
+}
+
+function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
+  const groups = data.planning?.targets ?? [];
+  const defaultGroup = groups.find((item) => item.scope === 'initiative') ?? groups[0] ?? null;
+  const [groupKey, setGroupKey] = useState(defaultGroup ? `${defaultGroup.scope}:${defaultGroup.id}` : '');
+  const [phaseId, setPhaseId] = useState(defaultGroup?.currentPhase ?? '');
+  const initialPhase = defaultGroup?.phases.find((phase) => phase.id === defaultGroup.currentPhase);
+  const [targetId, setTargetId] = useState(initialPhase?.targets[0]?.id ?? '');
+  const [persona, setPersona] = useState(data.session?.persona && data.definition.personas[data.session.persona] ? data.session.persona : Object.keys(data.definition.personas)[0]);
+  const [objective, setObjective] = useState('');
+  const [model, setModel] = useState('');
+  const [preflight, setPreflight] = useState(null);
+  const [contextPack, setContextPack] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [plan, setPlan] = useState('');
+  const [followup, setFollowup] = useState('');
+  const [running, setRunning] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
+  const [usage, setUsage] = useState(null);
+  const [activity, setActivity] = useState('Build a governed context pack to begin.');
+  const transcriptRef = useRef('');
+  const planRef = useRef('');
+  const group = groups.find((item) => `${item.scope}:${item.id}` === groupKey) ?? defaultGroup;
+  const phase = group?.phases.find((item) => item.id === phaseId) ?? group?.phases.find((item) => item.current) ?? null;
+  const target = phase?.targets.find((item) => item.id === targetId) ?? phase?.targets[0] ?? null;
+  const currentReady = Boolean(group && phase?.current && phase.status === 'in_progress' && target);
+
+  useEffect(() => {
+    let active = true;
+    window.singularity.planningPreflight(data.repository.root)
+      .then((result) => { if (active) setPreflight(result); })
+      .catch((error) => { if (active) setPreflight({ ready: false, message: error.message }); });
+    return () => { active = false; };
+  }, [data.repository.root]);
+
+  useEffect(() => {
+    const available = data.planning?.targets ?? [];
+    const selected = available.find((item) => `${item.scope}:${item.id}` === groupKey)
+      ?? available.find((item) => item.scope === 'initiative')
+      ?? available[0];
+    if (!selected) return;
+    if (`${selected.scope}:${selected.id}` !== groupKey) setGroupKey(`${selected.scope}:${selected.id}`);
+    const selectedPhase = selected.phases.find((item) => item.id === selected.currentPhase) ?? selected.phases[0];
+    setPhaseId(selectedPhase?.id ?? '');
+    setTargetId(selectedPhase?.targets[0]?.id ?? '');
+    setContextPack(null);
+    setStarted(false);
+  }, [data.selectedWorkId, data.selectedInitiativeId]);
+
+  useEffect(() => {
+    if (!window.singularity.onPlanningEvent) return undefined;
+    return window.singularity.onPlanningEvent((event) => {
+      if (!contextPack || event.planningSessionId !== contextPack.sessionId) return;
+      if (event.type === 'ready') {
+        setStarted(true);
+        setRunning(true);
+        setActivity(`Copilot ${event.version ?? ''} connected in native Plan mode.`);
+      } else if (event.type === 'turn-started') {
+        setRunning(true);
+        setActivity('Copilot is inspecting governed phase context…');
+      } else if (event.type === 'agent_message_chunk' && event.text) {
+        transcriptRef.current += event.text;
+        setMessages((current) => {
+          const last = current.at(-1);
+          if (last?.role === 'assistant' && last.id === (event.messageId ?? 'assistant')) {
+            return [...current.slice(0, -1), { ...last, text: `${last.text}${event.text}` }];
+          }
+          return [...current, { role: 'assistant', id: event.messageId ?? `assistant-${current.length}`, text: event.text }];
+        });
+      } else if (event.type === 'user_message_chunk' && event.text) {
+        setMessages((current) => [...current, { role: 'user', id: event.messageId ?? `user-${current.length}`, text: event.text }]);
+      } else if ((event.type === 'plan' || event.type === 'plan_update') && event.plan) {
+        planRef.current = event.plan;
+        setPlan(event.plan);
+        setActivity('Copilot produced a structured plan. Review and refine it before promotion.');
+      } else if (event.type === 'plan_removed') {
+        planRef.current = '';
+        setPlan('');
+        setReviewed(false);
+        setActivity('Copilot withdrew its structured plan; continue the conversation to produce a replacement.');
+      } else if (event.type === 'tool_call') {
+        setActivity(`${event.title} · ${event.status}`);
+      } else if (event.type === 'permission-denied') {
+        setActivity(`${event.title} was blocked by Planning Studio read-only policy.`);
+      } else if (event.type === 'usage_update') {
+        setUsage((current) => ({
+          ...(current ?? {}),
+          contextTokens: event.usage?.used ?? null,
+          contextWindow: event.usage?.size ?? null,
+          cost: event.usage?.cost ?? current?.cost ?? null
+        }));
+      } else if (event.type === 'turn-complete') {
+        setRunning(false);
+        setUsage((current) => ({ ...(current ?? {}), ...(event.usage ?? {}) }));
+        if (!planRef.current.trim() && transcriptRef.current.trim()) {
+          planRef.current = transcriptRef.current.trim();
+          setPlan(planRef.current);
+        }
+        setActivity(`Planning turn completed: ${event.stopReason}.`);
+      } else if (event.type === 'error') {
+        setRunning(false);
+        setActivity(`Copilot error: ${event.message}`);
+      } else if (event.type === 'process-exit' && started) {
+        setRunning(false);
+        setStarted(false);
+      }
+    });
+  }, [contextPack?.sessionId, started]);
+
+  function resetSession() {
+    setContextPack(null);
+    setMessages([]);
+    setPlan('');
+    planRef.current = '';
+    transcriptRef.current = '';
+    setStarted(false);
+    setRunning(false);
+    setReviewed(false);
+    setUsage(null);
+  }
+
+  function selectGroup(value) {
+    const selected = groups.find((item) => `${item.scope}:${item.id}` === value);
+    setGroupKey(value);
+    const selectedPhase = selected?.phases.find((item) => item.current) ?? selected?.phases[0];
+    setPhaseId(selectedPhase?.id ?? '');
+    setTargetId(selectedPhase?.targets[0]?.id ?? '');
+    resetSession();
+  }
+
+  function selectPhase(value) {
+    setPhaseId(value);
+    const selected = group?.phases.find((item) => item.id === value);
+    setTargetId(selected?.targets[0]?.id ?? '');
+    resetSession();
+  }
+
+  async function buildContext() {
+    const result = await action(() => window.singularity.buildPlanningContext(data.repository.root, {
+      scope: group.scope,
+      id: group.id,
+      phase: phase.id,
+      persona,
+      target: target.id,
+      objective
+    }), 'Governed planning context built');
+    if (!result) return;
+    setContextPack(result);
+    setMessages([]);
+    setPlan('');
+    planRef.current = '';
+    transcriptRef.current = '';
+    setReviewed(false);
+    setActivity(`${result.manifest.sources.length} hashed sources ready for Copilot.`);
+  }
+
+  async function startCopilot() {
+    setRunning(true);
+    const result = await action(() => window.singularity.startPlanningSession(data.repository.root, contextPack.sessionId, model), 'Copilot Plan mode connected');
+    if (!result) setRunning(false);
+  }
+
+  async function sendFollowup() {
+    const text = followup.trim();
+    if (!text) return;
+    setMessages((current) => [...current, { role: 'user', id: `followup-${Date.now()}`, text }]);
+    transcriptRef.current = '';
+    setFollowup('');
+    setRunning(true);
+    const result = await action(() => window.singularity.promptPlanningSession(data.repository.root, contextPack.sessionId, text));
+    if (!result) setRunning(false);
+  }
+
+  async function stopCopilot() {
+    await action(() => window.singularity.stopPlanningSession(data.repository.root, contextPack.sessionId), 'Copilot planning session stopped');
+    setRunning(false);
+    setStarted(false);
+  }
+
+  async function promote() {
+    const result = await action(
+      () => window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan),
+      `Reviewed plan promoted to ${target.path}, committed, and pushed`
+    );
+    if (!result) return;
+    setReviewed(false);
+    await reload(data.selectedWorkId, data.selectedInitiativeId);
+  }
+
+  if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Planning Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
+  return <div className="page planning-page">
+    <header className="page-heading planning-heading"><div><span className="eyebrow">Copilot-native decision workspace</span><h1>Planning Studio</h1><p>Move from business intent to a reviewable, phase-specific plan without allowing the planning session to mutate source or lifecycle state.</p></div><div className="row"><Pill tone={preflight?.ready ? 'good' : 'warn'}>{preflight?.ready ? 'Copilot Plan mode ready' : 'Copilot setup needed'}</Pill><button className="secondary" onClick={openPlanningPrompt}>Edit planning prompt</button></div></header>
+    <section className="planning-safety">
+      <span>◈</span><div><strong>Read-only reasoning; explicit Git-backed promotion</strong><p>Copilot receives the selected phase context through ACP in native Plan mode. The chat stays local. Only the reviewed artifact you promote is written, audited, committed, and pushed.</p></div>
+    </section>
+    <div className="planning-layout">
+      <aside className="planning-controls">
+        <section className="panel">
+          <header className="panel-heading"><div><span className="eyebrow">1 · Frame</span><h2>Planning target</h2></div></header>
+          <div className="planning-form">
+            <label><span>Work</span><select disabled={started || running} value={groupKey} onChange={(event) => selectGroup(event.target.value)}>{groups.map((item) => <option key={`${item.scope}:${item.id}`} value={`${item.scope}:${item.id}`}>{item.scope === 'initiative' ? 'Initiative' : 'Story'} · {item.id}</option>)}</select></label>
+            <label><span>Phase</span><select disabled={started || running} value={phase?.id ?? ''} onChange={(event) => selectPhase(event.target.value)}>{group.phases.map((item) => <option key={item.id} value={item.id}>{item.current ? '● ' : item.status === 'approved' ? '✓ ' : '○ '}{item.label} · {item.status.replaceAll('_', ' ')}</option>)}</select></label>
+            <label><span>Promotion target</span><select disabled={started || running} value={target?.id ?? ''} onChange={(event) => { setTargetId(event.target.value); resetSession(); }}>{phase?.targets.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.kind}</option>)}</select></label>
+            <label><span>Persona for this plan</span><select disabled={started || running} value={persona} onChange={(event) => { setPersona(event.target.value); resetSession(); }}>{Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label} · {id}</option>)}</select></label>
+            <label><span>Planning objective</span><textarea disabled={started || running} rows="4" value={objective} onChange={(event) => { setObjective(event.target.value); setContextPack(null); }} placeholder={`What decision must ${phase?.label ?? 'this phase'} make?`} /></label>
+            <label><span>Copilot model <em>optional</em></span><input disabled={started || running} value={model} onChange={(event) => setModel(event.target.value)} placeholder="auto" /></label>
+            {!phase?.current && <div className="planning-blocker"><strong>Sequence protected</strong><span>The active phase is {group.currentPhase}. Future and approved phases are visible for orientation but cannot start a new plan.</span></div>}
+            {phase?.current && phase.status !== 'in_progress' && <div className="planning-blocker"><strong>Phase is {phase.status.replaceAll('_', ' ')}</strong><span>Planning requires an in-progress phase. Complete its current lifecycle action first.</span></div>}
+            <button className="primary full" disabled={!currentReady || !preflight?.ready || running} onClick={buildContext}>{contextPack ? 'Rebuild governed context' : 'Build governed context'}</button>
+          </div>
+        </section>
+        <section className="panel planning-phase-map"><header className="panel-heading"><div><span className="eyebrow">Phase map</span><h2>{group.title}</h2></div></header>{group.phases.map((item, index) => <button disabled={started || running} key={item.id} className={`${item.id === phase?.id ? 'active' : ''} ${item.current ? 'current' : ''}`} onClick={() => selectPhase(item.id)}><span>{item.status === 'approved' ? '✓' : item.current ? '●' : index + 1}</span><div><strong>{item.label}</strong><small>{item.targets.length} promotable output{item.targets.length === 1 ? '' : 's'}</small></div></button>)}</section>
+      </aside>
+      <main className="planning-workbench">
+        <section className="panel planning-context">
+          <header className="panel-heading"><div><span className="eyebrow">2 · Ground</span><h2>Context manifest</h2></div>{contextPack ? <Pill tone={contextPack.warnings.length ? 'warn' : 'good'}>{contextPack.manifest.sources.length} hashed sources</Pill> : <Pill>not built</Pill>}</header>
+          {!contextPack ? <div className="inline-empty">Choose the current phase, persona, output, and objective, then build the context. No content is sent to Copilot before this step.</div> : <>
+            <div className="context-kpis"><div><span>Repository head</span><strong>{contextPack.manifest.repository.head.slice(0, 10)}</strong></div><div><span>Context</span><strong>{Math.ceil(contextPack.manifest.context.bytes / 1024)} KB</strong></div><div><span>Generation</span><strong>{contextPack.manifest.generation}</strong></div><div><span>Target</span><strong>{contextPack.target.kind}</strong></div></div>
+            {!!contextPack.warnings.length && <div className="planning-warning">{contextPack.warnings.map((warning) => <span key={warning}>⚠ {warning}</span>)}</div>}
+            <div className="context-source-list">{contextPack.manifest.sources.map((source, index) => <div key={`${source.kind}:${source.path}:${index}`}><span>{source.kind.replaceAll('-', ' ')}</span><strong title={source.path}>{source.path}</strong><code>{source.sha256?.slice(0, 12) ?? 'unavailable'}</code></div>)}</div>
+            <details><summary>Inspect complete prompt sent to Copilot</summary><pre>{contextPack.context}</pre></details>
+            <div className="planning-context-actions"><span>{contextPack.target.label} → <code>{contextPack.target.path}</code></span><button className="primary" disabled={running || started} onClick={startCopilot}>Start Copilot Plan mode</button></div>
+          </>}
+        </section>
+        <div className="planning-dual">
+          <section className="panel planning-chat">
+            <header className="panel-heading"><div><span className="eyebrow">3 · Explore</span><h2>Copilot conversation</h2></div><Pill tone={running ? 'accent' : started ? 'good' : 'neutral'}>{running ? 'thinking' : started ? 'connected' : 'local'}</Pill></header>
+            <div className="planning-activity">{activity}</div>
+            <div className="planning-messages">{messages.length ? messages.map((message, index) => <div className={message.role} key={`${message.id}:${index}`}><strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong><pre>{message.text}</pre></div>) : <div className="inline-empty">The phase-aware conversation will appear here. Ask Copilot to challenge assumptions, compare options, or refine the decomposition.</div>}</div>
+            <div className="planning-followup"><textarea rows="3" value={followup} onChange={(event) => setFollowup(event.target.value)} disabled={!started || running} placeholder="Challenge the plan, add a constraint, or ask for another option…" /><div><span>{usage?.totalTokens ? `${usage.totalTokens.toLocaleString()} session tokens` : usage?.contextTokens ? `${usage.contextTokens.toLocaleString()} / ${usage.contextWindow?.toLocaleString() ?? '—'} context tokens` : 'Exact usage appears here when ACP exposes it.'}{usage?.cost?.amount != null ? ` · ${usage.cost.currency ?? 'USD'} ${Number(usage.cost.amount).toFixed(4)}` : ''}</span><div className="row"><button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button><button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send follow-up</button></div></div></div>
+          </section>
+          <section className="panel planning-review">
+            <header className="panel-heading"><div><span className="eyebrow">4 · Govern</span><h2>Reviewed artifact</h2></div><Pill tone={plan.trim() ? 'accent' : 'neutral'}>{target?.kind ?? 'artifact'}</Pill></header>
+            <textarea className="planning-editor" value={plan} onChange={(event) => { setPlan(event.target.value); planRef.current = event.target.value; setReviewed(false); }} placeholder="Copilot's proposed artifact will appear here. Edit it until it is ready to become governed repository state." />
+            <div className="promotion-check"><label><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />I reviewed this complete artifact and want to promote it to <code>{target?.path}</code>.</label><small>Promotion does not submit or approve the phase. It creates and pushes an auditable planning commit; the normal phase gate remains next.</small></div>
+            <button className="primary full" disabled={!contextPack || running || !reviewed || !plan.trim()} onClick={promote}>Promote, commit & push</button>
+          </section>
+        </div>
+      </main>
+    </div>
   </div>;
 }
 
@@ -457,16 +701,20 @@ function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, create
   </div>;
 }
 
-function Resources({ data, editor, setEditor, chooseResource, saveEditor, createSkill, deleteFile, downloadFile, importResource, materializeWorldModelPrompt }) {
+function Resources({ data, editor, setEditor, chooseResource, saveEditor, createSkill, deleteFile, downloadFile, importResource, materializeWorldModelPrompt, materializePlanningPrompt }) {
   const [category, setCategory] = useState(editor.kind === 'skill' ? 'skills' : 'prompts');
   const [modal, setModal] = useState(null);
-  const promptFiles = [...data.personaPrompts, { ...data.worldModelPrompt, name: `world-model/${data.worldModelPrompt.name}`, worldModelBuilder: true }];
+  const promptFiles = [
+    ...data.personaPrompts,
+    { ...data.worldModelPrompt, name: `world-model/${data.worldModelPrompt.name}`, worldModelBuilder: true },
+    { ...data.planning.prompt, name: `planning/${data.planning.prompt.name}`, planningPrompt: true }
+  ];
   const files = category === 'skills' ? data.repositorySkills : promptFiles;
   const current = files.find((file) => file.path === editor.path) ?? files[0];
   useEffect(() => { if (current && editor.path !== current.path) chooseResource(current, category === 'skills' ? 'skill' : 'prompt'); }, [category]);
   async function submitSkill() { const result = await createSkill(modal.id.trim()); if (result) setModal(null); }
-  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Repository Markdown</span><h2>Prompts & skills</h2></div><button className="icon-button" title={category === 'skills' ? 'Create skill' : 'Import prompt'} onClick={() => category === 'skills' ? setModal({ kind: 'skill', id: '', error: null }) : importResource('prompt')}>＋</button></div><div className="segmented resource-tabs"><button className={category === 'prompts' ? 'active' : ''} onClick={() => setCategory('prompts')}>Prompts</button><button className={category === 'skills' ? 'active' : ''} onClick={() => setCategory('skills')}>Skills</button></div></header>{files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => chooseResource(file, category === 'skills' ? 'skill' : 'prompt')}><span>{category === 'skills' ? 'SK' : 'PR'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : category === 'skills' ? 'repository skill' : 'persona prompt'}</small></div></button>)}</aside>
-    <main className="template-main">{current ? <><div className="resource-summary"><div><Pill tone="accent">{current.worldModelBuilder ? 'Builder prompt' : category === 'skills' ? 'Repository skill' : 'Persona prompt'}</Pill><span>{current.worldModelBuilder ? 'Controls repository world-model generation.' : category === 'skills' ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span></div><div className="row"><button className="ghost compact" onClick={() => importResource(current.worldModelBuilder ? 'world-prompt' : category === 'skills' ? 'skill' : 'prompt')}>Import</button>{!current.missing && <button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>}{category === 'skills' && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}{current.worldModelBuilder && current.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}</div></div><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={editor.path === current.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: current.path, content, original: current.content, kind: category === 'skills' ? 'skill' : 'prompt' })} onSave={current.worldModelBuilder && current.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={current.missing ? null : () => downloadFile(current.path)} onImport={() => importResource(current.worldModelBuilder ? 'world-prompt' : category === 'skills' ? 'skill' : 'prompt')} /></> : <Empty title={category === 'skills' ? 'No repository skills yet' : 'No prompts found'} detail={category === 'skills' ? 'Create or import Markdown skills under .github/skills.' : 'Persona and builder prompts live in the repository.'} action={category === 'skills' && <button className="primary" onClick={() => setModal({ kind: 'skill', id: '', error: null })}>Create first skill</button>} />}</main>
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Repository Markdown</span><h2>Prompts & skills</h2></div><button className="icon-button" title={category === 'skills' ? 'Create skill' : 'Import prompt'} onClick={() => category === 'skills' ? setModal({ kind: 'skill', id: '', error: null }) : importResource('prompt')}>＋</button></div><div className="segmented resource-tabs"><button className={category === 'prompts' ? 'active' : ''} onClick={() => setCategory('prompts')}>Prompts</button><button className={category === 'skills' ? 'active' : ''} onClick={() => setCategory('skills')}>Skills</button></div></header>{files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => chooseResource(file, category === 'skills' ? 'skill' : 'prompt')}><span>{category === 'skills' ? 'SK' : 'PR'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.planningPrompt ? 'Copilot planning contract' : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : category === 'skills' ? 'repository skill' : 'persona prompt'}</small></div></button>)}</aside>
+    <main className="template-main">{current ? <><div className="resource-summary"><div><Pill tone="accent">{current.worldModelBuilder ? 'Builder prompt' : current.planningPrompt ? 'Planning contract' : category === 'skills' ? 'Repository skill' : 'Persona prompt'}</Pill><span>{current.worldModelBuilder ? 'Controls repository world-model generation.' : current.planningPrompt ? 'Controls phase-aware Copilot Plan-mode behavior and promotion output.' : category === 'skills' ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span></div><div className="row"><button className="ghost compact" onClick={() => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : category === 'skills' ? 'skill' : 'prompt')}>Import</button>{!current.missing && <button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>}{category === 'skills' && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}{current.worldModelBuilder && current.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}{current.planningPrompt && current.missing && <button className="primary compact" onClick={() => materializePlanningPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}</div></div><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={editor.path === current.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: current.path, content, original: current.content, kind: category === 'skills' ? 'skill' : 'prompt' })} onSave={current.worldModelBuilder && current.missing ? () => materializeWorldModelPrompt(editor.content) : current.planningPrompt && current.missing ? () => materializePlanningPrompt(editor.content) : saveEditor} onDownload={current.missing ? null : () => downloadFile(current.path)} onImport={() => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : category === 'skills' ? 'skill' : 'prompt')} /></> : <Empty title={category === 'skills' ? 'No repository skills yet' : 'No prompts found'} detail={category === 'skills' ? 'Create or import Markdown skills under .github/skills.' : 'Persona, world-model, and planning prompts live in the repository.'} action={category === 'skills' && <button className="primary" onClick={() => setModal({ kind: 'skill', id: '', error: null })}>Create first skill</button>} />}</main>
     {modal?.kind === 'skill' && <DesignerModal title="Create repository skill" detail="The skill is stored as .github/skills/<id>/SKILL.md and is loaded by Copilot for this repository." submitLabel="Create skill" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitSkill}><label><span>Skill ID</span><input autoFocus value={modal.id} placeholder="security-review" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
@@ -578,6 +826,11 @@ export default function App() {
   async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
   function workflowPage() { setPage('workflow'); setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }
   function initiativePage() { setPage('initiatives'); if (data.portfolioText) setEditor({ path: data.portfolioPath, content: data.portfolioText, original: data.portfolioText, kind: 'portfolio' }); }
+  function openPlanningPrompt() {
+    const prompt = data.planning.prompt;
+    setEditor({ path: prompt.path, content: prompt.content, original: prompt.content, kind: 'prompt' });
+    setPage('resources');
+  }
   async function downloadFile(filePath) {
     if (!filePath) return null;
     const result = await action(() => window.singularity.downloadFile(data.repository.root, filePath));
@@ -668,6 +921,8 @@ export default function App() {
       ? { targetDirectory: '.github/skills', kind: 'skill' }
       : kind === 'world-prompt'
         ? { targetPath: data.worldModelPrompt.path, kind: 'prompt' }
+        : kind === 'planner-prompt'
+          ? { targetPath: data.planning.prompt.path, kind: 'prompt' }
         : { targetDirectory: data.definition.personaPromptsRoot, kind: 'prompt' };
     const imported = await importFile(options, `${kind === 'skill' ? 'Repository skill' : 'Prompt'} imported`);
     if (!imported) return null;
@@ -680,7 +935,7 @@ export default function App() {
       if (!configured) return null;
       snapshot = await reload();
     }
-    const files = kind === 'skill' ? snapshot.repositorySkills : [...snapshot.personaPrompts, snapshot.worldModelPrompt];
+    const files = kind === 'skill' ? snapshot.repositorySkills : [...snapshot.personaPrompts, snapshot.worldModelPrompt, snapshot.planning.prompt];
     const file = files.find((item) => item.path === imported.result.path);
     if (file) chooseResource(file, kind === 'skill' ? 'skill' : 'prompt');
     return imported.result;
@@ -720,6 +975,14 @@ export default function App() {
     }
     const snapshot = await reload();
     chooseResource(snapshot.worldModelPrompt, 'prompt');
+    return result;
+  }
+  async function materializePlanningPrompt(content = data.planning.prompt.content) {
+    const prompt = data.planning.prompt;
+    const result = await action(() => window.singularity.saveFile(data.repository.root, prompt.path, content), 'Repository Copilot planning prompt created');
+    if (!result) return null;
+    const snapshot = await reload();
+    chooseResource(snapshot.planning.prompt, 'prompt');
     return result;
   }
   async function addWorldModelViewConfig(viewId) {
@@ -766,7 +1029,7 @@ export default function App() {
   return <div className="shell">
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

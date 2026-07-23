@@ -21,6 +21,7 @@ The package contains:
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with typed evidence, interface contracts, cross-repository milestones, and enterprise phase gates.
+- A phase-aware Planning Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode and promotes only a human-reviewed artifact into Git.
 
 ## Requirements
 
@@ -51,7 +52,8 @@ singularity/
 │   ├── product-owner.md
 │   └── qa.md
 ├── prompts/
-│   └── worldmodel-builder.md
+│   ├── worldmodel-builder.md
+│   └── copilot-planning.md
 └── templates/
     ├── common/
     ├── feature/
@@ -62,6 +64,8 @@ singularity/
 These files are ordinary reviewed repository files and remain fully editable.
 
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
+
+The Electron **Planning Studio** is a governed client for GitHub Copilot CLI's native Plan mode. It combines the selected phase contract, persona, repository world model, approved inputs, remote skills, requirements, and current draft into a hashed local context pack. Copilot can explore alternatives through persistent follow-up turns; only the artifact explicitly reviewed in the right-hand panel can be promoted, committed, and pushed. See [PLANNING-STUDIO.md](PLANNING-STUDIO.md).
 
 The leading dot was intentionally removed: repository-owned configuration, prompts, templates, artifacts, and workflow state now live in the visible `singularity/` folder. Private machine/session data remains under `.git/singularity-flow/` and `~/.singularity-flow/`.
 
@@ -601,6 +605,8 @@ npm run desktop:package:current
 Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are built by the tag-driven GitHub workflow and published first as a supervised draft release; verified output can also be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
 
 Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. Older hidden control folders are detected and can be migrated to visible `singularity/` after an explicit confirmation. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. The initiative page explicitly shows that default branches are starting baselines and that Flow Studio never merges initiative or story branches automatically. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
+
+**Planning Studio** adds an intentional reasoning workspace above those deterministic controls. It exposes every profile phase for orientation, allows planning only on the active in-progress phase, and adapts the prompt to discovery, design, inception, elaboration, construction, delivery, or story-level work. It invokes the locally authenticated `copilot` executable through ACP, explicitly switches the ACP session to native Plan mode, streams conversation and structured plan updates, and rejects permission requests. The context manifest stays private under `.git/singularity-flow/planning/`; a promoted artifact copies its exact context and provenance into the work item or initiative before one commit/push. Promotion never submits, approves, materializes stories, or merges a branch.
 
 Install the personal Copilot plugin with:
 

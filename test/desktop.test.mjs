@@ -80,6 +80,11 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('singularity/prompts/worldmodel-builder.md'));
   assert.equal(snapshot.worldModelPrompt.path, 'singularity/prompts/worldmodel-builder.md');
   assert.equal(snapshot.worldModelPrompt.missing, false);
+  assert.equal(snapshot.planning.enabled, true);
+  assert.equal(snapshot.planning.config.promptSource, 'singularity/prompts/copilot-planning.md');
+  assert.equal(snapshot.planning.prompt.missing, false);
+  assert.match(snapshot.planning.prompt.content, /Stay in Copilot Plan mode/);
+  assert.deepEqual(snapshot.planning.targets, []);
   assert.deepEqual(snapshot.repositorySkills, []);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
@@ -99,6 +104,9 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.report.costCoverage.usageRecords, 0);
   assert.equal(snapshot.telemetry.exists, false);
   assert.ok(snapshot.telemetry.setup.path.endsWith('copilot-otel.sh'));
+  assert.equal(snapshot.planning.targets[0].scope, 'work-item');
+  assert.equal(snapshot.planning.targets[0].currentPhase, 'intake');
+  assert.equal(snapshot.planning.targets[0].phases[0].targets[0].id, 'artifact');
 
   const statePath = path.join(root, 'singularity/work-items/DESK-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
@@ -232,6 +240,7 @@ test('desktop manages repository prompts and skills and exports portable YAML an
   assert.ok(bundle.files.some((item) => item.path === 'singularity/workflow.yml'));
   assert.ok(bundle.files.some((item) => item.path === 'singularity/portfolio.yml'));
   assert.ok(bundle.files.some((item) => item.path === 'singularity/prompts/worldmodel-builder.md'));
+  assert.ok(bundle.files.some((item) => item.path === 'singularity/prompts/copilot-planning.md'));
   assert.ok(bundle.files.some((item) => item.path === skillPath));
   assert.equal((await deleteDesktopFile(root, skillPath)).deleted, true);
   await assert.rejects(() => readDesktopFile(root, 'README.md'), /not an exportable/i);

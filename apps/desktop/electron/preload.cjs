@@ -17,6 +17,17 @@ contextBridge.exposeInMainWorld('singularity', {
   exportBundle: (repository) => ipcRenderer.invoke('configuration:export-bundle', { repository }),
   publish: (repository, message) => ipcRenderer.invoke('configuration:publish', { repository, message }),
   selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
+  planningPreflight: (repository) => ipcRenderer.invoke('planning:preflight', { repository }),
+  buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),
+  startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
+  promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
+  stopPlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:stop', { repository, planningSessionId }),
+  promotePlanningArtifact: (repository, planningSessionId, persona, content) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, content }),
+  onPlanningEvent: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('planning:event', handler);
+    return () => ipcRenderer.removeListener('planning:event', handler);
+  },
   uploadDocuments: (repository) => ipcRenderer.invoke('documents:upload', { repository }),
   uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),
   addDocumentUrl: (repository, url, label) => ipcRenderer.invoke('documents:add-url', { repository, url, label }),

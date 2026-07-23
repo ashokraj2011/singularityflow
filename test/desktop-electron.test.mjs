@@ -179,6 +179,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /className="topbar-title"/);
   assert.match(styles, /\.sidebar \{[\s\S]*background: #fff/);
   assert.match(styles, /\.workspace-command,[\s\S]*border: 1\.5px solid #65b783/);
+  assert.match(styles, /Modern typography calibration/);
+  assert.match(styles, /\.page-heading h1,[\s\S]*font-weight: 600/);
+  assert.match(styles, /\.inbox-header,[\s\S]*font-weight: 540/);
   assert.doesNotMatch(styles, /#712ae2/i);
   assert.match(styles, /\.shell\.sidebar-collapsed/);
   assert.match(styles, /\.workflow-layout > \.design-pane/);

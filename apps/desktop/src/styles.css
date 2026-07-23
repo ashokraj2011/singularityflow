@@ -2083,6 +2083,118 @@ textarea:focus {
   box-shadow: 0 12px 32px rgba(25,33,28,.16);
 }
 
+/* Modern typography calibration — hierarchy through scale and space, not weight. */
+body {
+  font-weight: 400;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+strong { font-weight: 590; }
+
+.page-heading h1,
+.hero-card h1,
+.empty h2,
+.world-model-banner h1,
+.initiative-hero h2,
+.help-header h1,
+.welcome-hero h1,
+.portfolio-setup-intro h1 {
+  font-weight: 600;
+  letter-spacing: -.032em;
+}
+
+.panel-heading h2,
+.view-registry h2,
+.file-list h2,
+.help-toc h2,
+.designer-modal h2,
+.preview-modal h2,
+.portfolio-setup-form h2,
+.copilot-service-popover h2,
+.jira-connect-copy h2 {
+  font-weight: 590;
+  letter-spacing: -.018em;
+}
+
+.brand strong { font-weight: 620; }
+.topbar-title strong { font-weight: 590; }
+
+.sidebar nav button,
+.sidebar nav button.active,
+.repo-card strong {
+  font-weight: 530;
+}
+
+.sidebar nav button.active { font-weight: 600; }
+
+button.primary,
+button.secondary,
+button.ghost,
+.danger-button,
+.comparison-modes button {
+  font-weight: 560;
+}
+
+.eyebrow,
+.nav-section-label,
+.pill,
+.topbar-title span,
+.workspace-anchor-type,
+.workspace-breadcrumb small,
+.workspace-health-grid span,
+.metric span,
+.timing-summary span,
+.cost-kpis span,
+.initiative-metrics span,
+.planning-form label > span,
+.context-kpis span,
+.copilot-service-facts span,
+.copilot-service-popover > label > span,
+.portfolio-setup-form .control-grid label > span,
+.jira-connect-form label > span,
+.jira-story-panel label > span,
+.jira-story-list label span,
+label > span,
+.choice-group > span {
+  font-weight: 550;
+}
+
+.metric strong,
+.timing-summary strong,
+.cost-kpis strong,
+.cost-total-card > strong,
+.phase-copy strong,
+.inbox-row strong,
+.document-row strong,
+.view-row strong,
+.affected-row strong,
+.contract-grid strong,
+.workspace-repository-list strong {
+  font-weight: 590;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-header,
+.document-header,
+.timing-header,
+.view-table-head,
+.initiative-table-head,
+.epic-story-head,
+.artifact-repository-head,
+.affected-head {
+  font-weight: 540;
+  letter-spacing: .075em;
+}
+
+.inbox-row .warning-copy,
+.phase-time,
+.comparison-result span,
+.planning-context summary {
+  font-weight: 560;
+}
+
 @media (max-width: 1220px) {
   .topbar-title { display: none; }
 }

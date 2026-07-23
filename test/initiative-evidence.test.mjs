@@ -96,6 +96,14 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
   assert.equal(approvals.length, 2);
   assert.ok(evidence.every((entry) => path.basename(entry.path) === `${entry.sha256}.json`));
   assert.ok(approvals.every((entry) => entry.record.identityAssurance === 'configured-local'));
+
+  await prepareInitiativePhase(root, 'INIT-EVIDENCE', 'plan');
+  const approvedInput = phaseApproval.initiative.phases.define.outputs['scope-and-outcomes'];
+  await writeFile(path.join(root, '.singularity/initiatives/INIT-EVIDENCE', approvedInput.path), '# Tampered after approval\n');
+  await assert.rejects(
+    () => publishInitiativePhase(root, 'INIT-EVIDENCE', 'plan'),
+    /input 'define\/scope-and-outcomes'.*changed after approval/
+  );
 });
 
 test('presence-only evidence does not satisfy a human-approved Must check', async () => {

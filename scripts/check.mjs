@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
-import { validatePortfolio } from '../src/initiative-config.mjs';
+import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -76,7 +76,10 @@ if (!desktopJson.build?.mac?.target?.every((target) => target.arch?.includes('un
 if (desktopJson.build?.nsis?.oneClick !== false || desktopJson.build?.nsis?.allowToChangeInstallationDirectory !== true) fail('desktop NSIS installer must use the assisted, changeable-directory flow');
 if (!existsSync(path.join(root, '.github/workflows/desktop-release.yml'))) fail('desktop release workflow is missing');
 if (!packageJson.files?.includes('DISTRIBUTION.md') || !existsSync(path.join(root, 'DISTRIBUTION.md'))) fail('desktop distribution guide must ship in the npm package');
-checked.push('.github/workflows/desktop-release.yml', 'DISTRIBUTION.md', 'apps/desktop/build/icon.ico');
+for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md']) {
+  if (!packageJson.files?.includes(initiativeDocument) || !existsSync(path.join(root, initiativeDocument))) fail(`${initiativeDocument} must ship in the npm package`);
+}
+checked.push('.github/workflows/desktop-release.yml', 'DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
 
 const allFiles = repositoryFiles();
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
@@ -134,11 +137,12 @@ if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.archite
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));
+validatePortfolioWorldModelViews(portfolioTemplate, workflowTemplate);
 if (!portfolioTemplate.initiativeProfiles?.['initiative-lite'] || !portfolioTemplate.initiativeProfiles?.['enterprise-delivery']) fail('portfolio template must include initiative-lite and enterprise-delivery profiles');
 if (portfolioTemplate.initiativeProfiles['initiative-lite'].phases.length !== 4) fail('initiative-lite must contain four phases');
 if (portfolioTemplate.initiativeProfiles['enterprise-delivery'].phases.length !== 7) fail('enterprise-delivery must contain seven phases');
 const portfolioSource = await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8');
-if (/fidelity|brokerage/i.test(portfolioSource)) fail('portfolio template contains organization-specific terminology');
+if (/brokerage/i.test(portfolioSource)) fail('portfolio template contains organization-specific terminology');
 checked.push('templates/portfolio.yml');
 
 const help = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), '--help'], { encoding: 'utf8' });

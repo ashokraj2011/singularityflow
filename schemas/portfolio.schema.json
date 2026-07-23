@@ -47,6 +47,7 @@
         "required": ["phases"],
         "properties": {
           "label": { "type": "string" },
+          "description": { "type": "string" },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true }
         }
       }

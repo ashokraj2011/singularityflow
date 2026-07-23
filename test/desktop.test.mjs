@@ -22,7 +22,13 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 function run(command, args, cwd) {
-  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Desktop Tester', SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'product-owner' }) };
+  const env = {
+    ...process.env,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Desktop Tester',
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' })
+  };
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
@@ -39,6 +45,11 @@ async function repository() {
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
   definition.git.publish = 'off';
   await writeFile(workflowPath, YAML.stringify(definition));
+  const portfolioPath = path.join(root, '.singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.git.publish = 'off';
+  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Desktop Tester', email: 'desktop@example.com' }];
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   return root;
@@ -51,6 +62,10 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.deepEqual(snapshot.repository.configurationChanges, []);
   assert.deepEqual(snapshot.repository.unrelatedChanges, []);
   assert.equal(snapshot.repository.publishReady, false);
+  assert.equal(snapshot.portfolioPath, '.singularity/portfolio.yml');
+  assert.equal(snapshot.portfolio.initiativeProfiles['initiative-lite'].phases.length, 4);
+  assert.equal(snapshot.portfolio.initiativeProfiles['enterprise-delivery'].phases.length, 7);
+  assert.deepEqual(snapshot.initiatives, []);
   assert.equal(snapshot.workItems.length, 0);
   assert.equal(snapshot.approvalInbox.remote, 'origin');
   assert.deepEqual(snapshot.approvalInbox.items, []);
@@ -102,6 +117,22 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.report.costCoverage.pricedRecords, 1);
 });
 
+test('desktop snapshot exposes initiative phases, assurance, documents, telemetry, and configuration', async () => {
+  const root = await repository();
+  run(process.execPath, [bin, 'initiative', 'start', 'INIT-DESK', '--title', 'Mobile experience'], root);
+  const snapshot = await desktopSnapshot(root, null, 'INIT-DESK');
+  assert.equal(snapshot.selectedInitiativeId, 'INIT-DESK');
+  assert.equal(snapshot.initiative.state.initiative.profile, 'initiative-lite');
+  assert.equal(snapshot.initiative.progress.phases.length, 4);
+  assert.equal(snapshot.initiative.progress.currentPhase, 'define');
+  assert.equal(snapshot.initiative.report.identityAssurance, 'configured-local');
+  assert.equal(snapshot.initiative.report.telemetry.costStatus, 'unavailable');
+  assert.ok(snapshot.initiative.phaseGate.checklist.some((check) => check.id === 'business-case-approved'));
+  assert.ok(snapshot.initiative.documents.some((document) => document.id === 'business-case'));
+  assert.match(snapshot.initiative.nextActions[0].command, /initiative phase define/);
+  assert.ok(snapshot.initiatives.some((initiative) => initiative.id === 'INIT-DESK'));
+});
+
 test('desktop snapshot separates publishable configuration from unrelated changes', async () => {
   const root = await repository();
   const templatePath = '.singularity/templates/feature/design.md';
@@ -120,6 +151,10 @@ test('desktop configuration saves validate atomically and publish scoped changes
   const original = await readFile(workflowPath, 'utf8');
   await assert.rejects(() => saveDesktopFile(root, '.singularity/workflow.yml', 'version: 9\n'), /validation failed/i);
   assert.equal(await readFile(workflowPath, 'utf8'), original);
+  const portfolioPath = path.join(root, '.singularity/portfolio.yml');
+  const originalPortfolio = await readFile(portfolioPath, 'utf8');
+  await assert.rejects(() => saveDesktopFile(root, '.singularity/portfolio.yml', 'version: 2\n'), /portfolio validation failed/i);
+  assert.equal(await readFile(portfolioPath, 'utf8'), originalPortfolio);
 
   const templatePath = '.singularity/templates/feature/design.md';
   const template = await readFile(path.join(root, templatePath), 'utf8');
@@ -174,6 +209,7 @@ test('desktop manages repository prompts and skills and exports portable YAML an
   const bundle = await desktopExportBundle(root);
   assert.equal(bundle.worldModelRepositoryOwned, true);
   assert.ok(bundle.files.some((item) => item.path === '.singularity/workflow.yml'));
+  assert.ok(bundle.files.some((item) => item.path === '.singularity/portfolio.yml'));
   assert.ok(bundle.files.some((item) => item.path === '.singularity/prompts/worldmodel-builder.md'));
   assert.ok(bundle.files.some((item) => item.path === skillPath));
   assert.equal((await deleteDesktopFile(root, skillPath)).deleted, true);

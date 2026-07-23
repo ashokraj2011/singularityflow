@@ -4,8 +4,11 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { add, branch, commit, head, identity, pushBranch } from './git.mjs';
 import {
-  loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution
+  loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
+  validatePortfolioWorldModelViews
 } from './initiative-config.mjs';
+import { loadDefinition } from './config.mjs';
+import { groundingMode } from './grounding.mjs';
 import {
   SingularityFlowError, exists, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
@@ -121,12 +124,21 @@ export async function createInitiative(root, {
 } = {}) {
   validateInitiativeId(id);
   const portfolio = await loadPortfolio(root);
+  const definition = await loadDefinition(root);
+  validatePortfolioWorldModelViews(portfolio, definition);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match initiative ID ${id}.`);
   const stateFile = initiativeStatePath(root, portfolio, id);
   if (await exists(stateFile)) throw new SingularityFlowError(`${id} already exists. Use singularity-flow initiative resume ${id}.`);
   const resolved = resolveInitiativeProfile(portfolio, profile);
   assertAuthorityMembership(resolved);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
+  resolution.worldModelGrounding = groundingMode(definition);
+  resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? '.singularity/world-model';
+  resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
+    profileResolutionSha256: resolution.resolutionSha256,
+    worldModelGrounding: resolution.worldModelGrounding,
+    worldModelOutputDir: resolution.worldModelOutputDir
+  })).digest('hex');
   const actor = identity(root);
   if (!actor.email) throw new SingularityFlowError('Initiative governance requires a local Git email. Configure user.email before starting.');
   const createdAt = nowIso();
@@ -225,12 +237,33 @@ function metadata(initiative, phase, output, definition) {
   }, null, 2);
 }
 
+export async function verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId) {
+  const definition = initiative.resolution.phases.find((phase) => phase.id === phaseId);
+  if (!definition) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
+  const verified = [];
+  for (const output of definition.outputs) {
+    for (const reference of output.consumes ?? []) {
+      const [producerPhaseId, producerOutputId] = reference.split('/');
+      const producerPhase = initiative.phases[producerPhaseId];
+      const producerOutput = producerPhase?.outputs?.[producerOutputId];
+      if (producerPhase?.status !== 'approved') throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' requires approved phase '${producerPhaseId}', which is ${producerPhase?.status ?? 'missing'}.`);
+      if (!producerOutput?.sha256 || !['published', 'approved'].includes(producerOutput.status)) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' has no approved published artifact hash.`);
+      const absolute = path.join(initiativeDir(root, portfolio, initiative.initiative.id), producerOutput.path);
+      const current = await snapshot(absolute);
+      if (!current.exists || current.sha256 !== producerOutput.sha256) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' changed after approval.`);
+      verified.push({ consumer: `${phaseId}/${output.id}`, producer: reference, sha256: current.sha256, bytes: current.size });
+    }
+  }
+  return verified;
+}
+
 export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { persona = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phaseId = requestedPhase ?? initiative.currentPhase;
   if (!phaseId || phaseId !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot prepare '${phaseId ?? 'none'}'.`);
   const phase = initiative.phases[phaseId];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}; preparation requires in_progress.`);
+  await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
   const phaseDefinition = initiative.resolution.phases.find((item) => item.id === phaseId);
   const actor = identity(root);
   const prepared = [];

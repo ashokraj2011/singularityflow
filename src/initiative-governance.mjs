@@ -3,6 +3,7 @@ import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { evaluateInitiativePhase, readInitiativeRecords } from './initiative-evidence.mjs';
 import { initiativeMilestoneReadiness } from './initiative-repositories.mjs';
 import { loadInitiative } from './initiative-state.mjs';
+import { verifyInitiativeContext } from './initiative-context.mjs';
 import { run } from './util.mjs';
 
 export async function runInitiativeGate(root, initiativeId, { terminal = false } = {}) {
@@ -21,6 +22,14 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   }
   for (const phaseId of initiative.phaseOrder) {
     const phase = initiative.phases[phaseId];
+    if (phase.generation > 0) {
+      const context = await verifyInitiativeContext(root, portfolio, initiative, phaseId, phase.generation);
+      errors.push(...context.errors.map((message) => `${phaseId}: ${message}`));
+      warnings.push(...context.warnings.map((message) => `${phaseId}: ${message}`));
+      if (context.record && !context.errors.length && !context.warnings.length) {
+        passes.push(`${phaseId} Copilot prompt ${context.record.renderedSha256.slice(0, 12)}`);
+      }
+    }
     if (['approved', 'awaiting_approval'].includes(phase.status)) {
       const gate = await evaluateInitiativePhase(root, portfolio, initiative, phaseId);
       errors.push(...gate.errors.map((message) => `${phaseId}: ${message}`));

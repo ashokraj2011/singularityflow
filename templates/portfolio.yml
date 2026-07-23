@@ -23,9 +23,11 @@ repositories: {}
 initiativeProfiles:
   initiative-lite:
     label: Initiative lite
+    description: Four governed phases for smaller cross-repository initiatives.
     phases: [define, plan, build, release]
   enterprise-delivery:
     label: Enterprise delivery
+    description: Seven phase gates for complex regulated or multi-team delivery.
     phases: [discover-define, design-iterate, pre-inception, inception, elaboration, construction, delivery]
 
 initiativePhases:

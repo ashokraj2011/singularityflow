@@ -38,6 +38,32 @@ flowchart LR
 
 The core rule is simple: AI helps create content, while the CLI owns workflow state, metadata, validation, commits, pushes, approvals, and recovery.
 
+## Initiative-to-story orchestration
+
+For delivery spanning multiple repositories, an opt-in lead-repository initiative sits above the unchanged story workflow:
+
+```mermaid
+flowchart TB
+  Initiative["Initiative branch · immutable profile"] --> Define["Define / Discover"]
+  Define --> Plan["Plan / Elaboration"]
+  Plan --> Contract["Versioned interface contracts"]
+  Plan --> Breakdown["Epic and story DAG"]
+  Breakdown --> Mobile["Mobile repository story"]
+  Breakdown --> API["API repository story"]
+  Breakdown --> Platform["Platform repository story"]
+  Contract --> Mobile
+  Contract --> API
+  Mobile --> Aggregate["Blocking milestone aggregation"]
+  API --> Aggregate
+  Platform --> Aggregate
+  Aggregate --> Construction["Construction gate"]
+  Construction --> Delivery["Delivery gate"]
+```
+
+Run `/sflow-initiative-start <INIT-ID>` in GitHub Copilot, then use `/sflow-initiative-next` for deterministic guidance. Before repository changes, `/sflow-initiative-materialize` shows the full dry-run and requires exact initiative-ID confirmation. Flow Studio’s **Initiatives** workspace displays the four- or seven-phase flow, three discipline lanes, evidence assurance/freshness, repository stories, contracts, time, models, tokens, and cost.
+
+The complete guide is [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
+
 ## Lifecycle and Git state transfer
 
 ```mermaid

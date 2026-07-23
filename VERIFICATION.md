@@ -46,6 +46,21 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 - Changing a work item's type after creation is rejected by validation.
 - `migrate-config` preserves legacy JSON and Git history.
 
+## Initiative orchestration checks
+
+- Missing `.singularity/portfolio.yml` remains inert and performs no initiative network access.
+- Both starter profiles validate, resolve ordered phase contracts, and snapshot portfolio/template/repository/authority hashes.
+- Initiative branches exactly match IDs; every mutation commits and pushes, while failed publication blocks later transitions until sync.
+- Must, optional, and conditional checks enforce accepted assurance and freshness. Presence-only evidence cannot satisfy a Must item unless explicitly configured.
+- Content-addressed evidence, approval, and invalidation records fail after tampering.
+- Local Git email authority, distinct identities, exact output/bundle hashes, and self-approval warnings behave as configured.
+- Rejection and contract changes invalidate only downstream consumers.
+- Breakdown validation rejects duplicate, unknown, and cyclic stories and unknown repositories.
+- Dry-run materialization changes nothing; confirmed materialization safely creates or attaches story branches and commits seeds without force-push.
+- Repository synchronization detects blocking milestones, stale consumers, dependency regressions, models, exact tokens, and provider cost.
+- GitHub Copilot exposes all `/sflow-initiative-*` skills and selection receipts preserve explicit human choice without persona/authority shortcuts.
+- Flow Studio exposes profile configuration, four/seven-phase visuals, delivery lanes, checklist assurance/freshness, story and contract views, documents, duration, model, token, and cost data.
+
 ## Interactive selection checks
 
 - With no source flags, `start` first asks for Jira story or manual description/documents.

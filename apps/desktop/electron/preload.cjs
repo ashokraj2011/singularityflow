@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('singularity', {
   recentRepositories: () => ipcRenderer.invoke('repository:recent'),
   openRepository: (repository) => ipcRenderer.invoke('repository:open', { repository }),
   forgetRepository: (repository) => ipcRenderer.invoke('repository:forget', { repository }),
-  snapshot: (repository, workId) => ipcRenderer.invoke('repository:snapshot', { repository, workId }),
+  snapshot: (repository, workId, initiativeId) => ipcRenderer.invoke('repository:snapshot', { repository, workId, initiativeId }),
   refreshInbox: (repository) => ipcRenderer.invoke('inbox:refresh', { repository }),
   attachInboxItem: (repository, workId) => ipcRenderer.invoke('inbox:attach', { repository, workId }),
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),

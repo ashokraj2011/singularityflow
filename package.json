@@ -26,6 +26,8 @@
     "MIGRATION.md",
     "RELEASE-PHASE-INPUTS.md",
     "DISTRIBUTION.md",
+    "INITIATIVE-ORCHESTRATION.md",
+    "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "LICENSE"
   ],
   "workspaces": [

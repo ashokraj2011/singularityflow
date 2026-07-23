@@ -99,6 +99,7 @@ import {
   deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
 } from './initiative-report.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
+import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 
 const VERSION = '0.8.0';
 
@@ -212,6 +213,7 @@ Usage:
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
   singularity-flow initiative phase [publish] [PHASE]
+  singularity-flow initiative context [PHASE] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
   singularity-flow initiative checklist [PHASE] [--json]
   singularity-flow initiative evidence add <CHECK-ID> --assurance LEVEL [--path FILE | --url URL]
@@ -220,7 +222,7 @@ Usage:
   singularity-flow initiative approve <OUTPUT|CHECK|phase> [--selection-receipt TOKEN]
   singularity-flow initiative reject <OUTPUT|CHECK|phase> --reason TEXT
   singularity-flow initiative breakdown [--probe] [--json]
-  singularity-flow initiative materialize [--dry-run] [--yes]
+  singularity-flow initiative materialize [--dry-run]
   singularity-flow initiative sync
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
@@ -1496,15 +1498,33 @@ async function initiativeCommand(positionals, options) {
     const phaseId = publish ? positionals[3] ?? initiative.currentPhase : positionals[2] ?? initiative.currentPhase;
     const session = await loadSession(root, { required: false });
     if (publish) {
+      const context = await verifyInitiativeContext(root, portfolio, initiative, phaseId);
+      context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+      if (!context.valid) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${context.errors.join('\n- ')}`);
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     } else {
+      const context = await composeInitiativeContext(root, initiativeId, phaseId, { persona: session?.persona ?? null });
       const result = await prepareInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
+      context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       result.outputs.forEach((document) => console.log(`- ${document.id}: ${document.path} (${document.sha256.slice(0, 12)})`));
     }
+    return;
+  }
+  if (subcommand === 'context') {
+    const phaseId = positionals[2] ?? initiative.currentPhase;
+    const session = await loadSession(root, { required: false });
+    const result = await composeInitiativeContext(root, initiativeId, phaseId, {
+      persona: session?.persona ?? null,
+      dryRun: optionBoolean(options, 'dry-run')
+    });
+    result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result.record, null, 2));
+    else process.stdout.write(result.rendered);
     return;
   }
   if (subcommand === 'documents') {
@@ -1702,7 +1722,7 @@ async function desktopCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'desktop subcommand');
   const root = repoRoot();
   let result;
-  if (subcommand === 'snapshot') result = await desktopSnapshot(root, positionals[2]);
+  if (subcommand === 'snapshot') result = await desktopSnapshot(root, positionals[2], optionString(options, 'initiative'));
   else if (subcommand === 'validate') result = await validateDesktopConfiguration(root);
   else if (subcommand === 'save') result = await saveDesktopFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
   else if (subcommand === 'read') result = await readDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));

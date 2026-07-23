@@ -71,6 +71,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(styles, /\.publish-scope-notice/);
   assert.match(source, />Download config</);
   assert.match(source, /Approval inbox/);
+  assert.match(source, /Initiative orchestration/);
+  assert.match(source, /Portfolio designer/);
+  assert.match(source, /Cross-repository control plane/);
+  assert.match(source, /Assurance & freshness/);
+  assert.match(source, /Repository delivery graph/);
+  assert.match(source, /Interface contracts/);
   assert.match(source, /Pending approvals/);
   assert.match(source, /Fetch remote inbox/);
   assert.match(source, /Model usage & cost/);
@@ -94,6 +100,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.timing-row/);
   assert.match(styles, /\.cost-breakdown-grid/);
   assert.match(styles, /\.recent-repositories/);
+  assert.match(styles, /\.initiative-flow/);
+  assert.match(styles, /\.initiative-lanes/);
+  assert.match(styles, /\.initiative-metrics/);
   assert.match(styles, /\.repository-menu/);
   assert.match(preload, /recentRepositories/);
   assert.match(preload, /openRepository/);
@@ -107,4 +116,6 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /downloadFile/);
   assert.match(preload, /importFile/);
   assert.match(preload, /exportBundle/);
+  assert.match(preload, /initiativeId/);
+  assert.match(main, /--initiative/);
 });

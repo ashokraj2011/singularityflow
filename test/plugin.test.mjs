@@ -229,6 +229,7 @@ test('inputs skill previews and renders approved phase dataflow', async () => {
 test('initiative Copilot skills expose orchestration without persona authority shortcuts', async () => {
   const names = [
     'sflow-initiative-start',
+    'sflow-initiative-phase',
     'sflow-initiative-next',
     'sflow-initiative-status',
     'sflow-initiative-checklist',
@@ -254,6 +255,10 @@ test('initiative Copilot skills expose orchestration without persona authority s
   const documents = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-documents', 'SKILL.md'), 'utf8');
   assert.match(documents, /reproduce every generated text document in full/);
   assert.match(documents, /Shell\/tool block is collapsible/);
+  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-phase', 'SKILL.md'), 'utf8');
+  assert.match(phase, /initiative context/);
+  assert.match(phase, /repository world-model views/);
+  assert.match(phase, /Do not approve automatically/);
 });
 
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {

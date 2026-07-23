@@ -5,7 +5,7 @@ import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
 import {
-  initiativeDir, loadInitiative, saveInitiative
+  initiativeDir, loadInitiative, saveInitiative, verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
 import { identity } from './git.mjs';
 import {
@@ -360,6 +360,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
   const phase = initiative.phases[phaseId];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}.`);
+  await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
   const actor = identity(root);
   const nextGeneration = phase.generation + 1;
   const missing = [];

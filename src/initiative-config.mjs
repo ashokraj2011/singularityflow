@@ -219,6 +219,16 @@ export async function loadPortfolio(root, { required = true } = {}) {
   return validatePortfolio(parsed);
 }
 
+export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) {
+  const declared = new Set(workflowDefinition.worldModel?.views ?? []);
+  const unknown = [];
+  for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases ?? {})) {
+    for (const view of phase.worldModelViews ?? []) if (!declared.has(view)) unknown.push(`${phaseId}:${view}`);
+  }
+  if (unknown.length) throw new SingularityFlowError(`Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`);
+  return true;
+}
+
 export function resolveInitiativeProfile(portfolio, profileId) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);

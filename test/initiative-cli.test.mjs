@@ -32,7 +32,7 @@ function git(root, args) {
   return result.stdout.trim();
 }
 
-async function repository() {
+async function repository({ grounding = 'off' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-cli-'));
   git(root, ['init', '-b', 'main']);
   git(root, ['config', 'user.name', actor]);
@@ -44,6 +44,10 @@ async function repository() {
   portfolio.git.publish = 'off';
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: actor, email: actorEmail }];
   await writeFile(portfolioFile, YAML.stringify(portfolio));
+  const workflowFile = path.join(root, '.singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = grounding;
+  await writeFile(workflowFile, YAML.stringify(workflow));
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'Initialize']);
   return root;
@@ -57,6 +61,11 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
 
   const prepared = execute(root, ['initiative', 'phase', 'define']);
   assert.match(prepared.stdout, /Prepared 3 define documents/);
+  assert.match(prepared.stdout, /Governed Copilot prompt:/);
+  const context = execute(root, ['initiative', 'context', 'define']);
+  assert.match(context.stdout, /Governed Copilot prompt — INIT-CLI\/define generation 1/);
+  assert.match(context.stdout, /Selected persona: Product owner/i);
+  assert.match(git(root, ['ls-files']), /prompt-context-define-gen1\.json/);
   const documents = execute(root, ['initiative', 'documents', 'define']);
   assert.match(documents.stdout, /--- BEGIN .*business-case\.md ---/);
   assert.match(documents.stdout, /CLI initiative|INIT-CLI/);
@@ -99,6 +108,17 @@ test('initiative Copilot selection receipts preserve explicit profile and person
   assert.equal(ready.ready, true);
   const started = execute(root, ['initiative', 'start', 'INIT-RECEIPT', '--selection-receipt', begun.token]);
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
+});
+
+test('initiative phase generation enforces repository world-model composition for Copilot', async () => {
+  const root = await repository({ grounding: 'enforce' });
+  execute(root, ['initiative', 'start', 'INIT-GROUNDED']);
+  const before = git(root, ['rev-parse', 'HEAD']);
+  const result = execute(root, ['initiative', 'phase', 'define'], { allowFailure: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /wm build --views "business" --focus "initiative phase define"/);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before);
+  assert.equal(git(root, ['status', '--short']), '');
 });
 
 test('initiative CLI remains inert when portfolio configuration is absent', async () => {

@@ -1,4 +1,5 @@
 import readline from 'node:readline/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
@@ -46,7 +47,7 @@ import {
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import {
-  discoverJiraConnection, getIssue, getMyPermissions, issueToMarkdown,
+  discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
   listEpicStories, listEpics, listFields, listMyIssues, listProjects
 } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
@@ -108,6 +109,11 @@ import {
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact } from './planning.mjs';
+import {
+  createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
+  readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
+  workspaceStatus
+} from './workspace.mjs';
 
 const VERSION = '0.8.0';
 
@@ -244,6 +250,16 @@ Usage:
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
+  singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
+    --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
+  singularity-flow workspace list [--json]
+  singularity-flow workspace open <DIRECTORY> [--json]
+  singularity-flow workspace status <DIRECTORY> [--json]
+  singularity-flow workspace sync <DIRECTORY> [--json]
+  singularity-flow workspace repair <DIRECTORY> [--json]
+  singularity-flow workspace documents <DIRECTORY> [--json]
+  singularity-flow workspace documents import <DIRECTORY> <FILE...> [--json]
+  singularity-flow workspace forget <DIRECTORY> [--json]
 
 Optional Jira environment:
   JIRA_BASE_URL=https://company.atlassian.net
@@ -1936,6 +1952,164 @@ async function desktopCommand(positionals, options) {
   console.log(JSON.stringify(result, null, 2));
 }
 
+function workspaceRegistryPath() {
+  return path.resolve(process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
+    || path.join(os.homedir(), '.singularity-flow', 'workspaces.json'));
+}
+
+function optionMap(values, label) {
+  const result = {};
+  for (const value of values) {
+    const split = String(value).indexOf('=');
+    if (split <= 0 || split === String(value).length - 1) throw new SingularityFlowError(`${label} must use ID=VALUE.`);
+    result[String(value).slice(0, split).trim()] = String(value).slice(split + 1).trim();
+  }
+  return result;
+}
+
+function renderWorkspaceStatus(status) {
+  console.log(`\n${status.workspace.anchor.key} — ${status.workspace.anchor.title}`);
+  console.log(`Workspace: ${status.workspace.path}`);
+  console.log(`Jira: ${status.workspace.anchor.issueTypeName} · level ${status.workspace.anchor.hierarchyLevel} · ${status.workspace.anchor.siteId}`);
+  console.log(`Lead repository: ${status.workspace.leadRepositoryPath}`);
+  console.log(table(status.repositories.map((repository) => ({
+    id: repository.id,
+    role: repository.role,
+    state: repository.state,
+    branch: repository.branch ?? '—',
+    dirty: repository.dirty == null ? '—' : repository.dirty ? 'yes' : 'no'
+  })), [
+    { key: 'id', label: 'REPOSITORY' },
+    { key: 'role', label: 'ROLE' },
+    { key: 'state', label: 'STATE' },
+    { key: 'branch', label: 'BRANCH' },
+    { key: 'dirty', label: 'DIRTY' }
+  ]));
+  console.log(`Staged documents: ${status.counts.stagedDocuments} (not governed)`);
+}
+
+async function workspaceCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'list';
+  const registry = workspaceRegistryPath();
+  if (subcommand === 'list') {
+    const workspaces = await readWorkspaceRegistry(registry);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workspaces, null, 2));
+    return console.log(table(workspaces, [
+      { key: 'anchorKey', label: 'JIRA' },
+      { key: 'anchorType', label: 'TYPE' },
+      { key: 'name', label: 'WORKSPACE' },
+      { key: 'path', label: 'PATH' }
+    ]));
+  }
+  if (subcommand === 'create') {
+    const jiraKey = optionString(options, 'jira');
+    if (!jiraKey) throw new SingularityFlowError('workspace create requires --jira KEY.');
+    let hierarchy;
+    try { hierarchy = await getIssueHierarchy(jiraKey); }
+    catch (error) {
+      const hierarchyLevel = optionNumber(options, 'hierarchy-level');
+      if (!hierarchyLevel) throw new SingularityFlowError(`${error.message} To create offline, also supply --hierarchy-level, --issue-type, --title, and --site.`);
+      hierarchy = {
+        anchor: {
+          key: jiraKey,
+          title: optionString(options, 'title', jiraKey),
+          issueType: optionString(options, 'issue-type', hierarchyLevel === 1 ? 'Epic' : 'Jira parent'),
+          hierarchyLevel,
+          issueTypeId: optionString(options, 'issue-type-id'),
+          url: optionString(options, 'jira-url'),
+          fetchedAt: new Date().toISOString()
+        }
+      };
+    }
+    const repositoryUrls = optionMap(optionStrings(options, 'repository'), '--repository');
+    const branches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');
+    const repositories = Object.fromEntries(Object.entries(repositoryUrls).map(([id, url]) => [id, {
+      url,
+      defaultBranch: branches[id] ?? 'main',
+      required: true,
+      path: `repos/${id}`
+    }]));
+    const leadRepository = optionString(options, 'lead');
+    const input = {
+      baseDirectory: optionString(options, 'base', process.env.SINGULARITY_FLOW_WORKSPACE_ROOT || path.join(os.homedir(), 'Singularity Workspaces')),
+      anchor: {
+        provider: 'jira',
+        siteId: optionString(options, 'site'),
+        baseUrl: optionString(options, 'jira-url') || process.env.JIRA_BASE_URL,
+        key: hierarchy.anchor.key,
+        issueId: hierarchy.anchor.id,
+        issueTypeId: hierarchy.anchor.issueTypeId,
+        issueTypeName: hierarchy.anchor.issueType,
+        hierarchyLevel: hierarchy.anchor.hierarchyLevel,
+        title: hierarchy.anchor.title,
+        url: hierarchy.anchor.url,
+        fetchedAt: hierarchy.fetchedAt ?? hierarchy.anchor.fetchedAt
+      },
+      name: optionString(options, 'name'),
+      repositories,
+      leadRepository,
+      hierarchySnapshot: hierarchy
+    };
+    const preview = previewWorkspace(input);
+    if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(preview, null, 2));
+    const confirmation = optionString(options, 'confirm');
+    const result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', true) });
+    await rememberWorkspace(registry, result.workspace, result.status);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Workspace ${result.created ? 'created' : 'resumed'} at ${result.workspace.path}.`);
+    return renderWorkspaceStatus(result.status);
+  }
+  const workspacePath = positionals[subcommand === 'documents' && positionals[2] === 'import' ? 3 : 2];
+  if (!workspacePath) throw new SingularityFlowError(`workspace ${subcommand} requires a workspace directory.`);
+  if (subcommand === 'open') {
+    const workspace = await readWorkspace(workspacePath);
+    const status = await workspaceStatus(workspace.path);
+    await rememberWorkspace(registry, workspace, status);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+    return renderWorkspaceStatus(status);
+  }
+  if (subcommand === 'status') {
+    const status = await workspaceStatus(workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+    return renderWorkspaceStatus(status);
+  }
+  if (subcommand === 'sync') {
+    const result = await fetchWorkspace(workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    result.results.forEach((item) => console.log(`${item.repository}: ${item.status}${item.reason ? ` (${item.reason})` : ''}`));
+    return;
+  }
+  if (subcommand === 'repair') {
+    const result = await repairWorkspace(workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    result.repaired.forEach((item) => console.log(`${item.repository}: ${item.status}`));
+    return renderWorkspaceStatus(result.status);
+  }
+  if (subcommand === 'documents') {
+    if (positionals[2] === 'import') {
+      const files = positionals.slice(4);
+      if (!files.length) throw new SingularityFlowError('workspace documents import requires at least one file.');
+      const result = await stageWorkspaceDocuments(workspacePath, files);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      result.added.forEach((item) => console.log(`${item.name} · ${item.bytes} bytes · ${item.sha256.slice(0, 12)} · staged, not governed`));
+      return;
+    }
+    const documents = await listWorkspaceDocuments(workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(documents, null, 2));
+    return console.log(table(documents, [
+      { key: 'name', label: 'DOCUMENT' },
+      { key: 'bytes', label: 'BYTES' },
+      { key: 'status', label: 'STATUS' }
+    ]));
+  }
+  if (subcommand === 'forget') {
+    const workspaces = await forgetWorkspace(registry, workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workspaces, null, 2));
+    return console.log('Workspace forgotten. No repository or document files were deleted.');
+  }
+  throw new SingularityFlowError(`Unknown workspace subcommand '${subcommand}'.`);
+}
+
 export async function main(argv) {
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
@@ -1988,6 +2162,7 @@ export async function main(argv) {
     case 'plugin': return pluginCommand(positionals, options);
     case 'desktop': return desktopCommand(positionals, options);
     case 'initiative': return initiativeCommand(positionals, options);
+    case 'workspace': return workspaceCommand(positionals, options);
     case 'hook': return hookCommand(positionals);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);
   }

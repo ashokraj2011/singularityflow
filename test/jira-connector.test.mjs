@@ -4,7 +4,8 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  discoverJiraConnection, jiraRequest, listEpicStories, normalizeJiraConnection
+  discoverJiraConnection, getIssueHierarchy, jiraRequest, listEpicStories,
+  listWorkspaceAnchors, normalizeJiraConnection
 } from '../src/jira.mjs';
 import { normalizeJiraPolicy } from '../src/initiative-config.mjs';
 import { buildJiraBreakdownDraft } from '../src/jira-initiative.mjs';
@@ -71,6 +72,48 @@ test('connection discovery and Epic child browsing use safe Jira endpoints', asy
   const search = seen.find((entry) => entry.url.endsWith('/search/jql'));
   assert.match(JSON.parse(search.init.body).jql, /^\(parent = "APP-42" OR "Epic Link" = "APP-42"\)/);
   await assert.rejects(() => listEpicStories('APP-42" OR project = SECRET', { connection, fetchImpl }), /valid Jira Epic key/);
+});
+
+test('workspace anchors use Jira hierarchyLevel and hierarchy traversal uses parent', async () => {
+  const searches = [];
+  const issues = {
+    'PORT-1': {
+      id: '1', key: 'PORT-1',
+      fields: { summary: 'Portfolio outcome', issuetype: { id: '10', name: 'Outcome', hierarchyLevel: 2 }, project: { key: 'PORT' } }
+    },
+    'PORT-2': {
+      id: '2', key: 'PORT-2',
+      fields: { summary: 'Payments Epic', issuetype: { id: '11', name: 'Epic', hierarchyLevel: 1 }, project: { key: 'PORT' }, parent: { key: 'PORT-1' } }
+    }
+  };
+  const fetchImpl = async (url, init) => {
+    if (url.includes('/createmeta/PORT/issuetypes')) return response({
+      issueTypes: [
+        { id: '10', name: 'Outcome', hierarchyLevel: 2 },
+        { id: '11', name: 'Epic', hierarchyLevel: 1 },
+        { id: '12', name: 'Story', hierarchyLevel: 0 }
+      ]
+    });
+    if (url.includes('/issue/PORT-')) {
+      const key = url.match(/issue\/(PORT-\d+)/)?.[1];
+      return response(issues[key]);
+    }
+    if (url.endsWith('/search/jql')) {
+      const body = JSON.parse(init.body);
+      searches.push(body.jql);
+      if (body.jql.startsWith('project =')) return response({ issues: Object.values(issues) });
+      if (body.jql.startsWith('parent = "PORT-1"')) return response({ issues: [issues['PORT-2']] });
+      return response({ issues: [] });
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+  const connection = { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' };
+  const anchors = await listWorkspaceAnchors('PORT', { connection, fetchImpl });
+  assert.deepEqual(anchors.map((item) => [item.key, item.hierarchyLevel]), [['PORT-1', 2], ['PORT-2', 1]]);
+  const hierarchy = await getIssueHierarchy('PORT-1', { connection, fetchImpl });
+  assert.equal(hierarchy.anchor.issueType, 'Outcome');
+  assert.equal(hierarchy.descendants[0].key, 'PORT-2');
+  assert.ok(searches.some((jql) => /^parent = "PORT-1"/.test(jql)));
 });
 
 test('portfolio Jira policy blocks unsafe fields and normalizes legacy write configuration', () => {

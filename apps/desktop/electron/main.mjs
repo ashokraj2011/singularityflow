@@ -12,6 +12,7 @@ import { JiraCredentialStore } from './jira-credentials.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
+let activeWorkspace = null;
 let mainWindow = null;
 const planningPacks = new Map();
 const jiraCache = new Map();
@@ -24,6 +25,7 @@ const copilotBackend = new CopilotBackendController({
 });
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
+function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
 
@@ -73,6 +75,19 @@ async function recentRepositories() {
   return (await readRecentRepositories(recentRepositoriesPath())).map((entry) => ({ ...entry, available: existsSync(entry.path) }));
 }
 
+async function workspaceModule() {
+  return importCliModule('workspace.mjs');
+}
+
+async function recentWorkspaces() {
+  const { readWorkspaceRegistry } = await workspaceModule();
+  const entries = await readWorkspaceRegistry(workspaceRegistryPath());
+  return Promise.all(entries.map(async (entry) => ({
+    ...entry,
+    available: existsSync(path.join(entry.path, 'workspace.json'))
+  })));
+}
+
 function cliPath() {
   const root = app.isPackaged ? path.join(process.resourcesPath, 'cli') : path.resolve(here, '../../..');
   return path.join(root, 'bin', 'singularity-flow.mjs');
@@ -97,6 +112,15 @@ function assertRepository(repository) {
   return resolved;
 }
 
+function planningWorkspaceBoundary(root) {
+  if (!activeWorkspace?.workspace?.path || path.resolve(activeWorkspace.leadRepositoryPath) !== path.resolve(root)) return '';
+  const repositories = activeWorkspace.repositories
+    .filter((repository) => repository.state === 'ready')
+    .map((repository) => `- ${repository.id} (${repository.role}): ${repository.absolutePath}`)
+    .join('\n');
+  return `\n\nActive Singularity project workspace: ${activeWorkspace.workspace.anchor.key}. The following cloned repository roots are the complete allowed filesystem scope for this read-only planning session:\n${repositories}\nDo not inspect paths outside those roots. Workspace documents marked staged-not-governed are excluded until they are explicitly imported into a Git work item or registered as initiative evidence.`;
+}
+
 function safeRelativePath(value, label = 'path') {
   const normalized = String(value ?? '').replaceAll('\\', '/').replace(/^\/+/, '');
   if (!normalized || path.isAbsolute(normalized) || normalized.split('/').includes('..')) throw new Error(`${label} must stay inside the repository.`);
@@ -115,10 +139,18 @@ async function snapshot(repository, workId = null, initiativeId = null) {
     '--json'
   ], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   activeRepository = path.resolve(result.repository.root);
+  if (activeWorkspace?.workspace?.path) {
+    const { workspaceStatus } = await workspaceModule();
+    const status = await workspaceStatus(activeWorkspace.workspace.path);
+    if (path.resolve(status.leadRepositoryPath) === activeRepository) {
+      activeWorkspace = status;
+      result.workspace = status;
+    }
+  }
   return result;
 }
 
-async function openRepository(repository) {
+async function openRepository(repository, { workspace = null } = {}) {
   let root;
   let migration = null;
   try {
@@ -139,7 +171,13 @@ async function openRepository(repository) {
     root = await validateRepositoryDirectory(error.repository);
     migration = { from: error.legacyRoot, to: 'singularity', output: migrated.output };
   }
+  if (activeRepository && path.resolve(activeRepository) !== path.resolve(root)) {
+    await copilotBackend.stop(activeRepository).catch(() => null);
+    planningPacks.clear();
+  }
+  activeWorkspace = workspace;
   const result = await snapshot(root);
+  if (workspace) result.workspace = workspace;
   if (migration) result.repository.migration = migration;
   await rememberRecentRepository(recentRepositoriesPath(), {
     path: result.repository.root,
@@ -162,6 +200,40 @@ function registerHandlers() {
     return recentRepositories();
   });
   ipcMain.handle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(path.resolve(repository), workId, initiativeId));
+  ipcMain.handle('workspace:recent', async (event) => {
+    assertTrustedSender(event);
+    return recentWorkspaces();
+  });
+  ipcMain.handle('workspace:choose', async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity workspace' });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
+    const workspace = await readWorkspace(result.filePaths[0]);
+    const status = await workspaceStatus(workspace.path);
+    await rememberWorkspace(workspaceRegistryPath(), workspace, status);
+    return openRepository(status.leadRepositoryPath, { workspace: status });
+  });
+  ipcMain.handle('workspace:open', async (event, { workspace: workspacePath }) => {
+    assertTrustedSender(event);
+    const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
+    const workspace = await readWorkspace(workspacePath);
+    const status = await workspaceStatus(workspace.path);
+    await rememberWorkspace(workspaceRegistryPath(), workspace, status);
+    return openRepository(status.leadRepositoryPath, { workspace: status });
+  });
+  ipcMain.handle('workspace:forget', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const { forgetWorkspace } = await workspaceModule();
+    await forgetWorkspace(workspaceRegistryPath(), workspace);
+    if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
+    return recentWorkspaces();
+  });
+  ipcMain.handle('workspace:choose-base', async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Choose a workspace storage directory' });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   ipcMain.handle('inbox:refresh', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const approvalInbox = await invokeCli(root, ['inbox', '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
@@ -281,7 +353,7 @@ function registerHandlers() {
     if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
     return copilotBackend.beginPlanning(root, planningSessionId, {
       model: model?.trim() || null,
-      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
+      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
     });
   });
   ipcMain.handle('planning:prompt', (event, { repository, planningSessionId, text }) => {
@@ -378,6 +450,159 @@ function registerHandlers() {
     if (cached) return cached;
     const { listEpics } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await listEpics(projectKey, { connection, issueType: policy.epicIssueType, limit: 100 }));
+  });
+  ipcMain.handle('jira:workspace-anchors', async (event, { repository, projectKey, refresh = false }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new Error(`Project ${projectKey} is outside the repository allowlist.`);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const key = `workspace-anchors:${connection.name}:${projectKey}`;
+    const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
+    if (cached) return cached;
+    const { listWorkspaceAnchors } = await importCliModule('jira.mjs');
+    return jiraCacheWrite(key, await listWorkspaceAnchors(projectKey, { connection, limit: 100 }));
+  });
+  ipcMain.handle('jira:hierarchy', async (event, { repository, anchorKey, refresh = false }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const key = `hierarchy:${connection.name}:${anchorKey}`;
+    const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
+    if (cached) return cached;
+    const { getIssueHierarchy } = await importCliModule('jira.mjs');
+    return jiraCacheWrite(key, await getIssueHierarchy(anchorKey, { connection }));
+  });
+  ipcMain.handle('workspace:preview', async (event, {
+    repository, baseDirectory, anchorKey, leadRepository, repositoryIds
+  }) => {
+    assertTrustedSender(event);
+    const { root, portfolio, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const [{ getIssueHierarchy }, { previewWorkspace }, { run }] = await Promise.all([
+      importCliModule('jira.mjs'),
+      workspaceModule(),
+      importCliModule('util.mjs')
+    ]);
+    const hierarchy = await getIssueHierarchy(anchorKey, { connection });
+    const configured = structuredClone(portfolio.repositories ?? {});
+    const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+    const matching = Object.entries(configured).find(([, value]) => value.url === origin)?.[0] ?? null;
+    const effectiveLead = leadRepository || matching || 'lead';
+    if (!configured[effectiveLead]) {
+      if (!origin) throw new Error('The open lead repository has no origin remote. Configure it in singularity/portfolio.yml before creating a workspace.');
+      configured[effectiveLead] = { url: origin, defaultBranch: portfolio.repositories?.[effectiveLead]?.defaultBranch ?? 'main', required: true };
+    }
+    const selected = new Set(repositoryIds?.length ? repositoryIds : Object.keys(configured));
+    selected.add(effectiveLead);
+    const repositories = Object.fromEntries(Object.entries(configured)
+      .filter(([id]) => selected.has(id))
+      .map(([id, value]) => [id, { ...value, path: `repos/${id}` }]));
+    return previewWorkspace({
+      baseDirectory,
+      anchor: {
+        provider: 'jira',
+        baseUrl: connection.baseUrl,
+        key: hierarchy.anchor.key,
+        issueId: hierarchy.anchor.id,
+        issueTypeId: hierarchy.anchor.issueTypeId,
+        issueTypeName: hierarchy.anchor.issueType,
+        hierarchyLevel: hierarchy.anchor.hierarchyLevel,
+        title: hierarchy.anchor.title,
+        url: hierarchy.anchor.url,
+        fetchedAt: hierarchy.fetchedAt
+      },
+      leadRepository: effectiveLead,
+      repositories,
+      hierarchySnapshot: hierarchy
+    });
+  });
+  ipcMain.handle('workspace:create', async (event, {
+    repository, baseDirectory, anchorKey, leadRepository, repositoryIds, confirmation
+  }) => {
+    assertTrustedSender(event);
+    const { root, portfolio, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const [{ getIssueHierarchy }, workspaceApi, { run }] = await Promise.all([
+      importCliModule('jira.mjs'),
+      workspaceModule(),
+      importCliModule('util.mjs')
+    ]);
+    const hierarchy = await getIssueHierarchy(anchorKey, { connection });
+    const configured = structuredClone(portfolio.repositories ?? {});
+    const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+    const matching = Object.entries(configured).find(([, value]) => value.url === origin)?.[0] ?? null;
+    const effectiveLead = leadRepository || matching || 'lead';
+    if (!configured[effectiveLead]) {
+      if (!origin) throw new Error('The open lead repository has no origin remote.');
+      configured[effectiveLead] = { url: origin, defaultBranch: 'main', required: true };
+    }
+    const selected = new Set(repositoryIds?.length ? repositoryIds : Object.keys(configured));
+    selected.add(effectiveLead);
+    const repositories = Object.fromEntries(Object.entries(configured)
+      .filter(([id]) => selected.has(id))
+      .map(([id, value]) => [id, { ...value, path: `repos/${id}` }]));
+    const input = {
+      baseDirectory,
+      anchor: {
+        provider: 'jira',
+        baseUrl: connection.baseUrl,
+        key: hierarchy.anchor.key,
+        issueId: hierarchy.anchor.id,
+        issueTypeId: hierarchy.anchor.issueTypeId,
+        issueTypeName: hierarchy.anchor.issueType,
+        hierarchyLevel: hierarchy.anchor.hierarchyLevel,
+        title: hierarchy.anchor.title,
+        url: hierarchy.anchor.url,
+        fetchedAt: hierarchy.fetchedAt
+      },
+      leadRepository: effectiveLead,
+      repositories,
+      hierarchySnapshot: hierarchy
+    };
+    const created = await workspaceApi.createWorkspace(input, { confirmation });
+    await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
+    return openRepository(created.status.leadRepositoryPath, { workspace: created.status });
+  });
+  ipcMain.handle('workspace:status', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const { workspaceStatus } = await workspaceModule();
+    return workspaceStatus(workspace);
+  });
+  ipcMain.handle('workspace:sync', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const { fetchWorkspace } = await workspaceModule();
+    return fetchWorkspace(workspace);
+  });
+  ipcMain.handle('workspace:repair', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const { repairWorkspace } = await workspaceModule();
+    return repairWorkspace(workspace);
+  });
+  ipcMain.handle('workspace:documents-stage', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Stage workspace documents (not governed)' });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    const { stageWorkspaceDocuments } = await workspaceModule();
+    return stageWorkspaceDocuments(workspace, result.filePaths);
+  });
+  ipcMain.handle('workspace:documents-promote', async (event, {
+    repository, workspace, documentPath, workId
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ resolveWorkspaceDocument }, { branch }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('git.mjs')
+    ]);
+    if (!workId || branch(root) !== workId) {
+      throw new Error(`Check out or resume work item ${workId || '(none)'} before importing a staged document.`);
+    }
+    const document = await resolveWorkspaceDocument(workspace, documentPath);
+    const publication = await invokeCli(root, ['documents', 'upload', document.absolutePath], {
+      json: false,
+      timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
+    });
+    return { publication, document, snapshot: await snapshot(root, workId) };
   });
   ipcMain.handle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
     assertTrustedSender(event);

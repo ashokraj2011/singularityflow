@@ -200,6 +200,8 @@ export function normalizeIssue(issue, {
     key: issue.key,
     title: fields.summary ?? issue.key,
     issueType: fields.issuetype?.name ?? null,
+    issueTypeId: fields.issuetype?.id ?? null,
+    hierarchyLevel: fields.issuetype?.hierarchyLevel ?? null,
     project: fields.project ? {
       id: fields.project.id ?? null,
       key: fields.project.key ?? null,
@@ -631,6 +633,107 @@ export async function listEpicStories(epicKey, {
     limit,
     fields: [...STANDARD_FIELDS]
   });
+}
+
+function validateIssueKey(value, label = 'Jira issue key') {
+  const key = String(value ?? '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_-]*-\d+$/.test(key)) throw new SingularityFlowError(`A valid ${label} is required.`);
+  return key;
+}
+
+export async function listWorkspaceAnchors(projectKey, {
+  limit = 100,
+  ...options
+} = {}) {
+  const key = validateProjectKey(projectKey);
+  const types = await listIssueTypes(key, options);
+  const effectiveLevel = (type) => Number.isInteger(Number(type.hierarchyLevel))
+    ? Number(type.hierarchyLevel)
+    : String(type.name).toLowerCase() === 'epic' ? 1 : null;
+  const anchorTypes = types.filter((type) => Number(effectiveLevel(type)) >= 1);
+  if (!anchorTypes.length) return [];
+  const typeIds = anchorTypes.map((type) => quoteJql(type.id ?? type.name));
+  const issues = await searchIssues(`project = ${quoteJql(key)} AND issuetype in (${typeIds.join(', ')}) ORDER BY updated DESC`, {
+    ...options,
+    limit,
+    fields: [...STANDARD_FIELDS]
+  });
+  const levels = new Map(anchorTypes.flatMap((type) => [[String(type.id), effectiveLevel(type)], [String(type.name), effectiveLevel(type)]]));
+  return issues.map((issue) => ({
+    ...issue,
+    hierarchyLevel: issue.hierarchyLevel ?? levels.get(String(issue.issueTypeId)) ?? levels.get(String(issue.issueType)) ?? null
+  })).filter((issue) => Number(issue.hierarchyLevel) >= 1);
+}
+
+export async function listIssueChildren(parentKey, {
+  includeLegacyEpicLink = false,
+  limit = 100,
+  ...options
+} = {}) {
+  const key = validateIssueKey(parentKey, 'Jira parent key');
+  const clause = includeLegacyEpicLink
+    ? `(parent = ${quoteJql(key)} OR "Epic Link" = ${quoteJql(key)})`
+    : `parent = ${quoteJql(key)}`;
+  return searchIssues(`${clause} ORDER BY rank, key`, {
+    ...options,
+    limit,
+    fields: [...STANDARD_FIELDS]
+  });
+}
+
+export async function getIssueHierarchy(anchorKey, {
+  maxDepth = 8,
+  maxIssues = 500,
+  ...options
+} = {}) {
+  const key = validateIssueKey(anchorKey, 'Jira workspace anchor key');
+  const anchor = await getIssue(key, options);
+  if (anchor.hierarchyLevel == null && String(anchor.issueType).toLowerCase() === 'epic') anchor.hierarchyLevel = 1;
+  if (!Number.isInteger(Number(anchor.hierarchyLevel)) || Number(anchor.hierarchyLevel) < 1) {
+    throw new SingularityFlowError(`Jira ${key} is '${anchor.issueType ?? 'unknown'}' at hierarchy level ${anchor.hierarchyLevel ?? 'unknown'}; choose an Epic or higher-level item.`);
+  }
+  const ancestors = [];
+  let parent = anchor.parent;
+  const visited = new Set([anchor.key]);
+  while (parent?.key && ancestors.length < maxDepth) {
+    if (visited.has(parent.key)) throw new SingularityFlowError(`Jira hierarchy cycle detected at ${parent.key}.`);
+    visited.add(parent.key);
+    const issue = await getIssue(parent.key, options);
+    ancestors.unshift(issue);
+    parent = issue.parent;
+  }
+  const descendants = [];
+  const queue = [{ issue: anchor, depth: 0 }];
+  while (queue.length) {
+    const current = queue.shift();
+    if (current.depth >= maxDepth || descendants.length >= maxIssues) continue;
+    const children = await listIssueChildren(current.issue.key, {
+      ...options,
+      includeLegacyEpicLink: Number(current.issue.hierarchyLevel) === 1
+    });
+    for (const child of children) {
+      if (visited.has(child.key)) throw new SingularityFlowError(`Jira hierarchy cycle detected at ${child.key}.`);
+      visited.add(child.key);
+      const record = { ...child, depth: current.depth + 1 };
+      descendants.push(record);
+      queue.push({ issue: record, depth: current.depth + 1 });
+      if (descendants.length >= maxIssues) break;
+    }
+  }
+  return {
+    anchor,
+    ancestors,
+    descendants,
+    tree: {
+      key: anchor.key,
+      title: anchor.title,
+      issueType: anchor.issueType,
+      hierarchyLevel: anchor.hierarchyLevel,
+      children: descendants.filter((item) => item.parent?.key === anchor.key).map((item) => item.key)
+    },
+    fetchedAt: new Date().toISOString(),
+    truncated: descendants.length >= maxIssues
+  };
 }
 
 export async function updateIssue(key, fields, {

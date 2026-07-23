@@ -131,6 +131,46 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
 
+## Jira-anchored project workspaces
+
+A project workspace is a local isolation boundary around an existing Jira Epic
+or higher-level Jira item. It is not another workflow phase, Jira issue type, or
+portfolio level. Jira provides the configured issue-type hierarchy; the lead Git
+branch stores governed initiative state; `workspace.json` stores only local
+paths, clone URLs, and the selected lead repository.
+
+In the desktop:
+
+1. Open the governing lead repository.
+2. Configure `singularity/portfolio.yml` and connect Jira.
+3. Open **Project workspaces**.
+4. Choose a storage folder and an Epic or higher Jira item.
+5. Review the Jira hierarchy and repository clone plan.
+6. Type the exact Jira key to create the isolated workspace.
+
+Each selected repository is cloned separately below `repos/`. Fetch operations
+skip dirty clones and never change a branch. Switching workspace stops the
+previous Copilot backend and discards private planning handles before the new
+lead repository becomes active.
+
+Files placed in `documents/inbox/` are shown as **staged — not governed**.
+On a resumed story branch with an active persona, **Import to work item** copies,
+hashes, commits, and pushes a governed document. Initiative material instead uses
+checklist-aware evidence registration so assurance and freshness are preserved.
+
+Useful diagnostics:
+
+```bash
+singularity-flow workspace list
+singularity-flow workspace status <DIRECTORY>
+singularity-flow workspace sync <DIRECTORY>
+singularity-flow workspace repair <DIRECTORY>
+singularity-flow workspace documents <DIRECTORY>
+```
+
+For creation, offline provisioning, recovery, and safety details, open
+`WORKSPACES.md`.
+
 ## How the workflow works
 
 The repository owns the process in `singularity/workflow.yml`. A work type selects an ordered phase sequence. Each phase selects an artifact template, world-model views, write scope, quality checks, suggested personas, approval personas, threshold, and allowed rejection targets.

@@ -39,6 +39,7 @@ const navSections = [
       ['planning', 'Planning Copilot'],
       ['studio', 'Artifact Studio'],
       ['impact', 'Impact analysis'],
+      ['workspaces', 'Project workspaces'],
       ['initiatives', 'Initiatives'],
       ['jira', 'Jira workspace']
     ]
@@ -73,6 +74,7 @@ const navIconPaths = {
   planning: ['M12 3l1.2 4.1L17 8.3l-3.8 1.2L12 14l-1.2-4.5L7 8.3l3.8-1.2z M18.5 15l.7 2.3 2.3.7-2.3.7-.7 2.3-.7-2.3-2.3-.7 2.3-.7z'],
   studio: ['M12 3l9 5-9 5-9-5z M5 12l7 4 7-4 M5 16l7 4 7-4'],
   impact: ['M12 5v5 M7 19H4v-4 M17 19h3v-4 M4 15l6-4 M20 15l-6-4 M9 3h6v4H9z M2 19h4v3H2z M18 19h4v3h-4z'],
+  workspaces: ['M3 6h7l2 2h9v11H3z M7 3h5l2 2h7v3 M7 12h10 M7 16h6'],
   initiatives: ['M5 4h6v5H5z M13 15h6v5h-6z M8 9v3h8v3 M16 9v3'],
   jira: ['M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5 M18 17l2 2-2 2'],
   inbox: ['M4 5h16v14H4z M4 14h5l2 2h2l2-2h5'],
@@ -117,6 +119,11 @@ function Empty({ title, detail, action }) {
 function RecentRepositories({ items, currentPath = null, busy, onOpen, onForget, compact = false }) {
   if (!items.length) return null;
   return <section className={`recent-repositories ${compact ? 'compact' : ''}`}><header><div><span className="eyebrow">Saved locations</span><h3>Recent repositories</h3></div><span>{items.length} saved</span></header><div className="recent-repository-list">{items.map((repository) => <div className={`recent-repository ${repository.available ? '' : 'unavailable'} ${repository.path === currentPath ? 'current' : ''}`} key={repository.path}><button className="recent-repository-open" disabled={busy || !repository.available} onClick={() => onOpen(repository.path)}><span className="recent-repository-icon">⌘</span><span className="recent-repository-copy"><strong>{repository.name}</strong><small title={repository.path}>{repository.path}</small><em>{repository.available ? `${repository.branch ?? 'Git repository'} · ${formatRecentTime(repository.openedAt)}` : 'Location is no longer available'}</em></span>{repository.path === currentPath && <Pill tone="good">Open</Pill>}<span className="recent-repository-arrow">→</span></button><button className="recent-repository-forget" aria-label={`Remove ${repository.name} from recent repositories`} title="Remove from recent locations" onClick={(event) => onForget(event, repository.path)}>×</button></div>)}</div></section>;
+}
+
+function RecentWorkspaces({ items, currentPath = null, busy, onOpen, onForget, compact = false }) {
+  if (!items.length) return null;
+  return <section className={`recent-workspaces recent-repositories ${compact ? 'compact' : ''}`}><header><div><span className="eyebrow">Isolated project contexts</span><h3>Recent workspaces</h3></div><span>{items.length} saved</span></header><div className="recent-repository-list">{items.map((workspace) => <div className={`recent-repository ${workspace.available ? '' : 'unavailable'} ${workspace.path === currentPath ? 'current' : ''}`} key={workspace.path}><button className="recent-repository-open" disabled={busy || !workspace.available} onClick={() => onOpen(workspace.path)}><span className="recent-repository-icon workspace-icon">W</span><span className="recent-repository-copy"><strong>{workspace.name}</strong><small title={workspace.path}>{workspace.path}</small><em>{workspace.available ? `${workspace.anchorType ?? 'Jira'} ${workspace.anchorKey ?? ''} · ${formatRecentTime(workspace.openedAt)}` : 'Workspace manifest is no longer available'}</em></span>{workspace.path === currentPath && <Pill tone="good">Open</Pill>}<span className="recent-repository-arrow">→</span></button><button className="recent-repository-forget" aria-label={`Forget ${workspace.name}`} title="Forget this local workspace; files are not deleted" onClick={(event) => onForget(event, workspace.path)}>×</button></div>)}</div></section>;
 }
 
 function Toast({ toast, onClose }) {
@@ -502,6 +509,165 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
       <header className="portfolio-jira-toggle"><div><span className="eyebrow">Corporate integration</span><h2>Configure Jira now</h2></div><label className="switch"><input type="checkbox" checked={values.jiraEnabled} onChange={(event) => set('jiraEnabled', event.target.checked)} /><span /></label></header>
       {values.jiraEnabled && <div className="control-grid expanded"><label><span>Deployment</span><select value={values.jiraDeployment} onChange={(event) => set('jiraDeployment', event.target.value)}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="full"><span>Jira HTTPS URL</span><input value={values.jiraBaseUrl} placeholder="https://company.atlassian.net" onChange={(event) => set('jiraBaseUrl', event.target.value)} /></label><label><span>Project key</span><input value={values.jiraProjectKey} placeholder="APP" onChange={(event) => set('jiraProjectKey', event.target.value.toUpperCase())} /></label><label><span>Write policy</span><select value={values.jiraWriteMode} onChange={(event) => set('jiraWriteMode', event.target.value)}><option value="off">Off · browse/adopt only</option><option value="preview">Preview · commit plans only</option><option value="approved">Approved · guarded apply</option></select></label></div>}
       <div className="portfolio-setup-action"><div><strong>No credentials are stored in YAML</strong><span>The API token/PAT is requested separately after the portfolio is created.</span></div><button className="primary" disabled={(repositoryPartial && (!values.repositoryId || !values.repositoryUrl)) || !jiraReady} onClick={create}>Create & validate portfolio</button></div>
+    </section>
+  </div>;
+}
+
+function WorkspaceStudio({ data, action, onOpened, onConfigureJira }) {
+  const policy = data.portfolio?.jira;
+  const current = data.workspace;
+  const configuredRepositories = Object.keys(data.portfolio?.repositories ?? {});
+  const repositoryChoices = configuredRepositories.length ? configuredRepositories : ['lead'];
+  const [jira, setJira] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [projectKey, setProjectKey] = useState(policy?.projectKey ?? '');
+  const [anchors, setAnchors] = useState([]);
+  const [anchorKey, setAnchorKey] = useState('');
+  const [hierarchy, setHierarchy] = useState(null);
+  const [baseDirectory, setBaseDirectory] = useState('');
+  const [leadRepository, setLeadRepository] = useState(repositoryChoices[0] ?? 'lead');
+  const [selectedRepositories, setSelectedRepositories] = useState(() => Object.fromEntries(repositoryChoices.map((id) => [id, true])));
+  const [preview, setPreview] = useState(null);
+  const [confirmation, setConfirmation] = useState('');
+  const [health, setHealth] = useState(current ?? null);
+
+  useEffect(() => {
+    let active = true;
+    if (!policy?.enabled) return undefined;
+    window.singularity.jiraStatus(data.repository.root)
+      .then((result) => { if (active) setJira(result); })
+      .catch((error) => { if (active) setJira({ error: error.message, credentials: { connected: false } }); });
+    return () => { active = false; };
+  }, [data.repository.root, policy?.enabled]);
+
+  useEffect(() => { setHealth(data.workspace ?? null); }, [data.workspace]);
+
+  async function chooseBase() {
+    const result = await action(() => window.singularity.chooseWorkspaceBase());
+    if (result) { setBaseDirectory(result); setPreview(null); }
+  }
+
+  async function loadProjects(refresh = false) {
+    const result = await action(() => window.singularity.jiraProjects(data.repository.root, '', refresh), refresh ? 'Jira projects refreshed' : null);
+    if (!result) return;
+    setProjects(result);
+    const next = projectKey || policy.projectKey || result[0]?.key || '';
+    setProjectKey(next);
+    if (next) await loadAnchors(next, refresh);
+  }
+
+  async function loadAnchors(key, refresh = false) {
+    setProjectKey(key);
+    setAnchorKey('');
+    setHierarchy(null);
+    setPreview(null);
+    const result = await action(() => window.singularity.jiraWorkspaceAnchors(data.repository.root, key, refresh));
+    if (result) setAnchors(result);
+  }
+
+  async function selectAnchor(key) {
+    setAnchorKey(key);
+    setPreview(null);
+    setConfirmation('');
+    if (!key) return setHierarchy(null);
+    const result = await action(() => window.singularity.jiraHierarchy(data.repository.root, key));
+    if (result) setHierarchy(result);
+  }
+
+  function selectedIds() {
+    return Object.entries(selectedRepositories).filter(([, selected]) => selected).map(([id]) => id);
+  }
+
+  async function buildPreview() {
+    const result = await action(() => window.singularity.previewWorkspace(data.repository.root, {
+      baseDirectory,
+      anchorKey,
+      leadRepository,
+      repositoryIds: selectedIds()
+    }));
+    if (result) setPreview(result);
+  }
+
+  async function create() {
+    const result = await action(() => window.singularity.createWorkspace(data.repository.root, {
+      baseDirectory,
+      anchorKey,
+      leadRepository,
+      repositoryIds: selectedIds(),
+      confirmation
+    }), `Workspace ${anchorKey} created with isolated repository clones`);
+    if (result) onOpened(result, 'workspaces');
+  }
+
+  async function refreshHealth() {
+    if (!health?.workspace?.path) return;
+    const result = await action(() => window.singularity.workspaceStatus(health.workspace.path), 'Workspace health refreshed');
+    if (result) setHealth(result);
+  }
+
+  async function sync() {
+    const result = await action(() => window.singularity.syncWorkspace(health.workspace.path), 'Workspace remotes fetched; no branch was changed');
+    if (result) setHealth(result.status);
+  }
+
+  async function repair() {
+    const result = await action(() => window.singularity.repairWorkspace(health.workspace.path), 'Missing workspace clones repaired');
+    if (result) setHealth(result.status);
+  }
+
+  async function stageDocuments() {
+    const result = await action(() => window.singularity.stageWorkspaceDocuments(health.workspace.path));
+    if (result && !result.canceled) {
+      const refreshed = await window.singularity.workspaceStatus(health.workspace.path);
+      setHealth(refreshed);
+    }
+  }
+
+  async function promoteDocument(document) {
+    const workId = data.workflow?.workItem?.id;
+    const result = await action(() => window.singularity.promoteWorkspaceDocument(
+      data.repository.root,
+      health.workspace.path,
+      document.path,
+      workId
+    ), `${document.name} imported, committed, and pushed for ${workId}`);
+    if (result?.snapshot) onOpened(result.snapshot, 'workspaces');
+  }
+
+  const canPromoteDocuments = Boolean(
+    data.workflow?.workItem?.id
+    && data.repository.branch === data.workflow.workItem.branch
+    && data.session?.workId === data.workflow.workItem.id
+  );
+  const credentialReady = jira?.credentials?.connected;
+  return <div className="page workspace-page">
+    <header className="page-heading row-between"><div><span className="eyebrow">Local isolation · Jira identity · Git authority</span><h1>Project workspaces</h1><p>A workspace keeps repository clones, staged documents, caches, and Copilot context separate. It creates no additional Jira or SDLC hierarchy.</p></div>{health && <Pill tone={health.healthy ? 'good' : 'warn'}>{health.healthy ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
+
+    {health && <section className="workspace-current panel">
+      <header className="workspace-current-head"><div><span className="workspace-anchor-type">{health.workspace.anchor.issueTypeName}</span><h2>{health.workspace.anchor.key} · {health.workspace.anchor.title}</h2><p>{health.workspace.path}</p></div><div className="workspace-actions"><button className="ghost" onClick={refreshHealth}>Refresh health</button><button className="secondary" onClick={sync}>Fetch remotes</button><button className="secondary" onClick={stageDocuments}>Stage documents</button>{!health.healthy && <button className="primary" onClick={repair}>Repair missing clones</button>}</div></header>
+      <div className="workspace-health-grid">
+        <div><span>Repositories</span><strong>{health.counts.ready}/{health.counts.repositories}</strong><small>ready</small></div>
+        <div><span>Dirty clones</span><strong>{health.counts.dirty}</strong><small>never auto-updated</small></div>
+        <div><span>Staged documents</span><strong>{health.counts.stagedDocuments}</strong><small>not governed</small></div>
+        <div><span>Lead repository</span><strong>{health.workspace.leadRepository}</strong><small>{health.leadRepositoryPath}</small></div>
+      </div>
+      <div className="workspace-repository-list">{health.repositories.map((repository) => <div key={repository.id}><span className={`workspace-state ${repository.state}`} /><div><strong>{repository.id}</strong><small>{repository.absolutePath}</small></div><Pill tone={repository.role === 'lead' ? 'accent' : 'neutral'}>{repository.role}</Pill><span>{repository.branch ?? 'not cloned'}</span><span className={repository.dirty ? 'warning-copy' : ''}>{repository.dirty == null ? '—' : repository.dirty ? 'dirty' : 'clean'}</span><Pill tone={repository.state === 'ready' ? 'good' : 'warn'}>{repository.state}</Pill></div>)}</div>
+      {!!health.stagedDocuments.length && <div className="workspace-staged"><header><div><span className="eyebrow">Local document inbox</span><h3>Staged — not governed</h3><p>{canPromoteDocuments ? `Import into checked-out work item ${data.workflow.workItem.id} to commit and push a governed copy.` : 'Resume a work item and select a session persona before importing these files.'}</p></div><Pill tone="warn">{health.stagedDocuments.length} local</Pill></header>{health.stagedDocuments.map((document) => <div key={document.path}><strong>{document.name}</strong><code>{document.sha256.slice(0, 12)}</code><span>{document.bytes.toLocaleString()} bytes</span><button className="secondary compact" disabled={!canPromoteDocuments} onClick={() => promoteDocument(document)}>Import to work item</button></div>)}</div>}
+    </section>}
+
+    <section className="workspace-create panel">
+      <header className="panel-heading"><div><span className="eyebrow">Create from existing Jira hierarchy</span><h2>New isolated workspace</h2></div><Pill>Epic or higher</Pill></header>
+      {!data.portfolio && <Empty title="Configure the portfolio first" detail="The lead repository must define repository URLs and Jira policy before a workspace can clone governed project repositories." />}
+      {data.portfolio && !policy?.enabled && <Empty title="Enable Jira in portfolio configuration" detail="Workspace creation follows Jira hierarchy and therefore requires an enabled Jira policy. Existing repository-open behavior remains available." action={<button className="primary" onClick={onConfigureJira}>Configure Jira</button>} />}
+      {data.portfolio && policy?.enabled && !credentialReady && <div className="workspace-prerequisite"><div><strong>Connect Jira before choosing the anchor</strong><span>{jira?.error ?? 'Credentials remain encrypted in the operating-system account and never enter workspace.json.'}</span></div><button className="primary" onClick={onConfigureJira}>Open Jira connection</button></div>}
+      {data.portfolio && policy?.enabled && credentialReady && <div className="workspace-wizard">
+        <div className="workspace-step"><span>1</span><div><strong>Storage</strong><small>Choose a corporate-approved local directory.</small></div><button className="secondary" onClick={chooseBase}>{baseDirectory ? 'Change folder' : 'Choose folder'}</button>{baseDirectory && <code>{baseDirectory}</code>}</div>
+        <div className="workspace-step"><span>2</span><div><strong>Jira anchor</strong><small>Issue types and levels come from Jira configuration.</small></div>{!projects.length ? <button className="secondary" onClick={() => loadProjects()}>Load projects</button> : <><select value={projectKey} onChange={(event) => loadAnchors(event.target.value)}><option value="">Project…</option>{projects.map((project) => <option key={project.key} value={project.key}>{project.key} · {project.name}</option>)}</select><select value={anchorKey} onChange={(event) => selectAnchor(event.target.value)}><option value="">Epic or higher…</option>{anchors.map((anchor) => <option key={anchor.key} value={anchor.key}>{anchor.key} · {anchor.issueType} · {anchor.title}</option>)}</select></>}</div>
+        {hierarchy && <div className="workspace-hierarchy"><div className="workspace-breadcrumb">{[...hierarchy.ancestors, hierarchy.anchor].map((item, index) => <React.Fragment key={item.key}><span><small>{item.issueType}</small><strong>{item.key}</strong></span>{index < hierarchy.ancestors.length && <b>›</b>}</React.Fragment>)}</div><p>{hierarchy.descendants.length} descendant Jira item{hierarchy.descendants.length === 1 ? '' : 's'} will be visible for planning. The anchor remains {hierarchy.anchor.issueType}; no synthetic parent is created.</p></div>}
+        <div className="workspace-step repository-selection"><span>3</span><div><strong>Repository isolation</strong><small>Every selected repository receives a separate clone.</small></div><label><small>Lead repository</small><select value={leadRepository} onChange={(event) => { setLeadRepository(event.target.value); setSelectedRepositories((current) => ({ ...current, [event.target.value]: true })); setPreview(null); }}>{repositoryChoices.map((id) => <option key={id} value={id}>{id}</option>)}</select></label><div className="workspace-repository-choices">{repositoryChoices.map((id) => <label key={id}><input type="checkbox" checked={selectedRepositories[id] !== false || id === leadRepository} disabled={id === leadRepository} onChange={(event) => { setSelectedRepositories((current) => ({ ...current, [id]: event.target.checked })); setPreview(null); }} /><span>{id}</span></label>)}</div></div>
+        <div className="workspace-preview-actions"><button className="secondary" disabled={!baseDirectory || !anchorKey || !leadRepository} onClick={buildPreview}>Preview clone plan</button>{preview && <><code>{preview.root}</code><input value={confirmation} onChange={(event) => setConfirmation(event.target.value.toUpperCase())} placeholder={`Type ${anchorKey}`} /><button className="primary" disabled={confirmation !== anchorKey} onClick={create}>Create workspace</button></>}</div>
+        {preview && <div className="workspace-operation-list">{preview.operations.map((operation) => <div key={operation.repository}><Pill tone={operation.repository === leadRepository ? 'accent' : 'neutral'}>{operation.repository === leadRepository ? 'lead' : 'clone'}</Pill><strong>{operation.repository}</strong><code>{operation.url}</code><span>{operation.target}</span></div>)}</div>}
+      </div>}
     </section>
   </div>;
 }
@@ -1407,6 +1573,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [standaloneHelp, setStandaloneHelp] = useState(false);
   const [recentRepositories, setRecentRepositories] = useState([]);
+  const [recentWorkspaces, setRecentWorkspaces] = useState([]);
   const [repositoryMenu, setRepositoryMenu] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('singularity.sidebar.collapsed') === 'true');
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
@@ -1417,6 +1584,12 @@ export default function App() {
     if (!window.singularity?.recentRepositories) return undefined;
     let current = true;
     window.singularity.recentRepositories().then((items) => { if (current) setRecentRepositories(items); }).catch((error) => { if (current) setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); });
+    return () => { current = false; };
+  }, []);
+  useEffect(() => {
+    if (!window.singularity?.recentWorkspaces) return undefined;
+    let current = true;
+    window.singularity.recentWorkspaces().then((items) => { if (current) setRecentWorkspaces(items); }).catch((error) => { if (current) setToast({ tone: 'bad', text: `Could not load recent workspaces: ${error.message}` }); });
     return () => { current = false; };
   }, []);
   useEffect(() => {
@@ -1451,20 +1624,41 @@ export default function App() {
     try { const items = await window.singularity.recentRepositories(); setRecentRepositories(items); return items; }
     catch (error) { setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); return []; }
   }
+  async function refreshRecentWorkspaces() {
+    try { const items = await window.singularity.recentWorkspaces(); setRecentWorkspaces(items); return items; }
+    catch (error) { setToast({ tone: 'bad', text: `Could not load recent workspaces: ${error.message}` }); return []; }
+  }
+  function acceptOpened(result, nextPage = null) {
+    setData(result);
+    setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' });
+    setRepositoryMenu(false);
+    if (nextPage) setPage(nextPage);
+  }
   async function openRepository(repositoryPath = null) {
     const result = await action(() => repositoryPath ? window.singularity.openRepository(repositoryPath) : window.singularity.chooseRepository());
     if (result) {
-      setData(result);
-      setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' });
-      setRepositoryMenu(false);
+      acceptOpened(result);
       await refreshRecentRepositories();
+      await refreshRecentWorkspaces();
       if (result.repository.migration) setToast({ tone: 'good', text: `Moved ${result.repository.migration.from}/ to ${result.repository.migration.to}/. Review the working-tree rename, then use Commit & push when ready.` });
     }
+  }
+  async function openWorkspace(workspacePath = null) {
+    const result = await action(() => workspacePath ? window.singularity.openWorkspace(workspacePath) : window.singularity.chooseWorkspace());
+    if (!result) return;
+    acceptOpened(result, 'workspaces');
+    await refreshRecentRepositories();
+    await refreshRecentWorkspaces();
   }
   async function forgetRepository(event, repositoryPath) {
     event.stopPropagation();
     const items = await action(() => window.singularity.forgetRepository(repositoryPath), 'Repository removed from recent locations');
     if (items) setRecentRepositories(items);
+  }
+  async function forgetWorkspace(event, workspacePath) {
+    event.stopPropagation();
+    const items = await action(() => window.singularity.forgetWorkspace(workspacePath), 'Workspace forgotten; no local files were deleted');
+    if (items) setRecentWorkspaces(items);
   }
   async function reload(workId = data?.selectedWorkId, initiativeId = data?.selectedInitiativeId) { if (!data) return null; const result = await action(() => window.singularity.snapshot(data.repository.root, workId, initiativeId)); if (result) setData(result); return result; }
   async function refreshInbox() { const result = await action(() => window.singularity.refreshInbox(data.repository.root), 'Remote approval inbox refreshed'); if (result) setData(result); return result; }
@@ -1679,11 +1873,11 @@ export default function App() {
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
-  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open a Singularity repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Overview</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Active workflow</span><h3>Requirement to delivery</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
+  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening…' : 'Open a project workspace'}</button><button className="secondary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open one repository'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Workspace</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Jira-anchored delivery</span><h3>Initiative across repositories</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow workspace</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</em></div></div></aside>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} onConfigureJira={() => setPage('jira')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

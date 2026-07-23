@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/workspace.schema.json",
+  "title": "Singularity Flow local workspace",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["version", "id", "anchor", "leadRepository", "repositories"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "name": { "type": "string", "minLength": 1 },
+    "localOnly": { "const": true },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["provider", "siteId", "key", "issueTypeName", "hierarchyLevel"],
+      "properties": {
+        "provider": { "const": "jira" },
+        "siteId": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+$" },
+        "issueTypeName": { "type": "string", "minLength": 1 },
+        "hierarchyLevel": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "leadRepository": { "type": "string", "minLength": 1 },
+    "repositories": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url", "defaultBranch", "path"],
+        "properties": {
+          "url": { "type": "string", "minLength": 1 },
+          "defaultBranch": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "pattern": "^repos/" },
+          "required": { "type": "boolean" },
+          "role": { "enum": ["lead", "participant"] }
+        }
+      }
+    }
+  }
+}

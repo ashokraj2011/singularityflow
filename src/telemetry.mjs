@@ -1,10 +1,26 @@
 import { readFile, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 
 const CURSOR_SCHEMA = 1;
 const RECORD_SCHEMA = 1;
+
+async function managedTelemetrySetup() {
+  const file = process.env.SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE
+    ? path.resolve(process.env.SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE)
+    : path.join(os.homedir(), '.singularity-flow', 'copilot-otel.sh');
+  let source = null;
+  try { source = await readFile(file, 'utf8'); } catch { /* An organization may configure telemetry without the managed wrapper. */ }
+  const installed = source != null;
+  // Copilot CLI treats the file-exporter path itself as activation and selects
+  // the file exporter automatically. The managed setup is usable as long as it
+  // injects that repository-scoped path; newer installers also set the two
+  // explicit variables for clarity.
+  const current = installed && source.includes('COPILOT_OTEL_FILE_EXPORTER_PATH=');
+  return { path: file, installed, current };
+}
 
 function rawTelemetryPath(root) {
   const configured = process.env.COPILOT_OTEL_FILE_EXPORTER_PATH;
@@ -14,6 +30,7 @@ function rawTelemetryPath(root) {
 export async function copilotTelemetryStatus(root) {
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);
+  const setup = await managedTelemetrySetup();
   const fileConfigured = Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH);
   const externalEndpoint = Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
   const explicitlyEnabled = String(process.env.COPILOT_OTEL_ENABLED ?? '').toLowerCase() === 'true';
@@ -25,6 +42,7 @@ export async function copilotTelemetryStatus(root) {
   }
   if (externalEndpoint && !fileConfigured) warnings.push('An OTLP endpoint is configured, but Singularity Flow requires the Copilot file exporter for repository-scoped collection.');
   if (!fileConfigured && !externalEndpoint && !explicitlyEnabled && !spans) warnings.push('This process was started without Copilot OpenTelemetry configuration.');
+  if (setup.installed && !setup.current) warnings.push('The installed Singularity Flow Copilot telemetry wrapper does not configure the file exporter; rerun install.sh and restart Copilot.');
   if (!info?.isFile()) warnings.push('The repository telemetry file does not exist.');
   else if (!info.size) warnings.push('The repository telemetry file is empty; finish a Copilot turn before checking again.');
   else if (!spans) warnings.push('The telemetry file contains no completed Copilot chat spans.');
@@ -38,6 +56,7 @@ export async function copilotTelemetryStatus(root) {
     bytes: info?.isFile() ? info.size : 0,
     completedChatSpans: spans,
     ready: Boolean(info?.isFile()) && spans > 0,
+    setup,
     warnings
   };
 }

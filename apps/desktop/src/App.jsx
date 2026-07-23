@@ -66,6 +66,19 @@ function ProgressRing({ value = 0 }) {
 
 function formatTokens(value) { return Number.isFinite(value) && value > 0 ? value.toLocaleString('en-US') : '—'; }
 
+function formatDuration(value) {
+  if (!Number.isFinite(value) || value < 0) return '—';
+  const totalMinutes = Math.round(value / 60_000);
+  if (totalMinutes < 1) return `${Math.round(value / 1000)}s`;
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (totalHours < 24) return `${totalHours}h${minutes ? ` ${minutes}m` : ''}`;
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return `${days}d${hours ? ` ${hours}h` : ''}`;
+}
+
 function formatRecentTime(value) {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return 'Previously opened';
@@ -86,14 +99,23 @@ function costSource(item) {
   return 'cost unavailable';
 }
 
-function CostDashboard({ report, pricing = {} }) {
+function CostDashboard({ report, pricing = {}, telemetry = null }) {
   const coverage = report.costCoverage;
   const pricedPercent = coverage.usageRecords ? Math.round((coverage.pricedRecords / coverage.usageRecords) * 100) : 0;
   const phaseMaximum = Math.max(...report.phases.map((phase) => phase.cost ?? 0), 0);
   const pricingCount = Object.keys(pricing ?? {}).length;
   const statusTone = report.costStatus === 'exact' ? 'good' : report.costStatus === 'partial' ? 'warn' : 'neutral';
-  const guidance = coverage.pendingRecords > 0
-    ? `${coverage.pendingRecords} generation${coverage.pendingRecords === 1 ? ' is' : 's are'} waiting for Copilot to finish exporting. The next submit or /sflow-next action will reconcile, commit, and push the completed usage automatically.`
+  const captureMissing = telemetry && !telemetry.exists;
+  const setupOutdated = telemetry?.setup?.installed && !telemetry.setup.current;
+  const setupInstalled = telemetry?.setup?.installed && telemetry.setup.current;
+  const guidance = captureMissing && coverage.exactUsageRecords === 0
+    ? setupOutdated
+      ? 'The installed Copilot telemetry wrapper is outdated, so these generations contain no model or token data. Rerun install.sh, fully exit Copilot, and start a new session inside this repository. Past turns cannot be reconstructed; future generations will be captured.'
+      : setupInstalled
+        ? 'The telemetry wrapper is installed, but this repository has no telemetry file. The active Copilot process was likely started before setup was installed or from outside this repository. Fully exit Copilot and start a new session from this repository. Past turns cannot be reconstructed.'
+        : 'No repository telemetry file exists, so these generations contain no model or token data. Install or enable Singularity Flow Copilot telemetry, fully restart Copilot, and start it inside this repository. Past turns cannot be reconstructed.'
+    : coverage.pendingRecords > 0
+      ? `${coverage.pendingRecords} generation${coverage.pendingRecords === 1 ? ' is' : 's are'} waiting for Copilot to finish exporting. The next submit or /sflow-next action will reconcile, commit, and push the completed usage automatically.`
     : coverage.usageRecords === 0
     ? 'No generation telemetry has been committed for this work item yet. Publish a phase after starting Copilot with metadata-only telemetry enabled.'
     : coverage.exactUsageRecords === 0
@@ -104,7 +126,7 @@ function CostDashboard({ report, pricing = {} }) {
           ? `${coverage.pricedRecords} of ${coverage.usageRecords} usage records are priced. The displayed total is partial; add missing exact model prices or provider cost telemetry.`
           : 'Every committed usage record is priced. Provider-reported cost is preferred; configured exact-model rates are used only as a fallback.';
   return <section className="panel cost-dashboard">
-    <header className="panel-heading"><div><span className="eyebrow">Committed AI telemetry</span><h2>Model usage & cost</h2></div><div className="row gap">{coverage.pendingRecords > 0 && <Pill tone="warn">{coverage.pendingRecords} pending export{coverage.pendingRecords === 1 ? '' : 's'}</Pill>}<span className="pricing-count">{pricingCount} configured model price{pricingCount === 1 ? '' : 's'}</span><Pill tone={statusTone}>{report.costStatus} coverage</Pill></div></header>
+    <header className="panel-heading"><div><span className="eyebrow">Committed AI telemetry</span><h2>Model usage & cost</h2></div><div className="row gap">{telemetry && <Pill tone={telemetry.ready ? 'good' : 'warn'}>{telemetry.ready ? 'Copilot capture ready' : telemetry.exists ? 'Copilot capture waiting' : 'Copilot capture inactive'}</Pill>}{coverage.pendingRecords > 0 && <Pill tone="warn">{coverage.pendingRecords} pending export{coverage.pendingRecords === 1 ? '' : 's'}</Pill>}<span className="pricing-count">{pricingCount} configured model price{pricingCount === 1 ? '' : 's'}</span><Pill tone={statusTone}>{report.costStatus} coverage</Pill></div></header>
     <div className="cost-summary">
       <div className="cost-total-card"><span>Recorded cost</span><strong>{formatCost(report.cost)}</strong><small>{report.cost == null ? 'No estimate shown' : 'Provider cost or configured exact-model rates'}</small><div className="coverage-line"><div><span style={{ width: `${pricedPercent}%` }} /></div><b>{pricedPercent}% priced</b></div></div>
       <div className="cost-kpis">
@@ -113,7 +135,7 @@ function CostDashboard({ report, pricing = {} }) {
         <div><span>Cost records</span><strong>{coverage.pricedRecords || '—'}</strong><small>{coverage.providerCostRecords} provider · {coverage.configuredPriceRecords} configured</small></div>
       </div>
     </div>
-    <div className={`cost-guidance ${report.costStatus}`}><strong>{coverage.pendingRecords > 0 ? 'Waiting for Copilot export' : report.costStatus === 'exact' ? 'Complete cost coverage' : report.costStatus === 'partial' ? 'Partial cost coverage' : 'Cost needs telemetry or pricing'}</strong><span>{guidance}</span></div>
+    <div className={`cost-guidance ${report.costStatus}`}><strong>{captureMissing && coverage.exactUsageRecords === 0 ? setupOutdated ? 'Telemetry setup is outdated' : 'Copilot capture was inactive' : coverage.pendingRecords > 0 ? 'Waiting for Copilot export' : report.costStatus === 'exact' ? 'Complete cost coverage' : report.costStatus === 'partial' ? 'Partial cost coverage' : 'Cost needs telemetry or pricing'}</strong><span>{guidance}</span></div>
     <div className="cost-breakdown-grid">
       <div className="cost-breakdown"><header><div><span className="eyebrow">Lifecycle allocation</span><h3>Cost by phase</h3></div><span>Tokens · cost</span></header><div className="cost-rows">
         {report.phases.map((phase) => <div className="cost-row" key={phase.id}><div className="cost-row-copy"><strong>{phase.label}</strong><small>{formatTokens(phase.tokens)} tokens · {phase.costStatus}</small></div><div className="cost-bar" aria-label={`${phase.label} cost ${formatCost(phase.cost)}`}><span style={{ width: phase.cost != null && phaseMaximum ? `${Math.max(3, (phase.cost / phaseMaximum) * 100)}%` : '0%' }} /></div><b>{formatCost(phase.cost)}</b></div>)}
@@ -123,6 +145,24 @@ function CostDashboard({ report, pricing = {} }) {
         {report.tokens.byModel.map((item) => <div className="model-cost-row" key={`${item.provider}:${item.model}`}><div><span className="model-badge">{item.provider.slice(0, 2).toUpperCase()}</span><span><strong>{item.model}</strong><small>{item.provider} · {item.records} record{item.records === 1 ? '' : 's'} · {formatTokens(item.totalTokens)} tokens</small></span></div><div><strong>{formatCost(item.cost)}</strong><small>{item.pricedRecords}/{item.records} priced · {costSource(item)}</small></div></div>)}
       </div></div>
     </div>
+  </section>;
+}
+
+function WorkflowTiming({ report }) {
+  const maximum = Math.max(...report.phases.map((phase) => phase.elapsedMs ?? 0), 0);
+  return <section className="panel timing-dashboard">
+    <header className="panel-heading"><div><span className="eyebrow">Wall-clock lifecycle</span><h2>Workflow time</h2></div><Pill tone={report.completedAt ? 'good' : 'accent'}>{report.completedAt ? 'Complete' : 'Live'}</Pill></header>
+    <div className="timing-summary">
+      <div><span>Total elapsed</span><strong>{formatDuration(report.elapsedMs)}</strong><small>{report.completedAt ? 'Creation to final approval' : 'Creation to now'}</small></div>
+      <div><span>Active time</span><strong>{formatDuration(report.activeMs)}</strong><small>Elapsed time outside approval queues</small></div>
+      <div><span>Approval waiting</span><strong>{formatDuration(report.waitingMs)}</strong><small>{report.bottleneck ? `Longest: ${report.bottleneck.phase} (${formatDuration(report.bottleneck.waitingMs)})` : 'No approval waiting recorded'}</small></div>
+    </div>
+    <div className="timing-legend"><span><i className="active" />Active</span><span><i className="waiting" />Awaiting approval</span><em>Wall-clock time includes nights and weekends</em></div>
+    <div className="timing-table"><div className="timing-header"><span>Phase</span><span>Lifecycle allocation</span><span>Active</span><span>Review wait</span><span>Total</span></div>{report.phases.map((phase) => {
+      const activeWidth = maximum ? ((phase.activeMs ?? 0) / maximum) * 100 : 0;
+      const waitingWidth = maximum ? ((phase.waitingMs ?? 0) / maximum) * 100 : 0;
+      return <div className="timing-row" key={phase.id}><div><StatusDot status={phase.status} /><span><strong>{phase.label}</strong><small>{phase.status.replaceAll('_', ' ')} · generation {phase.generations}</small></span></div><div className="timing-bar" aria-label={`${phase.label}: ${formatDuration(phase.elapsedMs)} total`}><span className="active" style={{ width: `${activeWidth}%` }} /><span className="waiting" style={{ width: `${waitingWidth}%` }} /></div><b>{formatDuration(phase.activeMs)}</b><b>{formatDuration(phase.waitingMs)}</b><strong>{formatDuration(phase.elapsedMs)}</strong></div>;
+    })}</div>
   </section>;
 }
 
@@ -155,15 +195,17 @@ function Dashboard({ data }) {
     </div>
     <div className="metrics">
       <div className="metric"><span>Current phase</span><strong>{current?.label ?? 'Complete'}</strong><small>{p.currentPosition} of {p.totalPhases}</small></div>
+      <div className="metric"><span>Total elapsed</span><strong>{formatDuration(data.report?.elapsedMs)}</strong><small>{data.report?.completedAt ? 'workflow complete' : 'wall-clock so far'}</small></div>
       <div className="metric"><span>Approvals</span><strong>{p.approvedPhases}</strong><small>approved phases</small></div>
       <div className="metric"><span>Documents</span><strong>{p.documents}</strong><small>evidence items</small></div>
       <div className="metric"><span>Token usage</span><strong>{p.tokens.totalTokens || '—'}</strong><small>{p.tokens.totalTokens ? 'exact tokens' : 'unavailable'}</small></div>
     </div>
-    {data.report && <CostDashboard report={data.report} pricing={data.definition.tokens?.pricing} />}
+    {data.report && <WorkflowTiming report={data.report} />}
+    {data.report && <CostDashboard report={data.report} pricing={data.definition.tokens?.pricing} telemetry={data.telemetry} />}
     {!!data.workflow.sequenceOverrides?.length && <div className="notice">⚠ {data.workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded. Review the work-item report before final approval.</div>}
     {data.diagnostics && <section className={`health-strip ${data.diagnostics.healthy ? 'good' : 'warn'}`}><strong>{data.diagnostics.healthy ? 'Repository ready' : 'Setup needs attention'}</strong><span>{data.diagnostics.counts.pass} checks passed · {data.diagnostics.counts.warn} warnings · {data.diagnostics.counts.fail} failures</span></section>}
     <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Lifecycle</span><h2>Phase progress</h2></div></header><div className="phase-list">
-      {p.phases.map((phase) => <div className={`phase-row ${phase.id === p.currentPhase ? 'active' : ''}`} key={phase.id}><StatusDot status={phase.status} /><div className="phase-copy"><strong>{phase.label}</strong><span>{phase.id}</span></div><Pill>{phase.generation ? `Generation ${phase.generation}` : 'Not generated'}</Pill><span className="approval-count">{phase.approvals}/{phase.approvalsRequired} approvals</span><span className="phase-status">{phase.status.replaceAll('_', ' ')}</span></div>)}
+      {p.phases.map((phase) => { const timing = data.report?.phases.find((item) => item.id === phase.id); return <div className={`phase-row ${phase.id === p.currentPhase ? 'active' : ''}`} key={phase.id}><StatusDot status={phase.status} /><div className="phase-copy"><strong>{phase.label}</strong><span>{phase.id}</span></div><Pill>{phase.generation ? `Generation ${phase.generation}` : 'Not generated'}</Pill><span className="approval-count">{phase.approvals}/{phase.approvalsRequired} approvals</span><span className="phase-time">{formatDuration(timing?.elapsedMs)}</span><span className="phase-status">{phase.status.replaceAll('_', ' ')}</span></div>; })}
     </div></section>
     {simulation && <section className="panel contract-preview"><header className="panel-heading"><div><span className="eyebrow">Resolved preflight</span><h2>Workflow contract preview</h2></div><Pill>{simulation.inputsMode} inputs</Pill></header><div className="contract-grid">{simulation.phases.map((phase) => <div key={phase.id}><strong>{phase.label}</strong><code>{phase.template}</code><span>{phase.inputs.length ? `← ${phase.inputs.join(', ')}` : 'No phase inputs'} · {phase.minimumApprovals} approval(s)</span></div>)}</div></section>}
   </div>;

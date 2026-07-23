@@ -77,6 +77,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Cost by phase/);
   assert.match(source, /Cost by model/);
   assert.match(source, /Cost needs telemetry or pricing/);
+  assert.match(source, /Workflow time/);
+  assert.match(source, /Total elapsed/);
+  assert.match(source, /Approval waiting/);
+  assert.match(source, /Copilot capture inactive/);
+  assert.match(source, /Telemetry setup is outdated/);
   assert.match(source, /Waiting for Copilot export/);
   assert.match(source, /pending export/);
   assert.match(source, /No estimate shown/);
@@ -85,6 +90,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Open another repository/);
   assert.match(source, /Remove .* from recent repositories/);
   assert.match(styles, /\.cost-dashboard/);
+  assert.match(styles, /\.timing-dashboard/);
+  assert.match(styles, /\.timing-row/);
   assert.match(styles, /\.cost-breakdown-grid/);
   assert.match(styles, /\.recent-repositories/);
   assert.match(styles, /\.repository-menu/);

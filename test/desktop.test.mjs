@@ -80,6 +80,8 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.report.cost, null);
   assert.equal(snapshot.report.costStatus, 'unavailable');
   assert.equal(snapshot.report.costCoverage.usageRecords, 0);
+  assert.equal(snapshot.telemetry.exists, false);
+  assert.ok(snapshot.telemetry.setup.path.endsWith('copilot-otel.sh'));
 
   const statePath = path.join(root, '.singularity/work-items/DESK-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));

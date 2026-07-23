@@ -169,6 +169,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       selfApprovals,
       rejections,
       usageRecords: usage.length,
+      pendingTelemetry: (phase.telemetry ?? []).filter((item) => item.status === 'pending').length,
       tokens,
       tokenStatus: tokenStatus(usage, exactRecords),
       models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
@@ -230,6 +231,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     costCoverage: {
       usageRecords: allUsage.length,
       exactUsageRecords: allUsage.filter((record) => record.status === 'exact').length,
+      pendingRecords: phases.reduce((sum, phase) => sum + phase.pendingTelemetry, 0),
       pricedRecords,
       fullyPricedRecords,
       providerCostRecords: modelUsage.reduce((sum, item) => sum + item.providerCostRecords, 0),

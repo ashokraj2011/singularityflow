@@ -133,7 +133,7 @@ export NPM_TOKEN="your-artifactory-token"
 
 The selected registry is used for both `npm ci` and the global tarball installation. The script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
-The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper selects the active repository dynamically and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
+The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper explicitly selects the file exporter, selects the active repository dynamically, and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
 
 The single self-contained `install.sh` performs:
 
@@ -151,7 +151,7 @@ singularity-flow plugin install
 configure metadata-only Copilot OpenTelemetry
 ```
 
-The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Open a new terminal and start a new Copilot session after it finishes so the telemetry environment and refreshed skills are loaded.
+The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the repository after installation; environment variables cannot be injected into a process that was already running.
 
 ## Configuration
 
@@ -399,7 +399,7 @@ Use `singularity-flow inputs design --dry-run` to inspect provenance without wri
 
 ## Token usage
 
-With installer-managed Copilot telemetry, `prepare` opens a generation capture window and `phase publish` automatically aggregates completed model calls. The sanitized record is committed under the work item:
+With installer-managed Copilot telemetry, `prepare` opens a generation capture window. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sflow-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
 
 ```text
 .singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
@@ -426,6 +426,15 @@ tokens:
 ```
 
 Missing usage or pricing remains visibly `unavailable`; a mixture of priced and unpriced records is labeled `partial`.
+
+Diagnose the local exporter or explicitly retry a delayed generation with:
+
+```bash
+singularity-flow telemetry status
+singularity-flow telemetry reconcile implementation
+```
+
+`telemetry status` shows whether this Copilot process inherited the file exporter, the repository trace path and byte count, completed chat spans, and pending generations. Reconciliation never commits raw traces—only the sanitized phase record.
 
 ## Approval and rejection
 

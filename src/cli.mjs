@@ -29,6 +29,7 @@ import {
   preparePhase,
   preparePhaseInputs,
   publishGeneration,
+  reconcilePhaseTelemetry,
   registerArtifact,
   rejectPhase,
   saveWorkflow,
@@ -40,6 +41,7 @@ import {
   workflowPath,
   workDir
 } from './state.mjs';
+import { copilotTelemetryStatus } from './telemetry.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { getIssue, issueToMarkdown, listFields, listMyIssues } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
@@ -126,6 +128,8 @@ Usage:
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+  singularity-flow telemetry status [--json]
+  singularity-flow telemetry reconcile [PHASE] [--json]
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
@@ -782,6 +786,7 @@ async function phaseCommand(positionals, options) {
   if (telemetry) {
     console.log(`Telemetry: ${telemetry.status} | Models: ${telemetry.models.join(', ') || 'unavailable'} | Tokens: ${tokens || 'unavailable'} | Provider cost: ${providerCost == null ? 'unavailable' : `$${providerCost.toFixed(6)}`}`);
     console.log(`Telemetry record: ${telemetry.path}`);
+    if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
   }
   printPhaseReview(await phaseReview(root, config, workflow, phase));
 }
@@ -815,7 +820,14 @@ async function artifactCommand(positionals, options) {
 async function submitCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  let workflow = await loadWorkflow(root, config);
+  const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: optionString(options, 'phase') });
+  if (reconciliation.updated) {
+    const telemetryPublication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
+    console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
+    console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
+    workflow = await loadWorkflow(root, config);
+  } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
   const phase = await submitPhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
     runChecks: !optionBoolean(options, 'skip-checks')
@@ -827,6 +839,45 @@ async function submitCommand(options) {
   printPhaseReview(await phaseReview(root, config, workflow, phase));
   console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
   console.log('Next in Copilot: /sflow-approve');
+}
+
+async function telemetryCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  const root = repoRoot();
+  const status = await copilotTelemetryStatus(root);
+  if (subcommand === 'status') {
+    let workflow = null;
+    try { const config = await loadConfig(root); workflow = await loadWorkflow(root, config); } catch { /* Diagnostics remain useful without an active work item. */ }
+    const pending = workflow
+      ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
+      : [];
+    const result = { ...status, pending };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Copilot telemetry — ${status.ready ? 'ready' : status.enabled ? 'waiting for completed spans' : 'not active in this process'}`);
+    console.log(`File: ${status.path}`);
+    console.log(`Exists: ${status.exists ? 'yes' : 'no'} | Bytes: ${status.bytes} | Completed chat spans: ${status.completedChatSpans}`);
+    console.log(`Pending generations: ${pending.length ? pending.map((item) => `${item.phase}@${item.generation}`).join(', ') : 'none'}`);
+    status.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    if (!status.fileConfigured && !status.ready) console.log('Fix: exit Copilot, open a new terminal in the repository, verify `type copilot`, then start a new Copilot session.');
+    else if (!status.completedChatSpans) console.log('Next: finish the current Copilot response, then run this command from the next turn.');
+    return;
+  }
+  if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
+  const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
+  if (result.updated) {
+    const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
+    Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
+  }
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ exporter: status, reconciliation: result }, null, 2));
+  if (!result.updated) {
+    console.log(`Telemetry was not changed: ${result.reason}`);
+    status.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    return;
+  }
+  console.log(`Reconciled ${result.phase} generation ${result.generation}: ${result.status}.`);
+  console.log(`Models: ${result.models.join(', ') || 'unavailable'} | Tokens: ${result.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${result.providerCost == null ? 'unavailable' : `$${result.providerCost.toFixed(6)}`}`);
+  console.log(`Commit: ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}`);
 }
 
 async function decisionWorkflow(positionals, options, action) {
@@ -1258,6 +1309,7 @@ export async function main(argv) {
     case 'status': return statusCommand(positionals, options);
     case 'progress': return progressCommand(positionals, options);
     case 'report': return reportCommand(positionals, options);
+    case 'telemetry': return telemetryCommand(positionals, options);
     case 'guide': return guideCommand(positionals, options);
     case 'next': return nextCommand(options);
     case 'run': return runCommand(options);

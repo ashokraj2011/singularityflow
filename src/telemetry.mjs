@@ -11,6 +11,37 @@ function rawTelemetryPath(root) {
   return configured ? path.resolve(root, configured) : path.join(gitDir(root), 'singularity-flow', 'copilot-otel.jsonl');
 }
 
+export async function copilotTelemetryStatus(root) {
+  const raw = rawTelemetryPath(root);
+  const info = await stat(raw).catch(() => null);
+  const fileConfigured = Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH);
+  const externalEndpoint = Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
+  const explicitlyEnabled = String(process.env.COPILOT_OTEL_ENABLED ?? '').toLowerCase() === 'true';
+  let spans = 0; const warnings = [];
+  if (info?.isFile() && info.size) {
+    const parsed = parseCopilotTelemetry(await readFile(raw, 'utf8'));
+    spans = parsed.spans.length;
+    warnings.push(...parsed.warnings);
+  }
+  if (externalEndpoint && !fileConfigured) warnings.push('An OTLP endpoint is configured, but Singularity Flow requires the Copilot file exporter for repository-scoped collection.');
+  if (!fileConfigured && !externalEndpoint && !explicitlyEnabled && !spans) warnings.push('This process was started without Copilot OpenTelemetry configuration.');
+  if (!info?.isFile()) warnings.push('The repository telemetry file does not exist.');
+  else if (!info.size) warnings.push('The repository telemetry file is empty; finish a Copilot turn before checking again.');
+  else if (!spans) warnings.push('The telemetry file contains no completed Copilot chat spans.');
+  return {
+    enabled: fileConfigured || externalEndpoint || explicitlyEnabled,
+    fileConfigured,
+    externalEndpoint,
+    explicitlyEnabled,
+    path: raw,
+    exists: Boolean(info?.isFile()),
+    bytes: info?.isFile() ? info.size : 0,
+    completedChatSpans: spans,
+    ready: Boolean(info?.isFile()) && spans > 0,
+    warnings
+  };
+}
+
 function cursorsPath(root) {
   return path.join(gitDir(root), 'singularity-flow', 'telemetry-cursors.json');
 }
@@ -132,11 +163,11 @@ function groupedUsage(spans) {
   }));
 }
 
-export async function collectCopilotUsage(root, workflow, phase) {
+export async function collectCopilotUsage(root, workflow, phase, { generation } = {}) {
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);
   const state = await loadCursors(root);
-  const key = cursorKey(workflow, phase);
+  const key = cursorKey(workflow, phase, generation);
   const cursor = state.cursors[key] ?? { offset: info?.size ?? 0, startedAt: nowIso(), missing: true };
   if (!info?.isFile()) return { usage: [], spans: 0, rawBytes: 0, startedAt: cursor.startedAt, completedAt: nowIso(), warnings: ['Copilot telemetry file is unavailable.'] };
   const start = cursor.offset <= info.size ? cursor.offset : 0;
@@ -156,14 +187,14 @@ export async function recordPhaseTelemetry(root, workflow, phase, usage, capture
     phase: phase.id, generation: phase.generation, capturedAt: nowIso(), source: capture.source,
     rawTraceCommitted: false, spanCount: capture.spans ?? 0, rawBytesRead: capture.rawBytes ?? 0,
     startedAt: capture.startedAt ?? null, completedAt: capture.completedAt ?? null,
-    warnings: capture.warnings ?? [], usage
+    pending: Boolean(capture.pending), warnings: capture.warnings ?? [], usage
   };
   await writeJson(absolute, record); const info = await snapshot(absolute);
   const exact = usage.filter((item) => item.status === 'exact').length;
   const costs = usage.map((item) => item.providerCost).filter(Number.isFinite);
   return {
     generation: phase.generation, path: relative, sha256: info.sha256,
-    status: !exact ? 'unavailable' : exact === usage.length ? 'exact' : 'partial',
+    status: capture.pending ? 'pending' : !exact ? 'unavailable' : exact === usage.length ? 'exact' : 'partial',
     models: [...new Set(usage.map((item) => item.model).filter(Boolean))],
     providerCost: costs.length ? costs.reduce((sum, value) => sum + value, 0) : null,
     record

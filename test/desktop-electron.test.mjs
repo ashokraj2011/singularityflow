@@ -76,6 +76,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Cost by phase/);
   assert.match(source, /Cost by model/);
   assert.match(source, /Cost needs telemetry or pricing/);
+  assert.match(source, /Waiting for Copilot export/);
+  assert.match(source, /pending export/);
   assert.match(source, /No estimate shown/);
   assert.match(styles, /\.cost-dashboard/);
   assert.match(styles, /\.cost-breakdown-grid/);

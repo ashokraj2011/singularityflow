@@ -82,7 +82,7 @@ test('deriveReport computes phase waiting, active time, rework, tokens, and bott
     cost: null, pricedRecords: 0, fullyPricedRecords: 0, providerCostRecords: 0, configuredPriceRecords: 0, costStatus: 'unavailable'
   }]);
   assert.deepEqual(report.costCoverage, {
-    usageRecords: 3, exactUsageRecords: 2, pricedRecords: 0, fullyPricedRecords: 0,
+    usageRecords: 3, exactUsageRecords: 2, pendingRecords: 0, pricedRecords: 0, fullyPricedRecords: 0,
     providerCostRecords: 0, configuredPriceRecords: 0, missingModels: ['test/test-model']
   });
   assert.equal(report.phases[1].tokenStatus, 'partial');

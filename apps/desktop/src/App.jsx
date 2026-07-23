@@ -50,6 +50,11 @@ function Empty({ title, detail, action }) {
   return <div className="empty"><div className="empty-mark">S</div><h2>{title}</h2><p>{detail}</p>{action}</div>;
 }
 
+function RecentRepositories({ items, currentPath = null, busy, onOpen, onForget, compact = false }) {
+  if (!items.length) return null;
+  return <section className={`recent-repositories ${compact ? 'compact' : ''}`}><header><div><span className="eyebrow">Saved locations</span><h3>Recent repositories</h3></div><span>{items.length} saved</span></header><div className="recent-repository-list">{items.map((repository) => <div className={`recent-repository ${repository.available ? '' : 'unavailable'} ${repository.path === currentPath ? 'current' : ''}`} key={repository.path}><button className="recent-repository-open" disabled={busy || !repository.available} onClick={() => onOpen(repository.path)}><span className="recent-repository-icon">⌘</span><span className="recent-repository-copy"><strong>{repository.name}</strong><small title={repository.path}>{repository.path}</small><em>{repository.available ? `${repository.branch ?? 'Git repository'} · ${formatRecentTime(repository.openedAt)}` : 'Location is no longer available'}</em></span>{repository.path === currentPath && <Pill tone="good">Open</Pill>}<span className="recent-repository-arrow">→</span></button><button className="recent-repository-forget" aria-label={`Remove ${repository.name} from recent repositories`} title="Remove from recent locations" onClick={(event) => onForget(event, repository.path)}>×</button></div>)}</div></section>;
+}
+
 function Toast({ toast, onClose }) {
   if (!toast) return null;
   return <div className={`toast ${toast.tone}`} role={toast.tone === 'bad' ? 'alert' : 'status'} aria-live="polite"><span>{toast.text}</span><button type="button" aria-label="Dismiss message" onClick={onClose}>×</button></div>;
@@ -60,6 +65,12 @@ function ProgressRing({ value = 0 }) {
 }
 
 function formatTokens(value) { return Number.isFinite(value) && value > 0 ? value.toLocaleString('en-US') : '—'; }
+
+function formatRecentTime(value) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return 'Previously opened';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(time));
+}
 
 function formatCost(value) {
   if (!Number.isFinite(value)) return '—';
@@ -427,17 +438,44 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [standaloneHelp, setStandaloneHelp] = useState(false);
+  const [recentRepositories, setRecentRepositories] = useState([]);
+  const [repositoryMenu, setRepositoryMenu] = useState(false);
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
 
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
   useEffect(() => { if (toast?.tone !== 'good') return undefined; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => { let current = true; window.singularity.recentRepositories().then((items) => { if (current) setRecentRepositories(items); }).catch((error) => { if (current) setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); }); return () => { current = false; }; }, []);
+  useEffect(() => {
+    if (!repositoryMenu) return undefined;
+    const closeOutside = (event) => { if (!event.target.closest?.('.repo-switcher')) setRepositoryMenu(false); };
+    const closeEscape = (event) => { if (event.key === 'Escape') setRepositoryMenu(false); };
+    document.addEventListener('mousedown', closeOutside); document.addEventListener('keydown', closeEscape);
+    return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeEscape); };
+  }, [repositoryMenu]);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
   const publishHint = !configurationChanges.length ? 'No workflow, template, persona, prompt, skill, or agent changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
   async function action(task, success) { setBusy(true); setToast(null); try { const result = await task(); if (success && result != null) setToast({ tone: 'good', text: success }); return result; } catch (error) { setToast({ tone: 'bad', text: error?.message || String(error) }); return null; } finally { setBusy(false); } }
-  async function openRepository() { const result = await action(() => window.singularity.chooseRepository()); if (result) { setData(result); setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' }); } }
+  async function refreshRecentRepositories() {
+    try { const items = await window.singularity.recentRepositories(); setRecentRepositories(items); return items; }
+    catch (error) { setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); return []; }
+  }
+  async function openRepository(repositoryPath = null) {
+    const result = await action(() => repositoryPath ? window.singularity.openRepository(repositoryPath) : window.singularity.chooseRepository());
+    if (result) {
+      setData(result);
+      setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' });
+      setRepositoryMenu(false);
+      await refreshRecentRepositories();
+    }
+  }
+  async function forgetRepository(event, repositoryPath) {
+    event.stopPropagation();
+    const items = await action(() => window.singularity.forgetRepository(repositoryPath), 'Repository removed from recent locations');
+    if (items) setRecentRepositories(items);
+  }
   async function reload(workId = data?.selectedWorkId) { if (!data) return null; const result = await action(() => window.singularity.snapshot(data.repository.root, workId)); if (result) setData(result); return result; }
   async function refreshInbox() { const result = await action(() => window.singularity.refreshInbox(data.repository.root), 'Remote approval inbox refreshed'); if (result) setData(result); return result; }
   async function attachInboxItem(workId) { const result = await action(() => window.singularity.attachInboxItem(data.repository.root, workId), `Attached to ${workId} at the latest remote commit`); if (result) { setData(result); setPage('review'); } return result; }
@@ -630,9 +668,9 @@ export default function App() {
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
-  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><Empty title="Design governed workflows visually" detail="Open the Git repository folder that contains .singularity/workflow.yml. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<><div className="row"><button className="primary large-button" onClick={openRepository} disabled={busy}>{busy ? 'Opening repository…' : 'Open repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</>} /><Toast toast={toast} onClose={() => setToast(null)} /></div>;
+  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><div className="welcome-content"><Empty title="Design governed workflows visually" detail="Open the Git repository folder that contains .singularity/workflow.yml. Configuration stays in .singularity and every runtime transition remains controlled by the CLI." action={<><div className="row"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open another repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</>} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></div><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button onClick={openRepository}>⋯</button></div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch}</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Configuration only</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
       <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />

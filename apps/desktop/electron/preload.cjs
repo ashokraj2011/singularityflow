@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('singularity', {
   chooseRepository: () => ipcRenderer.invoke('repository:choose'),
+  recentRepositories: () => ipcRenderer.invoke('repository:recent'),
+  openRepository: (repository) => ipcRenderer.invoke('repository:open', { repository }),
+  forgetRepository: (repository) => ipcRenderer.invoke('repository:forget', { repository }),
   snapshot: (repository, workId) => ipcRenderer.invoke('repository:snapshot', { repository, workId }),
   refreshInbox: (repository) => ipcRenderer.invoke('inbox:refresh', { repository }),
   attachInboxItem: (repository, workId) => ipcRenderer.invoke('inbox:attach', { repository, workId }),

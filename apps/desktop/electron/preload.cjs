@@ -36,5 +36,5 @@ contextBridge.exposeInMainWorld('singularity', {
   uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),
   addDocumentUrl: (repository, url, label) => ipcRenderer.invoke('documents:add-url', { repository, url, label }),
   previewDocument: (repository, workId, reference) => ipcRenderer.invoke('documents:preview', { repository, workId, reference }),
-  openDocument: (repository, record) => ipcRenderer.invoke('documents:open', { repository, record })
+  openDocument: (repository, workId, record) => ipcRenderer.invoke('documents:open', { repository, workId, record })
 });

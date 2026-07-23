@@ -198,6 +198,8 @@ The bundled profiles are:
 
 Persona-to-phase mappings are suggestions, not restrictions. Any contributor may select any configured persona. Approval authority comes from the selected persona's `mayApprove` list.
 
+For `figma-mobile`, committed PNG exports are the canonical approval baseline. The desktop Documents page provides verified thumbnails, full-size previews, and local PDF viewing; the visual-verification Review page compares the pinned design, registered implementation screenshot, and registered diff image side by side, through an overlay slider, or as a diff highlight. Live Figma links open externally over HTTPS and are explicitly labeled as mutable convenience context.
+
 ## Start and resume
 
 ```bash

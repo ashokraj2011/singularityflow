@@ -113,6 +113,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /The Git-backed/);
   assert.match(source, /Artifact Studio/);
   assert.match(source, /Requirement workspace/);
+  assert.match(source, /VisualComparisonReview/);
+  assert.match(source, /Live design — may differ from the pinned intake/);
+  assert.match(source, /Open in Figma/);
   assert.match(source, /Impact Analysis Studio/);
   assert.match(source, /Singularity intelligence/);
   assert.match(source, /Singularity analysis/);
@@ -131,6 +134,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);
   assert.match(styles, /\.requirement-layout/);
+  assert.match(styles, /\.visual-comparison-review/);
+  assert.match(styles, /\.comparison-slider/);
+  assert.match(styles, /\.media-lightbox/);
+  assert.match(styles, /\.pinned-media-strip/);
   assert.match(styles, /\.impact-graph/);
   assert.match(styles, /\.welcome-visual/);
   assert.match(preload, /recentRepositories/);
@@ -155,4 +162,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /--initiative/);
   assert.match(main, /planning:answer/);
   assert.match(main, /initiative:materialize/);
+  assert.match(main, /\['documents', 'preview'/);
+  assert.match(main, /Only HTTPS document links can be opened/);
+  assert.doesNotMatch(main, /figma\.com\/embed/);
+  assert.doesNotMatch(main, /<webview>/);
 });

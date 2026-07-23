@@ -247,6 +247,8 @@ The canvas separates generated artifacts, uploaded inputs, and workflow document
 
 Use `/sflow-documents` for the model-assisted upload workflow or the **Documents** page in the desktop app.
 
+The desktop previews committed PNG/JPEG/GIF/WebP files and PDFs without network access, verifies their bytes against the recorded SHA-256, and refuses files that escape the work-item directory or have changed since registration. The Figma-mobile review screen compares the pinned design export with registered implementation and diff screenshots in side-by-side, overlay-slider, and diff-highlight modes. A Figma URL opens in the normal browser and is labeled live/mutable; it is never the approval baseline.
+
 ## Work types and phases
 
 Starter work types are:

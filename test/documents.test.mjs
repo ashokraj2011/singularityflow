@@ -44,6 +44,9 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(uploaded.length, 3); assert.equal(uploaded[0].sha256.length, 64); assert.equal(uploaded[1].mimeType, 'image/png'); assert.equal(uploaded[2].kind, 'figma');
   assert.match(flow(root, ['documents', 'view', 'DOC-001']).stdout, /Customer workflow evidence/);
   const binary = JSON.parse(flow(root, ['documents', 'view', 'DOC-002', '--json']).stdout); assert.equal(binary.binary, true); assert.match(binary.absolutePath, /wireframe\.png$/);
+  const inline = JSON.parse(flow(root, ['documents', 'preview', 'DOC-002', '--json']).stdout);
+  assert.equal(inline.previewable, true); assert.equal(inline.integrity, 'verified'); assert.equal(inline.mime, 'image/png');
+  assert.equal(inline.sha256, uploaded[1].sha256); assert.match(inline.dataUrl, /^data:image\/png;base64,/);
   assert.match(flow(root, ['documents', 'view', 'DOC-003']).stdout, /figma\.com\/design\/example/);
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.documents, 3);
   assert.match(flow(root, ['gate']).stdout, /document integrity: 3 supporting inputs/);
@@ -77,6 +80,27 @@ test('progress and document commands upload, list, and view files, images, and F
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 14); assert.equal(progress.approvedPhases, 1); assert.equal(progress.currentPhase, 'requirements');
   const late = flow(root, ['documents', 'upload', notes], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);
+});
+
+test('inline previews reject tampering and document paths outside the governed work item', async () => {
+  const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-preview-'));
+  const image = path.join(uploads, 'screen.png'); const pdf = path.join(uploads, 'design-spec.pdf');
+  await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex')); await writeFile(pdf, Buffer.from('%PDF-1.4\n%%EOF\n'));
+  flow(root, ['start', 'PREVIEW-1', '--title', 'Governed preview']);
+  flow(root, ['documents', 'upload', image, pdf, '--kind', 'figma-export']);
+  const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout); const record = catalog.find((item) => item.id === 'DOC-001');
+  const pdfPreview = JSON.parse(flow(root, ['documents', 'preview', 'DOC-002', '--json']).stdout);
+  assert.equal(pdfPreview.mime, 'application/pdf'); assert.match(pdfPreview.dataUrl, /^data:application\/pdf;base64,/); assert.equal(pdfPreview.integrity, 'verified');
+
+  await writeFile(path.join(root, record.path), Buffer.from('tampered'));
+  const tampered = flow(root, ['documents', 'preview', 'DOC-001', '--json'], { allowFailure: true });
+  assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /no longer matches its committed catalog hash/);
+
+  const manifestPath = path.join(root, 'singularity/work-items/PREVIEW-1/documents.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')); manifest.documents[0].path = 'README.md';
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const escaped = flow(root, ['documents', 'preview', 'DOC-001', '--json'], { allowFailure: true });
+  assert.notEqual(escaped.status, 0); assert.match(escaped.stderr, /outside work item PREVIEW-1/);
 });
 
 test('source-code documents are rendered as reviewable text instead of binary metadata', async () => {

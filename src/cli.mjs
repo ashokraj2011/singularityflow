@@ -51,7 +51,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { activateWorkItemSession, loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, documentCatalog, viewDocument } from './documents.mjs';
+import { addDocuments, documentCatalog, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -173,6 +173,7 @@ Usage:
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
+  singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow prepare [PHASE]
   singularity-flow phase show [PHASE] [--json]
@@ -633,6 +634,18 @@ async function documentsCommand(positionals, options) {
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
     if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or desktop viewer.');
+    else if (result.content != null) process.stdout.write(`\n${result.content}`);
+    return;
+  }
+  if (subcommand === 'preview') {
+    const reference = requirePositional(positionals, 2, 'document ID or path');
+    const workflow = await loadWorkflow(root, config, optionString(options, 'work-id'));
+    const result = await previewDocument(root, config, workflow, reference);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.record.id} — ${result.record.label}`);
+    if (result.record.url) console.log(`URL: ${result.record.url}`);
+    else if (result.previewable) console.log(`Governed inline preview verified at ${result.sha256}.`);
+    else if (result.binary) console.log('This binary type requires its native viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
     return;
   }

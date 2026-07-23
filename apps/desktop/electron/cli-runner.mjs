@@ -4,7 +4,8 @@ import path from 'node:path';
 
 export const DESKTOP_CLI_TIMEOUT_MS = 120_000;
 export const REPOSITORY_SNAPSHOT_TIMEOUT_MS = 45_000;
-const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+// Governed image/PDF previews may contain a 25 MiB document encoded as base64.
+const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
 
 export class LegacyControlRootError extends Error {
   constructor(repository, legacyRoot) {

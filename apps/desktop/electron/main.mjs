@@ -62,8 +62,28 @@ async function snapshot(repository, workId = null, initiativeId = null) {
 }
 
 async function openRepository(repository) {
-  const root = await validateRepositoryDirectory(repository);
+  let root;
+  let migration = null;
+  try {
+    root = await validateRepositoryDirectory(repository);
+  } catch (error) {
+    if (error?.code !== 'SINGULARITY_FLOW_LEGACY_CONTROL_ROOT') throw error;
+    const confirmation = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Keep unchanged', 'Migrate folder'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Move Singularity Flow files?',
+      message: `This repository still uses ${error.legacyRoot}/.`,
+      detail: 'Flow Studio can move it to the visible singularity/ folder and refresh pinned path hashes. This changes only the current branch working tree; it does not commit, push, merge, or rewrite Git history.'
+    });
+    if (confirmation.response !== 1) return null;
+    const migrated = await invokeCli(error.repository, ['migrate-config'], { json: false, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    root = await validateRepositoryDirectory(error.repository);
+    migration = { from: error.legacyRoot, to: 'singularity', output: migrated.output };
+  }
   const result = await snapshot(root);
+  if (migration) result.repository.migration = migration;
   await rememberRecentRepository(recentRepositoriesPath(), {
     path: result.repository.root,
     name: path.basename(result.repository.root),

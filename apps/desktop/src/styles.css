@@ -353,6 +353,12 @@ textarea { padding: 9px; resize: vertical; }
 .initiative-page { max-width: 1600px; }
 .initiative-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
 .initiative-heading > div:first-child { max-width: 820px; }
+.branch-baseline-note { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; border: 1px solid #c8ddd5; border-radius: 16px; padding: 14px 17px; color: #24483d; background: #f3faf7; }
+.branch-baseline-note > span { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #31594a; font-size: 18px; }
+.branch-baseline-note > div { display: grid; gap: 4px; }
+.branch-baseline-note strong { font-size: 12px; }
+.branch-baseline-note p { margin: 0; color: #4f665e; font-size: 11px; line-height: 1.5; }
+.branch-baseline-note code { border-radius: 5px; padding: 2px 5px; color: #23483d; background: #dceee7; }
 .initiative-hero { min-height: 176px; display: flex; align-items: center; justify-content: space-between; gap: 28px; border: 1px solid var(--line); border-radius: 20px; padding: 30px 34px; color: #fff; background: linear-gradient(120deg, #181817, #34302b 72%, #704230); box-shadow: 0 16px 38px rgba(35,32,27,.16); }
 .initiative-hero h2 { margin: 15px 0 8px; font-size: 39px; font-weight: 760; letter-spacing: -.045em; line-height: 1.02; }
 .initiative-hero p { margin: 0; color: #d5cfc4; font-family: var(--font-editorial); font-size: 15px; }

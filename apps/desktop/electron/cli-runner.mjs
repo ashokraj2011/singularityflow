@@ -6,6 +6,16 @@ export const DESKTOP_CLI_TIMEOUT_MS = 120_000;
 export const REPOSITORY_SNAPSHOT_TIMEOUT_MS = 45_000;
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+export class LegacyControlRootError extends Error {
+  constructor(repository, legacyRoot) {
+    super(`This repository uses the former ${legacyRoot}/ control folder. Migrate it to the visible singularity/ folder before opening it.`);
+    this.name = 'LegacyControlRootError';
+    this.code = 'SINGULARITY_FLOW_LEGACY_CONTROL_ROOT';
+    this.repository = repository;
+    this.legacyRoot = legacyRoot;
+  }
+}
+
 export async function validateRepositoryDirectory(repository) {
   const resolved = path.resolve(repository || '');
   const root = await stat(resolved).catch(() => null);
@@ -13,7 +23,14 @@ export async function validateRepositoryDirectory(repository) {
   const git = await stat(path.join(resolved, '.git')).catch(() => null);
   if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
   const workflow = await stat(path.join(resolved, 'singularity', 'workflow.yml')).catch(() => null);
-  if (!workflow?.isFile()) throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
+  if (!workflow?.isFile()) {
+    for (const legacyRoot of ['.singularity', '.sdlc']) {
+      const legacyWorkflow = await stat(path.join(resolved, legacyRoot, 'workflow.yml')).catch(() => null);
+      const legacyConfig = await stat(path.join(resolved, legacyRoot, 'config.json')).catch(() => null);
+      if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(resolved, legacyRoot);
+    }
+    throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
+  }
   return resolved;
 }
 

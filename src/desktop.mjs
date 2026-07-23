@@ -1,4 +1,5 @@
 import { readFile, readdir, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -93,8 +94,8 @@ async function workItems(root, definition) {
   return results.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
 }
 
-function configurationChangeScope(definition, portfolio, changes) {
-  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file, portfolio));
+function configurationChangeScope(root, definition, portfolio, changes) {
+  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
   const unrelatedChanges = changes.filter((file) => !configurationChanges.includes(file));
   return {
     configurationChanges,
@@ -140,7 +141,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
   const currentBranch = branch(root);
   const changes = changedFiles(root);
-  const changeScope = configurationChangeScope(definition, portfolio, changes);
+  const changeScope = configurationChangeScope(root, definition, portfolio, changes);
   const selectedId = requestedWorkId ?? items.find((item) => item.branch === currentBranch)?.id ?? null;
   const selectedInitiativeId = requestedInitiativeId ?? initiatives.find((item) => item.branch === currentBranch)?.id ?? null;
   let workflow = null;
@@ -167,7 +168,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const portfolioText = portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null;
   return {
     schemaVersion: 1,
-    repository: { root, branch: currentBranch, changes, ...changeScope },
+    repository: { root, branch: currentBranch, controlRoot: 'singularity', changes, ...changeScope },
     telemetry,
     definition,
     definitionPath: WORKFLOW_PATH,
@@ -213,8 +214,11 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   };
 }
 
-function allowedConfigurationPath(definition, relative, portfolio = null) {
+function allowedConfigurationPath(definition, relative, portfolio = null, root = null) {
   const promptSource = definition.worldModel?.promptSource;
+  const removedLegacyControlFile = root && ['.singularity', '.sdlc'].some(
+    (legacyRoot) => relative.startsWith(`${legacyRoot}/`) && !existsSync(path.join(root, legacyRoot))
+  );
   return relative === WORKFLOW_PATH
     || relative === PORTFOLIO_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
@@ -224,7 +228,8 @@ function allowedConfigurationPath(definition, relative, portfolio = null) {
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || (promptSource && promptSource !== 'builtin' && relative === posix(promptSource))
     || relative.startsWith('.github/agents/')
-    || relative.startsWith('.claude/agents/');
+    || relative.startsWith('.claude/agents/')
+    || removedLegacyControlFile;
 }
 
 function exportablePath(definition, relative, portfolio = null) {
@@ -365,7 +370,7 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const changed = changedFiles(root);
-  const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio));
+  const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
   if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, persona, prompt, skill, or agent changes are ready to publish.');
   const unrelated = changed.filter((file) => !configurationChanges.includes(file));
   if (unrelated.length) throw new SingularityFlowError(`Publish is blocked by unrelated working-tree changes: ${unrelated.join(', ')}`);

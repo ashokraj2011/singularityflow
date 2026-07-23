@@ -933,7 +933,7 @@ Run `singularity-flow telemetry status`. If it says the exporter is not active, 
 
 ### Desktop cannot open a repository
 
-Confirm the directory is a Git repository and contains `singularity/workflow.yml`. Run `singularity-flow init` and commit the initialized files first.
+Confirm the directory is a Git repository and contains `singularity/workflow.yml`. If Flow Studio finds the former `.singularity/` or `.sdlc/` control folder, it offers a guarded migration before opening the repository. The migration changes only the current branch working tree; review the rename and use **Commit & push** when ready. It never merges into `main`. For a repository with no control folder, run `singularity-flow init` and commit the initialized files first.
 
 ### Agent sync reports stale or changed content
 

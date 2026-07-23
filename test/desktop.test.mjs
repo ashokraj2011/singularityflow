@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ import {
   selectDesktopPersona,
   validateDesktopConfiguration
 } from '../src/desktop.mjs';
+import { migrateLegacyConfig } from '../src/config.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -59,6 +60,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   const root = await repository();
   let snapshot = await desktopSnapshot(root);
   assert.equal(snapshot.repository.branch, 'main');
+  assert.equal(snapshot.repository.controlRoot, 'singularity');
   assert.deepEqual(snapshot.repository.configurationChanges, []);
   assert.deepEqual(snapshot.repository.unrelatedChanges, []);
   assert.equal(snapshot.repository.publishReady, false);
@@ -143,6 +145,25 @@ test('desktop snapshot separates publishable configuration from unrelated change
   assert.deepEqual(snapshot.repository.configurationChanges, [templatePath]);
   assert.deepEqual(snapshot.repository.unrelatedChanges, ['README.md']);
   assert.equal(snapshot.repository.publishReady, false);
+});
+
+test('desktop treats a confirmed legacy control-root migration as publishable configuration', async () => {
+  const root = await repository();
+  await rename(path.join(root, 'singularity'), path.join(root, '.singularity'));
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '-m', 'legacy hidden control root'], root);
+
+  const migration = await migrateLegacyConfig(root);
+  assert.equal(migration.movedFrom, '.singularity');
+  const snapshot = await desktopSnapshot(root);
+  assert.equal(snapshot.repository.publishReady, true);
+  assert.deepEqual(snapshot.repository.unrelatedChanges, []);
+  assert.ok(snapshot.repository.configurationChanges.some((file) => file.startsWith('.singularity/')));
+  assert.ok(snapshot.repository.configurationChanges.some((file) => file.startsWith('singularity/')));
+
+  const published = await publishDesktopConfiguration(root, 'Move configuration to visible singularity folder');
+  assert.equal(published.pushed, false);
+  assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /visible singularity folder/);
 });
 
 test('desktop configuration saves validate atomically and publish scoped changes', async () => {

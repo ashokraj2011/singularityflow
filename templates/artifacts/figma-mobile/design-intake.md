@@ -12,6 +12,8 @@
 
 Confirm that the complete exported directory was imported with `singularity-flow documents upload <DIRECTORY> --kind figma-export`. Record missing or intentionally excluded content.
 
+The committed, SHA-recorded PNG exports are the canonical design baseline for later visual-verification approval. A Figma URL may be recorded as convenient live context, but it can change after intake and never replaces the pinned exports.
+
 ## Mobile target
 
 | Decision | Selection |
@@ -42,4 +44,4 @@ The platform selection is immutable after this artifact is approved unless the w
 
 ## Intake approval
 
-TODO: State whether this package is sufficient for inventory, and identify every assumption that still requires design confirmation.
+TODO: State whether this package is sufficient for inventory, identify every assumption that still requires design confirmation, and confirm which DOC-nnn image hashes form the approval baseline.

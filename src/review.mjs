@@ -23,7 +23,9 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   }
   const diff = run('git', ['diff', '--stat', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
   const approvals = activeApprovals(phase).map((item) => ({ decision: item.decision, persona: item.persona, actor: item.actor?.login ?? item.actor?.email ?? item.actor?.name, at: item.at, selfApproval: item.selfApproval === true }));
-  const documents = (await documentCatalog(root, config, workflow)).filter((item) => item.type !== 'system').map(({ id, label, kind, phase: sourcePhase, path: file, url, sha256 }) => ({ id, label, kind, phase: sourcePhase, path: file, url, sha256 }));
+  const documents = (await documentCatalog(root, config, workflow)).filter((item) => item.type !== 'system').map(({
+    id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation
+  }) => ({ id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation }));
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
     phase: { id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1 },

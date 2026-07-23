@@ -286,19 +286,23 @@ function registerHandlers() {
     return invokeCli(root, ['documents', 'upload', result.filePaths[0]], { json: false, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   });
   ipcMain.handle('documents:add-url', (_event, { repository, url, label }) => invokeCli(assertRepository(repository), ['documents', 'upload', '--url', url, ...(label ? ['--label', label] : [])], { json: false }));
-  ipcMain.handle('documents:preview', (_event, { repository, workId, reference }) => invokeCli(assertRepository(repository), ['documents', 'view', reference, '--work-id', workId, '--json']));
-  ipcMain.handle('documents:open', async (_event, { repository, record }) => {
+  ipcMain.handle('documents:preview', (_event, { repository, workId, reference }) => invokeCli(
+    assertRepository(repository),
+    ['documents', 'preview', reference, '--work-id', workId, '--json'],
+    { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
+  ));
+  ipcMain.handle('documents:open', async (_event, { repository, workId, record }) => {
     const root = assertRepository(repository);
-    if (record.url) {
-      const parsed = new URL(record.url);
-      if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('Only HTTP and HTTPS document links can be opened.');
+    const resolved = await invokeCli(root, ['documents', 'view', record.id, '--work-id', workId, '--json']);
+    if (resolved.record.url) {
+      const parsed = new URL(resolved.record.url);
+      if (parsed.protocol !== 'https:') throw new Error('Only HTTPS document links can be opened.');
+      if (parsed.username || parsed.password) throw new Error('Document links cannot contain embedded credentials.');
       await shell.openExternal(parsed.href);
       return { opened: parsed.href };
     }
-    if (!record.path) throw new Error('Document has no local path.');
-    const absolute = path.resolve(root, record.path);
-    const relative = path.relative(root, absolute);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Document path is outside the repository.');
+    const absolute = resolved.absolutePath;
+    if (!absolute) throw new Error('Document has no governed local path.');
     const error = await shell.openPath(absolute);
     if (error) throw new Error(error);
     return { opened: absolute };

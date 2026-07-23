@@ -23,6 +23,12 @@ import {
   parseStoryPlan,
   planningLogEntry
 } from './planning-ui.mjs';
+import {
+  GovernedMedia,
+  MediaLightbox,
+  PinnedMediaStrip,
+  VisualComparisonReview
+} from './VisualReview.jsx';
 
 const navSections = [
   {
@@ -810,6 +816,7 @@ function Review({ data, downloadFile }) {
   const phase = data.review.phase;
   return <div className="page review-page"><header className="page-heading row-between"><div><span className="eyebrow">Unified reviewer handoff</span><h1>{phase.label} review bundle</h1><p>{data.workflow.workItem.id} · generation {phase.generation} · {phase.status.replaceAll('_', ' ')}</p></div>{data.review.artifact && <button className="secondary" onClick={() => downloadFile(data.review.artifact.path)}>Download artifact</button>}</header>
     {data.review.selfApprovalWarning && <div className="notice warn">⚠ This phase contains self-approval and must not be presented as independent review.</div>}
+    {phase.id === 'visual-verification' && <VisualComparisonReview repository={data.repository.root} workId={data.selectedWorkId} records={data.review.documents} artifactContent={data.review.artifact?.content ?? ''} />}
     <div className="review-grid"><section className="panel review-summary"><header className="panel-heading"><h2>Decision context</h2><Pill tone="accent">{phase.status}</Pill></header><dl><div><dt>Required artifact</dt><dd>{data.review.artifact?.path ?? 'Not generated'}</dd></div><div><dt>Inputs</dt><dd>{data.review.inputs.length}</dd></div><div><dt>Checks</dt><dd>{data.review.checks.length}</dd></div><div><dt>Approvals</dt><dd>{data.review.approvals.length}/{phase.approvalMinimum}</dd></div><div><dt>Evidence</dt><dd>{data.review.documents.length}</dd></div><div><dt>Usage records</dt><dd>{data.review.usage.length}</dd></div></dl></section><section className="panel review-source"><header className="panel-heading"><h2>Source changes</h2></header><pre>{data.review.changeSummary || 'No source changes.'}</pre></section></div>
     <section className="panel review-document"><header className="panel-heading"><div><span className="eyebrow">Complete portable bundle</span><h2>Reviewer document</h2></div></header><pre>{data.review.markdown}</pre></section>
   </div>;
@@ -1045,6 +1052,7 @@ function Documents({ data, action, reload, downloadFile }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [preview, setPreview] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
   const [selectedId, setSelectedId] = useState(data.documents[0]?.id ?? '');
   const currentBranch = data.repository.branch;
   const activeBranch = data.workflow?.workItem.branch;
@@ -1067,9 +1075,10 @@ function Documents({ data, action, reload, downloadFile }) {
     setPreview(null);
     const result = await action(() => window.singularity.previewDocument(data.repository.root, data.selectedWorkId, record.id));
     if (!result) return;
-    if (result.content != null) setPreview(result);
-    else await action(() => window.singularity.openDocument(data.repository.root, record));
+    if (result.content != null || result.dataUrl || result.record?.type === 'url') setPreview(result);
+    else await action(() => window.singularity.openDocument(data.repository.root, data.selectedWorkId, record));
   }
+  async function openSelected() { await action(() => window.singularity.openDocument(data.repository.root, data.selectedWorkId, selectedRecord)); }
   if (!data.workflow) return <div className="page"><Empty title="Choose a work item" detail="Documents are cataloged per work item and branch." /></div>;
   return <div className="requirement-workspace"><header className="requirement-toolbar"><div><span className="eyebrow">Requirement workspace</span><h1>{data.workflow.workItem.title}</h1><p>{data.workflow.workItem.id} · {data.workflow.workItem.branch}</p></div><div className="session-control"><label>Session persona</label><select value={data.session?.workId === data.selectedWorkId ? data.session.persona : ''} onChange={selectPersona} disabled={!canMutate}><option value="">Choose persona</option>{Object.entries(data.definition.personas).map(([id, persona]) => <option value={id} key={id}>{persona.label}</option>)}</select></div></header>
     {!canMutate && <div className="notice warn">Work item {data.selectedWorkId} is on branch <strong>{activeBranch}</strong>. Resume that branch before uploading documents.</div>}
@@ -1081,11 +1090,11 @@ function Documents({ data, action, reload, downloadFile }) {
         {data.documents.filter((record) => !record.phase).map((record) => <button className={selectedRecord?.id === record.id ? 'active' : ''} key={record.id} onClick={() => inspect(record)}><span className="doc-icon">DOC</span><span><strong>{record.label}</strong><small>supporting evidence</small></span></button>)}
       </aside>
       <main className="requirement-document">
-        {selectedRecord ? <><header><div><span className="eyebrow">{selectedRecord.id}</span><h2>{selectedRecord.label}</h2><p>{selectedRecord.path ?? selectedRecord.url}</p></div><div className="row"><Pill>{selectedRecord.kind}</Pill>{selectedRecord.path && <button className="secondary compact" onClick={() => downloadFile(selectedRecord.path)}>Download</button>}</div></header>{preview?.record.id === selectedRecord.id ? <TemplatePreview className="requirement-preview" content={preview.content} /> : <div className="document-placeholder"><span>{selectedRecord.mimeType?.startsWith('image/') ? 'IMG' : selectedRecord.type === 'url' ? 'URL' : 'MD'}</span><h3>Open the governed document</h3><p>Preview text and Markdown in this workspace. Binary design files and external links open with their native viewer.</p><button className="primary" onClick={() => inspect(selectedRecord)}>Open document</button></div>}</> : <Empty title="No documents yet" detail="Upload source material or generate the current phase artifact to populate this workspace." />}
+        {selectedRecord ? <><header><div><span className="eyebrow">{selectedRecord.id}</span><h2>{selectedRecord.label}</h2><p>{selectedRecord.path ?? selectedRecord.url}</p></div><div className="row"><Pill>{selectedRecord.kind}</Pill>{selectedRecord.path && <button className="secondary compact" onClick={() => downloadFile(selectedRecord.path)}>Download</button>}</div></header><PinnedMediaStrip repository={data.repository.root} workId={data.selectedWorkId} records={data.documents} selectedId={selectedRecord.id} onSelect={inspect} />{preview?.record.id === selectedRecord.id && preview.dataUrl ? <div className="requirement-media-preview"><GovernedMedia record={selectedRecord} preview={preview} onZoom={(record, media) => setLightbox({ record, preview: media })} /></div> : preview?.record.id === selectedRecord.id && preview.content != null ? <TemplatePreview className="requirement-preview" content={preview.content} /> : preview?.record.id === selectedRecord.id && selectedRecord.type === 'url' ? <div className="live-design-card"><span className="live-design-mark">↗</span><h3>{selectedRecord.kind === 'figma' ? 'Open in Figma' : 'Open external reference'}</h3><p><strong>Live design — may differ from the pinned intake.</strong> Use committed image exports for approval; open this link only as current-design context.</p><code>{selectedRecord.url}</code><button className="primary" onClick={openSelected}>{selectedRecord.kind === 'figma' ? 'Open in Figma' : 'Open HTTPS link'}</button></div> : <div className="document-placeholder"><span>{selectedRecord.mimeType?.startsWith('image/') ? 'IMG' : selectedRecord.type === 'url' ? 'URL' : 'MD'}</span><h3>Open the governed document</h3><p>Images and PDFs preview inside Singularity with their committed SHA. Other binary files use their native viewer.</p><button className="primary" onClick={() => inspect(selectedRecord)}>Open document</button></div>}<MediaLightbox item={lightbox} onClose={() => setLightbox(null)} /></> : <Empty title="No documents yet" detail="Upload source material or generate the current phase artifact to populate this workspace." />}
       </main>
       <aside className="requirement-inspector">
         <section><span className="eyebrow">Git status</span><dl><div><dt>Branch</dt><dd>{data.repository.branch}</dd></div><div><dt>Workflow</dt><dd>{data.workflow.status}</dd></div><div><dt>Phase</dt><dd>{selectedRecord?.phase ?? 'supporting'}</dd></div><div><dt>Persona</dt><dd>{data.session?.persona ?? 'not selected'}</dd></div></dl></section>
-        <section><span className="eyebrow">Document metadata</span><dl><div><dt>Kind</dt><dd>{selectedRecord?.kind ?? '—'}</dd></div><div><dt>Size</dt><dd>{selectedRecord?.size ? `${Math.ceil(selectedRecord.size / 1024)} KB` : '—'}</dd></div><div><dt>Reference</dt><dd>{selectedRecord?.id ?? '—'}</dd></div></dl></section>
+        <section><span className="eyebrow">Document metadata</span><dl><div><dt>Kind</dt><dd>{selectedRecord?.kind ?? '—'}</dd></div><div><dt>Size</dt><dd>{selectedRecord?.size ? `${Math.ceil(selectedRecord.size / 1024)} KB` : '—'}</dd></div><div><dt>Reference</dt><dd>{selectedRecord?.id ?? '—'}</dd></div><div><dt>SHA-256</dt><dd>{selectedRecord?.sha256?.slice(0, 12) ?? '—'}</dd></div><div><dt>Integrity</dt><dd>{preview?.record.id === selectedRecord?.id && preview.integrity === 'verified' ? 'matches record ✓' : 'verify on preview'}</dd></div></dl></section>
         <section className="document-outline"><span className="eyebrow">Outline</span>{headings.length ? headings.map((heading, index) => <span style={{ paddingLeft: `${(heading.depth - 1) * 12}px` }} key={`${heading.label}:${index}`}>{heading.label}</span>) : <p>Open a Markdown artifact to see its governed section outline.</p>}</section>
       </aside>
     </div>

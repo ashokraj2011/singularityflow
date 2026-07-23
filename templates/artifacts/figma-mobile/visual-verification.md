@@ -14,6 +14,7 @@
 | Simulator/emulator devices | TODO |
 | Locale, theme, text scale | TODO |
 | Capture and comparison commands | TODO |
+| Pixel/visual difference | TODO: record a numeric percentage, for example `Pixel diff: 1.8% — matched within threshold` |
 
 ## Screen comparison
 
@@ -21,7 +22,9 @@
 |---|---|---|---|---|---|---|
 | SCREEN-001 | DOC-nnn / path | TODO | TODO | pass/fail | TODO | matched/partial/missing/deviated |
 
-Store screenshots, overlays, and diff images inside `artifacts/visual-verification/evidence/` so the generation commit preserves the reviewed evidence.
+Store implementation screenshots and pixelmatch/overlay diff images inside `artifacts/visual-verification/evidence/`. Use descriptive names such as `checkout-actual.png` and `checkout-pixelmatch-diff.png`. `singularity-flow phase publish visual-verification` automatically registers, hashes, commits, and pushes every changed file under this phase directory.
+
+The desktop Review page presents the pinned design export, implementation screenshot, and diff evidence in side-by-side, overlay-slider, and diff-highlight modes. Approval is always against the pinned design hash, not the live Figma URL.
 
 ## Design-system and accessibility checks
 

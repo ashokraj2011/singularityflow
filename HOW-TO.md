@@ -203,6 +203,20 @@ singularity-flow documents upload ./figma-export --kind figma-export
 
 Directories are traversed recursively in deterministic relative-path order. Every regular file receives a stable document ID and hash, retains its package-relative source path, and is committed and pushed in the same upload transaction. Symbolic links are rejected. The workflow then advances through design inventory, mobile component mapping, mobile specification, implementation, visual verification, and two-person final conformance approval.
 
+The desktop **Documents** page renders committed PNG, JPEG, GIF, and WebP exports as a thumbnail gallery with click-to-zoom previews. It renders committed PDFs in the built-in Chromium PDF viewer. Each preview rechecks the current bytes against the cataloged SHA-256 and shows `matches committed record ✓`; a changed or path-escaped file is refused.
+
+During implementation, place the captured app screen and visual diff under the active phase:
+
+```text
+singularity/work-items/<WORK-ID>/artifacts/visual-verification/evidence/
+  checkout-actual.png
+  checkout-pixelmatch-diff.png
+```
+
+Record the numeric result in `visual-comparison.md`, for example `Pixel diff: 1.8% — matched within threshold`, then publish the phase. Publication automatically registers and hashes those images. The desktop **Review** page provides side-by-side, overlay-slider, and diff-highlight modes using the registered evidence.
+
+If intake also contains a Figma URL, the desktop shows an **Open in Figma** button and labels it `Live design — may differ from the pinned intake`. It opens the normal browser over HTTPS and uses the viewer's existing Figma login. It is convenience context only: approval remains bound to the committed export. Singularity does not request a Figma access token, call the Figma image API, or embed an Electron webview.
+
 ## 4. Ask what to do next
 
 At any time:

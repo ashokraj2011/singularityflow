@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
 import { loadSession } from './session.mjs';
@@ -23,6 +23,7 @@ const MIME_TYPES = {
   '.ts': 'text/typescript', '.tsx': 'text/tsx', '.txt': 'text/plain', '.vue': 'text/x-vue', '.webp': 'image/webp',
   '.xml': 'application/xml', '.yaml': 'application/yaml', '.yml': 'application/yaml'
 };
+const INLINE_PREVIEW_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']);
 
 function manifestPath(root, config, workflow) { return path.join(workDir(root, config, workflow.workItem.id), 'documents.json'); }
 function mimeType(file) { return MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'; }
@@ -74,6 +75,26 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
 
 function documentPolicy(workflow, config) {
   return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: ['intake'], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
+}
+
+async function governedDocumentPath(root, config, workflow, record) {
+  if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
+  const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
+  const absolute = path.resolve(root, record.path);
+  const relative = path.relative(itemRoot, absolute);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new SingularityFlowError(`Document '${record.id}' is outside work item ${workflow.workItem.id}.`);
+  }
+  const fileInfo = await lstat(absolute).catch(() => null);
+  if (!fileInfo?.isFile() || fileInfo.isSymbolicLink()) {
+    throw new SingularityFlowError(`Document '${record.id}' is not a regular governed file.`);
+  }
+  const [realItemRoot, realDocument] = await Promise.all([realpath(itemRoot), realpath(absolute)]);
+  const realRelative = path.relative(realItemRoot, realDocument);
+  if (!realRelative || realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+    throw new SingularityFlowError(`Document '${record.id}' resolves outside work item ${workflow.workItem.id}.`);
+  }
+  return absolute;
 }
 
 export async function addDocuments(root, config, workflow, { files = [], url = null, label = null, kind = null } = {}) {
@@ -164,7 +185,36 @@ export async function viewDocument(root, config, workflow, reference) {
   if (matches.length > 1) throw new SingularityFlowError(`Document reference '${reference}' is ambiguous; use its document ID.`);
   const record = matches[0]; if (record.type === 'url') return { record, content: null, binary: false };
   const extension = path.extname(record.path).toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
-  if (binary) return { record, content: null, binary: true, absolutePath: path.join(root, record.path) };
-  const policy = documentPolicy(workflow, config); const content = await readFile(path.join(root, record.path), 'utf8'); const limit = policy.maxPreviewBytes ?? 1048576;
+  const absolute = await governedDocumentPath(root, config, workflow, record);
+  if (binary) return { record, content: null, binary: true, absolutePath: absolute };
+  const policy = documentPolicy(workflow, config); const content = await readFile(absolute, 'utf8'); const limit = policy.maxPreviewBytes ?? 1048576;
   return { record, content: content.length > limit ? `${content.slice(0, limit)}\n… preview truncated …\n` : content, binary: false };
+}
+
+export async function previewDocument(root, config, workflow, reference) {
+  const viewed = await viewDocument(root, config, workflow, reference);
+  if (viewed.record.type === 'url' || !viewed.binary) return viewed;
+  if (!INLINE_PREVIEW_TYPES.has(viewed.record.mimeType)) {
+    return { record: viewed.record, content: null, binary: true, previewable: false };
+  }
+  const policy = documentPolicy(workflow, config);
+  const limit = policy.maxFileBytes ?? 26214400;
+  const absolute = await governedDocumentPath(root, config, workflow, viewed.record);
+  const current = await snapshot(absolute);
+  if (current.sha256 !== viewed.record.sha256 || current.size !== viewed.record.size) {
+    throw new SingularityFlowError(`Document '${viewed.record.id}' no longer matches its committed catalog hash. Expected ${viewed.record.sha256}, found ${current.sha256}.`);
+  }
+  if (current.size > limit) throw new SingularityFlowError(`Document '${viewed.record.id}' exceeds the ${limit} byte inline-preview limit.`);
+  const bytes = await readFile(absolute);
+  return {
+    record: viewed.record,
+    content: null,
+    binary: true,
+    previewable: true,
+    mime: viewed.record.mimeType,
+    dataUrl: `data:${viewed.record.mimeType};base64,${bytes.toString('base64')}`,
+    sha256: current.sha256,
+    size: current.size,
+    integrity: 'verified'
+  };
 }

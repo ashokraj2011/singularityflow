@@ -34,6 +34,7 @@ import {
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
+import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -145,6 +146,8 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   return {
     state: initiative,
     progress: initiativeProgress(initiative),
+    breakdown: await loadInitiativeBreakdown(root, portfolio, initiativeId),
+    materialization: await initiativeBreakdownReview(root, initiativeId),
     report: await deriveInitiativeReport(root, initiativeId),
     phaseGate,
     contracts: await interfaceContractStatus(root, initiativeId),

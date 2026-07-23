@@ -16,6 +16,7 @@ import {
 import {
   createInitiative, initiativeDir, loadInitiative, saveInitiative
 } from '../src/initiative-state.mjs';
+import { deriveInitiativeReport } from '../src/initiative-report.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -88,6 +89,10 @@ test('breakdown validation enforces repositories, unique stories, and an acyclic
   const { portfolio } = await loadInitiative(root, 'INIT-MULTI');
   const valid = await loadInitiativeBreakdown(root, portfolio, 'INIT-MULTI');
   assert.deepEqual(valid.stories.map((story) => story.id), ['API-1', 'MOB-1']);
+  const report = await deriveInitiativeReport(root, 'INIT-MULTI');
+  assert.equal(report.children.total, 2);
+  assert.equal(report.children.materialized, 0);
+  assert.equal(report.children.epics[0].percentage, 0);
   const cyclic = structuredClone(valid);
   cyclic.epics[0].stories[0].dependsOn = [{ story: 'MOB-1' }];
   assert.throws(() => validateInitiativeBreakdown(cyclic, portfolio), /dependency cycle/);
@@ -108,15 +113,53 @@ test('materialization previews then creates idempotent repository story branches
   assert.equal(result.attempt.status, 'complete');
   assert.match(run('git', ['ls-remote', '--heads', api, 'refs/heads/API-1'], { cwd: root }).stdout, /refs\/heads\/API-1/);
   assert.match(run('git', ['ls-remote', '--heads', mobile, 'refs/heads/MOB-1'], { cwd: root }).stdout, /refs\/heads\/MOB-1/);
+  const report = await deriveInitiativeReport(root, 'INIT-MULTI');
+  assert.equal(report.children.epics[0].id, 'EPIC-1');
+  assert.equal(report.children.epics[0].stories[0].workId, 'API-1');
+  assert.equal(report.children.materialized, 2);
 
   const check = path.join(root, 'check-api');
   run('git', ['clone', '--branch', 'API-1', api, check], { cwd: root });
   const seed = YAML.parse(await readFile(path.join(check, 'singularity/seeds/API-1.yml'), 'utf8'));
   assert.equal(seed.initiative.id, 'INIT-MULTI');
+  assert.equal(seed.story.workId, 'API-1');
   assert.equal(seed.story.repository, 'api');
 
   const retry = await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
   assert.deepEqual(retry.attempt.stories.map((story) => story.status), ['attached', 'attached']);
+});
+
+test('Jira materialization persists separate epic and story Jira IDs into breakdown and seeds', async () => {
+  const { root, api } = await repository();
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.jira = { write: true, projectKey: 'PORT', epicIssueType: 'Epic', storyIssueType: 'Story' };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  let created = 100;
+  const fetchImpl = async (_url, init) => {
+    const payload = init.method === 'POST' && String(init.body).includes('"jql"')
+      ? { issues: [] }
+      : { id: String(created), key: `PORT-${created++}` };
+    return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
+  };
+  const result = await materializeInitiative(root, 'INIT-MULTI', {
+    confirmation: 'INIT-MULTI',
+    env: { JIRA_BASE_URL: 'https://jira.example.com', JIRA_EMAIL: 'owner@example.com', JIRA_API_TOKEN: 'test' },
+    fetchImpl
+  });
+  assert.equal(result.attempt.jira.epics['EPIC-1'].key, 'PORT-100');
+  assert.equal(result.attempt.jira.stories['API-1'].key, 'PORT-101');
+  const breakdown = YAML.parse(await readFile(path.join(root, 'singularity/initiatives/INIT-MULTI/breakdown.yml'), 'utf8'));
+  assert.equal(breakdown.epics[0].jiraKey, 'PORT-100');
+  assert.equal(breakdown.epics[0].stories[0].jiraKey, 'PORT-101');
+  assert.equal(breakdown.epics[0].stories[1].jiraKey, 'PORT-102');
+
+  const check = path.join(root, 'check-jira-api');
+  run('git', ['clone', '--branch', 'API-1', api, check], { cwd: root });
+  const seed = YAML.parse(await readFile(path.join(check, 'singularity/seeds/API-1.yml'), 'utf8'));
+  assert.equal(seed.story.epicId, 'EPIC-1');
+  assert.equal(seed.story.epicJiraKey, 'PORT-100');
+  assert.equal(seed.story.jiraKey, 'PORT-101');
 });
 
 test('repository sync observes child workflow milestones and all-blocking readiness', async () => {
@@ -146,6 +189,7 @@ test('repository sync observes child workflow milestones and all-blocking readin
   assert.equal(synchronized.results.filter((item) => item.status === 'synchronized').length, 2);
   const initiative = (await loadInitiative(root, 'INIT-MULTI')).initiative;
   assert.equal(initiative.childStories['API-1'].milestones.implementationSpec, true);
+  assert.equal(initiative.childStories['API-1'].progress.percentage, 33);
   assert.equal(initiative.childStories['MOB-1'].blocked, false);
   const readiness = initiativeMilestoneReadiness(initiative, 'construction');
   assert.equal(readiness.ready, false);

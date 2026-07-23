@@ -19,6 +19,12 @@ function safeId(value, label) {
   return value;
 }
 
+function textList(value, label) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) throw new SingularityFlowError(`${label} must be an array of non-empty strings.`);
+  return value.map((item) => item.trim());
+}
+
 function normalizeDependency(value, storyId) {
   const dependency = typeof value === 'string' ? { story: value } : structuredClone(value);
   if (!dependency || typeof dependency !== 'object') throw new SingularityFlowError(`Story '${storyId}' dependency is invalid.`);
@@ -43,15 +49,26 @@ export function validateInitiativeBreakdown(value, portfolio) {
     if (!rawEpic || typeof rawEpic !== 'object') throw new SingularityFlowError(`Epic ${epicIndex + 1} must be an object.`);
     const epicId = safeId(rawEpic.id, `Epic ${epicIndex + 1} ID`);
     if (!Array.isArray(rawEpic.stories)) throw new SingularityFlowError(`Epic '${epicId}' stories must be an array.`);
-    const epic = { id: epicId, title: rawEpic.title ?? epicId, jiraKey: rawEpic.jiraKey ?? null, stories: [] };
+    if (rawEpic.description != null && typeof rawEpic.description !== 'string') throw new SingularityFlowError(`Epic '${epicId}' description must be text.`);
+    const epic = {
+      id: epicId,
+      title: rawEpic.title ?? epicId,
+      description: rawEpic.description ?? '',
+      acceptanceCriteria: textList(rawEpic.acceptanceCriteria, `Epic '${epicId}' acceptanceCriteria`),
+      jiraKey: rawEpic.jiraKey ?? null,
+      stories: []
+    };
     for (const [storyIndex, rawStory] of rawEpic.stories.entries()) {
       if (!rawStory || typeof rawStory !== 'object') throw new SingularityFlowError(`Epic '${epicId}' story ${storyIndex + 1} must be an object.`);
       const id = safeId(rawStory.id, `Epic '${epicId}' story ID`);
       const repository = safeId(rawStory.repository, `Story '${id}' repository`);
+      if (rawStory.description != null && typeof rawStory.description !== 'string') throw new SingularityFlowError(`Story '${id}' description must be text.`);
       if (!portfolio.repositories[repository]) throw new SingularityFlowError(`Story '${id}' references unknown repository '${repository}'.`);
       const story = {
         id,
         title: rawStory.title ?? id,
+        description: rawStory.description ?? '',
+        acceptanceCriteria: textList(rawStory.acceptanceCriteria, `Story '${id}' acceptanceCriteria`),
         epicId,
         repository,
         blocking: rawStory.blocking !== false,
@@ -86,6 +103,33 @@ export function validateInitiativeBreakdown(value, portfolio) {
   }
   storyIds.forEach((id) => visit(id));
   return { version: 1, initiativeId: value.initiativeId ?? null, epics, stories };
+}
+
+export function initiativeBreakdownDocument(breakdown) {
+  return {
+    version: 1,
+    initiativeId: breakdown.initiativeId,
+    epics: breakdown.epics.map((epic) => ({
+      id: epic.id,
+      title: epic.title,
+      ...(epic.description ? { description: epic.description } : {}),
+      ...(epic.acceptanceCriteria.length ? { acceptanceCriteria: epic.acceptanceCriteria } : {}),
+      ...(epic.jiraKey ? { jiraKey: epic.jiraKey } : {}),
+      stories: epic.stories.map((story) => ({
+        id: story.id,
+        title: story.title,
+        ...(story.description ? { description: story.description } : {}),
+        ...(story.acceptanceCriteria.length ? { acceptanceCriteria: story.acceptanceCriteria } : {}),
+        repository: story.repository,
+        blocking: story.blocking,
+        suggestedWorkType: story.suggestedWorkType,
+        ...(story.jiraKey ? { jiraKey: story.jiraKey } : {}),
+        ...(story.estimate != null ? { estimate: story.estimate } : {}),
+        ...(story.dependsOn.length ? { dependsOn: story.dependsOn } : {}),
+        ...(story.consumesContracts.length ? { consumesContracts: story.consumesContracts } : {})
+      }))
+    }))
+  };
 }
 
 export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
@@ -174,8 +218,13 @@ function storySeed(root, initiative, story) {
     },
     story: {
       id: story.id,
+      workId: story.id,
       title: story.title,
+      description: story.description,
+      acceptanceCriteria: story.acceptanceCriteria,
       epicId: story.epicId,
+      epicJiraKey: story.epicJiraKey ?? null,
+      jiraKey: story.jiraKey ?? null,
       repository: story.repository,
       blocking: story.blocking,
       suggestedWorkType: story.suggestedWorkType,
@@ -213,6 +262,22 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
   if (await exists(seedPath)) {
     const current = YAML.parse(await readFile(seedPath, 'utf8'));
     if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== story.id) throw new SingularityFlowError(`Existing branch '${story.id}' contains an unrelated Singularity Flow seed.`);
+    const refreshed = {
+      ...current,
+      version: 1,
+      initiative: seed.initiative,
+      story: { ...(current.story ?? {}), ...seed.story },
+      approvedArtifacts: seed.approvedArtifacts,
+      contracts: seed.contracts
+    };
+    if (YAML.stringify(current) !== YAML.stringify(refreshed)) {
+      await writeText(seedPath, YAML.stringify(refreshed));
+      run('git', ['add', '--', relativeSeed], { cwd: target });
+      run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${story.id}][seed] Refresh initiative linkage`], { cwd: target });
+      const pushed = run('git', ['push', 'origin', `HEAD:${story.id}`], { cwd: target, allowFailure: true });
+      if (pushed.status !== 0) throw new SingularityFlowError(`Story '${story.id}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
+      return { status: 'updated', branch: story.id, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
+    }
     return { status: 'attached', branch: story.id, commit: remoteHead, seed: relativeSeed };
   }
   await writeText(seedPath, YAML.stringify(seed));
@@ -234,7 +299,11 @@ async function materializeJira(portfolio, initiative, breakdown, { env, fetchImp
       projectKey,
       issueType: portfolio.jira.epicIssueType ?? 'Epic',
       summary: epic.title,
-      description: `Singularity Flow initiative ${initiative.initiative.id}, epic ${epic.id}.`
+      description: [
+        `Singularity Flow initiative ${initiative.initiative.id}, epic ${epic.id}.`,
+        epic.description,
+        epic.acceptanceCriteria.length ? `Acceptance criteria:\n${epic.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : ''
+      ].filter(Boolean).join('\n\n')
     }, { env, fetchImpl });
     epics[epic.id] = epicIssue;
     for (const story of epic.stories) {
@@ -243,7 +312,11 @@ async function materializeJira(portfolio, initiative, breakdown, { env, fetchImp
         projectKey,
         issueType: portfolio.jira.storyIssueType ?? 'Story',
         summary: story.title,
-        description: `Repository ${story.repository}; Singularity Flow story ${story.id}.`,
+        description: [
+          `Repository ${story.repository}; Singularity Flow Story Work ID ${story.id}.`,
+          story.description,
+          story.acceptanceCriteria.length ? `Acceptance criteria:\n${story.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : ''
+        ].filter(Boolean).join('\n\n'),
         parentKey: epicIssue.key
       }, { env, fetchImpl });
       stories[story.id] = issue;
@@ -268,6 +341,18 @@ export async function materializeInitiative(root, initiativeId, {
   const actor = identity(root);
   if (!actor.email) throw new SingularityFlowError('Materialization requires a configured local Git email.');
   const jira = await materializeJira(portfolio, initiative, breakdown, { env, fetchImpl });
+  for (const epic of breakdown.epics) {
+    epic.jiraKey = jira.epics[epic.id]?.key ?? epic.jiraKey;
+    for (const story of epic.stories) {
+      story.jiraKey = jira.stories[story.id]?.key ?? story.jiraKey;
+      story.epicJiraKey = epic.jiraKey ?? null;
+    }
+  }
+  breakdown.stories = breakdown.epics.flatMap((epic) => epic.stories);
+  await writeText(
+    path.join(initiativeDir(root, portfolio, initiativeId), 'breakdown.yml'),
+    YAML.stringify(initiativeBreakdownDocument(breakdown))
+  );
   const attempt = { at: nowIso(), actor, status: 'in_progress', jira, stories: [] };
   initiative.materialization.attempts.push(attempt);
   const journalPath = path.join(initiativeDir(root, portfolio, initiativeId), 'context', 'materialization-journal.json');
@@ -277,6 +362,7 @@ export async function materializeInitiative(root, initiativeId, {
       receipt = await materializeStory(root, portfolio, initiative, story, actor);
       initiative.childStories[story.id] = {
         ...story,
+        workId: story.id,
         branch: story.id,
         seedCommit: receipt.commit,
         observedCommit: receipt.commit,
@@ -347,6 +433,9 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     const workflowText = run('git', ['show', `origin/${story.id}:singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
     const workflow = workflowText.status === 0 ? JSON.parse(workflowText.stdout) : null;
     const previous = initiative.childStories[story.id] ?? {};
+    const phaseOrder = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+    const approvedPhases = phaseOrder.filter((phaseId) => workflow?.phases?.[phaseId]?.status === 'approved');
+    const completedPhases = approvedPhases.length;
     const current = {
       ...previous,
       ...story,
@@ -355,6 +444,16 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       observedAt: nowIso(),
       status: workflow?.status ?? 'seeded',
       currentPhase: workflow?.currentPhase ?? null,
+      phaseOrder,
+      approvedPhases,
+      progress: {
+        completed: completedPhases,
+        total: phaseOrder.length,
+        percentage: workflow?.status === 'complete'
+          ? 100
+          : phaseOrder.length ? Math.round((completedPhases / phaseOrder.length) * 100) : 0
+      },
+      blocked: false,
       milestones: {
         implementationSpec: milestoneReached(workflow, 'implementation-spec') || milestoneReached(workflow, 'fix-spec'),
         verification: milestoneReached(workflow, 'verification'),
@@ -369,14 +468,6 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         })()
       } : previous.telemetry ?? null
     };
-    for (const dependency of story.dependsOn) {
-      const dependencyState = initiative.childStories[dependency.story];
-      const reached = dependency.requiredPhase === 'complete'
-        ? dependencyState?.status === 'complete'
-        : dependencyState?.milestones?.[dependency.requiredPhase.replace(/-([a-z])/g, (_, character) => character.toUpperCase())]
-          ?? dependencyState?.currentPhase === dependency.requiredPhase;
-      if (!reached) current.blocked = true;
-    }
     if (previous.milestones) {
       for (const [milestone, wasReached] of Object.entries(previous.milestones)) {
         if (wasReached && !current.milestones[milestone]) regressions.push({ storyId: story.id, milestone });
@@ -389,6 +480,17 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       observedAt: current.observedAt
     };
     results.push({ storyId: story.id, repository: story.repository, status: 'synchronized', commit, workflowStatus: current.status, currentPhase: current.currentPhase });
+  }
+  for (const story of breakdown.stories) {
+    const current = initiative.childStories[story.id];
+    if (!current) continue;
+    current.blocked = story.dependsOn.some((dependency) => {
+      const dependencyState = initiative.childStories[dependency.story];
+      if (dependency.requiredPhase === 'complete') return dependencyState?.status !== 'complete';
+      const camelMilestone = dependency.requiredPhase.replace(/-([a-z])/g, (_, character) => character.toUpperCase());
+      return !dependencyState?.approvedPhases?.includes(dependency.requiredPhase)
+        && !dependencyState?.milestones?.[camelMilestone];
+    });
   }
   await writeText(lockPath, YAML.stringify(lock));
   initiative.history.push({ at: nowIso(), actor: identity(root).email?.toLowerCase() ?? identity(root).name, event: 'initiative_repositories_synchronized', phase: initiative.currentPhase, detail: `${results.filter((item) => item.status === 'synchronized').length}/${results.length} stories synchronized` });
@@ -403,8 +505,8 @@ export async function syncInitiativeRepositories(root, initiativeId) {
   return { initiativeId, results, regressions, invalidations };
 }
 
-export function initiativeMilestoneReadiness(initiative, phaseId) {
-  const blocking = Object.values(initiative.childStories ?? {}).filter((story) => story.blocking);
+export function initiativeMilestoneReadiness(initiative, phaseId, stories = Object.values(initiative.childStories ?? {})) {
+  const blocking = stories.filter((story) => story.blocking);
   const required = phaseId === 'delivery' ? 'conformance' : phaseId === 'construction' ? 'verification' : null;
   const incomplete = required ? blocking.filter((story) => !story.milestones?.[required] || story.stale) : [];
   return {

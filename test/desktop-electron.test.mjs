@@ -82,6 +82,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Cross-repository control plane/);
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
+  assert.match(source, /Epic-level story progress/);
+  assert.match(source, /Story Work ID/);
+  assert.match(source, /Create Jira & Git stories/);
+  assert.match(source, /Question from Copilot/);
+  assert.match(source, /Copilot logs/);
+  assert.match(source, /Epic decomposition analysis/);
   assert.match(source, /Interface contracts/);
   assert.match(source, /Branches stay isolated/);
   assert.match(source, /never merges them into a default branch automatically/);
@@ -119,6 +125,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.initiative-flow/);
   assert.match(styles, /\.initiative-lanes/);
   assert.match(styles, /\.initiative-metrics/);
+  assert.match(styles, /\.epic-progress-list/);
+  assert.match(styles, /\.copilot-question-card/);
+  assert.match(styles, /\.planning-console/);
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);
   assert.match(styles, /\.requirement-layout/);
@@ -140,5 +149,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /importFile/);
   assert.match(preload, /exportBundle/);
   assert.match(preload, /initiativeId/);
+  assert.match(preload, /answerPlanningQuestion/);
+  assert.match(preload, /materializeInitiative/);
+  assert.match(preload, /syncInitiative/);
   assert.match(main, /--initiative/);
+  assert.match(main, /planning:answer/);
+  assert.match(main, /initiative:materialize/);
 });

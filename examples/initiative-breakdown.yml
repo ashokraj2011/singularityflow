@@ -4,18 +4,27 @@ initiativeId: INIT-2026-001
 epics:
   - id: EPIC-001
     title: Mobile customer experience
+    description: Deliver the approved customer summary journey across API, mobile, and operations.
+    acceptanceCriteria:
+      - Blocking API and mobile stories are conformant before delivery
     stories:
       - id: API-201
         title: Publish customer summary
+        description: Provide the versioned customer summary contract.
         repository: api
         blocking: true
         suggestedWorkType: feature
+        acceptanceCriteria:
+          - Contract tests pass for the approved customer-api version
 
       - id: MOB-101
         title: Render customer summary
+        description: Implement the approved mobile design against the customer API.
         repository: mobile
         blocking: true
         suggestedWorkType: figma-mobile
+        acceptanceCriteria:
+          - The approved loading, success, empty, and failure states match the design evidence
         dependsOn:
           - story: API-201
             requiredPhase: implementation-spec
@@ -25,6 +34,9 @@ epics:
 
       - id: OBS-301
         title: Add customer journey dashboard
+        description: Add operational visibility for the new journey.
         repository: platform
         blocking: false
         suggestedWorkType: chore
+        acceptanceCriteria:
+          - Dashboard shows traffic, errors, and latency for the customer journey

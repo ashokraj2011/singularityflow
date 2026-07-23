@@ -140,11 +140,19 @@ version: 1
 initiativeId: INIT-2026-001
 epics:
   - id: EPIC-001
+    title: Customer experience
+    description: Deliver the approved cross-channel customer outcome.
+    acceptanceCriteria:
+      - Every blocking story is conformant before delivery
     stories:
       - id: API-201
+        title: Publish customer API
+        description: Provide the contract required by the mobile experience.
         repository: api
         blocking: true
         suggestedWorkType: feature
+        acceptanceCriteria:
+          - Contract tests pass for the approved customer-api version
       - id: MOB-101
         repository: mobile
         blocking: true
@@ -166,7 +174,25 @@ singularity-flow initiative materialize --dry-run
 
 Materialization requires the exact initiative ID. It safely creates or attaches one branch per story, commits `singularity/seeds/<STORY-ID>.yml`, pushes it, and records repository/branch/commit receipts in a resumable journal. It never force-pushes or overwrites an unrelated branch.
 
-When Jira write configuration exists, deterministic labels make Epic/story creation retryable. Without Jira writes, committed Git records remain the source of truth. A story contributor still selects a work type and persona; its seed recommends values and supplies approved inputs/contracts without bypassing selection.
+The identifiers have distinct jobs:
+
+- Epic ID: stable planning identity in the lead initiative, such as `EPIC-001`.
+- Story Work ID: stable child identity, Git branch, seed filename, and later Singularity work-item ID, such as `MOB-101`.
+- Jira ID: external `jiraKey` returned by Jira, such as `MOB-4821`. It is recorded separately and is never invented by Copilot.
+
+When Jira write configuration exists, deterministic labels make Epic/story creation retryable. Returned Epic and Story Jira IDs are written back to `breakdown.yml` and into new story seeds before the initiative materialization commit is pushed. Without Jira writes, committed Git records remain the source of truth and the Jira ID remains visibly `not created`. A story contributor still selects a work type and persona; its seed recommends values and supplies approved inputs/contracts without bypassing selection.
+
+Enable Jira creation in `singularity/portfolio.yml`:
+
+```yaml
+jira:
+  write: true
+  projectKey: PORT
+  epicIssueType: Epic
+  storyIssueType: Story
+```
+
+Provide `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` to the Electron process or CLI environment. Credentials are never written to Git. With `write: false` (the starter default), preview and Git planning remain available and no Jira network call occurs.
 
 ## Version interface contracts
 
@@ -193,15 +219,15 @@ singularity-flow initiative report
 singularity-flow initiative gate
 ```
 
-Synchronization reads each story branch’s committed state and aggregates implementation-spec, verification, and conformance milestones. Construction and Delivery use an all-blocking policy by default. Nonblocking stories remain visible without preventing the gate.
+Synchronization reads each story branch’s committed state and aggregates its current phase, approved phase count, completion percentage, implementation-spec, verification, and conformance milestones. Construction and Delivery use an all-blocking policy by default. Nonblocking stories remain visible without preventing the gate.
 
-Reports show phase progress/duration, evidence assurance/freshness, invalidations, local identity assurance, self-approval, story milestones, contracts, and captured Copilot models/tokens/provider cost. Unavailable values remain unavailable; Singularity Flow never guesses them.
+Reports group every planned story under its epic even before branch materialization, then show Work ID, Jira ID, repository, status, current phase, and percentage progress. They also show phase progress/duration, evidence assurance/freshness, invalidations, local identity assurance, self-approval, contracts, and captured Copilot models/tokens/provider cost. Unavailable values remain unavailable; Singularity Flow never guesses them.
 
 ## Flow Studio
 
-Open the Electron app with `npm run desktop:dev`, choose the lead repository, and open **Initiatives**. It provides four- or seven-phase flow, three delivery lanes, checklist assurance/freshness, next actions, story milestones, contract routing, governed documents, duration, and Copilot usage/cost. Its Portfolio designer edits validated YAML.
+Open the Electron app with `npm run desktop:dev`, choose the lead repository, and open **Initiatives**. It provides four- or seven-phase flow, three delivery lanes, checklist assurance/freshness, next actions, epic-grouped story progress, Work ID/Jira ID mapping, contract routing, governed documents, duration, and Copilot usage/cost. Its Portfolio designer edits validated YAML.
 
-Initiative state, evidence, approvals, contracts, and repository world-model files are read-only in the designer. Runtime mutations continue through the CLI or GitHub Copilot skills so they retain exact confirmations and atomic commit/push behavior.
+After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, contracts, and repository world-model files remain read-only in the designer.
 
 ## Durable branch layout
 

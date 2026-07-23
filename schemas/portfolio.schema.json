@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/portfolio.schema.json",
+  "title": "Singularity Flow portfolio configuration",
+  "type": "object",
+  "required": ["version", "repositories", "approvalAuthorities", "initiativeProfiles", "initiativePhases"],
+  "properties": {
+    "version": { "const": 1 },
+    "initiativeRoot": { "type": "string" },
+    "templatesRoot": { "type": "string" },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string", "minLength": 1 },
+          "defaultBranch": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "approvalAuthorities": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["email"],
+              "properties": {
+                "name": { "type": "string" },
+                "email": { "type": "string", "format": "email" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initiativeProfiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["phases"],
+        "properties": {
+          "label": { "type": "string" },
+          "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true }
+        }
+      }
+    },
+    "initiativePhases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string" },
+          "lanes": { "type": "array", "items": { "type": "string" } },
+          "worldModelViews": { "type": "array", "items": { "type": "string" } },
+          "outputs": { "type": "array" },
+          "checklist": { "type": "array" },
+          "bundleApproval": { "type": "object" }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

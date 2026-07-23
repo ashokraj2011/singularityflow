@@ -712,7 +712,9 @@ npm install
 npm run desktop:dev
 ```
 
-Create a production renderer build with `npm run desktop:build` or packaged installers with `npm run desktop:dist`.
+Create a production renderer build with `npm run desktop:build`. Package the current host with `npm run desktop:package:current`, a universal Mac DMG with `npm run desktop:package:mac`, or a Windows x64 NSIS executable with `npm run desktop:package:win`. `npm run desktop:dist` remains a current-host compatibility alias.
+
+Local packages are written below `apps/desktop/release/local/<version>/` and are visibly labelled `-unsigned` when signing credentials are unavailable. Official packages require Apple Developer ID signing plus notarization on macOS and Authenticode signing on Windows. The GitHub desktop-release workflow verifies both native builds and creates a draft release for human publication. Use `npm run desktop:verify -- --dir <directory>` to recheck a package, or `npm run desktop:publish:artifactory -- --dir <official-directory> --dry-run` to preview internal publication. Complete credential, installation, silent-uninstall, checksum, and Artifactory instructions are in `DISTRIBUTION.md`; the file is bundled with the desktop CLI resources. Installing the desktop does not install the global CLI or Copilot plugin.
 
 The desktop app provides:
 

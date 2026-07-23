@@ -25,6 +25,7 @@
     "VERIFICATION.md",
     "MIGRATION.md",
     "RELEASE-PHASE-INPUTS.md",
+    "DISTRIBUTION.md",
     "LICENSE"
   ],
   "workspaces": [
@@ -38,7 +39,14 @@
     "install:local": "bash ./install.sh",
     "desktop:dev": "npm run dev --workspace singularity-flow-desktop",
     "desktop:build": "npm run build --workspace singularity-flow-desktop",
-    "desktop:dist": "npm run dist --workspace singularity-flow-desktop"
+    "desktop:icons": "node scripts/create-windows-icon.mjs",
+    "desktop:dist": "npm run desktop:package:current",
+    "desktop:package:current": "node scripts/desktop-release.mjs package --platform current",
+    "desktop:package:mac": "node scripts/desktop-release.mjs package --platform mac",
+    "desktop:package:win": "node scripts/desktop-release.mjs package --platform win",
+    "desktop:verify": "node scripts/desktop-release.mjs verify",
+    "desktop:release:preflight": "node scripts/desktop-release.mjs preflight",
+    "desktop:publish:artifactory": "node scripts/desktop-release.mjs publish-artifactory"
   },
   "engines": {
     "node": ">=20"

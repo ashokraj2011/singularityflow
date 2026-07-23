@@ -72,6 +72,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Approval inbox/);
   assert.match(source, /Pending approvals/);
   assert.match(source, /Fetch remote inbox/);
+  assert.match(source, /Model usage & cost/);
+  assert.match(source, /Cost by phase/);
+  assert.match(source, /Cost by model/);
+  assert.match(source, /Cost needs telemetry or pricing/);
+  assert.match(source, /No estimate shown/);
+  assert.match(styles, /\.cost-dashboard/);
+  assert.match(styles, /\.cost-breakdown-grid/);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /refreshInbox/);
   assert.match(preload, /attachInboxItem/);

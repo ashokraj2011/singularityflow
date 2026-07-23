@@ -14,6 +14,7 @@ import { structuredWorldModelViewReferences, worldModelViewCatalog } from './wor
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
+import { deriveReport } from './report.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -102,9 +103,11 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   let progress = null;
   let documents = [];
   let review = null;
+  let report = null;
   if (selectedId) {
     workflow = await loadWorkflow(root, definition, selectedId);
     progress = progressSnapshot(workflow);
+    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
     documents = await documentCatalog(root, definition, workflow);
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
@@ -148,6 +151,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     selectedWorkId: selectedId,
     workflow,
     progress,
+    report,
     documents,
     review,
     diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),

@@ -38,7 +38,8 @@ function usageCost(record, pricing) {
   if (!priced.length) return null;
   return {
     value: priced.reduce((sum, [tokens, rate]) => sum + (tokens / 1_000_000) * rate, 0),
-    complete: priced.length === components.length
+    complete: priced.length === components.length,
+    source: 'pricing'
   };
 }
 
@@ -87,7 +88,7 @@ function tokenStatus(usage, exactRecords) {
   return exactRecords.length === usage.length ? 'exact' : 'partial';
 }
 
-function usageByModel(records) {
+function usageByModel(records, pricing = null) {
   const aggregates = new Map();
   for (const record of records) {
     const provider = record.provider || 'unavailable';
@@ -99,15 +100,32 @@ function usageByModel(records) {
       records: 0,
       exactRecords: 0,
       unavailableRecords: 0,
-      totalTokens: 0
+      totalTokens: 0,
+      cost: 0,
+      pricedRecords: 0,
+      fullyPricedRecords: 0,
+      providerCostRecords: 0,
+      configuredPriceRecords: 0
     };
     aggregate.records += 1;
     aggregate[record.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
     aggregate.totalTokens += record.totalTokens ?? 0;
+    const priced = record.status === 'exact' ? usageCost(record, pricing) : null;
+    if (priced) {
+      aggregate.cost += priced.value;
+      aggregate.pricedRecords += 1;
+      if (priced.complete) aggregate.fullyPricedRecords += 1;
+      aggregate[priced.source === 'provider' ? 'providerCostRecords' : 'configuredPriceRecords'] += 1;
+    }
     aggregates.set(key, aggregate);
   }
-  return [...aggregates.values()].sort((left, right) =>
-    `${left.provider}/${left.model}`.localeCompare(`${right.provider}/${right.model}`));
+  return [...aggregates.values()].map((aggregate) => ({
+    ...aggregate,
+    cost: aggregate.pricedRecords ? aggregate.cost : null,
+    costStatus: !aggregate.pricedRecords
+      ? 'unavailable'
+      : aggregate.fullyPricedRecords === aggregate.records ? 'exact' : 'partial'
+  })).sort((left, right) => `${left.provider}/${left.model}`.localeCompare(`${right.provider}/${right.model}`));
 }
 
 export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) {
@@ -154,7 +172,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       tokens,
       tokenStatus: tokenStatus(usage, exactRecords),
       models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
-      modelUsage: usageByModel(usage),
+      modelUsage: usageByModel(usage, pricing),
       personas: [...new Set(usage.map((record) => record.persona).filter(Boolean))],
       cost: costs.length ? costs.reduce((sum, item) => sum + item.value, 0) : null,
       costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === usage.length ? 'exact' : 'partial',
@@ -172,7 +190,10 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const waitingMs = phases.reduce((sum, phase) => sum + (phase.waitingMs ?? 0), 0);
   const costValues = phases.map((phase) => phase.cost).filter((value) => value != null);
   const costPhases = phases.filter((phase) => phase.usageRecords > 0);
-  const modelUsage = usageByModel(workflow.phaseOrder.flatMap((id) => workflow.phases[id].usage ?? []));
+  const allUsage = workflow.phaseOrder.flatMap((id) => workflow.phases[id].usage ?? []);
+  const modelUsage = usageByModel(allUsage, pricing);
+  const pricedRecords = modelUsage.reduce((sum, item) => sum + item.pricedRecords, 0);
+  const fullyPricedRecords = modelUsage.reduce((sum, item) => sum + item.fullyPricedRecords, 0);
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
     .sort((left, right) => right.waitingMs - left.waitingMs)[0] ?? null;
@@ -206,6 +227,15 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     },
     cost: costValues.length ? costValues.reduce((sum, value) => sum + value, 0) : null,
     costStatus: costPhases.some((phase) => phase.costStatus === 'partial') || (costValues.length && costPhases.some((phase) => phase.costStatus === 'unavailable')) ? 'partial' : costValues.length ? 'exact' : 'unavailable',
+    costCoverage: {
+      usageRecords: allUsage.length,
+      exactUsageRecords: allUsage.filter((record) => record.status === 'exact').length,
+      pricedRecords,
+      fullyPricedRecords,
+      providerCostRecords: modelUsage.reduce((sum, item) => sum + item.providerCostRecords, 0),
+      configuredPriceRecords: modelUsage.reduce((sum, item) => sum + item.configuredPriceRecords, 0),
+      missingModels: modelUsage.filter((item) => item.costStatus !== 'exact').map((item) => `${item.provider}/${item.model}`)
+    },
     bottleneck: bottleneck ? {
       phase: bottleneck.id,
       waitingMs: bottleneck.waitingMs,

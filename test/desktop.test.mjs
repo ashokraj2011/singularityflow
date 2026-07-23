@@ -77,6 +77,27 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.workflow.workItem.workType, 'feature');
   assert.equal(snapshot.workflow.resolution.sequenceGates.phaseStatus, 'soft');
   assert.ok(snapshot.documents.some((item) => item.id === 'SYS-WORKFLOW'));
+  assert.equal(snapshot.report.cost, null);
+  assert.equal(snapshot.report.costStatus, 'unavailable');
+  assert.equal(snapshot.report.costCoverage.usageRecords, 0);
+
+  const statePath = path.join(root, '.singularity/work-items/DESK-1/workflow.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.phases.intake.usage = [{
+    status: 'exact', source: 'copilot-otel', provider: 'github', model: 'claude-sonnet-4.6',
+    inputTokens: 1200, outputTokens: 300, cachedInputTokens: 200, totalTokens: 1500,
+    providerCost: 0.0123, costStatus: 'exact', persona: 'product-owner'
+  }];
+  state.usage.exactRecords = 1;
+  state.usage.unavailableRecords = 0;
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  snapshot = await desktopSnapshot(root, 'DESK-1');
+  assert.equal(snapshot.report.cost, 0.0123);
+  assert.equal(snapshot.report.costStatus, 'exact');
+  assert.equal(snapshot.report.tokens.total, 1500);
+  assert.equal(snapshot.report.tokens.byModel[0].model, 'claude-sonnet-4.6');
+  assert.equal(snapshot.report.tokens.byModel[0].providerCostRecords, 1);
+  assert.equal(snapshot.report.costCoverage.pricedRecords, 1);
 });
 
 test('desktop snapshot separates publishable configuration from unrelated changes', async () => {

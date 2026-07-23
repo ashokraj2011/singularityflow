@@ -63,6 +63,7 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
+  bootstrapDesktopPortfolio,
   deleteDesktopFile,
   deleteDesktopTemplate,
   desktopExportBundle,
@@ -1879,6 +1880,14 @@ async function desktopCommand(positionals, options) {
   else if (subcommand === 'delete-file') result = await deleteDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteDesktopTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishDesktopConfiguration(root, optionString(options, 'message'));
+  else if (subcommand === 'portfolio-bootstrap') {
+    let input = {};
+    const text = await stdinText();
+    if (text.trim()) {
+      try { input = JSON.parse(text); } catch (error) { throw new SingularityFlowError(`Portfolio bootstrap input must be JSON: ${error.message}`); }
+    }
+    result = await bootstrapDesktopPortfolio(root, input);
+  }
   else if (subcommand === 'session') result = await selectDesktopPersona(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'persona'));
   else if (subcommand === 'planning-context') result = await createPlanningContext(root, {
     scope: optionString(options, 'scope'),

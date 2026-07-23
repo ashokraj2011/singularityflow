@@ -124,6 +124,84 @@ function Toast({ toast, onClose }) {
   return <div className={`toast ${toast.tone}`} role={toast.tone === 'bad' ? 'alert' : 'status'} aria-live="polite"><span>{toast.text}</span><button type="button" aria-label="Dismiss message" onClick={onClose}>×</button></div>;
 }
 
+function CopilotServiceControl({ repository, notify }) {
+  const [status, setStatus] = useState({ state: 'loading', running: false, preflight: null });
+  const [logs, setLogs] = useState([]);
+  const [model, setModel] = useState('');
+  const [open, setOpen] = useState(false);
+  const [working, setWorking] = useState(false);
+  const controlRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      window.singularity.copilotServiceStatus(repository),
+      window.singularity.copilotServiceLogs(repository)
+    ]).then(([nextStatus, nextLogs]) => {
+      if (!active) return;
+      setStatus(nextStatus);
+      setLogs(nextLogs);
+    }).catch((error) => {
+      if (active) setStatus({ state: 'error', running: false, preflight: { ready: false, message: error.message } });
+    });
+    const unsubscribe = window.singularity.onCopilotServiceEvent?.((event) => {
+      if (!active || event.repository !== repository) return;
+      setStatus((current) => ({ ...current, ...event.service }));
+      setLogs((current) => [...current.slice(-299), event]);
+    });
+    return () => { active = false; unsubscribe?.(); };
+  }, [repository]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = (event) => { if (!controlRef.current?.contains(event.target)) setOpen(false); };
+    const closeEscape = (event) => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', closeOutside);
+    document.addEventListener('keydown', closeEscape);
+    return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeEscape); };
+  }, [open]);
+
+  async function start() {
+    setWorking(true);
+    try {
+      const result = await window.singularity.startCopilotService(repository, model);
+      setStatus(result);
+      notify({ tone: 'good', text: 'Copilot backend is ready in native Plan mode.' });
+    } catch (error) {
+      notify({ tone: 'bad', text: error?.message || String(error) });
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function stop() {
+    setWorking(true);
+    try {
+      const result = await window.singularity.stopCopilotService(repository);
+      setStatus(result);
+      notify({ tone: 'good', text: 'Copilot backend stopped.' });
+    } catch (error) {
+      notify({ tone: 'bad', text: error?.message || String(error) });
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const tone = status.state === 'error' || status.preflight?.ready === false ? 'bad' : status.state === 'busy' ? 'busy' : status.running ? 'ready' : 'stopped';
+  return <div className="copilot-service-control" ref={controlRef}>
+    <button className={`copilot-service-trigger ${tone}`} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((current) => !current)} title="Manage the local Copilot ACP backend"><span className="copilot-service-orb">✦</span><span><strong>Copilot</strong><small>{status.state === 'loading' ? 'checking' : status.state}</small></span><i /></button>
+    {open && <section className="copilot-service-popover" role="dialog" aria-label="Copilot backend service">
+      <header><div><span className="eyebrow">Local ACP process</span><h2>Copilot backend</h2></div><Pill tone={status.running ? 'good' : status.state === 'error' ? 'bad' : 'neutral'}>{status.state}</Pill></header>
+      <p>Start Copilot once, then reuse that native Plan-mode process across governed planning turns. Stopping it cancels any active turn; it never changes Git state by itself.</p>
+      <div className="copilot-service-facts"><div><span>Mode</span><strong>{status.mode ?? 'plan'}</strong></div><div><span>Version</span><strong>{status.version ?? status.preflight?.version ?? '—'}</strong></div><div><span>Process</span><strong>{status.processId ?? '—'}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
+      {!status.running && <label><span>Model <em>optional</em></span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Copilot auto selection" /></label>}
+      {status.preflight?.ready === false && <div className="copilot-service-warning">{status.preflight.message}</div>}
+      <div className="copilot-service-actions">{status.running ? <button className="danger-button" disabled={working} onClick={stop}>{working ? 'Stopping…' : 'Stop backend'}</button> : <button className="primary" disabled={working || status.preflight?.ready === false} onClick={start}>{working ? 'Starting…' : 'Start backend'}</button>}<button className="ghost" onClick={() => setOpen(false)}>Close</button></div>
+      <details className="copilot-service-log"><summary>Service log <span>{logs.length}</span></summary><div>{logs.length ? logs.slice(-80).map((entry, index) => <p key={`${entry.at}:${entry.type}:${index}`}><time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><span>{entry.message ?? entry.detail ?? entry.state ?? ''}</span></p>) : <p className="empty-log">No backend events yet.</p>}</div></details>
+    </section>}
+  </div>;
+}
+
 function ProgressRing({ value = 0 }) {
   return <div className="ring" style={{ '--progress': `${value * 3.6}deg` }}><div><strong>{value}%</strong><span>complete</span></div></div>;
 }
@@ -377,7 +455,58 @@ function ImpactStudio({ data, openPlanning }) {
   </div>;
 }
 
-function JiraWorkspace({ data, action, reload, onConfigure }) {
+function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
+  const [values, setValues] = useState({
+    approvalName: '',
+    approvalEmail: '',
+    repositoryId: '',
+    repositoryUrl: '',
+    defaultBranch: data.definition.defaultBaseBranch ?? 'main',
+    jiraEnabled: jiraFirst,
+    jiraDeployment: 'cloud',
+    jiraBaseUrl: '',
+    jiraProjectKey: '',
+    jiraWriteMode: 'off'
+  });
+  const set = (name, value) => setValues((current) => ({ ...current, [name]: value }));
+  const repositoryPartial = Boolean(values.repositoryId || values.repositoryUrl);
+  const jiraReady = !values.jiraEnabled || Boolean(values.jiraBaseUrl);
+  async function create() {
+    const result = await action(() => window.singularity.bootstrapPortfolio(data.repository.root, {
+      approvalName: values.approvalName || null,
+      approvalEmail: values.approvalEmail || null,
+      repository: repositoryPartial ? {
+        id: values.repositoryId,
+        url: values.repositoryUrl,
+        defaultBranch: values.defaultBranch,
+        required: true
+      } : null,
+      jira: {
+        enabled: values.jiraEnabled,
+        deployment: values.jiraDeployment,
+        baseUrl: values.jiraBaseUrl,
+        projectKey: values.jiraProjectKey,
+        writeMode: values.jiraWriteMode,
+        connection: 'corporate-jira'
+      }
+    }), 'Portfolio configuration created and validated');
+    if (result) onCreated(result);
+  }
+  return <div className="portfolio-setup">
+    <section className="portfolio-setup-intro"><span className="jira-mark">S</span><span className="eyebrow">Guided repository setup</span><h1>Create the initiative portfolio</h1><p>This creates the editable enterprise and lightweight profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</p><div className="portfolio-setup-steps"><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></div></section>
+    <section className="portfolio-setup-form panel">
+      <header><span className="eyebrow">Approval identity</span><h2>Who owns the initial gates?</h2><p>Leave these blank to use the repository’s configured Git name and email.</p></header>
+      <div className="control-grid"><label><span>Display name</span><input value={values.approvalName} placeholder="Use Git user.name" onChange={(event) => set('approvalName', event.target.value)} /></label><label><span>Email</span><input type="email" value={values.approvalEmail} placeholder="Use Git user.email" onChange={(event) => set('approvalEmail', event.target.value)} /></label></div>
+      <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Portfolio designer.</p></header>
+      <div className="control-grid expanded"><label><span>Repository ID</span><input value={values.repositoryId} placeholder="mobile" onChange={(event) => set('repositoryId', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={values.repositoryUrl} placeholder="git@github.com:company/mobile.git" onChange={(event) => set('repositoryUrl', event.target.value)} /></label><label><span>Default branch</span><input value={values.defaultBranch} onChange={(event) => set('defaultBranch', event.target.value)} /></label></div>
+      <header className="portfolio-jira-toggle"><div><span className="eyebrow">Corporate integration</span><h2>Configure Jira now</h2></div><label className="switch"><input type="checkbox" checked={values.jiraEnabled} onChange={(event) => set('jiraEnabled', event.target.checked)} /><span /></label></header>
+      {values.jiraEnabled && <div className="control-grid expanded"><label><span>Deployment</span><select value={values.jiraDeployment} onChange={(event) => set('jiraDeployment', event.target.value)}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="full"><span>Jira HTTPS URL</span><input value={values.jiraBaseUrl} placeholder="https://company.atlassian.net" onChange={(event) => set('jiraBaseUrl', event.target.value)} /></label><label><span>Project key</span><input value={values.jiraProjectKey} placeholder="APP" onChange={(event) => set('jiraProjectKey', event.target.value.toUpperCase())} /></label><label><span>Write policy</span><select value={values.jiraWriteMode} onChange={(event) => set('jiraWriteMode', event.target.value)}><option value="off">Off · browse/adopt only</option><option value="preview">Preview · commit plans only</option><option value="approved">Approved · guarded apply</option></select></label></div>}
+      <div className="portfolio-setup-action"><div><strong>No credentials are stored in YAML</strong><span>The API token/PAT is requested separately after the portfolio is created.</span></div><button className="primary" disabled={(repositoryPartial && (!values.repositoryId || !values.repositoryUrl)) || !jiraReady} onClick={create}>Create & validate portfolio</button></div>
+    </section>
+  </div>;
+}
+
+function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio }) {
   const policy = data.portfolio?.jira;
   const repositoryIds = Object.keys(data.portfolio?.repositories ?? {});
   const [status, setStatus] = useState(null);
@@ -492,7 +621,7 @@ function JiraWorkspace({ data, action, reload, onConfigure }) {
     if (selectedEpic) await chooseEpic(selectedEpic);
   }
 
-  if (!data.portfolio) return <Empty title="Initiative configuration required" detail="Add singularity/portfolio.yml before connecting Jira to governed initiative planning." />;
+  if (!data.portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} jiraFirst /></div>;
   if (!policy?.enabled) return <div className="page jira-page"><header className="page-heading"><span className="eyebrow">Corporate integration</span><h1>Jira workspace</h1><p>Browse existing Epics, adopt their stories into Git-native initiative planning, and apply only reviewed write plans.</p></header><section className="panel jira-disabled"><span className="jira-mark">J</span><div><h2>Jira is disabled by repository policy</h2><p>Set <code>jira.enabled: true</code> in <code>singularity/portfolio.yml</code>, choose Cloud or Data Center, and define allowed hosts, projects, authentication modes, and write policy.</p><button className="primary compact" onClick={onConfigure}>Configure Jira policy</button></div></section></div>;
 
   const connected = status?.credentials?.connected;
@@ -823,7 +952,7 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
   }
 
   async function stopCopilot() {
-    await action(() => window.singularity.stopPlanningSession(data.repository.root, contextPack.sessionId), 'Copilot planning session stopped');
+    await action(() => window.singularity.stopPlanningSession(data.repository.root, contextPack.sessionId), 'Planning context released; the Copilot backend remains ready');
     setRunning(false);
     setStarted(false);
   }
@@ -899,12 +1028,12 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
   </div>;
 }
 
-function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload }) {
+function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio }) {
   const [tab, setTab] = useState('delivery');
   const [materializationModal, setMaterializationModal] = useState(null);
   const portfolio = data.portfolio;
   const selected = data.initiative;
-  if (!portfolio) return <div className="page"><Empty title="Initiative orchestration is not configured" detail="Add singularity/portfolio.yml to define repositories, profiles, phase outputs, checklist evidence, approval authorities, contracts, and gates." /></div>;
+  if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} /></div>;
   const profiles = Object.entries(portfolio.initiativeProfiles ?? {});
   const repositories = Object.entries(portfolio.repositories ?? {});
   const authorities = Object.entries(portfolio.approvalAuthorities ?? {});
@@ -948,7 +1077,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       <aside className="initiative-config-summary">
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Profiles</span><h2>{profiles.length} delivery models</h2></div></header><div className="initiative-mini-list">{profiles.map(([id, profile]) => <div key={id}><strong>{profile.label}</strong><span>{profile.phases.length} phases</span><small>{profile.phases.join(' → ')}</small></div>)}</div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Repository registry</span><h2>{repositories.length} repositories</h2></div></header><div className="initiative-mini-list">{repositories.length ? repositories.map(([id, repository]) => <div key={id}><strong>{id}</strong><span>{repository.required ? 'Required' : 'Optional'}</span><small>{repository.defaultBranch} · {repository.url}</small></div>) : <div><strong>No repositories yet</strong><small>Add repository IDs, URLs, and default branches in portfolio.yml.</small></div>}</div></section>
-        <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Issue materialization</span><h2>Jira {portfolio.jira?.write ? 'enabled' : 'off'}</h2></div><Pill tone={portfolio.jira?.write ? 'good' : 'neutral'}>{portfolio.jira?.projectKey || 'Git only'}</Pill></header><div className="initiative-mini-list"><div><strong>Epic → Story hierarchy</strong><span>{portfolio.jira?.write ? 'Create' : 'Preview only'}</span><small>{portfolio.jira?.write ? `${portfolio.jira.epicIssueType ?? 'Epic'} / ${portfolio.jira.storyIssueType ?? 'Story'} · credentials from environment` : 'Set jira.write and projectKey in portfolio.yml; no network is used while off.'}</small></div></div></section>
+        <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Issue materialization</span><h2>Jira {portfolio.jira?.enabled ? portfolio.jira.writeMode : 'off'}</h2></div><Pill tone={portfolio.jira?.writeMode === 'approved' ? 'good' : 'neutral'}>{portfolio.jira?.projectKey || 'Git only'}</Pill></header><div className="initiative-mini-list"><div><strong>Epic → Story hierarchy</strong><span>{portfolio.jira?.writeMode === 'approved' ? 'Guarded apply' : portfolio.jira?.writeMode === 'preview' ? 'Plan only' : 'Git only'}</span><small>{portfolio.jira?.writeMode === 'approved' ? `${portfolio.jira.epicIssueType ?? 'Epic'} / ${portfolio.jira.storyIssueType ?? 'Story'} · exact approved write plan required` : portfolio.jira?.writeMode === 'preview' ? 'Create and commit Jira write plans without mutating Jira.' : 'Enable Jira policy and choose a write mode in portfolio.yml; no network is used while off.'}</small></div></div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
       <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" />
@@ -1347,6 +1476,10 @@ export default function App() {
   async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
   function workflowPage() { setPage('workflow'); setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }
   function initiativePage() { setPage('initiatives'); if (data.portfolioText) setEditor({ path: data.portfolioPath, content: data.portfolioText, original: data.portfolioText, kind: 'portfolio' }); }
+  function acceptPortfolioBootstrap(snapshot) {
+    setData(snapshot);
+    setEditor({ path: snapshot.portfolioPath, content: snapshot.portfolioText, original: snapshot.portfolioText, kind: 'portfolio' });
+  }
   function openPlanningPrompt() {
     const prompt = data.planning.prompt;
     setEditor({ path: prompt.path, content: prompt.content, original: prompt.content, kind: 'prompt' });
@@ -1549,8 +1682,8 @@ export default function App() {
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open a Singularity repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Overview</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Active workflow</span><h3>Requirement to delivery</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow workspace</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</em></div></div></aside>
-    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-actions"><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

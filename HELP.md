@@ -71,6 +71,8 @@ Use `/sflow-progress` for deterministic completion and `/sflow-report` for timin
 
 Initiative orchestration is an opt-in layer above repository story workflows. `singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.
 
+If the file is missing, open **Initiatives** or **Jira workspace** in the desktop. The guided setup creates and validates the full editable starter portfolio, fills approval groups from the entered identity or current Git identity, optionally registers the first participating repository, and optionally adds an HTTPS Jira host/project/write policy. Credentials are never accepted into the YAML. The file stays uncommitted until **Commit & push**.
+
 Operate an initiative inside GitHub Copilot:
 
 ```text
@@ -98,6 +100,8 @@ Use `singularity-flow initiative materialize --dry-run` before creating story br
 ## Copilot Planning Studio
 
 Open **Planning Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
+
+Use the **Copilot** control in the desktop top bar to start or stop the repository-scoped ACP backend and inspect its state, process ID, version, mode, active planning attachment, and transient local service log. Planning turns reuse the running backend. Releasing or promoting a planning context leaves it ready; stopping it cancels an active turn. **Start Copilot Plan mode** starts it automatically when needed.
 
 Choose the current phase output, a persona, and the decision objective. **Build governed context** deterministically composes the phase contract, persona prompt, repository world model, active remote-agent skills, approved inputs, source requirement, current draft, and exact promotion target. It records source and prompt hashes in a private pack below `.git/singularity-flow/planning/` without changing Git state. Inspect the complete prompt before selecting **Start Copilot Plan mode**.
 
@@ -229,7 +233,7 @@ singularity-flow jira children APP-100
 singularity-flow jira permissions --project APP
 ```
 
-The Electron **Jira workspace** is the preferred corporate setup. Repository policy in `singularity/portfolio.yml` controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer, placed in Git, passed to CLI child processes, or included in Copilot context.
+The Electron **Jira workspace** is the preferred corporate setup. If no portfolio exists, its first screen is the guided `singularity/portfolio.yml` bootstrap; Jira sign-in is deliberately unavailable until governed repository policy has been created. Repository policy controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer, placed in Git, passed to CLI child processes, or included in Copilot context.
 
 Select an existing Epic, map each child to an owning repository, and choose an existing initiative. Preview then adopt it to create a committed source snapshot and `breakdown.yml` with separate Singularity Work IDs and Jira IDs. Outbound changes use a two-step flow:
 

@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
 import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
 import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
+import { CopilotBackendController } from './copilot-service.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -13,8 +14,14 @@ const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
 let mainWindow = null;
 const planningPacks = new Map();
-const planningBridges = new Map();
 const jiraCache = new Map();
+const copilotBackend = new CopilotBackendController({
+  bridgeFactory: ({ repository, emit }) => new CopilotPlanningBridge({ repository, emit }),
+  preflight: () => copilotPlanningPreflight(),
+  emit: (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+  }
+});
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
@@ -214,14 +221,41 @@ function registerHandlers() {
     return { path: output, files: bundle.files.length, worldModelRepositoryOwned: true };
   });
   ipcMain.handle('configuration:publish', (_event, { repository, message }) => invokeCli(assertRepository(repository), ['desktop', 'publish', '--message', message || 'Configure Singularity Flow workflow', '--json']));
+  ipcMain.handle('configuration:bootstrap-portfolio', async (event, { repository, configuration }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    await invokeCli(root, ['desktop', 'portfolio-bootstrap', '--json'], {
+      input: JSON.stringify(configuration ?? {}),
+      timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
+    });
+    return snapshot(root);
+  });
   ipcMain.handle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
-  ipcMain.handle('planning:preflight', (_event, { repository }) => {
+  ipcMain.handle('planning:preflight', (event, { repository }) => {
+    assertTrustedSender(event);
     assertRepository(repository);
     return copilotPlanningPreflight();
   });
-  ipcMain.handle('planning:context', async (_event, {
+  ipcMain.handle('copilot-service:status', (event, { repository }) => {
+    assertTrustedSender(event);
+    return copilotBackend.status(assertRepository(repository));
+  });
+  ipcMain.handle('copilot-service:start', (event, { repository, model }) => {
+    assertTrustedSender(event);
+    return copilotBackend.start(assertRepository(repository), { model: model?.trim() || null });
+  });
+  ipcMain.handle('copilot-service:stop', (event, { repository }) => {
+    assertTrustedSender(event);
+    return copilotBackend.stop(assertRepository(repository));
+  });
+  ipcMain.handle('copilot-service:logs', (event, { repository }) => {
+    assertTrustedSender(event);
+    return copilotBackend.logs(assertRepository(repository));
+  });
+  ipcMain.handle('planning:context', async (event, {
     repository, scope, id, phase, persona, target, objective
   }) => {
+    assertTrustedSender(event);
     const root = assertRepository(repository);
     const result = await invokeCli(root, [
       'desktop', 'planning-context',
@@ -241,53 +275,31 @@ function registerHandlers() {
     return result;
   });
   ipcMain.handle('planning:start', async (event, { repository, planningSessionId, model }) => {
+    assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
     if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
-    const existing = planningBridges.get(planningSessionId);
-    if (existing) await existing.stop();
-    const bridge = new CopilotPlanningBridge({
-      repository: root,
-      emit: (update) => {
-        if (!event.sender.isDestroyed()) event.sender.send('planning:event', { planningSessionId, ...update });
-      }
+    return copilotBackend.beginPlanning(root, planningSessionId, {
+      model: model?.trim() || null,
+      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
     });
-    planningBridges.set(planningSessionId, bridge);
-    try {
-      const result = await bridge.start({
-        model: model?.trim() || null,
-        prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
-      });
-      return { ...result, planningSessionId };
-    } catch (error) {
-      planningBridges.delete(planningSessionId);
-      await bridge.stop();
-      throw error;
-    }
   });
-  ipcMain.handle('planning:prompt', (_event, { repository, planningSessionId, text }) => {
-    assertRepository(repository);
-    const bridge = planningBridges.get(planningSessionId);
-    if (!bridge) throw new Error('Copilot planning session is not active.');
-    void bridge.prompt(text).catch(() => {});
-    return { accepted: true };
+  ipcMain.handle('planning:prompt', (event, { repository, planningSessionId, text }) => {
+    assertTrustedSender(event);
+    return copilotBackend.prompt(assertRepository(repository), planningSessionId, text);
   });
-  ipcMain.handle('planning:answer', (_event, {
+  ipcMain.handle('planning:answer', (event, {
     repository, planningSessionId, questionId, content, action
   }) => {
-    assertRepository(repository);
-    const bridge = planningBridges.get(planningSessionId);
-    if (!bridge) throw new Error('Copilot planning session is not active.');
-    return bridge.answerQuestion(questionId, { content, action });
+    assertTrustedSender(event);
+    return copilotBackend.answer(assertRepository(repository), planningSessionId, questionId, { content, action });
   });
-  ipcMain.handle('planning:stop', async (_event, { repository, planningSessionId }) => {
-    assertRepository(repository);
-    const bridge = planningBridges.get(planningSessionId);
-    if (!bridge) return { stopped: false };
-    planningBridges.delete(planningSessionId);
-    return bridge.stop();
+  ipcMain.handle('planning:stop', async (event, { repository, planningSessionId }) => {
+    assertTrustedSender(event);
+    return copilotBackend.releasePlanning(assertRepository(repository), planningSessionId);
   });
-  ipcMain.handle('planning:promote', async (_event, { repository, planningSessionId, persona, content }) => {
+  ipcMain.handle('planning:promote', async (event, { repository, planningSessionId, persona, content }) => {
+    assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
     if (!pack || pack.repository !== root) throw new Error('Planning context is not available for promotion.');
@@ -297,11 +309,7 @@ function registerHandlers() {
       ...(persona ? ['--persona', persona] : []),
       '--json'
     ], { input: content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
-    const bridge = planningBridges.get(planningSessionId);
-    if (bridge) {
-      planningBridges.delete(planningSessionId);
-      await bridge.stop();
-    }
+    await copilotBackend.releasePlanning(root, planningSessionId);
     planningPacks.delete(planningSessionId);
     return result;
   });
@@ -511,8 +519,7 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('before-quit', () => {
-  for (const bridge of planningBridges.values()) void bridge.stop();
-  planningBridges.clear();
+  void copilotBackend.stopAll();
   planningPacks.clear();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

@@ -242,6 +242,73 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   };
 }
 
+export async function bootstrapDesktopPortfolio(root, {
+  approvalName = null,
+  approvalEmail = null,
+  repository = null,
+  jira = {}
+} = {}) {
+  const target = path.join(root, PORTFOLIO_PATH);
+  if (await exists(target)) throw new SingularityFlowError(`${PORTFOLIO_PATH} already exists. Edit it through Portfolio designer instead of replacing it.`);
+  const definition = await loadDefinition(root);
+  const starter = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
+  const gitActor = identity(root);
+  const email = String(approvalEmail ?? gitActor.email ?? '').trim().toLowerCase();
+  const name = String(approvalName ?? gitActor.name ?? email).trim();
+  if (!/^[^@\s]+@[^@\s]+$/.test(email)) throw new SingularityFlowError('Portfolio setup requires an approval email. Configure Git user.email or enter an approver identity.');
+  for (const authority of Object.values(starter.approvalAuthorities)) {
+    authority.members = [{ name: name || email, email }];
+  }
+  if (repository?.id || repository?.url) {
+    if (!repository.id || !repository.url) throw new SingularityFlowError('A participating repository requires both an ID and URL.');
+    starter.repositories = {
+      [repository.id]: {
+        url: repository.url,
+        defaultBranch: repository.defaultBranch || definition.defaultBaseBranch || 'main',
+        required: repository.required !== false
+      }
+    };
+  }
+  if (jira.enabled) {
+    let hostname;
+    try {
+      const parsed = new URL(jira.baseUrl);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error();
+      hostname = parsed.hostname.toLowerCase();
+    } catch {
+      throw new SingularityFlowError('Jira setup requires an HTTPS URL without embedded credentials.');
+    }
+    const deployment = jira.deployment ?? 'cloud';
+    const projectKey = String(jira.projectKey ?? '').trim().toUpperCase();
+    starter.jira = {
+      ...starter.jira,
+      enabled: true,
+      connection: jira.connection || 'corporate-jira',
+      deployment,
+      allowedHosts: [hostname],
+      allowedProjects: projectKey ? [projectKey] : [],
+      authentication: {
+        permitted: deployment === 'data-center' ? ['pat'] : ['user-token', 'service-account'],
+        tokenExpiryWarningDays: 14
+      },
+      write: jira.writeMode === 'approved',
+      writeMode: jira.writeMode ?? 'off',
+      projectKey
+    };
+  }
+  const portfolio = validatePortfolio(starter);
+  validatePortfolioWorldModelViews(portfolio, definition);
+  await writeText(target, YAML.stringify(starter));
+  return {
+    path: PORTFOLIO_PATH,
+    portfolio,
+    approver: { name: name || email, email },
+    repositoryConfigured: Object.keys(portfolio.repositories).length > 0,
+    jiraConfigured: portfolio.jira.enabled,
+    changed: changedFiles(root).includes(PORTFOLIO_PATH)
+  };
+}
+
 function allowedConfigurationPath(definition, relative, portfolio = null, root = null) {
   const promptSource = definition.worldModel?.promptSource;
   const planningPromptSource = normalizePlanning(definition.planning ?? {}).promptSource;

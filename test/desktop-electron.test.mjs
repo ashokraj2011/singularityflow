@@ -80,6 +80,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Initiative orchestration/);
   assert.match(source, /Portfolio designer/);
   assert.match(source, /Cross-repository control plane/);
+  assert.match(source, /Create the initiative portfolio/);
+  assert.match(source, /Create & validate portfolio/);
+  assert.match(source, /No credentials are stored in YAML/);
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Epic-level story progress/);
@@ -87,6 +90,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Create Jira & Git stories/);
   assert.match(source, /Question from Copilot/);
   assert.match(source, /Copilot logs/);
+  assert.match(source, /Copilot backend/);
+  assert.match(source, /Start backend/);
+  assert.match(source, /Stop backend/);
+  assert.match(source, /Planning context released; the Copilot backend remains ready/);
   assert.match(source, /Epic decomposition analysis/);
   assert.match(source, /Interface contracts/);
   assert.match(source, /Branches stay isolated/);
@@ -144,6 +151,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.epic-progress-list/);
   assert.match(styles, /\.copilot-question-card/);
   assert.match(styles, /\.planning-console/);
+  assert.match(styles, /\.portfolio-setup/);
+  assert.match(styles, /\.copilot-service-control/);
+  assert.match(styles, /\.copilot-service-log/);
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);
   assert.match(styles, /\.requirement-layout/);
@@ -179,10 +189,17 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /exportBundle/);
   assert.match(preload, /initiativeId/);
   assert.match(preload, /answerPlanningQuestion/);
+  assert.match(preload, /bootstrapPortfolio/);
+  assert.match(preload, /startCopilotService/);
+  assert.match(preload, /stopCopilotService/);
+  assert.match(preload, /onCopilotServiceEvent/);
   assert.match(preload, /materializeInitiative/);
   assert.match(preload, /syncInitiative/);
   assert.match(main, /--initiative/);
   assert.match(main, /planning:answer/);
+  assert.match(main, /configuration:bootstrap-portfolio/);
+  assert.match(main, /copilot-service:start/);
+  assert.match(main, /copilot-service:stop/);
   assert.match(main, /initiative:materialize/);
   assert.match(main, /\['documents', 'preview'/);
   assert.match(main, /Only HTTPS document links can be opened/);

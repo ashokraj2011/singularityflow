@@ -252,14 +252,21 @@ export class CopilotPlanningBridge {
     }
   }
 
+  async cancelCurrentTurn() {
+    this.cancelPendingQuestions();
+    if (!this.session || this.closed || !this.running) return { cancelled: false };
+    try {
+      await this.connection?.agent.request(acp.methods.agent.session.cancel, { sessionId: this.session.sessionId });
+      return { cancelled: true };
+    } catch {
+      return { cancelled: false };
+    }
+  }
+
   async stop() {
     this.cancelPendingQuestions();
     if (this.session) {
-      try {
-        await this.connection?.agent.request(acp.methods.agent.session.cancel, { sessionId: this.session.sessionId });
-      } catch {
-        // The process may already have ended.
-      }
+      await this.cancelCurrentTurn();
       this.session.dispose();
     }
     this.connection?.close();

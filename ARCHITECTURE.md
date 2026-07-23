@@ -162,6 +162,38 @@ Context creation is read-only and pins the repository branch/HEAD, immutable wor
 
 The app may visualize repository state and edit workflow, sequence-gate policy, template, persona, and repository-agent source text, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
 
+## Local project workspace boundary
+
+The optional desktop workspace layer is intentionally outside the governed
+domain model:
+
+```mermaid
+flowchart LR
+    J["Jira Epic or higher item"] --> W["Local workspace.json"]
+    W --> L["Isolated lead clone"]
+    W --> R["Isolated participant clones"]
+    W --> D["Staged documents · not governed"]
+    L --> G["Committed initiative and story state"]
+    R --> G
+```
+
+The manifest and recent-workspace registry are local conveniences. They contain
+no credential, approval, lifecycle, evidence, or authoritative artifact state.
+Every selected repository lives below the workspace `repos/` boundary. Jira
+tokens remain encrypted by Electron `safeStorage`; normal CLI users supply them
+through the environment. The clone journal supports retry without overwriting an
+unrelated directory, while fetch refuses to alter dirty clones.
+
+Jira issue type names are never hard-coded. Workspace anchors are selected by
+Jira `hierarchyLevel >= 1`, allowing an Epic on default Jira hierarchy or a
+configured higher-level item. Child traversal uses `parent`, with legacy Epic
+Link lookup restricted to the Epic compatibility path.
+
+Copilot is keyed to the active lead-repository path. Switching repositories or
+workspaces stops the old backend and clears private context-pack handles before
+starting in the new root, preventing planning-session context from carrying
+across local projects.
+
 ## Transaction and publication model
 
 Each generation, submission, approval, rejection, or advancement is one local state transaction followed by one commit and one normal push. Generation subjects use:

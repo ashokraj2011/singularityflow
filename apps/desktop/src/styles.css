@@ -3,6 +3,7 @@
   --font-sans: "Avenir Next", Avenir, "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-display: "Avenir Next", Avenir, "Segoe UI Variable Display", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-editorial: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-family: var(--font-sans);
   color: #17231c;
   background: #f4f6f2;
@@ -962,6 +963,69 @@ button.ghost { color: #096b43; }
 .visual-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; }
 .visual-cards span { height: 70px; border: 1px solid var(--line); border-radius: 5px; background: linear-gradient(#fff,#f7f8f9); }
 .welcome-recent { max-width: 1180px; margin: 0 auto; padding: 25px 40px 55px; }
+.welcome-recent > section + section { margin-top: 26px; }
+.workspace-icon { background: linear-gradient(145deg,#117a4d,#79a73d); }
+
+.workspace-page { display: grid; gap: 22px; }
+.workspace-current { overflow: hidden; }
+.workspace-current-head { min-height: 96px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 24px; border-bottom: 1px solid var(--line); background: linear-gradient(110deg,#fff,#f2f7ef); }
+.workspace-current-head h2 { margin: 5px 0; color: var(--navy-950); font-size: 24px; letter-spacing: -.035em; }
+.workspace-current-head p { max-width: 720px; margin: 0; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-anchor-type { color: var(--green-700); font-size: 9px; font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
+.workspace-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.workspace-health-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); border-bottom: 1px solid var(--line); }
+.workspace-health-grid > div { min-width: 0; display: grid; gap: 3px; padding: 20px 22px; }
+.workspace-health-grid > div + div { border-left: 1px solid var(--line); }
+.workspace-health-grid span { color: var(--subtle); font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.workspace-health-grid strong { color: var(--navy-950); font-size: 22px; }
+.workspace-health-grid small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-repository-list { padding: 8px 18px 16px; }
+.workspace-repository-list > div { min-height: 58px; display: grid; grid-template-columns: 10px minmax(180px,1fr) auto 120px 60px auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.workspace-repository-list > div:last-child { border-bottom: 0; }
+.workspace-repository-list > div > div { min-width: 0; display: grid; gap: 2px; }
+.workspace-repository-list strong { font-size: 13px; }
+.workspace-repository-list small { overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-repository-list > div > span:not(.workspace-state) { color: var(--muted); font-size: 11px; }
+.workspace-state { width: 8px; height: 8px; border-radius: 50%; background: #d19a38; box-shadow: 0 0 0 4px rgba(209,154,56,.1); }
+.workspace-state.ready { background: #2f9a73; box-shadow: 0 0 0 4px rgba(47,154,115,.1); }
+.workspace-staged { margin: 0 18px 18px; overflow: hidden; border: 1px solid #ead59e; border-radius: 14px; background: #fffcf3; }
+.workspace-staged > header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #efe3c4; }
+.workspace-staged h3 { margin: 0; font-size: 14px; }
+.workspace-staged > header p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+.workspace-staged > div { min-height: 48px; display: grid; grid-template-columns: minmax(180px,1fr) 120px 100px auto; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid #f2e9d3; font-size: 11px; }
+.workspace-staged > div:last-child { border-bottom: 0; }
+.workspace-staged code { color: var(--muted); font-size: 10px; }
+.workspace-create { overflow: hidden; }
+.workspace-prerequisite { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 36px; padding: 30px; background: var(--surface-muted); }
+.workspace-prerequisite > div { max-width: 560px; display: grid; gap: 6px; }
+.workspace-prerequisite strong { font-size: 18px; }
+.workspace-prerequisite span { color: var(--muted); line-height: 1.5; }
+.workspace-wizard { display: grid; }
+.workspace-step { min-height: 88px; display: grid; grid-template-columns: 36px minmax(210px,.75fr) auto minmax(260px,1.25fr); align-items: center; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.workspace-step > span:first-child { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--green-700); font-size: 11px; font-weight: 760; }
+.workspace-step > div { display: grid; gap: 3px; }
+.workspace-step > div > strong { font-size: 14px; }
+.workspace-step > div > small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.workspace-step > code { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-step select, .workspace-preview-actions input { min-width: 190px; height: 40px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; background: #fff; }
+.workspace-hierarchy { display: grid; gap: 12px; padding: 18px 76px; border-bottom: 1px solid var(--line); background: #f7faf6; }
+.workspace-breadcrumb { display: flex; align-items: center; gap: 12px; overflow-x: auto; }
+.workspace-breadcrumb span { min-width: max-content; display: grid; gap: 2px; }
+.workspace-breadcrumb small { color: var(--green-700); font-size: 8px; font-weight: 740; text-transform: uppercase; }
+.workspace-breadcrumb strong { font-size: 13px; }
+.workspace-breadcrumb b { color: var(--subtle); }
+.workspace-hierarchy p { margin: 0; color: var(--muted); font-size: 11px; }
+.repository-selection { grid-template-columns: 36px minmax(210px,.75fr) minmax(180px,.55fr) minmax(260px,1fr); }
+.repository-selection > label { display: grid; gap: 5px; }
+.repository-selection label small { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.workspace-repository-choices { display: flex !important; flex-flow: row wrap; gap: 7px !important; }
+.workspace-repository-choices label { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: #fff; font-size: 10px; }
+.workspace-preview-actions { min-height: 76px; display: flex; align-items: center; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.workspace-preview-actions code { min-width: 0; flex: 1; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-operation-list { padding: 10px 18px 18px; }
+.workspace-operation-list > div { min-height: 50px; display: grid; grid-template-columns: 70px 120px minmax(180px,.8fr) minmax(220px,1.2fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.workspace-operation-list > div:last-child { border-bottom: 0; }
+.workspace-operation-list code, .workspace-operation-list span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 1320px) {
   .studio-insight-grid { grid-template-columns: 1fr; }
@@ -971,6 +1035,13 @@ button.ghost { color: #096b43; }
   .requirement-layout { grid-template-columns: 225px minmax(400px,1fr) 250px; }
   .impact-layout { grid-template-columns: minmax(580px,1fr) 300px; }
   .welcome-hero { grid-template-columns: minmax(390px,.95fr) minmax(460px,1.05fr); padding-inline: 5vw; }
+  .workspace-health-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .workspace-health-grid > div:nth-child(3) { border-left: 0; }
+  .workspace-health-grid > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .workspace-step, .repository-selection { grid-template-columns: 36px minmax(180px,.65fr) minmax(190px,1fr); }
+  .workspace-step > :last-child { grid-column: 3; }
+  .workspace-operation-list > div { grid-template-columns: 64px 90px minmax(180px,1fr); }
+  .workspace-operation-list > div > span { grid-column: 3; }
 }
 
 /* Modern workspace shell */

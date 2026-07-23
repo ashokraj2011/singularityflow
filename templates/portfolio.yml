@@ -6,6 +6,14 @@ git:
   remote: origin
   publish: required
 
+# Jira creation is opt-in. Credentials remain environment variables
+# (JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_TOKEN), never repository data.
+jira:
+  write: false
+  projectKey: ""
+  epicIssueType: Epic
+  storyIssueType: Story
+
 # Initiative approvals are authorized by normalized local Git email. Populate
 # these groups before starting an initiative. Personas remain prompt behavior
 # and never grant initiative approval authority.

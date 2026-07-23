@@ -137,6 +137,8 @@ test('desktop snapshot exposes initiative phases, assurance, documents, telemetr
   assert.equal(snapshot.initiative.progress.currentPhase, 'define');
   assert.equal(snapshot.initiative.report.identityAssurance, 'configured-local');
   assert.equal(snapshot.initiative.report.telemetry.costStatus, 'unavailable');
+  assert.deepEqual(snapshot.initiative.breakdown.epics, []);
+  assert.equal(snapshot.initiative.materialization.epics, 0);
   assert.ok(snapshot.initiative.phaseGate.checklist.some((check) => check.id === 'business-case-approved'));
   assert.ok(snapshot.initiative.documents.some((document) => document.id === 'business-case'));
   assert.match(snapshot.initiative.nextActions[0].command, /initiative phase define/);

@@ -116,6 +116,49 @@ export class CopilotPlanningBridge {
     this.session = null;
     this.running = false;
     this.closed = false;
+    this.questionCounter = 0;
+    this.pendingQuestions = new Map();
+  }
+
+  requestInput(params) {
+    if (params.mode !== 'form') {
+      this.emit({
+        type: 'question-unsupported',
+        message: params.message,
+        mode: params.mode,
+        detail: 'Planning Studio supports inline form questions only; URL and custom elicitation were cancelled.'
+      });
+      return Promise.resolve({ action: 'cancel' });
+    }
+    const questionId = `question-${++this.questionCounter}`;
+    this.emit({
+      type: 'question',
+      questionId,
+      message: params.message,
+      schema: params.requestedSchema,
+      toolCallId: params.toolCallId ?? null
+    });
+    return new Promise((resolve) => {
+      this.pendingQuestions.set(questionId, { resolve, message: params.message });
+    });
+  }
+
+  answerQuestion(questionId, { action = 'accept', content = null } = {}) {
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending) throw new Error(`Copilot question '${questionId}' is no longer awaiting an answer.`);
+    if (!['accept', 'decline', 'cancel'].includes(action)) throw new Error(`Unsupported Copilot question action '${action}'.`);
+    this.pendingQuestions.delete(questionId);
+    pending.resolve(action === 'accept' ? { action, content: content ?? {} } : { action });
+    this.emit({ type: 'question-answered', questionId, action });
+    return { accepted: true, questionId, action };
+  }
+
+  cancelPendingQuestions() {
+    for (const [questionId, pending] of this.pendingQuestions) {
+      pending.resolve({ action: 'cancel' });
+      this.emit({ type: 'question-answered', questionId, action: 'cancel' });
+    }
+    this.pendingQuestions.clear();
   }
 
   async start({ prompt, model = null } = {}) {
@@ -145,14 +188,16 @@ export class CopilotPlanningBridge {
           detail: 'Planning Studio runs in read-only Plan mode and denied this permission request.'
         });
         return rejectPermission(ctx.params);
-      });
+      })
+      .onRequest(acp.methods.client.elicitation.create, (ctx) => this.requestInput(ctx.params));
     this.connection = client.connect(stream);
     const initialized = await Promise.race([
       this.connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
-          plan: {}
+          plan: {},
+          elicitation: { form: {} }
         }
       }),
       processError
@@ -208,6 +253,7 @@ export class CopilotPlanningBridge {
   }
 
   async stop() {
+    this.cancelPendingQuestions();
     if (this.session) {
       try {
         await this.connection?.agent.request(acp.methods.agent.session.cancel, { sessionId: this.session.sessionId });

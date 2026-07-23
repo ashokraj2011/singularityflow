@@ -20,6 +20,8 @@ flowchart LR
 
 The app is an Agent Client Protocol (ACP) client. It starts the locally installed `copilot` executable as an ACP server, explicitly selects the Plan session mode advertised by Copilot, streams its conversation and structured plan updates, and keeps follow-up questions in the same session.
 
+When Copilot needs a decision, Planning Studio renders its ACP form elicitation as an inline **Question from Copilot** card. The card supports text, number, boolean, single-select, and multi-select answers. Answering resumes the same Copilot turn; skipping is explicit. If a Copilot version asks an ordinary prose question instead of using elicitation, Planning Studio detects the question at the end of the turn and offers the same answer flow as a follow-up. Tool activity, diagnostics, reasoning-status events, and lifecycle messages remain available in a collapsed **Copilot logs** console at the bottom, similar to an IDE output panel.
+
 The ACP conversation is transient local state. It is not the workflow database. Singularity Flow remains Git-native.
 
 ## What Copilot receives
@@ -80,10 +82,25 @@ The selected profile still owns the real phase names and contracts. The table is
 4. Optionally enter a Copilot model name; leave it blank to use the Copilot default.
 5. Select **Build governed context** and inspect its source hashes, warnings, and complete prompt.
 6. Select **Start Copilot Plan mode**.
-7. Use follow-up turns to challenge assumptions, request alternatives, sharpen acceptance criteria, or refine story decomposition.
-8. Review and edit the complete proposed artifact in the right-hand panel.
-9. Confirm the review checkbox and select **Promote, commit & push**.
-10. Continue the normal phase lifecycle. Promotion neither submits nor approves.
+7. Answer any inline Copilot questions about scope, boundaries, ownership, acceptance criteria, or dependencies. Expand **Copilot logs** only when you need detailed diagnostics.
+8. Use follow-up turns to challenge assumptions, request alternatives, sharpen acceptance criteria, or refine story decomposition.
+9. For a `story-plan` output, inspect the generated Epic IDs, Story Work IDs, repository allocation, dependencies, and blocking status in **Epic decomposition analysis**.
+10. Review and edit the complete proposed artifact in the right-hand panel.
+11. Confirm the review checkbox and select **Promote, commit & push**.
+12. Continue the normal phase lifecycle. Promotion neither submits nor approves.
+
+## Epic and story identities
+
+Initiative decomposition deliberately keeps business grouping, Git state, and Jira state distinct:
+
+| Level | Singularity identity | Git behavior | Jira identity |
+|---|---|---|---|
+| Epic | `epics[].id` (Epic ID) | Stored in the lead initiative branch | `epics[].jiraKey`, created or attached during materialization |
+| Story | `epics[].stories[].id` (Story Work ID) | Branch name, seed filename, and child workflow ID in the owning repository | `stories[].jiraKey`, created under the corresponding Jira epic |
+
+Copilot proposes stable Epic IDs and Story Work IDs. It must not invent Jira keys. After the story-plan phase is approved, **Create Jira & Git stories** previews the full operation and requires the exact Initiative ID. The operation writes returned Jira keys into `breakdown.yml`, creates or safely attaches each Story Work ID branch, commits a `singularity/seeds/<WORK-ID>.yml` seed, pushes every branch, and finally commits and pushes the receipts on the initiative branch.
+
+The Initiative dashboard displays all planned stories before materialization. **Sync story branches** later fetches the child workflows and rolls their current phase, completion percentage, blocking state, staleness, model/tokens, and cost up to each epic.
 
 If Copilot is unavailable, the app explains whether the executable, ACP server, or native Plan mode is missing. Authenticate Copilot CLI normally before opening the Planning Studio.
 

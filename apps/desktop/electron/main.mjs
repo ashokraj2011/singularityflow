@@ -209,7 +209,7 @@ function registerHandlers() {
     try {
       const result = await bridge.start({
         model: model?.trim() || null,
-        prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
+        prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.`
       });
       return { ...result, planningSessionId };
     } catch (error) {
@@ -224,6 +224,14 @@ function registerHandlers() {
     if (!bridge) throw new Error('Copilot planning session is not active.');
     void bridge.prompt(text).catch(() => {});
     return { accepted: true };
+  });
+  ipcMain.handle('planning:answer', (_event, {
+    repository, planningSessionId, questionId, content, action
+  }) => {
+    assertRepository(repository);
+    const bridge = planningBridges.get(planningSessionId);
+    if (!bridge) throw new Error('Copilot planning session is not active.');
+    return bridge.answerQuestion(questionId, { content, action });
   });
   ipcMain.handle('planning:stop', async (_event, { repository, planningSessionId }) => {
     assertRepository(repository);
@@ -250,6 +258,21 @@ function registerHandlers() {
     planningPacks.delete(planningSessionId);
     return result;
   });
+  ipcMain.handle('initiative:materialize-preview', (_event, { repository, initiativeId }) => invokeCli(
+    assertRepository(repository),
+    ['desktop', 'initiative-materialize-preview', '--initiative', initiativeId, '--json'],
+    { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
+  ));
+  ipcMain.handle('initiative:materialize', (_event, { repository, initiativeId, confirmation }) => invokeCli(
+    assertRepository(repository),
+    ['desktop', 'initiative-materialize', '--initiative', initiativeId, '--confirm', confirmation, '--json'],
+    { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
+  ));
+  ipcMain.handle('initiative:sync', (_event, { repository, initiativeId }) => invokeCli(
+    assertRepository(repository),
+    ['desktop', 'initiative-sync', '--initiative', initiativeId, '--json'],
+    { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
+  ));
   ipcMain.handle('documents:upload', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Add supporting documents' });

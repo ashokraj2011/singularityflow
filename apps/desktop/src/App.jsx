@@ -18,6 +18,11 @@ import {
   setWorkTypeInputs,
   templateRepositoryPath
 } from './workflow-designer.mjs';
+import {
+  extractCopilotQuestions,
+  parseStoryPlan,
+  planningLogEntry
+} from './planning-ui.mjs';
 
 const navSections = [
   {
@@ -183,6 +188,50 @@ function WorkflowTiming({ report }) {
   </section>;
 }
 
+function CopilotQuestionCard({ question, disabled, onAnswer, onDismiss }) {
+  const properties = question.schema?.properties ?? {
+    answer: { type: 'string', title: 'Your answer', description: 'Give Copilot the decision or missing context.' }
+  };
+  const [values, setValues] = useState(() => Object.fromEntries(Object.entries(properties).map(([id, property]) => [
+    id,
+    property.default ?? (property.type === 'boolean' ? false : property.type === 'array' ? [] : '')
+  ])));
+  const required = new Set(question.schema?.required ?? Object.keys(properties));
+  const complete = [...required].every((id) => {
+    const value = values[id];
+    return Array.isArray(value) ? value.length > 0 : typeof value === 'boolean' ? true : String(value ?? '').trim().length > 0;
+  });
+  function setField(id, value) { setValues((current) => ({ ...current, [id]: value })); }
+  return <article className="copilot-question-card">
+    <header><span className="ai-orb">?</span><div><span className="eyebrow">Question from Copilot</span><h3>{question.message}</h3></div></header>
+    <div className="copilot-question-fields">{Object.entries(properties).map(([id, property]) => {
+      const label = property.title ?? id.replaceAll('_', ' ');
+      const options = property.oneOf?.map((item) => ({ value: item.const, label: item.title, detail: item.description }))
+        ?? property.enum?.map((item) => ({ value: item, label: item }))
+        ?? null;
+      if (property.type === 'boolean') return <label className="copilot-check" key={id}><input type="checkbox" checked={Boolean(values[id])} onChange={(event) => setField(id, event.target.checked)} /><span><strong>{label}</strong>{property.description && <small>{property.description}</small>}</span></label>;
+      if (property.type === 'array' && property.items) {
+        const items = property.items.anyOf?.map((item) => ({ value: item.const, label: item.title }))
+          ?? property.items.enum?.map((item) => ({ value: item, label: item }))
+          ?? [];
+        return <fieldset key={id}><legend>{label}</legend>{property.description && <small>{property.description}</small>}<div className="copilot-multiselect">{items.map((item) => <label key={item.value}><input type="checkbox" checked={values[id]?.includes(item.value)} onChange={(event) => setField(id, event.target.checked ? [...values[id], item.value] : values[id].filter((value) => value !== item.value))} />{item.label}</label>)}</div></fieldset>;
+      }
+      return <label key={id}><span>{label}{required.has(id) ? ' *' : ''}</span>{property.description && <small>{property.description}</small>}{options ? <select value={values[id]} onChange={(event) => setField(id, event.target.value)}><option value="">Choose…</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : property.type === 'number' || property.type === 'integer' ? <input type="number" value={values[id]} min={property.minimum} max={property.maximum} onChange={(event) => setField(id, property.type === 'integer' ? Number.parseInt(event.target.value, 10) : Number(event.target.value))} /> : <textarea rows="3" value={values[id]} onChange={(event) => setField(id, event.target.value)} />}</label>;
+    })}</div>
+    <footer><span>Your answer stays in this Copilot planning session and becomes part of the reviewed decision context.</span><div className="row"><button className="ghost compact" disabled={disabled} onClick={() => onDismiss(question)}>Skip</button><button className="primary compact" disabled={disabled || !complete} onClick={() => onAnswer(question, values)}>Answer Copilot</button></div></footer>
+  </article>;
+}
+
+function StoryPlanAnalysis({ analysis }) {
+  return <section className="panel planning-decomposition">
+    <header className="panel-heading"><div><span className="eyebrow">Epic decomposition analysis</span><h2>Planned Jira & Git delivery units</h2></div><Pill tone={analysis.valid ? 'good' : 'warn'}>{analysis.valid ? `${analysis.epics.length} epics · ${analysis.stories.length} stories` : 'needs refinement'}</Pill></header>
+    {!analysis.valid ? <div className="planning-warning"><span>⚠ {analysis.error}</span></div> : <>
+      <div className="decomposition-kpis"><div><span>Epic IDs</span><strong>{analysis.epics.length}</strong><small>Jira epics after materialization</small></div><div><span>Story Work IDs</span><strong>{analysis.stories.length}</strong><small>Git branch + workflow identity</small></div><div><span>Repositories</span><strong>{analysis.repositories.length}</strong><small>{analysis.repositories.join(', ')}</small></div><div><span>Dependencies</span><strong>{analysis.dependencies}</strong><small>{analysis.blocking} blocking stories</small></div></div>
+      <div className="decomposition-epics">{analysis.epics.map((epic) => <section key={epic.id}><header><div><span className="id-pair"><b>Epic ID</b><code>{epic.id}</code></span><h3>{epic.title}</h3></div><span className="id-pair"><b>Jira ID</b><code>{epic.jiraKey ?? 'created later'}</code></span></header><div>{epic.stories.map((story) => <article key={story.id}><div><span className="id-pair"><b>Work ID</b><code>{story.workId}</code></span><Pill tone={story.blocking ? 'accent' : 'neutral'}>{story.blocking ? 'blocking' : 'nonblocking'}</Pill></div><strong>{story.title}</strong><small>{story.repository} · {story.acceptanceCriteria.length} acceptance criteria · Jira {story.jiraKey ?? 'created during materialization'}</small>{story.dependsOn.length > 0 && <em>Depends on {story.dependsOn.map((dependency) => typeof dependency === 'string' ? dependency : dependency.story).join(', ')}</em>}</article>)}</div></section>)}</div>
+    </>}
+  </section>;
+}
+
 function StatusDot({ status }) { return <span className={`status-dot ${String(status).replaceAll('_', '-')}`} title={status} />; }
 
 function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false }) {
@@ -343,13 +392,20 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
   const [started, setStarted] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [usage, setUsage] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [activity, setActivity] = useState('Build a governed context pack to begin.');
   const transcriptRef = useRef('');
   const planRef = useRef('');
+  const questionsRef = useRef([]);
   const group = groups.find((item) => `${item.scope}:${item.id}` === groupKey) ?? defaultGroup;
   const phase = group?.phases.find((item) => item.id === phaseId) ?? group?.phases.find((item) => item.current) ?? null;
   const target = phase?.targets.find((item) => item.id === targetId) ?? phase?.targets[0] ?? null;
   const currentReady = Boolean(group && phase?.current && phase.status === 'in_progress' && target);
+  const storyPlanAnalysis = useMemo(
+    () => target?.id === 'story-plan' && plan.trim() ? parseStoryPlan(plan) : null,
+    [target?.id, plan]
+  );
 
   useEffect(() => {
     let active = true;
@@ -377,6 +433,16 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
     if (!window.singularity.onPlanningEvent) return undefined;
     return window.singularity.onPlanningEvent((event) => {
       if (!contextPack || event.planningSessionId !== contextPack.sessionId) return;
+      if (!['agent_message_chunk', 'user_message_chunk', 'plan', 'plan_update'].includes(event.type)) {
+        const entry = planningLogEntry(event);
+        setLogs((current) => {
+          const last = current.at(-1);
+          if (last?.type === entry.type && ['agent_thought_chunk', 'tool_call_update', 'diagnostic'].includes(entry.type)) {
+            return [...current.slice(0, -1), { ...last, detail: `${last.detail}${entry.detail}`.slice(-4000), at: entry.at }];
+          }
+          return [...current.slice(-299), entry];
+        });
+      }
       if (event.type === 'ready') {
         setStarted(true);
         setRunning(true);
@@ -395,6 +461,20 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
         });
       } else if (event.type === 'user_message_chunk' && event.text) {
         setMessages((current) => [...current, { role: 'user', id: event.messageId ?? `user-${current.length}`, text: event.text }]);
+      } else if (event.type === 'question') {
+        const question = {
+          id: event.questionId,
+          native: true,
+          message: event.message,
+          schema: event.schema,
+          status: 'pending'
+        };
+        questionsRef.current = [...questionsRef.current, question];
+        setQuestions(questionsRef.current);
+        setActivity('Copilot needs your decision before it can finish the plan.');
+      } else if (event.type === 'question-answered') {
+        questionsRef.current = questionsRef.current.map((question) => question.id === event.questionId ? { ...question, status: event.action } : question);
+        setQuestions(questionsRef.current);
       } else if ((event.type === 'plan' || event.type === 'plan_update') && event.plan) {
         planRef.current = event.plan;
         setPlan(event.plan);
@@ -418,11 +498,27 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
       } else if (event.type === 'turn-complete') {
         setRunning(false);
         setUsage((current) => ({ ...(current ?? {}), ...(event.usage ?? {}) }));
-        if (!planRef.current.trim() && transcriptRef.current.trim()) {
+        const unansweredNative = questionsRef.current.some((question) => question.native && question.status === 'pending');
+        const fallbackQuestions = unansweredNative ? [] : extractCopilotQuestions(transcriptRef.current);
+        if (fallbackQuestions.length && !planRef.current.trim()) {
+          const existing = new Set(questionsRef.current.map((question) => question.message.toLowerCase()));
+          const additions = fallbackQuestions.filter((question) => !existing.has(question.toLowerCase())).map((question, index) => ({
+            id: `fallback-${Date.now()}-${index}`,
+            native: false,
+            message: question,
+            schema: { type: 'object', properties: { answer: { type: 'string', title: 'Your answer' } }, required: ['answer'] },
+            status: 'pending'
+          }));
+          questionsRef.current = [...questionsRef.current, ...additions];
+          setQuestions(questionsRef.current);
+          setActivity('Copilot asked for clarification. Answer here to continue the same planning session.');
+        } else if (!planRef.current.trim() && transcriptRef.current.trim()) {
           planRef.current = transcriptRef.current.trim();
           setPlan(planRef.current);
+          setActivity(`Planning turn completed: ${event.stopReason}.`);
+        } else {
+          setActivity(`Planning turn completed: ${event.stopReason}.`);
         }
-        setActivity(`Planning turn completed: ${event.stopReason}.`);
       } else if (event.type === 'error') {
         setRunning(false);
         setActivity(`Copilot error: ${event.message}`);
@@ -443,6 +539,9 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
     setRunning(false);
     setReviewed(false);
     setUsage(null);
+    questionsRef.current = [];
+    setQuestions([]);
+    setLogs([]);
   }
 
   function selectGroup(value) {
@@ -477,6 +576,9 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
     planRef.current = '';
     transcriptRef.current = '';
     setReviewed(false);
+    questionsRef.current = [];
+    setQuestions([]);
+    setLogs([]);
     setActivity(`${result.manifest.sources.length} hashed sources ready for Copilot.`);
   }
 
@@ -492,6 +594,54 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
     setMessages((current) => [...current, { role: 'user', id: `followup-${Date.now()}`, text }]);
     transcriptRef.current = '';
     setFollowup('');
+    setRunning(true);
+    const result = await action(() => window.singularity.promptPlanningSession(data.repository.root, contextPack.sessionId, text));
+    if (!result) setRunning(false);
+  }
+
+  async function answerQuestion(question, values) {
+    if (question.native) {
+      const result = await action(() => window.singularity.answerPlanningQuestion(
+        data.repository.root,
+        contextPack.sessionId,
+        question.id,
+        values,
+        'accept'
+      ), 'Answer sent to Copilot');
+      if (!result) return;
+      setMessages((current) => [...current, {
+        role: 'user',
+        id: `answer-${question.id}`,
+        text: `${question.message}\n${Object.entries(values).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join('\n')}`
+      }]);
+      return;
+    }
+    questionsRef.current = questionsRef.current.map((item) => item.id === question.id ? { ...item, status: 'accept' } : item);
+    setQuestions(questionsRef.current);
+    const text = `Answer to your clarification question "${question.message}": ${values.answer}. Continue the governed planning analysis and produce the complete configured artifact.`;
+    setMessages((current) => [...current, { role: 'user', id: `answer-${question.id}`, text }]);
+    transcriptRef.current = '';
+    setRunning(true);
+    const result = await action(() => window.singularity.promptPlanningSession(data.repository.root, contextPack.sessionId, text));
+    if (!result) setRunning(false);
+  }
+
+  async function dismissQuestion(question) {
+    questionsRef.current = questionsRef.current.map((item) => item.id === question.id ? { ...item, status: 'decline' } : item);
+    setQuestions(questionsRef.current);
+    if (question.native) {
+      await action(() => window.singularity.answerPlanningQuestion(
+        data.repository.root,
+        contextPack.sessionId,
+        question.id,
+        null,
+        'decline'
+      ), 'Question skipped');
+      return;
+    }
+    const text = `I am not providing an answer to "${question.message}". Continue by recording the uncertainty and the safest explicit assumption in the governed plan.`;
+    setMessages((current) => [...current, { role: 'user', id: `decline-${question.id}`, text }]);
+    transcriptRef.current = '';
     setRunning(true);
     const result = await action(() => window.singularity.promptPlanningSession(data.repository.root, contextPack.sessionId, text));
     if (!result) setRunning(false);
@@ -548,10 +698,12 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
             <div className="planning-context-actions"><span>{contextPack.target.label} → <code>{contextPack.target.path}</code></span><button className="primary" disabled={running || started} onClick={startCopilot}>Start Copilot Plan mode</button></div>
           </>}
         </section>
+        {storyPlanAnalysis && <StoryPlanAnalysis analysis={storyPlanAnalysis} />}
         <div className="planning-dual">
           <section className="panel planning-chat">
             <header className="panel-heading"><div><span className="eyebrow">3 · Explore</span><h2>Copilot conversation</h2></div><Pill tone={running ? 'accent' : started ? 'good' : 'neutral'}>{running ? 'thinking' : started ? 'connected' : 'local'}</Pill></header>
             <div className="planning-activity">{activity}</div>
+            {questions.some((question) => question.status === 'pending') && <div className="copilot-question-stack">{questions.filter((question) => question.status === 'pending').map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}</div>}
             <div className="planning-messages">{messages.length ? messages.map((message, index) => <div className={message.role} key={`${message.id}:${index}`}><strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong><pre>{message.text}</pre></div>) : <div className="inline-empty">The phase-aware conversation will appear here. Ask Copilot to challenge assumptions, compare options, or refine the decomposition.</div>}</div>
             <div className="planning-followup"><textarea rows="3" value={followup} onChange={(event) => setFollowup(event.target.value)} disabled={!started || running} placeholder="Challenge the plan, add a constraint, or ask for another option…" /><div><span>{usage?.totalTokens ? `${usage.totalTokens.toLocaleString()} session tokens` : usage?.contextTokens ? `${usage.contextTokens.toLocaleString()} / ${usage.contextWindow?.toLocaleString() ?? '—'} context tokens` : 'Exact usage appears here when ACP exposes it.'}{usage?.cost?.amount != null ? ` · ${usage.cost.currency ?? 'USD'} ${Number(usage.cost.amount).toFixed(4)}` : ''}</span><div className="row"><button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button><button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send follow-up</button></div></div></div>
           </section>
@@ -562,13 +714,19 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
             <button className="primary full" disabled={!contextPack || running || !reviewed || !plan.trim()} onClick={promote}>Promote, commit & push</button>
           </section>
         </div>
+        <details className="panel planning-console">
+          <summary><span><b>⌘</b><strong>Copilot logs</strong><small>IDE-style diagnostics, tool activity, thinking status, and session events</small></span><Pill>{logs.length} events</Pill></summary>
+          <div className="planning-console-toolbar"><span>Read-only local session diagnostics</span><button className="ghost compact" onClick={() => setLogs([])}>Clear</button></div>
+          <div className="planning-console-lines">{logs.length ? logs.map((entry, index) => <div className={entry.level} key={`${entry.id}:${index}`}><time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><pre>{entry.detail}</pre></div>) : <div className="inline-empty">Copilot events will appear here after the session starts.</div>}</div>
+        </details>
       </main>
     </div>
   </div>;
 }
 
-function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile }) {
+function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload }) {
   const [tab, setTab] = useState('delivery');
+  const [materializationModal, setMaterializationModal] = useState(null);
   const portfolio = data.portfolio;
   const selected = data.initiative;
   if (!portfolio) return <div className="page"><Empty title="Initiative orchestration is not configured" detail="Add singularity/portfolio.yml to define repositories, profiles, phase outputs, checklist evidence, approval authorities, contracts, and gates." /></div>;
@@ -581,9 +739,33 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile })
   const currentDefinition = state?.resolution.phases.find((phase) => phase.id === state.currentPhase) ?? state?.resolution.phases.at(-1);
   const currentChecks = selected?.phaseGate?.checklist ?? [];
   const children = report?.children.stories ?? [];
+  const epics = report?.children.epics ?? [];
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
   const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
   const leadBaseBranch = data.definition.defaultBaseBranch ?? 'main';
+  async function previewMaterialization() {
+    const result = await action(() => window.singularity.previewInitiativeMaterialization(data.repository.root, state.initiative.id));
+    if (result) setMaterializationModal({ preview: result.review, confirmation: '' });
+  }
+  async function materializeStories() {
+    const initiativeId = state.initiative.id;
+    if (materializationModal.confirmation !== initiativeId) return;
+    const result = await action(
+      () => window.singularity.materializeInitiative(data.repository.root, initiativeId, materializationModal.confirmation),
+      `Created or attached ${materializationModal.preview.stories.length} Jira/Git story work items and published the receipts`
+    );
+    if (!result) return;
+    setMaterializationModal(null);
+    await reload(null, initiativeId);
+  }
+  async function synchronizeStories() {
+    const initiativeId = state.initiative.id;
+    const result = await action(
+      () => window.singularity.syncInitiative(data.repository.root, initiativeId),
+      'Story branches synchronized and epic progress published'
+    );
+    if (result) await reload(null, initiativeId);
+  }
   return <div className="page initiative-page">
     <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane</span><h1>Initiative orchestration</h1><p>Govern initiative outputs, evidence, contracts, and repository stories without changing the existing story workflow.</p></div><div className="segmented"><button className={tab === 'delivery' ? 'active' : ''} onClick={() => setTab('delivery')}>Delivery</button><button className={tab === 'configuration' ? 'active' : ''} onClick={() => setTab('configuration')}>Portfolio designer</button></div></header>
     {tab === 'delivery' && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Initiative and story branches receive their own commits; Singularity never merges them into a default branch automatically.</p></div></div>}
@@ -591,6 +773,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile })
       <aside className="initiative-config-summary">
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Profiles</span><h2>{profiles.length} delivery models</h2></div></header><div className="initiative-mini-list">{profiles.map(([id, profile]) => <div key={id}><strong>{profile.label}</strong><span>{profile.phases.length} phases</span><small>{profile.phases.join(' → ')}</small></div>)}</div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Repository registry</span><h2>{repositories.length} repositories</h2></div></header><div className="initiative-mini-list">{repositories.length ? repositories.map(([id, repository]) => <div key={id}><strong>{id}</strong><span>{repository.required ? 'Required' : 'Optional'}</span><small>{repository.defaultBranch} · {repository.url}</small></div>) : <div><strong>No repositories yet</strong><small>Add repository IDs, URLs, and default branches in portfolio.yml.</small></div>}</div></section>
+        <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Issue materialization</span><h2>Jira {portfolio.jira?.write ? 'enabled' : 'off'}</h2></div><Pill tone={portfolio.jira?.write ? 'good' : 'neutral'}>{portfolio.jira?.projectKey || 'Git only'}</Pill></header><div className="initiative-mini-list"><div><strong>Epic → Story hierarchy</strong><span>{portfolio.jira?.write ? 'Create' : 'Preview only'}</span><small>{portfolio.jira?.write ? `${portfolio.jira.epicIssueType ?? 'Epic'} / ${portfolio.jira.storyIssueType ?? 'Story'} · credentials from environment` : 'Set jira.write and projectKey in portfolio.yml; no network is used while off.'}</small></div></div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
       <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" />
@@ -606,12 +789,19 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile })
         <section className="panel initiative-checks"><header className="panel-heading"><div><span className="eyebrow">Assurance & freshness</span><h2>{currentDefinition?.label} checklist</h2></div><Pill tone={selected.phaseGate?.ready ? 'good' : 'warn'}>{selected.phaseGate?.ready ? 'Gate ready' : 'Action needed'}</Pill></header><div className="initiative-table-head"><span>Check</span><span>Requirement</span><span>Assurance</span><span>Status</span></div>{currentChecks.map((check) => <div className="initiative-table-row" key={check.id}><span><strong>{check.label}</strong><small>{check.id}</small></span><Pill>{check.requirement} · {check.gate}</Pill><span>{check.evidence.length ? check.evidence.map((entry) => entry.assurance).join(', ') : check.acceptedAssurance.join(' / ')}</span><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : check.status === 'stale' ? 'warn' : 'bad'}>{check.status}</Pill></div>)}</section>
         <section className="panel initiative-next"><header className="panel-heading"><div><span className="eyebrow">Deterministic guidance</span><h2>Next actions</h2></div></header>{selected.nextActions.map((action, index) => <div key={`${action.action}:${index}`}><span>{index + 1}</span><section><strong>{action.action.replaceAll('-', ' ')}</strong><code>{action.command}</code><small>{action.reason}</small></section></div>)}</section>
       </div>
-      <section className="panel initiative-stories"><header className="panel-heading"><div><span className="eyebrow">Repository delivery graph</span><h2>Epics and stories</h2></div><span>{children.length} materialized</span></header>{!children.length ? <div className="inline-empty">No story branches have been materialized. Review breakdown.yml and run /sflow-initiative-materialize.</div> : <div className="story-grid">{children.map((story) => <div key={story.id} className={story.stale ? 'stale' : ''}><div><strong>{story.id}</strong><Pill tone={story.blocking ? 'accent' : 'neutral'}>{story.blocking ? 'blocking' : 'nonblocking'}</Pill></div><span>{story.repository} · {story.status}</span><small>{story.currentPhase ?? 'seeded'} · {story.observedCommit?.slice(0, 10) ?? 'not observed'}</small><div className="milestone-dots">{['implementationSpec', 'verification', 'conformance'].map((milestone) => <span className={story.milestones?.[milestone] ? 'done' : ''} key={milestone}>{milestone}</span>)}</div></div>)}</div>}</section>
+      <section className="panel initiative-stories">
+        <header className="panel-heading"><div><span className="eyebrow">Repository delivery graph</span><h2>Epic-level story progress</h2></div><div className="row gap"><span>{report.children.materialized}/{children.length} materialized</span><button className="secondary compact" onClick={synchronizeStories} disabled={!report.children.materialized}>↻ Sync story branches</button><button className="primary compact" onClick={previewMaterialization} disabled={selected.materialization.phaseStatus !== 'approved'}>Create Jira & Git stories</button></div></header>
+        {!epics.length ? <div className="inline-empty">The story plan has no epics yet. Use Planning Copilot on the story-plan output, review its Epic IDs and Story Work IDs, then promote it.</div> : <div className="epic-progress-list">{epics.map((epic) => <section key={epic.id} className={epic.stale ? 'stale' : ''}>
+          <header><div><span className="id-pair"><b>Epic ID</b><code>{epic.id}</code></span><span className="id-pair"><b>Jira ID</b><code>{epic.jiraKey ?? 'not created'}</code></span><h3>{epic.title}</h3></div><div className="epic-progress-summary"><strong>{epic.percentage}%</strong><span>{epic.complete}/{epic.total} complete</span><div><i style={{ width: `${epic.percentage}%` }} /></div></div></header>
+          <div className="epic-story-table"><div className="epic-story-head"><span>Story Work ID / Jira ID</span><span>Repository</span><span>Phase</span><span>Progress</span><span>State</span></div>{epic.stories.map((story) => <article key={story.id} className={`${story.stale ? 'stale' : ''} ${story.blocked ? 'blocked' : ''}`}><span><strong>{story.workId}</strong><small>Jira: {story.jiraKey ?? 'not created'}</small></span><span>{story.repository}</span><span>{story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')}</span><span className="story-progress"><i><b style={{ width: `${story.progress?.percentage ?? 0}%` }} /></i><em>{story.progress?.percentage ?? 0}%</em></span><span><Pill tone={story.stale || story.blocked ? 'warn' : story.status === 'complete' ? 'good' : story.materialized ? 'accent' : 'neutral'}>{story.stale ? 'stale' : story.blocked ? 'blocked' : story.status}</Pill>{story.blocking && <small>blocking</small>}</span></article>)}</div>
+        </section>)}</div>}
+      </section>
       <div className="initiative-grid">
         <section className="panel initiative-contracts"><header className="panel-heading"><div><span className="eyebrow">Producer / consumer graph</span><h2>Interface contracts</h2></div><span>{selected.contracts.length}</span></header>{selected.contracts.length ? selected.contracts.map((contract) => <div key={contract.key}><div><strong>{contract.key}</strong><Pill tone={contract.integrity === 'verified' ? 'good' : 'warn'}>{contract.integrity}</Pill></div><span>{contract.format} · {contract.sha256.slice(0, 12)}</span><small>{contract.producers.join(', ') || 'external'} → {contract.consumers.join(', ') || 'no consumers'}</small></div>) : <div className="inline-empty">No interface contracts registered yet.</div>}</section>
         <section className="panel initiative-documents"><header className="panel-heading"><div><span className="eyebrow">Governed outputs</span><h2>Initiative documents</h2></div><span>{selected.documents.length}</span></header>{selected.documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Download</button></div>)}</section>
       </div>
     </>}
+    {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This creates or attaches Jira stories under their planned Epic IDs, creates one Git branch per Story Work ID in its configured repository, writes the governed seed, and pushes every receipt. The operation is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div></div><label><span>Type the Initiative ID to confirm</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
   </div>;
 }
 
@@ -1166,7 +1356,7 @@ export default function App() {
   return <div className="shell">
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav>{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

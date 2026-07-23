@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  CopilotPlanningBridge,
   copilotPlanningPreflight,
   normalizePlanningUpdate
 } from '../apps/desktop/electron/copilot-acp.mjs';
@@ -243,4 +244,26 @@ test('Copilot preflight detects ACP and native Plan mode without launching a ses
   assert.equal(result.ready, true);
   assert.equal(result.version, '1.0.73');
   assert.equal(calls.length, 2);
+});
+
+test('ACP form elicitation pauses for an inline answer and cancels unsupported modes', async () => {
+  const events = [];
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });
+  const pending = bridge.requestInput({
+    mode: 'form',
+    sessionId: 'session-1',
+    message: 'Which repository owns the API?',
+    requestedSchema: {
+      type: 'object',
+      properties: { repository: { type: 'string', enum: ['api', 'mobile'] } },
+      required: ['repository']
+    }
+  });
+  assert.equal(events[0].type, 'question');
+  assert.equal(events[0].schema.properties.repository.enum[0], 'api');
+  const result = bridge.answerQuestion(events[0].questionId, { content: { repository: 'api' } });
+  assert.equal(result.accepted, true);
+  assert.deepEqual(await pending, { action: 'accept', content: { repository: 'api' } });
+  assert.deepEqual(await bridge.requestInput({ mode: 'url', message: 'Open external input', url: 'https://example.com' }), { action: 'cancel' });
+  assert.equal(events.at(-1).type, 'question-unsupported');
 });

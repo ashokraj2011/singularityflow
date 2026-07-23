@@ -112,7 +112,7 @@ function targetInstructions(target) {
       'The proposed artifact must be one complete, parseable YAML document.',
       'Do not wrap the final artifact in a Markdown code fence.',
       target.id === 'story-plan'
-        ? 'Use the executable breakdown shape: version: 1, initiativeId, epics[], and stories[] with id, title, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate.'
+        ? 'Use the executable breakdown shape: version: 1, initiativeId, epics[], and stories[]. Every epic needs id, title, description, acceptanceCriteria, and stories. Every story needs a stable id (the Story Work ID), title, description, testable acceptanceCriteria, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate. jiraKey is optional external state and must never be invented.'
         : 'Preserve stable IDs and express dependencies as structured values.'
     ].join('\n');
   }

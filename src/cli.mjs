@@ -1750,6 +1750,36 @@ async function desktopCommand(positionals, options) {
     persona: optionString(options, 'persona'),
     content: await stdinText()
   });
+  else if (subcommand === 'initiative-materialize-preview') {
+    const initiativeId = optionString(options, 'initiative');
+    result = await materializeInitiative(root, initiativeId, { dryRun: true });
+  }
+  else if (subcommand === 'initiative-materialize') {
+    const initiativeId = optionString(options, 'initiative');
+    const confirmation = optionString(options, 'confirm');
+    result = await materializeInitiative(root, initiativeId, { confirmation });
+    const fresh = await loadInitiative(root, initiativeId);
+    result.publication = await commitInitiativeChange(
+      root,
+      fresh.portfolio,
+      fresh.initiative,
+      `[${initiativeId}][initiative:materialize] ${result.attempt.status}`
+    );
+  }
+  else if (subcommand === 'initiative-sync') {
+    const initiativeId = optionString(options, 'initiative');
+    const freshBefore = await loadInitiative(root, initiativeId);
+    const pendingPublication = await syncInitiativePublication(root, freshBefore.portfolio, freshBefore.initiative);
+    result = await syncInitiativeRepositories(root, initiativeId);
+    const fresh = await loadInitiative(root, initiativeId);
+    result.publication = await commitInitiativeChange(
+      root,
+      fresh.portfolio,
+      fresh.initiative,
+      `[${initiativeId}][initiative:sync] repository evidence`
+    );
+    result.pendingPublication = pendingPublication;
+  }
   else throw new SingularityFlowError(`Unknown desktop subcommand: ${subcommand}`);
   console.log(JSON.stringify(result, null, 2));
 }

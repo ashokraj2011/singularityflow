@@ -5,7 +5,7 @@ import {
   interfaceContractStatus
 } from './initiative-contracts.mjs';
 import {
-  initiativeMilestoneReadiness
+  initiativeMilestoneReadiness, loadInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
   loadInitiative
@@ -27,6 +27,7 @@ function humanDuration(value) {
 
 export async function deriveInitiativeReport(root, initiativeId, { now = nowIso() } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
   const evidence = await readInitiativeRecords(root, portfolio, initiativeId, 'evidence');
   const approvals = await readInitiativeRecords(root, portfolio, initiativeId, 'approvals');
   const invalidations = await readInitiativeRecords(root, portfolio, initiativeId, 'invalidations');
@@ -51,7 +52,50 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       approvedAt: phase.approvedAt
     });
   }
-  const children = Object.values(initiative.childStories ?? {});
+  const plannedIds = new Set(breakdown.stories.map((story) => story.id));
+  const children = breakdown.stories.map((story) => {
+    const observed = initiative.childStories?.[story.id] ?? null;
+    const epic = breakdown.epics.find((candidate) => candidate.id === story.epicId);
+    return {
+      ...story,
+      ...(observed ?? {}),
+      workId: story.id,
+      jiraKey: observed?.jira?.key ?? observed?.jiraKey ?? story.jiraKey ?? null,
+      epicJiraKey: epic?.jiraKey ?? observed?.epicJiraKey ?? null,
+      materialized: Boolean(observed),
+      status: observed?.status ?? 'planned',
+      currentPhase: observed?.currentPhase ?? null,
+      stale: observed?.stale ?? false,
+      blocked: observed?.blocked ?? false,
+      progress: observed?.progress ?? { completed: 0, total: 0, percentage: 0 }
+    };
+  });
+  for (const observed of Object.values(initiative.childStories ?? {})) {
+    if (!plannedIds.has(observed.id)) children.push({
+      ...observed,
+      workId: observed.id,
+      jiraKey: observed.jira?.key ?? observed.jiraKey ?? null,
+      materialized: true,
+      progress: observed.progress ?? { completed: 0, total: 0, percentage: observed.status === 'complete' ? 100 : 0 }
+    });
+  }
+  const epics = breakdown.epics.map((epic) => {
+    const stories = children.filter((story) => story.epicId === epic.id);
+    const complete = stories.filter((story) => story.status === 'complete').length;
+    const percentages = stories.map((story) => story.progress?.percentage ?? (story.status === 'complete' ? 100 : 0));
+    return {
+      id: epic.id,
+      title: epic.title,
+      jiraKey: epic.jiraKey ?? null,
+      total: stories.length,
+      materialized: stories.filter((story) => story.materialized).length,
+      complete,
+      blocked: stories.filter((story) => story.blocked).length,
+      stale: stories.filter((story) => story.stale).length,
+      percentage: percentages.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length) : 0,
+      stories
+    };
+  });
   const childTelemetry = children.map((story) => story.telemetry).filter(Boolean);
   const totalTokens = (initiative.telemetry?.totalTokens ?? 0) + childTelemetry.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
   const providerCosts = [initiative.telemetry?.providerCost, ...childTelemetry.map((item) => item.providerCost)].filter((value) => Number.isFinite(value));
@@ -84,11 +128,14 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       total: children.length,
       blocking: children.filter((story) => story.blocking).length,
       stale: children.filter((story) => story.stale).length,
+      materialized: children.filter((story) => story.materialized).length,
+      complete: children.filter((story) => story.status === 'complete').length,
+      epics,
       stories: children
     },
     milestones: {
-      construction: initiativeMilestoneReadiness(initiative, 'construction'),
-      delivery: initiativeMilestoneReadiness(initiative, 'delivery')
+      construction: initiativeMilestoneReadiness(initiative, 'construction', children),
+      delivery: initiativeMilestoneReadiness(initiative, 'delivery', children)
     },
     telemetry: {
       totalTokens: totalTokens || null,
@@ -119,10 +166,17 @@ export function renderInitiativeReport(report) {
   lines.push(`- Invalidations: ${report.invalidations}`);
   lines.push(`- Self-approvals: ${report.approvals.selfApprovals.length}${report.approvals.selfApprovals.length ? ' ⚠ not independent review' : ''}`);
   lines.push('', '## Cross-repository delivery', '');
-  lines.push(`- Stories: ${report.children.total} total; ${report.children.blocking} blocking; ${report.children.stale} stale`);
+  lines.push(`- Epics: ${report.children.epics.length}`);
+  lines.push(`- Stories: ${report.children.total} planned; ${report.children.materialized} materialized; ${report.children.complete} complete; ${report.children.blocking} blocking; ${report.children.stale} stale`);
   lines.push(`- Construction: ${report.milestones.construction.readyStories}/${report.milestones.construction.blockingStories} blocking stories ready`);
   lines.push(`- Delivery: ${report.milestones.delivery.readyStories}/${report.milestones.delivery.blockingStories} blocking stories ready`);
   lines.push(`- Interface contracts: ${report.contracts.length}`);
+  for (const epic of report.children.epics) {
+    lines.push('', `### ${epic.id}${epic.jiraKey ? ` / ${epic.jiraKey}` : ''} — ${epic.title}`, '');
+    lines.push(`Progress: ${epic.percentage}% · ${epic.complete}/${epic.total} stories complete`);
+    lines.push('', '| Work ID | Jira ID | Repository | Status | Phase | Progress |', '|---|---|---|---|---|---:|');
+    for (const story of epic.stories) lines.push(`| ${story.workId} | ${story.jiraKey ?? 'not created'} | ${story.repository} | ${story.status} | ${story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')} | ${story.progress?.percentage ?? 0}% |`);
+  }
   lines.push('', '## Copilot usage and cost', '');
   lines.push(`- Models: ${report.telemetry.models.join(', ') || 'unavailable'}`);
   lines.push(`- Tokens: ${report.telemetry.totalTokens ?? 'unavailable'}`);

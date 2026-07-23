@@ -131,7 +131,10 @@ function initiativePhaseContract(initiative, phase) {
     ...phase.checklist.map((check) => `  - ${check.id}: ${check.label} (${check.requirement}; gate=${check.gate}; assurance=${check.acceptedAssurance.join('|')})`),
     '- Participating repositories:',
     ...(repositories.length
-      ? repositories.map(([id, repository]) => `  - ${id}: ${repository.url} @ ${repository.defaultBranch}${repository.required ? ' (required)' : ' (optional)'}`)
+      ? repositories.map(([id, repository]) => {
+        const metadata = Object.entries(repository.metadata ?? {});
+        return `  - ${id}: ${repository.url} @ ${repository.defaultBranch}${repository.required ? ' (required)' : ' (optional)'}${metadata.length ? `; metadata ${metadata.map(([key, value]) => `${key}=${value}`).join(', ')}` : ''}`;
+      })
       : ['  - None configured. Story decomposition must not invent repository aliases.'])
   ].join('\n');
 }

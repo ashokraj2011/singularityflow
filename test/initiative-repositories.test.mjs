@@ -55,8 +55,8 @@ async function repository() {
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Initiative Owner', email: ACTOR_EMAIL }];
   portfolio.repositories = {
-    mobile: { url: mobile, defaultBranch: 'main', required: true },
-    api: { url: api, defaultBranch: 'main', required: true }
+    mobile: { url: mobile, defaultBranch: 'main', required: true, metadata: { appId: 'APP-MOBILE', name: 'Mobile application' } },
+    api: { url: api, defaultBranch: 'main', required: true, metadata: { appId: 'APP-API', owner: 'Integration' } }
   };
   await writeFile(portfolioFile, YAML.stringify(portfolio));
   run('git', ['add', '.'], { cwd: root });
@@ -124,6 +124,7 @@ test('materialization previews then creates idempotent repository story branches
   assert.equal(seed.initiative.id, 'INIT-MULTI');
   assert.equal(seed.story.workId, 'API-1');
   assert.equal(seed.story.repository, 'api');
+  assert.deepEqual(seed.story.repositoryMetadata, { appId: 'APP-API', owner: 'Integration' });
 
   const retry = await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
   assert.deepEqual(retry.attempt.stories.map((story) => story.status), ['attached', 'attached']);

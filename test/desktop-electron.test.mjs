@@ -82,6 +82,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Cross-repository control plane/);
   assert.match(source, /Create the initiative portfolio/);
   assert.match(source, /Create & validate portfolio/);
+  assert.match(source, /Application ID/);
+  assert.match(source, /Additional metadata/);
+  assert.match(source, /Add a participating repository/);
+  assert.match(source, /Add to YAML draft/);
   assert.match(source, /No credentials are stored in YAML/);
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);

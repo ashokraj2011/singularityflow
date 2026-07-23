@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { SingularityFlowError, posix, snapshot } from './util.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
@@ -233,6 +234,7 @@ export function validatePortfolio(value) {
     repository.defaultBranch ??= 'main';
     if (typeof repository.defaultBranch !== 'string' || !repository.defaultBranch.trim()) throw new SingularityFlowError(`Repository '${id}' defaultBranch is invalid.`);
     repository.required = repository.required !== false;
+    repository.metadata = normalizeRepositoryMetadata(repository.metadata ?? {}, `Repository '${id}' metadata`);
   }
 
   for (const [id, authority] of Object.entries(portfolio.approvalAuthorities)) {

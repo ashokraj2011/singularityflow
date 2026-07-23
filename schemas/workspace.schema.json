@@ -34,6 +34,11 @@
           "defaultBranch": { "type": "string", "minLength": 1 },
           "path": { "type": "string", "pattern": "^repos/" },
           "required": { "type": "boolean" },
+          "metadata": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
+            "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
           "role": { "enum": ["lead", "participant"] }
         }
       }

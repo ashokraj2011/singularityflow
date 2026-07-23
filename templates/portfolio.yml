@@ -45,7 +45,14 @@ approvalAuthorities:
   operations-reviewers: { members: [] }
 
 # Add participating repositories with stable aliases. An empty registry is
-# valid until an initiative story plan references a repository.
+# valid until an initiative story plan references a repository. Application
+# identity and any organization-specific tags stay with the Git configuration:
+# repositories:
+#   mobile:
+#     url: git@github.com:company/mobile.git
+#     defaultBranch: main
+#     required: true
+#     metadata: { appId: APP-1001, name: Mobile application, owner: Digital }
 repositories: {}
 
 initiativeProfiles:

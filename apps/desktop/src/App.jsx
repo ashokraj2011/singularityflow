@@ -24,6 +24,10 @@ import {
   planningLogEntry
 } from './planning-ui.mjs';
 import {
+  addPortfolioRepository,
+  repositoryMetadataFromForm
+} from './portfolio-designer.mjs';
+import {
   GovernedMedia,
   MediaLightbox,
   PinnedMediaStrip,
@@ -444,13 +448,13 @@ function ImpactStudio({ data, openPlanning }) {
           <div className="impact-graph">
             <svg viewBox="0 0 640 410" role="img" aria-label="Repository dependency graph">{graphRepositories.map(([id], index) => <line key={id} x1="320" y1="205" x2={nodePositions[index][0]} y2={nodePositions[index][1]} />)}<circle cx="320" cy="205" r="64" /></svg>
             <div className="impact-core"><span>REQ</span><strong>{data.initiative?.state.initiative.id ?? data.workflow?.workItem.id ?? 'LOCAL'}</strong><small>governed change</small></div>
-            {graphRepositories.map(([id, repository], index) => <div className="impact-node" key={id} style={{ '--x': `${nodePositions[index][0]}px`, '--y': `${nodePositions[index][1]}px` }}><span>{id.slice(0, 2).toUpperCase()}</span><strong>{id}</strong><small>{repository.defaultBranch ?? 'main'} · {repository.required ? 'required' : 'optional'}</small></div>)}
+            {graphRepositories.map(([id, repository], index) => <div className="impact-node" key={id} style={{ '--x': `${nodePositions[index][0]}px`, '--y': `${nodePositions[index][1]}px` }}><span>{id.slice(0, 2).toUpperCase()}</span><strong>{repository.metadata?.name ?? id}</strong><small>{repository.metadata?.appId ? `${repository.metadata.appId} · ` : ''}{repository.defaultBranch ?? 'main'} · {repository.required ? 'required' : 'optional'}</small></div>)}
           </div>
         </section>
         <section className="panel affected-repositories">
           <header className="panel-heading"><div><span className="eyebrow">Change surface</span><h2>Affected repositories</h2></div><span>{stories.length || graphRepositories.length} tracked units</span></header>
           <div className="affected-head"><span>Repository</span><span>Branch</span><span>Stories</span><span>State</span></div>
-          {graphRepositories.map(([id, repository]) => { const owned = stories.filter((story) => story.repository === id); const stale = owned.some((story) => story.stale); return <div className="affected-row" key={id}><strong>{id}</strong><code>{repository.defaultBranch ?? 'main'}</code><span>{owned.length || '—'}</span><Pill tone={stale ? 'warn' : 'good'}>{stale ? 'stale context' : 'reachable'}</Pill></div>; })}
+          {graphRepositories.map(([id, repository]) => { const owned = stories.filter((story) => story.repository === id); const stale = owned.some((story) => story.stale); return <div className="affected-row" key={id}><strong>{repository.metadata?.name ?? id}{repository.metadata?.appId && <small> · {repository.metadata.appId}</small>}</strong><code>{repository.defaultBranch ?? 'main'}</code><span>{owned.length || '—'}</span><Pill tone={stale ? 'warn' : 'good'}>{stale ? 'stale context' : 'reachable'}</Pill></div>; })}
         </section>
       </main>
       <aside className="impact-inspector">
@@ -468,6 +472,9 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
     approvalEmail: '',
     repositoryId: '',
     repositoryUrl: '',
+    repositoryAppId: '',
+    repositoryName: '',
+    repositoryMetadata: [{ key: '', value: '' }],
     defaultBranch: data.definition.defaultBaseBranch ?? 'main',
     jiraEnabled: jiraFirst,
     jiraDeployment: 'cloud',
@@ -476,7 +483,17 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
     jiraWriteMode: 'off'
   });
   const set = (name, value) => setValues((current) => ({ ...current, [name]: value }));
-  const repositoryPartial = Boolean(values.repositoryId || values.repositoryUrl);
+  const setMetadata = (index, field, value) => setValues((current) => ({
+    ...current,
+    repositoryMetadata: current.repositoryMetadata.map((entry, entryIndex) => entryIndex === index ? { ...entry, [field]: value } : entry)
+  }));
+  const repositoryPartial = Boolean(
+    values.repositoryId
+    || values.repositoryUrl
+    || values.repositoryAppId
+    || values.repositoryName
+    || values.repositoryMetadata.some((entry) => entry.key || entry.value)
+  );
   const jiraReady = !values.jiraEnabled || Boolean(values.jiraBaseUrl);
   async function create() {
     const result = await action(() => window.singularity.bootstrapPortfolio(data.repository.root, {
@@ -486,7 +503,12 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
         id: values.repositoryId,
         url: values.repositoryUrl,
         defaultBranch: values.defaultBranch,
-        required: true
+        required: true,
+        metadata: repositoryMetadataFromForm({
+          appId: values.repositoryAppId,
+          name: values.repositoryName,
+          metadata: values.repositoryMetadata
+        })
       } : null,
       jira: {
         enabled: values.jiraEnabled,
@@ -505,7 +527,8 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
       <header><span className="eyebrow">Approval identity</span><h2>Who owns the initial gates?</h2><p>Leave these blank to use the repository’s configured Git name and email.</p></header>
       <div className="control-grid"><label><span>Display name</span><input value={values.approvalName} placeholder="Use Git user.name" onChange={(event) => set('approvalName', event.target.value)} /></label><label><span>Email</span><input type="email" value={values.approvalEmail} placeholder="Use Git user.email" onChange={(event) => set('approvalEmail', event.target.value)} /></label></div>
       <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Portfolio designer.</p></header>
-      <div className="control-grid expanded"><label><span>Repository ID</span><input value={values.repositoryId} placeholder="mobile" onChange={(event) => set('repositoryId', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={values.repositoryUrl} placeholder="git@github.com:company/mobile.git" onChange={(event) => set('repositoryUrl', event.target.value)} /></label><label><span>Default branch</span><input value={values.defaultBranch} onChange={(event) => set('defaultBranch', event.target.value)} /></label></div>
+      <div className="control-grid expanded"><label><span>Repository ID</span><input value={values.repositoryId} placeholder="mobile" onChange={(event) => set('repositoryId', event.target.value)} /></label><label><span>Application ID</span><input value={values.repositoryAppId} placeholder="APP-1001" onChange={(event) => set('repositoryAppId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={values.repositoryName} placeholder="Mobile application" onChange={(event) => set('repositoryName', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={values.repositoryUrl} placeholder="git@github.com:company/mobile.git" onChange={(event) => set('repositoryUrl', event.target.value)} /></label><label><span>Default branch</span><input value={values.defaultBranch} onChange={(event) => set('defaultBranch', event.target.value)} /></label></div>
+      <div className="repository-metadata-fields"><header><div><strong>Additional metadata</strong><span>Optional key/value pairs are committed under this repository in <code>singularity/portfolio.yml</code>.</span></div><button type="button" className="ghost compact" onClick={() => set('repositoryMetadata', [...values.repositoryMetadata, { key: '', value: '' }])}>＋ Add field</button></header>{values.repositoryMetadata.map((entry, index) => <div key={index}><input aria-label={`Metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => setMetadata(index, 'key', event.target.value)} /><input aria-label={`Metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => setMetadata(index, 'value', event.target.value)} />{values.repositoryMetadata.length > 1 && <button type="button" className="ghost compact" aria-label={`Remove metadata field ${index + 1}`} onClick={() => set('repositoryMetadata', values.repositoryMetadata.filter((_, entryIndex) => entryIndex !== index))}>×</button>}</div>)}</div>
       <header className="portfolio-jira-toggle"><div><span className="eyebrow">Corporate integration</span><h2>Configure Jira now</h2></div><label className="switch"><input type="checkbox" checked={values.jiraEnabled} onChange={(event) => set('jiraEnabled', event.target.checked)} /><span /></label></header>
       {values.jiraEnabled && <div className="control-grid expanded"><label><span>Deployment</span><select value={values.jiraDeployment} onChange={(event) => set('jiraDeployment', event.target.value)}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="full"><span>Jira HTTPS URL</span><input value={values.jiraBaseUrl} placeholder="https://company.atlassian.net" onChange={(event) => set('jiraBaseUrl', event.target.value)} /></label><label><span>Project key</span><input value={values.jiraProjectKey} placeholder="APP" onChange={(event) => set('jiraProjectKey', event.target.value.toUpperCase())} /></label><label><span>Write policy</span><select value={values.jiraWriteMode} onChange={(event) => set('jiraWriteMode', event.target.value)}><option value="off">Off · browse/adopt only</option><option value="preview">Preview · commit plans only</option><option value="approved">Approved · guarded apply</option></select></label></div>}
       <div className="portfolio-setup-action"><div><strong>No credentials are stored in YAML</strong><span>The API token/PAT is requested separately after the portfolio is created.</span></div><button className="primary" disabled={(repositoryPartial && (!values.repositoryId || !values.repositoryUrl)) || !jiraReady} onClick={create}>Create & validate portfolio</button></div>
@@ -651,7 +674,7 @@ function WorkspaceStudio({ data, action, onOpened, onConfigureJira }) {
         <div><span>Staged documents</span><strong>{health.counts.stagedDocuments}</strong><small>not governed</small></div>
         <div><span>Lead repository</span><strong>{health.workspace.leadRepository}</strong><small>{health.leadRepositoryPath}</small></div>
       </div>
-      <div className="workspace-repository-list">{health.repositories.map((repository) => <div key={repository.id}><span className={`workspace-state ${repository.state}`} /><div><strong>{repository.id}</strong><small>{repository.absolutePath}</small></div><Pill tone={repository.role === 'lead' ? 'accent' : 'neutral'}>{repository.role}</Pill><span>{repository.branch ?? 'not cloned'}</span><span className={repository.dirty ? 'warning-copy' : ''}>{repository.dirty == null ? '—' : repository.dirty ? 'dirty' : 'clean'}</span><Pill tone={repository.state === 'ready' ? 'good' : 'warn'}>{repository.state}</Pill></div>)}</div>
+      <div className="workspace-repository-list">{health.repositories.map((repository) => <div key={repository.id}><span className={`workspace-state ${repository.state}`} /><div><strong>{repository.metadata?.name ?? repository.id}</strong><small>{repository.metadata?.appId ? `${repository.metadata.appId} · ${repository.id} · ` : `${repository.id} · `}{repository.absolutePath}</small></div><Pill tone={repository.role === 'lead' ? 'accent' : 'neutral'}>{repository.role}</Pill><span>{repository.branch ?? 'not cloned'}</span><span className={repository.dirty ? 'warning-copy' : ''}>{repository.dirty == null ? '—' : repository.dirty ? 'dirty' : 'clean'}</span><Pill tone={repository.state === 'ready' ? 'good' : 'warn'}>{repository.state}</Pill></div>)}</div>
       {!!health.stagedDocuments.length && <div className="workspace-staged"><header><div><span className="eyebrow">Local document inbox</span><h3>Staged — not governed</h3><p>{canPromoteDocuments ? `Import into checked-out work item ${data.workflow.workItem.id} to commit and push a governed copy.` : 'Resume a work item and select a session persona before importing these files.'}</p></div><Pill tone="warn">{health.stagedDocuments.length} local</Pill></header>{health.stagedDocuments.map((document) => <div key={document.path}><strong>{document.name}</strong><code>{document.sha256.slice(0, 12)}</code><span>{document.bytes.toLocaleString()} bytes</span><button className="secondary compact" disabled={!canPromoteDocuments} onClick={() => promoteDocument(document)}>Import to work item</button></div>)}</div>}
     </section>}
 
@@ -1197,11 +1220,19 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
 function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio }) {
   const [tab, setTab] = useState('delivery');
   const [materializationModal, setMaterializationModal] = useState(null);
+  const [repositoryModal, setRepositoryModal] = useState(null);
   const portfolio = data.portfolio;
   const selected = data.initiative;
   if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} /></div>;
+  const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
+  const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
+  let portfolioDraft = portfolio;
+  try {
+    const parsed = YAML.parse(configValue);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) portfolioDraft = parsed;
+  } catch { /* The source editor reports invalid YAML on save. */ }
   const profiles = Object.entries(portfolio.initiativeProfiles ?? {});
-  const repositories = Object.entries(portfolio.repositories ?? {});
+  const repositories = Object.entries(portfolioDraft.repositories ?? {});
   const authorities = Object.entries(portfolio.approvalAuthorities ?? {});
   const state = selected?.state;
   const progress = selected?.progress;
@@ -1210,9 +1241,44 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   const currentChecks = selected?.phaseGate?.checklist ?? [];
   const children = report?.children.stories ?? [];
   const epics = report?.children.epics ?? [];
-  const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
-  const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
   const leadBaseBranch = data.definition.defaultBaseBranch ?? 'main';
+  function openRepositoryModal() {
+    setRepositoryModal({
+      values: {
+        id: '',
+        appId: '',
+        name: '',
+        url: '',
+        defaultBranch: leadBaseBranch,
+        required: true,
+        metadata: [{ key: '', value: '' }]
+      },
+      error: null
+    });
+  }
+  function repositoryField(field, value) {
+    setRepositoryModal((current) => ({ ...current, values: { ...current.values, [field]: value }, error: null }));
+  }
+  function repositoryMetadataField(index, field, value) {
+    setRepositoryModal((current) => ({
+      ...current,
+      values: {
+        ...current.values,
+        metadata: current.values.metadata.map((entry, entryIndex) => entryIndex === index ? { ...entry, [field]: value } : entry)
+      },
+      error: null
+    }));
+  }
+  function addRepository() {
+    try {
+      const current = YAML.parse(configValue);
+      const next = addPortfolioRepository(current, repositoryModal.values);
+      setEditor({ path: data.portfolioPath, content: YAML.stringify(next), original: configOriginal, kind: 'portfolio' });
+      setRepositoryModal(null);
+    } catch (error) {
+      setRepositoryModal((current) => ({ ...current, error: error.message }));
+    }
+  }
   async function previewMaterialization() {
     const result = await action(() => window.singularity.previewInitiativeMaterialization(data.repository.root, state.initiative.id));
     if (result) setMaterializationModal({ preview: result.review, confirmation: '' });
@@ -1242,7 +1308,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     {tab === 'configuration' ? <div className="initiative-config-layout">
       <aside className="initiative-config-summary">
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Profiles</span><h2>{profiles.length} delivery models</h2></div></header><div className="initiative-mini-list">{profiles.map(([id, profile]) => <div key={id}><strong>{profile.label}</strong><span>{profile.phases.length} phases</span><small>{profile.phases.join(' → ')}</small></div>)}</div></section>
-        <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Repository registry</span><h2>{repositories.length} repositories</h2></div></header><div className="initiative-mini-list">{repositories.length ? repositories.map(([id, repository]) => <div key={id}><strong>{id}</strong><span>{repository.required ? 'Required' : 'Optional'}</span><small>{repository.defaultBranch} · {repository.url}</small></div>) : <div><strong>No repositories yet</strong><small>Add repository IDs, URLs, and default branches in portfolio.yml.</small></div>}</div></section>
+        <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Repository registry</span><h2>{repositories.length} repositories</h2></div><button className="primary compact" onClick={openRepositoryModal}>＋ Add repository</button></header><div className="initiative-mini-list repository-registry-list">{repositories.length ? repositories.map(([id, repository]) => <div key={id}><strong>{repository.metadata?.name ?? id}</strong><span>{repository.metadata?.appId ?? (repository.required ? 'Required' : 'Optional')}</span><small>{id} · {repository.defaultBranch} · {repository.url}</small>{Object.entries(repository.metadata ?? {}).filter(([key]) => !['appId', 'name'].includes(key)).length > 0 && <em>{Object.entries(repository.metadata).filter(([key]) => !['appId', 'name'].includes(key)).map(([key, value]) => `${key}: ${value}`).join(' · ')}</em>}</div>) : <div><strong>No repositories yet</strong><small>Add a repository with application identity and organization metadata.</small></div>}</div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Issue materialization</span><h2>Jira {portfolio.jira?.enabled ? portfolio.jira.writeMode : 'off'}</h2></div><Pill tone={portfolio.jira?.writeMode === 'approved' ? 'good' : 'neutral'}>{portfolio.jira?.projectKey || 'Git only'}</Pill></header><div className="initiative-mini-list"><div><strong>Epic → Story hierarchy</strong><span>{portfolio.jira?.writeMode === 'approved' ? 'Guarded apply' : portfolio.jira?.writeMode === 'preview' ? 'Plan only' : 'Git only'}</span><small>{portfolio.jira?.writeMode === 'approved' ? `${portfolio.jira.epicIssueType ?? 'Epic'} / ${portfolio.jira.storyIssueType ?? 'Story'} · exact approved write plan required` : portfolio.jira?.writeMode === 'preview' ? 'Create and commit Jira write plans without mutating Jira.' : 'Enable Jira policy and choose a write mode in portfolio.yml; no network is used while off.'}</small></div></div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
@@ -1271,6 +1337,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <section className="panel initiative-documents"><header className="panel-heading"><div><span className="eyebrow">Governed outputs</span><h2>Initiative documents</h2></div><span>{selected.documents.length}</span></header>{selected.documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Download</button></div>)}</section>
       </div>
     </>}
+    {repositoryModal && <DesignerModal title="Add a participating repository" detail="Application identity and custom key/value pairs are stored as governed Git metadata under repositories.<id>.metadata in singularity/portfolio.yml." submitLabel="Add to YAML draft" error={repositoryModal.error} onCancel={() => setRepositoryModal(null)} onSubmit={addRepository}><div className="modal-grid"><label><span>Repository ID</span><input autoFocus value={repositoryModal.values.id} placeholder="mobile" onChange={(event) => repositoryField('id', event.target.value)} /></label><label><span>Application ID</span><input value={repositoryModal.values.appId} placeholder="APP-1001" onChange={(event) => repositoryField('appId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={repositoryModal.values.name} placeholder="Mobile application" onChange={(event) => repositoryField('name', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={repositoryModal.values.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => repositoryField('url', event.target.value)} /></label><label><span>Default branch</span><input value={repositoryModal.values.defaultBranch} onChange={(event) => repositoryField('defaultBranch', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={repositoryModal.values.required} onChange={(event) => repositoryField('required', event.target.checked)} />Required for initiative delivery</label></div><div className="repository-metadata-fields"><header><div><strong>Custom metadata</strong><span>Examples: owner, businessUnit, costCenter, criticality.</span></div><button type="button" className="ghost compact" onClick={() => repositoryField('metadata', [...repositoryModal.values.metadata, { key: '', value: '' }])}>＋ Add field</button></header>{repositoryModal.values.metadata.map((entry, index) => <div key={index}><input aria-label={`Repository metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => repositoryMetadataField(index, 'key', event.target.value)} /><input aria-label={`Repository metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => repositoryMetadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" aria-label={`Remove repository metadata ${index + 1}`} onClick={() => repositoryField('metadata', repositoryModal.values.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}</div></DesignerModal>}
     {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This creates or attaches Jira stories under their planned Epic IDs, creates one Git branch per Story Work ID in its configured repository, writes the governed seed, and pushes every receipt. The operation is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div></div><label><span>Type the Initiative ID to confirm</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
   </div>;
 }

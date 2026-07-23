@@ -71,6 +71,8 @@ Use `/sflow-progress` for deterministic completion and `/sflow-report` for timin
 
 Initiative orchestration is an opt-in layer above repository story workflows. `singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.
 
+Repository entries may include `metadata` with an `appId`, human-readable `name`, and any organization-specific scalar key/value pairs such as `owner`, `businessUnit`, `costCenter`, or `criticality`. Add these through **Initiatives → Portfolio designer → Add repository**. The app writes them beneath `repositories.<id>.metadata` in `singularity/portfolio.yml`; initiative snapshots, planning prompts, workspace manifests, and generated story seeds preserve the values.
+
 If the file is missing, open **Initiatives** or **Jira workspace** in the desktop. The guided setup creates and validates the full editable starter portfolio, fills approval groups from the entered identity or current Git identity, optionally registers the first participating repository, and optionally adds an HTTPS Jira host/project/write policy. Credentials are never accepted into the YAML. The file stays uncommitted until **Commit & push**.
 
 Operate an initiative inside GitHub Copilot:

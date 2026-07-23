@@ -192,6 +192,7 @@ export async function createInitiative(root, {
       url: repository.url,
       defaultBranch: repository.defaultBranch,
       required: repository.required,
+      metadata: structuredClone(repository.metadata ?? {}),
       observedHead: null,
       observedAt: null
     }]))

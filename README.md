@@ -78,6 +78,23 @@ activating the new lead repository. See [WORKSPACES.md](WORKSPACES.md).
 
 If an older repository has no portfolio configuration, opening **Initiatives** or **Jira workspace** now presents a guided setup instead of a dead end. It creates and validates `singularity/portfolio.yml` with the starter profiles, approval identity, optional first repository, and optional Jira policy. No Jira credential is written to YAML, and the new file remains an ordinary uncommitted configuration change until **Commit & push** is selected.
 
+Each participating repository can carry application identity and arbitrary scalar key/value metadata. Use **Initiatives → Portfolio designer → Add repository**, or edit the same governed YAML directly:
+
+```yaml
+repositories:
+  mobile:
+    url: git@github.com:company/mobile.git
+    defaultBranch: main
+    required: true
+    metadata:
+      appId: APP-1001
+      name: Mobile application
+      owner: Digital Channels
+      costCenter: CC-42
+```
+
+This metadata stays in `singularity/portfolio.yml`, is pinned into initiative state, copied into local workspace manifests, included in planning context, and passed to materialized story seeds.
+
 The leading dot was intentionally removed: repository-owned configuration, prompts, templates, artifacts, and workflow state now live in the visible `singularity/` folder. Private machine/session data remains under `.git/singularity-flow/` and `~/.singularity-flow/`.
 
 Start an initiative from GitHub Copilot:

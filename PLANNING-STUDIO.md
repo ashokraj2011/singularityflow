@@ -18,7 +18,9 @@ flowchart LR
     M --> N["Normal publish, evidence, and approval gate"]
 ```
 
-The app is an Agent Client Protocol (ACP) client. It starts the locally installed `copilot` executable as an ACP server, explicitly selects the Plan session mode advertised by Copilot, streams its conversation and structured plan updates, and keeps follow-up questions in the same session.
+The app is an Agent Client Protocol (ACP) client. Its main process owns one repository-scoped Copilot backend while the desktop is open. The top-bar **Copilot** control starts the locally installed `copilot` executable as an ACP server, explicitly selects the Plan session mode advertised by Copilot, displays readiness, process ID, version, active planning attachment, and a local service log, and stops the process on demand. Planning Studio attaches governed context to that backend, streams conversation and structured plan updates, and keeps follow-up questions in the same planning session.
+
+Releasing or promoting a planning context does not tear down the backend, so the next governed turn avoids another process launch. Stopping the backend is explicit and cancels any attached turn. Starting a planning turn automatically starts the backend if it is stopped.
 
 When Copilot needs a decision, Planning Studio renders its ACP form elicitation as an inline **Question from Copilot** card. The card supports text, number, boolean, single-select, and multi-select answers. Answering resumes the same Copilot turn; skipping is explicit. If a Copilot version asks an ordinary prose question instead of using elicitation, Planning Studio detects the question at the end of the turn and offers the same answer flow as a follow-up. Tool activity, diagnostics, reasoning-status events, and lifecycle messages remain available in a collapsed **Copilot logs** console at the bottom, similar to an IDE output panel.
 
@@ -81,7 +83,7 @@ The selected profile still owns the real phase names and contracts. The table is
 3. Select the current work item, phase output, persona, and planning objective.
 4. Optionally enter a Copilot model name; leave it blank to use the Copilot default.
 5. Select **Build governed context** and inspect its source hashes, warnings, and complete prompt.
-6. Select **Start Copilot Plan mode**.
+6. Optionally start the repository-scoped backend from the top-bar **Copilot** control and inspect its health. Otherwise select **Start Copilot Plan mode** and the app starts it automatically.
 7. Answer any inline Copilot questions about scope, boundaries, ownership, acceptance criteria, or dependencies. Expand **Copilot logs** only when you need detailed diagnostics.
 8. Use follow-up turns to challenge assumptions, request alternatives, sharpen acceptance criteria, or refine story decomposition.
 9. For a `story-plan` output, inspect the generated Epic IDs, Story Work IDs, repository allocation, dependencies, and blocking status in **Epic decomposition analysis**.
@@ -103,6 +105,8 @@ Copilot proposes stable Epic IDs and Story Work IDs. It must not invent Jira key
 The Initiative dashboard displays all planned stories before materialization. **Sync story branches** later fetches the child workflows and rolls their current phase, completion percentage, blocking state, staleness, model/tokens, and cost up to each epic.
 
 If Copilot is unavailable, the app explains whether the executable, ACP server, or native Plan mode is missing. Authenticate Copilot CLI normally before opening the Planning Studio.
+
+Backend logs are transient process diagnostics held by Electron's main process. They are not committed, do not include Jira credentials, and disappear when the app exits. Governed planning context and promoted provenance keep their existing Git-backed lifecycle.
 
 ## Promotion guarantees
 

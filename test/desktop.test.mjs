@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  bootstrapDesktopPortfolio,
   deleteDesktopFile,
   deleteDesktopTemplate,
   desktopExportBundle,
@@ -125,6 +126,46 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.report.tokens.byModel[0].model, 'claude-sonnet-4.6');
   assert.equal(snapshot.report.tokens.byModel[0].providerCostRecords, 1);
   assert.equal(snapshot.report.costCoverage.pricedRecords, 1);
+});
+
+test('desktop bootstraps governed portfolio and Jira policy without storing credentials', async () => {
+  const root = await repository();
+  await unlink(path.join(root, 'singularity/portfolio.yml'));
+  const created = await bootstrapDesktopPortfolio(root, {
+    approvalName: 'Portfolio Owner',
+    approvalEmail: 'Owner@Example.com',
+    repository: {
+      id: 'mobile',
+      url: 'git@github.com:company/mobile.git',
+      defaultBranch: 'develop',
+      required: true
+    },
+    jira: {
+      enabled: true,
+      deployment: 'cloud',
+      baseUrl: 'https://company.atlassian.net',
+      projectKey: 'app',
+      writeMode: 'preview',
+      token: 'must-never-be-written'
+    }
+  });
+  assert.equal(created.path, 'singularity/portfolio.yml');
+  assert.equal(created.approver.email, 'owner@example.com');
+  assert.equal(created.repositoryConfigured, true);
+  assert.equal(created.jiraConfigured, true);
+  const content = await readFile(path.join(root, created.path), 'utf8');
+  assert.doesNotMatch(content, /must-never-be-written/);
+  const portfolio = YAML.parse(content);
+  assert.equal(portfolio.repositories.mobile.defaultBranch, 'develop');
+  assert.deepEqual(portfolio.jira.allowedHosts, ['company.atlassian.net']);
+  assert.deepEqual(portfolio.jira.allowedProjects, ['APP']);
+  assert.equal(portfolio.jira.writeMode, 'preview');
+  assert.equal(portfolio.jira.write, false);
+  assert.ok(Object.values(portfolio.approvalAuthorities).every((authority) => authority.members[0].email === 'owner@example.com'));
+  const snapshot = await desktopSnapshot(root);
+  assert.equal(snapshot.portfolio.jira.enabled, true);
+  assert.ok(snapshot.repository.configurationChanges.includes('singularity/portfolio.yml'));
+  await assert.rejects(() => bootstrapDesktopPortfolio(root), /already exists/i);
 });
 
 test('desktop snapshot exposes initiative phases, assurance, documents, telemetry, and configuration', async () => {

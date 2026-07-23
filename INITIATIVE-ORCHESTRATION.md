@@ -15,6 +15,8 @@ flowchart LR
 
 This feature is opt-in. Repositories without `singularity/portfolio.yml` do no initiative processing and make no additional network calls. Existing `singularity/work-items` behavior is unchanged.
 
+In the Electron app, a missing portfolio file is configurable in place: open **Initiatives** or **Jira workspace**, supply the initial approval identity, optional first repository, and optional Jira policy, then select **Create & validate portfolio**. The app copies the complete editable starter profiles into `singularity/portfolio.yml`; it stores no Jira token and does not commit automatically. Review it in Portfolio designer and use **Commit & push** when it is ready to become shared repository policy.
+
 ## Configure the portfolio
 
 `singularity-flow init` installs an editable `singularity/portfolio.yml` with:

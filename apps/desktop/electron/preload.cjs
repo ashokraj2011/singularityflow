@@ -16,8 +16,13 @@ contextBridge.exposeInMainWorld('singularity', {
   importFile: (repository, options) => ipcRenderer.invoke('configuration:import', { repository, ...options }),
   exportBundle: (repository) => ipcRenderer.invoke('configuration:export-bundle', { repository }),
   publish: (repository, message) => ipcRenderer.invoke('configuration:publish', { repository, message }),
+  bootstrapPortfolio: (repository, configuration) => ipcRenderer.invoke('configuration:bootstrap-portfolio', { repository, configuration }),
   selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
   planningPreflight: (repository) => ipcRenderer.invoke('planning:preflight', { repository }),
+  copilotServiceStatus: (repository) => ipcRenderer.invoke('copilot-service:status', { repository }),
+  startCopilotService: (repository, model = null) => ipcRenderer.invoke('copilot-service:start', { repository, model }),
+  stopCopilotService: (repository) => ipcRenderer.invoke('copilot-service:stop', { repository }),
+  copilotServiceLogs: (repository) => ipcRenderer.invoke('copilot-service:logs', { repository }),
   buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),
   startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
   promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
@@ -42,6 +47,11 @@ contextBridge.exposeInMainWorld('singularity', {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('planning:event', handler);
     return () => ipcRenderer.removeListener('planning:event', handler);
+  },
+  onCopilotServiceEvent: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('copilot-service:event', handler);
+    return () => ipcRenderer.removeListener('copilot-service:event', handler);
   },
   uploadDocuments: (repository) => ipcRenderer.invoke('documents:upload', { repository }),
   uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),

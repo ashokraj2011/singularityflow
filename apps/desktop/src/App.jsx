@@ -59,6 +59,60 @@ function ProgressRing({ value = 0 }) {
   return <div className="ring" style={{ '--progress': `${value * 3.6}deg` }}><div><strong>{value}%</strong><span>complete</span></div></div>;
 }
 
+function formatTokens(value) { return Number.isFinite(value) && value > 0 ? value.toLocaleString('en-US') : '—'; }
+
+function formatCost(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(6)}`;
+}
+
+function costSource(item) {
+  if (item.providerCostRecords && item.configuredPriceRecords) return 'provider + configured pricing';
+  if (item.providerCostRecords) return 'provider-reported cost';
+  if (item.configuredPriceRecords) return 'configured model pricing';
+  return 'cost unavailable';
+}
+
+function CostDashboard({ report, pricing = {} }) {
+  const coverage = report.costCoverage;
+  const pricedPercent = coverage.usageRecords ? Math.round((coverage.pricedRecords / coverage.usageRecords) * 100) : 0;
+  const phaseMaximum = Math.max(...report.phases.map((phase) => phase.cost ?? 0), 0);
+  const pricingCount = Object.keys(pricing ?? {}).length;
+  const statusTone = report.costStatus === 'exact' ? 'good' : report.costStatus === 'partial' ? 'warn' : 'neutral';
+  const guidance = coverage.usageRecords === 0
+    ? 'No generation telemetry has been committed for this work item yet. Publish a phase after starting Copilot with metadata-only telemetry enabled.'
+    : coverage.exactUsageRecords === 0
+      ? 'Usage records exist, but the provider did not expose exact model/token values. Cost remains unavailable and is never estimated.'
+      : report.costStatus === 'unavailable'
+        ? `Exact usage is available, but no provider cost or matching model price was found. Add exact model-name rates under tokens.pricing in workflow.yml${coverage.missingModels.length ? ` for ${coverage.missingModels.join(', ')}` : ''}.`
+        : report.costStatus === 'partial'
+          ? `${coverage.pricedRecords} of ${coverage.usageRecords} usage records are priced. The displayed total is partial; add missing exact model prices or provider cost telemetry.`
+          : 'Every committed usage record is priced. Provider-reported cost is preferred; configured exact-model rates are used only as a fallback.';
+  return <section className="panel cost-dashboard">
+    <header className="panel-heading"><div><span className="eyebrow">Committed AI telemetry</span><h2>Model usage & cost</h2></div><div className="row gap"><span className="pricing-count">{pricingCount} configured model price{pricingCount === 1 ? '' : 's'}</span><Pill tone={statusTone}>{report.costStatus} coverage</Pill></div></header>
+    <div className="cost-summary">
+      <div className="cost-total-card"><span>Recorded cost</span><strong>{formatCost(report.cost)}</strong><small>{report.cost == null ? 'No estimate shown' : 'Provider cost or configured exact-model rates'}</small><div className="coverage-line"><div><span style={{ width: `${pricedPercent}%` }} /></div><b>{pricedPercent}% priced</b></div></div>
+      <div className="cost-kpis">
+        <div><span>Exact tokens</span><strong>{formatTokens(report.tokens.total)}</strong><small>{coverage.exactUsageRecords}/{coverage.usageRecords} exact usage records</small></div>
+        <div><span>Models used</span><strong>{report.tokens.byModel.length || '—'}</strong><small>{report.tokens.byModel.map((item) => item.model).join(', ') || 'unavailable'}</small></div>
+        <div><span>Cost records</span><strong>{coverage.pricedRecords || '—'}</strong><small>{coverage.providerCostRecords} provider · {coverage.configuredPriceRecords} configured</small></div>
+      </div>
+    </div>
+    <div className={`cost-guidance ${report.costStatus}`}><strong>{report.costStatus === 'exact' ? 'Complete cost coverage' : report.costStatus === 'partial' ? 'Partial cost coverage' : 'Cost needs telemetry or pricing'}</strong><span>{guidance}</span></div>
+    <div className="cost-breakdown-grid">
+      <div className="cost-breakdown"><header><div><span className="eyebrow">Lifecycle allocation</span><h3>Cost by phase</h3></div><span>Tokens · cost</span></header><div className="cost-rows">
+        {report.phases.map((phase) => <div className="cost-row" key={phase.id}><div className="cost-row-copy"><strong>{phase.label}</strong><small>{formatTokens(phase.tokens)} tokens · {phase.costStatus}</small></div><div className="cost-bar" aria-label={`${phase.label} cost ${formatCost(phase.cost)}`}><span style={{ width: phase.cost != null && phaseMaximum ? `${Math.max(3, (phase.cost / phaseMaximum) * 100)}%` : '0%' }} /></div><b>{formatCost(phase.cost)}</b></div>)}
+      </div></div>
+      <div className="cost-breakdown"><header><div><span className="eyebrow">Provider attribution</span><h3>Cost by model</h3></div><span>Coverage source</span></header><div className="model-cost-rows">
+        {!report.tokens.byModel.length && <div className="inline-empty">No provider/model usage has been captured yet.</div>}
+        {report.tokens.byModel.map((item) => <div className="model-cost-row" key={`${item.provider}:${item.model}`}><div><span className="model-badge">{item.provider.slice(0, 2).toUpperCase()}</span><span><strong>{item.model}</strong><small>{item.provider} · {item.records} record{item.records === 1 ? '' : 's'} · {formatTokens(item.totalTokens)} tokens</small></span></div><div><strong>{formatCost(item.cost)}</strong><small>{item.pricedRecords}/{item.records} priced · {costSource(item)}</small></div></div>)}
+      </div></div>
+    </div>
+  </section>;
+}
+
 function StatusDot({ status }) { return <span className={`status-dot ${String(status).replaceAll('_', '-')}`} title={status} />; }
 
 function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false }) {
@@ -92,6 +146,7 @@ function Dashboard({ data }) {
       <div className="metric"><span>Documents</span><strong>{p.documents}</strong><small>evidence items</small></div>
       <div className="metric"><span>Token usage</span><strong>{p.tokens.totalTokens || '—'}</strong><small>{p.tokens.totalTokens ? 'exact tokens' : 'unavailable'}</small></div>
     </div>
+    {data.report && <CostDashboard report={data.report} pricing={data.definition.tokens?.pricing} />}
     {!!data.workflow.sequenceOverrides?.length && <div className="notice">⚠ {data.workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded. Review the work-item report before final approval.</div>}
     {data.diagnostics && <section className={`health-strip ${data.diagnostics.healthy ? 'good' : 'warn'}`}><strong>{data.diagnostics.healthy ? 'Repository ready' : 'Setup needs attention'}</strong><span>{data.diagnostics.counts.pass} checks passed · {data.diagnostics.counts.warn} warnings · {data.diagnostics.counts.fail} failures</span></section>}
     <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Lifecycle</span><h2>Phase progress</h2></div></header><div className="phase-list">

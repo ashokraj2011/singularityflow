@@ -714,7 +714,7 @@ Create a production renderer build with `npm run desktop:build` or packaged inst
 
 The desktop app provides:
 
-- Overview and progress dashboard
+- Overview and progress dashboard with committed AI cost, exact-token, provider/model, phase-spend, and pricing-coverage views
 - Visual workflow profiles: create a profile by copying an existing workflow, rename it, or remove it
 - Stage designer: create stages, add shared stages, reorder or remove them, and select upstream artifact inputs
 - Artifact contracts: configure each stage's output path, kind, minimum size, write scope, template, quality commands, personas, approvals, and world-model views
@@ -729,6 +729,8 @@ The desktop app provides:
 - Validated configuration save, commit, and push
 
 Open an initialized repository. The desktop is a control plane over the same CLI and Git state; it does not maintain a second workflow database. Renderer sandboxing, context isolation, and a narrow preload API keep filesystem and Git access outside the UI.
+
+Select a work item and open **Overview** to see its cost dashboard. The recorded total prefers provider-reported cost from committed phase telemetry and falls back to exact model-name prices under `tokens.pricing`. Phase and model breakdowns show tokens, priced-record coverage, and whether each amount came from the provider or configured pricing. Exact, partial, and unavailable states are visibly distinct. When coverage is missing, the dashboard explains whether telemetry, exact token components, or a matching model price is needed; it never displays an invented estimate or treats unavailable cost as zero.
 
 Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically. Use **Artifact templates** to create the Markdown structure first, then return to **Workflow** and assign it to a stage. Template deletion is refused while any default or workflow override still references it.
 

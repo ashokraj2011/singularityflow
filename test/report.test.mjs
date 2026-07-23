@@ -78,8 +78,13 @@ test('deriveReport computes phase waiting, active time, rework, tokens, and bott
   assert.equal(report.reworkCycles, 1);
   assert.equal(report.tokens.total, 10000);
   assert.deepEqual(report.tokens.byModel, [{
-    provider: 'test', model: 'test-model', records: 3, exactRecords: 2, unavailableRecords: 1, totalTokens: 10000
+    provider: 'test', model: 'test-model', records: 3, exactRecords: 2, unavailableRecords: 1, totalTokens: 10000,
+    cost: null, pricedRecords: 0, fullyPricedRecords: 0, providerCostRecords: 0, configuredPriceRecords: 0, costStatus: 'unavailable'
   }]);
+  assert.deepEqual(report.costCoverage, {
+    usageRecords: 3, exactUsageRecords: 2, pricedRecords: 0, fullyPricedRecords: 0,
+    providerCostRecords: 0, configuredPriceRecords: 0, missingModels: ['test/test-model']
+  });
   assert.equal(report.phases[1].tokenStatus, 'partial');
   assert.equal(report.bottleneck.phase, 'design');
 });
@@ -90,6 +95,10 @@ test('deriveReport prices only exact usage with configured per-million model pri
   assert.ok(Math.abs(report.phases[0].cost - 0.027) < 1e-9);
   assert.equal(report.phases[1].costStatus, 'partial');
   assert.equal(report.costStatus, 'partial');
+  assert.equal(report.tokens.byModel[0].cost, 0.054);
+  assert.equal(report.tokens.byModel[0].pricedRecords, 2);
+  assert.equal(report.tokens.byModel[0].configuredPriceRecords, 2);
+  assert.equal(report.costCoverage.pricedRecords, 2);
 });
 
 test('deriveReport prefers exact provider cost captured from Copilot telemetry', () => {
@@ -101,6 +110,8 @@ test('deriveReport prefers exact provider cost captured from Copilot telemetry',
   assert.equal(report.cost, 0.031);
   assert.equal(report.costStatus, 'exact');
   assert.equal(report.phases[0].cost, 0.031);
+  assert.equal(report.tokens.byModel[0].providerCostRecords, 1);
+  assert.equal(report.tokens.byModel[0].costStatus, 'exact');
 });
 
 test('deriveReport does not invent a zero cost when only total tokens are available', () => {

@@ -9,6 +9,7 @@ npm install
 npm test
 npm run check
 npm run desktop:build
+npm run desktop:release:preflight -- --platform current --sign auto
 npm pack --dry-run
 bash -n install.sh
 git diff --check
@@ -22,6 +23,17 @@ sflow --version             → 0.8.0
 ```
 
 The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
+
+## Desktop installer checks
+
+- On macOS, `npm run desktop:package:mac` produces a universal DMG and ZIP in a versioned local directory, verifies the disk image, confirms both `arm64` and `x86_64`, and records exact checksums.
+- On Windows, `npm run desktop:package:win` produces an x64 assisted NSIS installer with changeable location and user-level shortcuts.
+- Local packages without complete credentials include `-unsigned` in the filename and cannot be published by the Artifactory command.
+- Official packaging refuses a dirty tree, mismatched package/plugin/marketplace/lock versions, a mismatched tag, missing bundled CLI resources, missing credentials, invalid signatures, or failed notarization.
+- Extracted applications include `bin`, `src`, `templates`, plugin components, YAML, canonical help, distribution instructions, and package metadata beneath the bundled CLI resources.
+- `release-manifest.json` and `SHA256SUMS.txt` agree with every artifact's name, byte size, SHA-256, platform, architecture, signature, and notarization state.
+- The GitHub workflow builds on native macOS and Windows runners, smoke-installs Windows silently, and creates a draft release without replacing existing release assets.
+- Artifactory dry-run performs no network calls; normal upload uses HTTPS, refuses existing files by default, retries transient failures, and uploads only verified official files.
 
 For a disposable clean clone, run `npm run install:local` and verify it fast-forwards without a merge, prompts for configured/public/custom npm registry before dependency installation, creates the current versioned tarball, installs that tarball globally through the same registry, replaces prior direct/marketplace plugin identities, and leaves only the current `singularity-flow@singularity-flow` plugin. Confirm that `--registry` and `SINGULARITY_FLOW_NPM_REGISTRY` work non-interactively, credentials-in-URL are rejected, `.npmrc` is unchanged, and a dirty checkout is rejected before `git pull`.
 

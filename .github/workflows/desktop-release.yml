@@ -1,0 +1,169 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v<package-version> tag to package
+        required: true
+        type: string
+      publish_artifactory:
+        description: Also upload the verified release to Artifactory
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
+      - run: npm run pack:dry
+      - name: Confirm tag and package versions
+        shell: bash
+        run: |
+          node --input-type=module -e "import { desktopVersionInfo, assertReleaseTag } from './src/desktop-release.mjs'; const info = await desktopVersionInfo(process.cwd()); assertReleaseTag(info.version, process.env.RELEASE_TAG); console.log('Desktop release version ' + info.version + ' is consistent.');"
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+
+  macos:
+    name: Package macOS universal
+    needs: validate
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build, sign, notarize, and verify DMG
+        run: npm run desktop:package:mac -- --release-mode official --sign required --tag "$RELEASE_TAG" --skip-tests
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singularity-flow-desktop-macos-${{ env.RELEASE_TAG }}
+          path: |
+            apps/desktop/release/official/**/*.dmg
+            apps/desktop/release/official/**/*.zip
+            apps/desktop/release/official/**/SHA256SUMS.txt
+            apps/desktop/release/official/**/release-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Package Windows x64
+    needs: validate
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build, sign, and verify installer
+        shell: pwsh
+        run: npm run desktop:package:win -- --release-mode official --sign required --tag $env:RELEASE_TAG --skip-tests
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - name: Silent install, launch, and uninstall smoke test
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem apps/desktop/release/official -Filter '*-setup.exe' -Recurse | Select-Object -First 1
+          if (-not $installer) { throw 'Windows installer was not produced.' }
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $programRoot = Join-Path $env:LOCALAPPDATA 'Programs'
+          $application = Get-ChildItem $programRoot -Filter 'Singularity Flow.exe' -Recurse | Select-Object -First 1
+          if (-not $application) { throw 'Singularity Flow was not installed.' }
+          $process = Start-Process -FilePath $application.FullName -ArgumentList '--disable-gpu' -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) { throw "Singularity Flow exited during launch smoke test with code $($process.ExitCode)." }
+          Stop-Process -Id $process.Id -Force
+          $uninstaller = Get-ChildItem $programRoot -Filter 'Uninstall*.exe' -Recurse | Where-Object { $_.DirectoryName -eq $application.DirectoryName } | Select-Object -First 1
+          if (-not $uninstaller) { throw 'Singularity Flow uninstaller was not installed.' }
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singularity-flow-desktop-windows-${{ env.RELEASE_TAG }}
+          path: |
+            apps/desktop/release/official/**/*.exe
+            apps/desktop/release/official/**/SHA256SUMS.txt
+            apps/desktop/release/official/**/release-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create draft release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: singularity-flow-desktop-macos-${{ env.RELEASE_TAG }}
+          path: incoming/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: singularity-flow-desktop-windows-${{ env.RELEASE_TAG }}
+          path: incoming/windows
+      - name: Combine and verify release metadata
+        shell: bash
+        run: |
+          mac_manifest="$(find incoming/macos -name release-manifest.json -print -quit)"
+          win_manifest="$(find incoming/windows -name release-manifest.json -print -quit)"
+          node scripts/desktop-release.mjs combine --dir "desktop-release/${RELEASE_TAG#v}" --input "$mac_manifest" --input "$win_manifest"
+      - name: Create supervised GitHub draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -z "$(gh release view "$RELEASE_TAG" --json tagName 2>/dev/null || true)" || { echo "Release $RELEASE_TAG already exists; refusing to replace assets."; exit 1; }
+          gh release create "$RELEASE_TAG" desktop-release/${RELEASE_TAG#v}/* --draft --verify-tag --generate-notes --title "Singularity Flow ${RELEASE_TAG#v}"
+      - name: Publish verified artifacts to Artifactory
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_artifactory }}
+        run: node scripts/desktop-release.mjs publish-artifactory --dir "desktop-release/${RELEASE_TAG#v}"
+        env:
+          SINGULARITY_FLOW_ARTIFACTORY_BASE_URL: ${{ vars.SINGULARITY_FLOW_ARTIFACTORY_BASE_URL }}
+          SINGULARITY_FLOW_ARTIFACTORY_REPOSITORY: ${{ vars.SINGULARITY_FLOW_ARTIFACTORY_REPOSITORY }}
+          SINGULARITY_FLOW_ARTIFACTORY_TOKEN: ${{ secrets.SINGULARITY_FLOW_ARTIFACTORY_TOKEN }}
+          SINGULARITY_FLOW_ARTIFACTORY_USER: ${{ vars.SINGULARITY_FLOW_ARTIFACTORY_USER }}

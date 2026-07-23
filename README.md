@@ -579,8 +579,10 @@ The Electron app is a visual control plane over the same CLI and Git-backed stat
 ```bash
 npm run desktop:dev
 npm run desktop:build
-npm run desktop:dist
+npm run desktop:package:current
 ```
+
+Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are built by the tag-driven GitHub workflow and published first as a supervised draft release; verified output can also be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
 
 Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
 

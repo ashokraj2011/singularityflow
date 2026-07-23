@@ -27,6 +27,9 @@
   "build": {
     "appId": "dev.singularityflow.desktop",
     "productName": "Singularity Flow",
+    "asar": true,
+    "forceCodeSigning": false,
+    "artifactName": "singularity-flow-desktop-${version}-${os}-${arch}.${ext}",
     "icon": "build/icon.png",
     "directories": {
       "output": "release"
@@ -42,16 +45,43 @@
       { "from": "../../templates", "to": "cli/templates" },
       { "from": "../../plugin", "to": "cli/plugin" },
       { "from": "../../HELP.md", "to": "cli/HELP.md" },
+      { "from": "../../DISTRIBUTION.md", "to": "cli/DISTRIBUTION.md" },
       { "from": "../../node_modules/yaml", "to": "cli/node_modules/yaml" },
       { "from": "../../package.json", "to": "cli/package.json" }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "target": ["dmg", "zip"]
+      "hardenedRuntime": true,
+      "notarize": false,
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "zip", "arch": ["universal"] }
+      ]
     },
     "win": {
-      "target": "nsis"
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "dmg": {
+      "title": "Singularity Flow ${version}",
+      "contents": [
+        { "x": 140, "y": 210, "type": "file" },
+        { "x": 400, "y": 210, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Singularity Flow",
+      "uninstallDisplayName": "Singularity Flow ${version}",
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "category": "Development",

@@ -568,16 +568,16 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 
 ## Migration
 
-From a repository using `singularity/config.json`:
+From a repository using the former `.singularity/` folder, `.sdlc/` folder, or legacy JSON configuration:
 
 ```bash
 singularity-flow migrate-config
-git add singularity/workflow.yml singularity/templates singularity/personas singularity/work-items
-git commit -m "Migrate Singularity Flow configuration"
+git add -A
+git commit -m "Move Singularity Flow files to visible folder"
 git push
 ```
 
-The legacy JSON is preserved for audit and existing Git history is not rewritten. See [MIGRATION.md](MIGRATION.md).
+Flow Studio offers the same guarded migration when an older repository is opened. It reopens the migrated repository and treats the complete rename as publishable configuration, so the desktop **Commit & push** action can finish it. The legacy JSON is preserved for audit and existing Git history is not rewritten. See [MIGRATION.md](MIGRATION.md).
 
 ## Development and packaging
 
@@ -600,7 +600,7 @@ npm run desktop:package:current
 
 Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are built by the tag-driven GitHub workflow and published first as a supervised draft release; verified output can also be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
 
-Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
+Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. Older hidden control folders are detected and can be migrated to visible `singularity/` after an explicit confirmation. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. The initiative page explicitly shows that default branches are starting baselines and that Flow Studio never merges initiative or story branches automatically. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, persona selection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
 
 Install the personal Copilot plugin with:
 

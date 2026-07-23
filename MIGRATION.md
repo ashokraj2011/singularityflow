@@ -41,6 +41,10 @@ git push
 
 Git normally records this as a rename. If both `.singularity/` and `singularity/` already exist, migration stops rather than guessing how to combine them.
 
+### Migrating from Flow Studio
+
+Open the repository in Singularity Flow Desktop. When the app detects `.singularity/` or `.sdlc/`, it shows the source and destination and asks for confirmation. Choose **Migrate folder**, inspect the reopened repository and its working-tree changes, then select **Commit & push**. The desktop operation invokes the same CLI migration and never merges into the default branch.
+
 ## Active work items
 
 Migrated active work keeps its existing phase progression and Git history. The explicit migration refreshes only repository-root path references and their pinned configuration hashes; phase content, generations, evidence, and approvals are not recreated. On its next generation, submission, or decision, metadata uses the visible path. New work receives a fully resolved immutable profile and template hash snapshot at `start`.

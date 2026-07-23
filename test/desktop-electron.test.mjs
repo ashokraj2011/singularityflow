@@ -13,6 +13,12 @@ test('Electron repository validation explains invalid and uninitialized selectio
   await assert.rejects(() => validateRepositoryDirectory(root), /not a Git repository/);
   await mkdir(path.join(root, '.git'));
   await assert.rejects(() => validateRepositoryDirectory(root), /not initialized with Singularity Flow/);
+  await mkdir(path.join(root, '.singularity'));
+  await writeFile(path.join(root, '.singularity', 'workflow.yml'), 'version: 1\n');
+  await assert.rejects(
+    () => validateRepositoryDirectory(root),
+    (error) => error.code === 'SINGULARITY_FLOW_LEGACY_CONTROL_ROOT' && error.legacyRoot === '.singularity'
+  );
   await mkdir(path.join(root, 'singularity'));
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'version: 1\n');
   assert.equal(await validateRepositoryDirectory(root), root);
@@ -77,6 +83,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Interface contracts/);
+  assert.match(source, /Branches stay isolated/);
+  assert.match(source, /never merges them into a default branch automatically/);
+  assert.match(source, /singularity\/<\/small>/);
   assert.match(source, /Pending approvals/);
   assert.match(source, /Fetch remote inbox/);
   assert.match(source, /Model usage & cost/);
@@ -110,6 +119,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /repository:recent/);
   assert.match(main, /repository:open/);
   assert.match(main, /repository:forget/);
+  assert.match(main, /Migrate folder/);
+  assert.match(main, /\['migrate-config'\]/);
+  assert.match(main, /does not commit, push, merge, or rewrite Git history/);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /refreshInbox/);
   assert.match(preload, /attachInboxItem/);

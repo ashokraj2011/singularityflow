@@ -15,6 +15,7 @@ import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
 import { deriveReport } from './report.mjs';
+import { copilotTelemetryStatus } from './telemetry.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -113,6 +114,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     review.markdown = reviewMarkdown(review);
   }
   const agents = await discoverAgents(root);
+  const telemetry = await copilotTelemetryStatus(root);
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
   const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model');
   const builderPrompt = await worldModelPrompt(root, definition);
@@ -122,6 +124,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   return {
     schemaVersion: 1,
     repository: { root, branch: currentBranch, changes, ...changeScope },
+    telemetry,
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),

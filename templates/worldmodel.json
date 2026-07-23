@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "outputDir": ".singularity/world-model",
-  "promptSource": ".singularity/prompts/worldmodel-builder.md",
+  "outputDir": "singularity/world-model",
+  "promptSource": "singularity/prompts/worldmodel-builder.md",
   "runner": "copilot -p \"$(cat {prompt_file})\" --allow-all-tools",
   "grounding": "off",
   "staleness": "warn",

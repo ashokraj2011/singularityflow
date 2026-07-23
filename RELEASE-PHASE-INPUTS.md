@@ -28,7 +28,7 @@ This delivery combines deterministic next-action guidance, the one-script local 
 - Standard repository agents and bundled plugin agents through `"agents": "agents/"`.
 - Exact Markdown dependency tables for remote skills, artifact templates, and generated artifacts. Prose links are inert.
 - Public HTTPS, UTF-8/non-empty validation, bounded redirects/timeouts, a 1 MiB default, and a 10 MiB ceiling.
-- Interactive trust-on-first-use and deliberate updates in `.singularity/agents.lock.yml`.
+- Interactive trust-on-first-use and deliberate updates in `singularity/agents.lock.yml`.
 - Hash-verified atomic cache under `.git/singularity-flow/`, with sync preserving the selected persona.
 - Phase/persona-scoped prompt skills, explicit `agent:<agent>/<template>` precedence, immutable work-item template copies, and per-generation context records.
 - Allowlisted URL variables and phase-contained generated targets, snapshot reuse, local-edit conflict protection, and explicit refresh/replace.

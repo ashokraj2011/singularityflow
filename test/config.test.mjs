@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -31,7 +32,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 2);
   assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
   assert.match(await personaPrompt(root, definition, 'product-designer'), /exported design package/i);
-  assert.match(await readFile(path.join(root, '.singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+  assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
 });
 
 test('Copilot session persona policy is configurable and absent configuration stays inert', () => {
@@ -108,7 +109,7 @@ test('work-type phase overrides merge world model, quality, comparison, and appr
 
 test('invalid persona approval capability is rejected', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-')); await initializeDefinition(root);
-  const file = path.join(root, '.singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
+  const file = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
   await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /must list 'design' in mayApprove/);
 });
 
@@ -123,12 +124,50 @@ test('optional token pricing accepts non-negative per-million rates and rejects 
 
 test('legacy JSON configuration migrates to YAML without deleting source state', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-')); const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`); await mkdir(previousRoot, { recursive: true });
-  const legacy = { schemaVersion: 1, defaultBaseBranch: 'main', workItemRoot: '.singularity/work-items', idPattern: '^[A-Z0-9-]+$', phases: [{ id: 'requirements', label: 'Requirements', owner: 'product-owner', requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements', minimumBytes: 100 }, qualityCommands: [] }] };
+  const legacy = { schemaVersion: 1, defaultBaseBranch: 'main', workItemRoot: 'singularity/work-items', idPattern: '^[A-Z0-9-]+$', phases: [{ id: 'requirements', label: 'Requirements', owner: 'product-owner', requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements', minimumBytes: 100 }, qualityCommands: [] }] };
   await writeFile(path.join(previousRoot, 'config.json'), JSON.stringify(legacy));
   const stateDir = path.join(previousRoot, 'work-items/LEGACY-1'); await mkdir(stateDir, { recursive: true });
   await writeFile(path.join(stateDir, 'workflow.json'), JSON.stringify({ schemaVersion: 1, workItem: { id: 'LEGACY-1', title: 'Legacy', branch: 'LEGACY-1' }, status: 'in_progress', currentPhase: 'requirements', phaseOrder: ['requirements'], phases: { requirements: { id: 'requirements', label: 'Requirements', owner: 'product-owner', status: 'in_progress', artifacts: [], checks: [] } }, history: [] }));
   const result = await migrateLegacyConfig(root); assert.equal(result.migrated, true); assert.equal(result.migratedWorkItems, 1); assert.equal(result.movedStateRoot, true);
-  const migrated = YAML.parse(await readFile(path.join(root, '.singularity/workflow.yml'), 'utf8')); assert.deepEqual(migrated.workTypes.legacy.phases, ['requirements']);
-  assert.equal(JSON.parse(await readFile(path.join(root, '.singularity/config.json'), 'utf8')).schemaVersion, 1);
-  const state = JSON.parse(await readFile(path.join(root, '.singularity/work-items/LEGACY-1/workflow.json'), 'utf8')); assert.equal(state.schemaVersion, 2); assert.equal(state.workItem.workType, 'legacy'); assert.ok(state.resolution.templates.requirements.sha256);
+  const migrated = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')); assert.deepEqual(migrated.workTypes.legacy.phases, ['requirements']);
+  assert.equal(JSON.parse(await readFile(path.join(root, 'singularity/config.json'), 'utf8')).schemaVersion, 1);
+  const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/LEGACY-1/workflow.json'), 'utf8')); assert.equal(state.schemaVersion, 2); assert.equal(state.workItem.workType, 'legacy'); assert.ok(state.resolution.templates.requirements.sha256);
+});
+
+test('hidden modern control root migrates to visible singularity and refreshes active snapshots', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-visible-root-'));
+  await initializeDefinition(root);
+  const stateDir = path.join(root, 'singularity/work-items/WORK-1');
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(path.join(stateDir, 'workflow.json'), `${JSON.stringify({
+    schemaVersion: 2,
+    resolution: {
+      configSha256: 'previous-config-hash',
+      templates: { intake: { path: 'singularity/templates/feature/intake.md', sha256: 'template-hash' } }
+    }
+  }, null, 2)}\n`);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const hiddenWorkflow = (await readFile(workflowPath, 'utf8')).replaceAll('singularity/', '.singularity/');
+  await writeFile(workflowPath, hiddenWorkflow);
+  await rename(path.join(root, 'singularity'), path.join(root, '.singularity'));
+
+  const result = await migrateLegacyConfig(root);
+  assert.equal(result.migrated, true);
+  assert.equal(result.movedFrom, '.singularity');
+  assert.equal(result.migratedWorkItems, 1);
+  assert.equal(result.rootOnly, true);
+  assert.equal(existsSync(path.join(root, '.singularity')), false);
+  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), true);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /\.singularity\//);
+  const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/WORK-1/workflow.json'), 'utf8'));
+  assert.notEqual(state.resolution.configSha256, 'previous-config-hash');
+  assert.equal(state.resolution.templates.intake.path, 'singularity/templates/feature/intake.md');
+  assert.deepEqual(state.migrations.at(-1).from, '.singularity');
+});
+
+test('control-root migration refuses to combine hidden and visible folders', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-root-conflict-'));
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await mkdir(path.join(root, '.singularity'), { recursive: true });
+  await assert.rejects(() => migrateLegacyConfig(root), /Both singularity\/ and \.singularity\/ exist/);
 });

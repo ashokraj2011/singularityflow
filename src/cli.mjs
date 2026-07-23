@@ -512,7 +512,7 @@ async function guideCommand(positionals, options) {
 
 async function nextStepsCommand(positionals, options) {
   const root = repoRoot();
-  const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, '.singularity/config.json'));
+  const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, 'singularity/config.json'));
   let snapshot;
   if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
   else {
@@ -564,7 +564,7 @@ async function nextStepsCommand(positionals, options) {
 }
 
 async function worldModelRebuildReason(root, config) {
-  const outputDir = config.worldModel?.outputDir ?? '.singularity/world-model';
+  const outputDir = config.worldModel?.outputDir ?? 'singularity/world-model';
   const manifestPath = path.join(root, outputDir, 'manifest.json');
   if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
   try {
@@ -702,7 +702,7 @@ async function agentsCommand(positionals, options) {
     ]));
     if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Agent lock cancelled.');
     await lockAgent(root, agentId, { update, accepted: true, resolution: preview.resolution });
-    return console.log(`Locked '${agentId}' in .singularity/agents.lock.yml.`);
+    return console.log(`Locked '${agentId}' in singularity/agents.lock.yml.`);
   }
   if (subcommand === 'sync') {
     const agentId = requirePositional(positionals, 2, 'agent');
@@ -1106,7 +1106,7 @@ async function runCommand(options) {
 
 async function cockpitCommand() {
   const root = repoRoot();
-  if (!existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(path.join(root, '.singularity/config.json'))) {
+  if (!existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(path.join(root, 'singularity/config.json'))) {
     console.log('Singularity Flow is not initialized in this repository.\n\nRun: singularity-flow init'); return;
   }
   const config = await loadConfig(root); let workflow;
@@ -1164,7 +1164,7 @@ async function sessionCommand(positionals, options) {
     for (const id of remoteBranches(root, remote)) {
       try { validateId(config, id); } catch { continue; }
       const ref = `${remote}/${id}`;
-      const content = fileAtRef(root, ref, `${String(config.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`);
+      const content = fileAtRef(root, ref, `${String(config.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`);
       if (!content) continue;
       try {
         const workflow = JSON.parse(content);
@@ -1190,7 +1190,7 @@ async function sessionCommand(positionals, options) {
     const remoteSha = refHead(root, remoteRef);
     if (!remoteSha) throw new SingularityFlowError(`No committed work-item branch '${id}' exists on ${remote}. Start it with /sflow-start or verify the work/Jira ID.`);
     const remoteName = `${remote}/${id}`;
-    const itemPath = `${String(config.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`;
+    const itemPath = `${String(config.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`;
     const remoteWorkflow = fileAtRef(root, remoteName, itemPath);
     const remoteDefinition = fileAtRef(root, remoteName, WORKFLOW_PATH);
     try {
@@ -1235,7 +1235,12 @@ async function inboxCommand(options) {
 }
 
 async function migrateConfigCommand() {
-  const root = repoRoot(); const result = await migrateLegacyConfig(root); console.log(result.migrated ? `Migrated configuration to ${result.path}; upgraded ${result.migratedWorkItems} work item(s)${result.movedStateRoot ? ' and moved the previous state root to .singularity/' : ''}.` : result.reason);
+  const root = repoRoot();
+  const result = await migrateLegacyConfig(root);
+  if (!result.migrated) return console.log(result.reason);
+  const moved = result.movedStateRoot ? `; moved ${result.movedFrom}/ to singularity/` : '';
+  const initiatives = result.migratedInitiatives ? ` and refreshed ${result.migratedInitiatives} initiative snapshot(s)` : '';
+  console.log(`Migrated configuration to ${result.path}; upgraded/refreshed ${result.migratedWorkItems} work item(s)${initiatives}${moved}.`);
 }
 
 async function validateCommand(options) {

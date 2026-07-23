@@ -53,7 +53,7 @@ export function flowArguments(request, { json = false } = {}) {
 
 export function inferWorkId(records = []) {
   for (const record of records) {
-    const match = String(record.path ?? '').match(/\.singularity\/work-items\/([^/]+)\//);
+    const match = String(record.path ?? '').match(/singularity\/work-items\/([^/]+)\//);
     if (match) return match[1];
   }
   return null;

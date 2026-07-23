@@ -5,7 +5,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { SingularityFlowError, posix, snapshot } from './util.mjs';
 
-export const PORTFOLIO_PATH = '.singularity/portfolio.yml';
+export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
 export const INITIATIVE_GATES = new Set(['off', 'warn', 'block']);
 export const INITIATIVE_APPROVAL_MODES = new Set(['individual', 'bundle', 'none']);
@@ -140,8 +140,8 @@ function normalizePhase(phase, id) {
 export function validatePortfolio(value) {
   const portfolio = object(value, 'Portfolio configuration');
   if (portfolio.version !== 1) throw new SingularityFlowError('Portfolio configuration version must be 1.');
-  portfolio.initiativeRoot = safeRelative(portfolio.initiativeRoot ?? '.singularity/initiatives', 'initiativeRoot');
-  portfolio.templatesRoot = safeRelative(portfolio.templatesRoot ?? '.singularity/templates', 'templatesRoot');
+  portfolio.initiativeRoot = safeRelative(portfolio.initiativeRoot ?? 'singularity/initiatives', 'initiativeRoot');
+  portfolio.templatesRoot = safeRelative(portfolio.templatesRoot ?? 'singularity/templates', 'templatesRoot');
   portfolio.repositories = object(portfolio.repositories ?? {}, 'repositories');
   portfolio.approvalAuthorities = object(portfolio.approvalAuthorities ?? {}, 'approvalAuthorities');
   portfolio.initiativeProfiles = object(portfolio.initiativeProfiles ?? {}, 'initiativeProfiles');

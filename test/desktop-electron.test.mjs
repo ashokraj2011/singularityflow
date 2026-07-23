@@ -13,8 +13,8 @@ test('Electron repository validation explains invalid and uninitialized selectio
   await assert.rejects(() => validateRepositoryDirectory(root), /not a Git repository/);
   await mkdir(path.join(root, '.git'));
   await assert.rejects(() => validateRepositoryDirectory(root), /not initialized with Singularity Flow/);
-  await mkdir(path.join(root, '.singularity'));
-  await writeFile(path.join(root, '.singularity', 'workflow.yml'), 'version: 1\n');
+  await mkdir(path.join(root, 'singularity'));
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'version: 1\n');
   assert.equal(await validateRepositoryDirectory(root), root);
 });
 

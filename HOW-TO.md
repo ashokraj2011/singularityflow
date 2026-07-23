@@ -130,7 +130,7 @@ Run this inside the repository where the team will do the actual feature or bugf
 ```bash
 cd your-application-repository
 singularity-flow init
-git add .singularity
+git add singularity
 git commit -m "Initialize Singularity Flow"
 git push
 ```
@@ -138,14 +138,14 @@ git push
 Initialization creates editable workflow YAML, artifact templates, persona prompts, and the repository world-model builder prompt.
 
 ```text
-.singularity/
+singularity/
 ├── workflow.yml
 ├── personas/
 ├── prompts/
 └── templates/
 ```
 
-Review `.singularity/workflow.yml` before starting production work, especially `git.remote`, `git.publish`, work-type phases, personas, approvals, and protected paths.
+Review `singularity/workflow.yml` before starting production work, especially `git.remote`, `git.publish`, work-type phases, personas, approvals, and protected paths.
 
 ## 3. Start a work item
 
@@ -268,7 +268,7 @@ flowchart LR
 Artifacts are stored under:
 
 ```text
-.singularity/work-items/<WORK-ID>/artifacts/<phase>/
+singularity/work-items/<WORK-ID>/artifacts/<phase>/
 ```
 
 Do not manually edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata comment.
@@ -323,7 +323,7 @@ Repository world models stay generated and stored in the application repository.
 flowchart LR
   AgentFile["Repository or plugin agent Markdown"] --> Tables["Exact remote dependency tables"]
   Tables --> Lock["agents lock: display hashes and confirm exact agent name"]
-  Lock --> LockFile["Committed .singularity/agents.lock.yml"]
+  Lock --> LockFile["Committed singularity/agents.lock.yml"]
   LockFile --> Sync["agents sync: verify only, never update trust"]
   Sync --> Cache["Local atomic cache under .git/singularity-flow"]
   Cache --> Prompt["Phase and persona-scoped prompt context"]
@@ -467,7 +467,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 
 Before starting:
 
-- The application repository has committed `.singularity/` configuration.
+- The application repository has committed `singularity/` configuration.
 - Git identity and the configured remote work.
 - The Copilot plugin was reinstalled and the Copilot session restarted.
 - The intended workflow profile and persona policies were reviewed.

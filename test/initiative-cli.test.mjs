@@ -39,12 +39,12 @@ async function repository({ grounding = 'off' } = {}) {
   git(root, ['config', 'user.email', actorEmail]);
   await writeFile(path.join(root, 'README.md'), '# Lead\n');
   execute(root, ['init']);
-  const portfolioFile = path.join(root, '.singularity/portfolio.yml');
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
   portfolio.git.publish = 'off';
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: actor, email: actorEmail }];
   await writeFile(portfolioFile, YAML.stringify(portfolio));
-  const workflowFile = path.join(root, '.singularity/workflow.yml');
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.worldModel.grounding = grounding;
   await writeFile(workflowFile, YAML.stringify(workflow));
@@ -96,7 +96,7 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.equal(next[0].action, 'prepare');
   assert.match(next[0].command, /initiative phase plan/);
   assert.match(git(root, ['log', '--format=%s']), /\[INIT-CLI\]\[initiative:define\]\[approve\] phase/);
-  assert.match(git(root, ['ls-files']), /\.singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
+  assert.match(git(root, ['ls-files']), /singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
 });
 
 test('initiative Copilot selection receipts preserve explicit profile and persona choices', async () => {
@@ -131,6 +131,6 @@ test('initiative CLI remains inert when portfolio configuration is absent', asyn
   git(root, ['commit', '-m', 'Initial']);
   const result = execute(root, ['initiative', 'status'], { allowFailure: true });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /No \.singularity\/portfolio\.yml exists/);
+  assert.match(result.stderr, /No singularity\/portfolio\.yml exists/);
   assert.equal(git(root, ['status', '--short']), '');
 });

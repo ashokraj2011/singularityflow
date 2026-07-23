@@ -207,7 +207,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     run('git', ['switch', '-C', story.id, base], { cwd: target });
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
-  const relativeSeed = posix(path.join('.singularity', 'seeds', `${story.id}.yml`));
+  const relativeSeed = posix(path.join('singularity', 'seeds', `${story.id}.yml`));
   const seedPath = path.join(target, relativeSeed);
   const seed = storySeed(root, initiative, story);
   if (await exists(seedPath)) {
@@ -344,7 +344,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'missing-branch' });
       continue;
     }
-    const workflowText = run('git', ['show', `origin/${story.id}:.singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
+    const workflowText = run('git', ['show', `origin/${story.id}:singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
     const workflow = workflowText.status === 0 ? JSON.parse(workflowText.stdout) : null;
     const previous = initiative.childStories[story.id] ?? {};
     const current = {

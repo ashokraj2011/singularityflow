@@ -2,7 +2,7 @@
 
 ## Initiative layer
 
-The optional initiative layer uses `.singularity/portfolio.yml` and a lead branch named exactly after the initiative ID. It does not alter the existing `.singularity/work-items` runtime.
+The optional initiative layer uses `singularity/portfolio.yml` and a lead branch named exactly after the initiative ID. It does not alter the existing `singularity/work-items` runtime.
 
 ```mermaid
 flowchart TB
@@ -46,7 +46,7 @@ Skills generate content; the CLI alone owns `workflow.json`, `STATUS.md`, manage
 
 ## Repository definition and immutable resolution
 
-`.singularity/workflow.yml` is the editable definition for new work. It declares work types, phases, templates, personas, world-model routing, approval policies, Git publication, and protected paths.
+`singularity/workflow.yml` is the editable definition for new work. It declares work types, phases, templates, personas, world-model routing, approval policies, Git publication, and protected paths.
 
 At work-item creation the CLI resolves:
 
@@ -58,7 +58,7 @@ At work-item creation the CLI resolves:
 6. `inputsMode`, normalized upstream-input declarations, and producer artifact paths.
 7. Any explicitly referenced remote template copied into committed work-item context.
 
-This resolution is copied into `.singularity/work-items/<ID>/workflow.json`. The selected work type and snapshot are immutable. Active work therefore follows the definition committed on its branch even if the base branch later evolves.
+This resolution is copied into `singularity/work-items/<ID>/workflow.json`. The selected work type and snapshot are immutable. Active work therefore follows the definition committed on its branch even if the base branch later evolves.
 
 ## Persona session and prompt composition
 
@@ -81,14 +81,14 @@ World-model generation runs in a detached analysis worktree with a separate outp
 
 Normal phase skills use one `wm compose` operation. It joins the selected persona, mandatory phase/persona views, the exact task guide, applicable evidence, need-based `worldModel.injection.rules`, and active-agent skills. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` grounding gate verifies these against the committed model; missing configuration remains `off` for compatibility.
 
-Repository world models never move to remote delivery. Agent Markdown is an additional scoped layer. `.singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent beside the persona without changing the lock. Skills are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
+Repository world models never move to remote delivery. Agent Markdown is an additional scoped layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent beside the persona without changing the lock. Skills are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
 Suggested personas improve discoverability but do not authorize phase access. Any contributor may assume any configured persona. A persona's `mayApprove` list provides decision authority.
 
 ## Work-item layout
 
 ```text
-.singularity/work-items/ENG-142/
+singularity/work-items/ENG-142/
 ├── workflow.json
 ├── STATUS.md
 ├── source.json
@@ -185,8 +185,8 @@ Publication commit information that is not knowable before a commit is represent
 
 Requirements establish `AC-n` identifiers. Implementation specifications establish `SPEC-nnn` items mapped to acceptance criteria. Verification supplies tests and evidence. Conformance joins these ledgers to exact file/line evidence and one of five verdicts: `matched`, `partial`, `missing`, `deviated`, or `unplanned`.
 
-The final tree hash excludes `.singularity` state and hashes tracked source/test content. A later source/test change invalidates the conformance report. The deterministic gate also validates configuration/template snapshots, final-generation input/agent records, remote template/output provenance, artifacts, approval identities/personas, thresholds, rejection effects, self-approval disclosure, protected paths, and—under required publication—the remote branch head.
+The final tree hash excludes `singularity` state and hashes tracked source/test content. A later source/test change invalidates the conformance report. The deterministic gate also validates configuration/template snapshots, final-generation input/agent records, remote template/output provenance, artifacts, approval identities/personas, thresholds, rejection effects, self-approval disclosure, protected paths, and—under required publication—the remote branch head.
 
 ## Migration boundary
 
-Legacy `.singularity/config.json` and schema-v1 work items can be read and converted. `migrate-config` adds YAML, starter templates/personas, and schema-v2 state while preserving legacy input and existing commits. Migration never rebases or rewrites Git history.
+Legacy `singularity/config.json` and schema-v1 work items can be read and converted. `migrate-config` adds YAML, starter templates/personas, and schema-v2 state while preserving legacy input and existing commits. Migration never rebases or rewrites Git history.

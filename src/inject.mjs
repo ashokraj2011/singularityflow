@@ -103,7 +103,7 @@ async function walkModel(directory, prefix = '') {
 }
 
 export async function selectModelFiles(root, definition, includes) {
-  const outputDir = definition.worldModel?.outputDir ?? '.singularity/world-model';
+  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   const available = await walkModel(path.join(root, outputDir));
   return { outputDir, selected: available.filter((file) => matchesAnyGlob(file, includes)) };
 }
@@ -118,7 +118,7 @@ function utf8Prefix(buffer, maxBytes) {
 export async function renderInjection(root, definition, signals = {}) {
   const resolution = resolveInjection(definition, signals);
   if (resolution.mode === 'off' || !resolution.includes.length) return { ...resolution, sections: [], text: '' };
-  const outputDir = definition.worldModel?.outputDir ?? '.singularity/world-model';
+  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   const manifestFile = path.join(root, outputDir, 'manifest.json');
   const manifest = await exists(manifestFile) ? await readJson(manifestFile) : null;
   const includes = resolution.evidence && manifest?.evidence?.path

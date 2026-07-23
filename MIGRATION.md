@@ -1,6 +1,6 @@
-# Migrating to Singularity Flow Lite 0.6
+# Migrating Singularity Flow configuration
 
-Version 0.6 consolidates the previous repository-state directory under the Singularity brand at `.singularity/`, moves repository definition from JSON to `.singularity/workflow.yml`, and introduces immutable work-type profiles, persona sessions, artifact templates, automatic publication, token usage, rejection cascades, and spec-to-code conformance.
+The canonical repository-owned control folder is now the visible `singularity/` directory. New repositories use it automatically. `singularity-flow migrate-config` moves either the former hidden `.singularity/` directory or the older `.sdlc/` directory without rewriting Git history.
 
 ## Before migrating
 
@@ -13,12 +13,14 @@ singularity-flow migrate-config
 
 The command:
 
-- Atomically moves a detected pre-brand state directory to `.singularity/`.
-- Creates `.singularity/workflow.yml` from the legacy phase model.
+- Atomically renames a detected `.singularity/` or `.sdlc/` control directory to `singularity/`.
+- Rewrites repository-relative control paths inside YAML, JSON, and Markdown state.
+- Refreshes immutable configuration hashes for work items and initiatives on the branch and records a migration entry in their runtime state.
+- Creates `singularity/workflow.yml` from the legacy phase model.
 - Installs editable templates and persona prompts.
 - Upgrades compatible work-item runtime state to schema v2.
-- Preserves `.singularity/config.json` for audit.
-- Does not commit, rebase, or rewrite existing Git history.
+- Preserves `singularity/config.json` for audit.
+- Does not commit, merge, rebase, or rewrite existing Git history.
 
 Review the generated YAML, especially:
 
@@ -29,17 +31,19 @@ Review the generated YAML, especially:
 - Template paths and quality commands.
 - Protected governance paths.
 
-Then publish the migration normally:
+Review and publish the rename on each active lifecycle branch that contains its own state:
 
 ```bash
-git add .singularity/workflow.yml .singularity/templates .singularity/personas .singularity/work-items
-git commit -m "Migrate Singularity Flow configuration"
+git add -A
+git commit -m "Move Singularity Flow files to visible folder"
 git push
 ```
 
+Git normally records this as a rename. If both `.singularity/` and `singularity/` already exist, migration stops rather than guessing how to combine them.
+
 ## Active work items
 
-Migrated active work keeps its existing phase progression and Git history. On its next generation, submission, or decision, schema-v2 metadata is persisted through the normal atomic commit. New work receives a fully resolved immutable profile and template hash snapshot at `start`.
+Migrated active work keeps its existing phase progression and Git history. The explicit migration refreshes only repository-root path references and their pinned configuration hashes; phase content, generations, evidence, and approvals are not recreated. On its next generation, submission, or decision, metadata uses the visible path. New work receives a fully resolved immutable profile and template hash snapshot at `start`.
 
 Because v0.6 publication is required by the starter configuration, ensure every work-item branch has an upstream remote. If a lifecycle push fails, run `singularity-flow sync`; do not amend or force-push the pending commit.
 

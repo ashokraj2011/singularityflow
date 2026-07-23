@@ -4,7 +4,7 @@ This delivery adds an opt-in portfolio layer above Singularity Flow’s existing
 
 ## Shipped
 
-- Editable `.singularity/portfolio.yml` schema and starter configuration.
+- Editable `singularity/portfolio.yml` schema and starter configuration.
 - `initiative-lite` and `enterprise-delivery` profiles.
 - Initiative outputs, inputs, checklists, gates, assurance tiers, freshness, and exact-hash approvals.
 - Append-only content-addressed evidence, approval, and invalidation records.
@@ -18,8 +18,8 @@ This delivery adds an opt-in portfolio layer above Singularity Flow’s existing
 
 ## Compatibility
 
-- Existing story workflows and `.singularity/work-items` are unchanged.
-- Repositories without `.singularity/portfolio.yml` perform no initiative work or extra network access.
+- Existing story workflows and `singularity/work-items` are unchanged.
+- Repositories without `singularity/portfolio.yml` perform no initiative work or extra network access.
 - Personas remain prompt behavior. Initiative approval authority is a separate local Git email registry.
 - Package, desktop, marketplace, and plugin versions remain `0.8.0`.
 

@@ -13,11 +13,11 @@ flowchart LR
   P --> G
 ```
 
-This feature is opt-in. Repositories without `.singularity/portfolio.yml` do no initiative processing and make no additional network calls. Existing `.singularity/work-items` behavior is unchanged.
+This feature is opt-in. Repositories without `singularity/portfolio.yml` do no initiative processing and make no additional network calls. Existing `singularity/work-items` behavior is unchanged.
 
 ## Configure the portfolio
 
-`singularity-flow init` installs an editable `.singularity/portfolio.yml` with:
+`singularity-flow init` installs an editable `singularity/portfolio.yml` with:
 
 - `initiative-lite`: Define → Plan → Build → Release.
 - `enterprise-delivery`: Discover & Define → Design & Iterate → Pre-Inception → Inception → Elaboration → Construction → Delivery.
@@ -62,7 +62,13 @@ Install the plugin, open Copilot in the lead repository, and run:
 
 Copilot displays selectable profile and persona options. A one-time selection receipt keeps this flow inside Copilot even when its shell does not provide persistent terminal input. There are no public profile/persona bypass flags.
 
-The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `.singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The selected persona remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
+The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The selected persona remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
+
+### Why the default branch is used
+
+Starting an initiative does **not** merge anything into `main`. When the initiative branch does not yet exist, Singularity Flow creates it from the lead repository's configured default branch so it inherits the current source baseline and committed `singularity/` configuration. All initiative artifacts, evidence, approvals, and state then remain on the initiative branch.
+
+Story materialization follows the same rule in every participating repository: each story branch starts from that repository's configured `defaultBranch`. It does not merge the initiative branch into the repository default branch, and completing a workflow does not merge code automatically. Teams continue to use their normal pull-request, release, and branch-protection process for any eventual merge.
 
 ## Author and approve a phase
 
@@ -100,7 +106,7 @@ phase contract
 + approved upstream initiative artifacts
 ```
 
-The world model remains repository-owned. Initiative profile views are validated against `.singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. With `worldModel.grounding: enforce`, a missing, stale, uncommitted, or changed model blocks generation/publication. Build it using the exact `singularity-flow wm build --views ... --focus ...` command shown by the CLI.
+The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. With `worldModel.grounding: enforce`, a missing, stale, uncommitted, or changed model blocks generation/publication. Build it using the exact `singularity-flow wm build --views ... --focus ...` command shown by the CLI.
 
 Every prepare, publication, evidence record, approval, rejection, materialization, synchronization, and lifecycle transition creates a commit and pushes it. A failed push retains the local commit, records pending publication, and blocks later mutations until `singularity-flow initiative sync` succeeds.
 
@@ -111,7 +117,7 @@ Approvals bind to exact output or phase-bundle hashes. The bundle includes sorte
 Checklist evidence is append-only canonical JSON with a content-addressed filename:
 
 ```text
-.singularity/initiatives/<INIT-ID>/evidence/records/<sha256>.json
+singularity/initiatives/<INIT-ID>/evidence/records/<sha256>.json
 ```
 
 | Assurance | Meaning |
@@ -158,7 +164,7 @@ singularity-flow initiative breakdown --probe
 singularity-flow initiative materialize --dry-run
 ```
 
-Materialization requires the exact initiative ID. It safely creates or attaches one branch per story, commits `.singularity/seeds/<STORY-ID>.yml`, pushes it, and records repository/branch/commit receipts in a resumable journal. It never force-pushes or overwrites an unrelated branch.
+Materialization requires the exact initiative ID. It safely creates or attaches one branch per story, commits `singularity/seeds/<STORY-ID>.yml`, pushes it, and records repository/branch/commit receipts in a resumable journal. It never force-pushes or overwrites an unrelated branch.
 
 When Jira write configuration exists, deterministic labels make Epic/story creation retryable. Without Jira writes, committed Git records remain the source of truth. A story contributor still selects a work type and persona; its seed recommends values and supplies approved inputs/contracts without bypassing selection.
 
@@ -200,7 +206,7 @@ Initiative state, evidence, approvals, contracts, and repository world-model fil
 ## Durable branch layout
 
 ```text
-.singularity/initiatives/<INIT-ID>/
+singularity/initiatives/<INIT-ID>/
 ├── state.json
 ├── definition.yml
 ├── breakdown.yml

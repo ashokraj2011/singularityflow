@@ -31,7 +31,7 @@ async function repository() {
   run('git', ['config', 'user.email', 'choice@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Selection receipt test\n');
   flow(root, ['init']);
-  const configPath = path.join(root, '.singularity', 'workflow.yml');
+  const configPath = path.join(root, 'singularity', 'workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
@@ -59,7 +59,7 @@ test('one-time selection receipt lets Copilot start work without a persistent TT
   const started = flow(root, ['start', 'CHOICE-101', '--title', 'Receipt-backed start', '--selection-receipt', begun.token]);
   assert.match(started.stdout, /CHOICE-101 — Receipt-backed start/);
   assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'CHOICE-101');
-  const workflow = JSON.parse(await readFile(path.join(root, '.singularity', 'work-items', 'CHOICE-101', 'workflow.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity', 'work-items', 'CHOICE-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.workItem.workType, 'bugfix');
   const session = JSON.parse(await readFile(path.join(root, '.git', 'singularity-flow', 'session.json'), 'utf8'));
   assert.equal(session.persona, 'developer');
@@ -101,9 +101,9 @@ test('approval receipt keeps persona selection and exact phase confirmation insi
   flow(root, ['choices', 'answer', start.token, 'persona', 'product-owner']);
   flow(root, ['start', workId, '--title', 'Receipt-backed approval', '--selection-receipt', start.token]);
 
-  const workflowFile = path.join(root, '.singularity', 'work-items', workId, 'workflow.json');
+  const workflowFile = path.join(root, 'singularity', 'work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-  const artifactFile = path.join(root, '.singularity', 'work-items', workId, workflow.phases.intake.requiredArtifact.path);
+  const artifactFile = path.join(root, 'singularity', 'work-items', workId, workflow.phases.intake.requiredArtifact.path);
   const artifact = (await readFile(artifactFile, 'utf8')).replace(/TODO:[^\n]*/g, 'Reviewed scope and measurable acceptance evidence for AC-001.');
   await writeFile(artifactFile, artifact);
   flow(root, ['phase', 'publish', 'intake']);

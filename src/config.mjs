@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -9,7 +10,9 @@ import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 
-export const WORKFLOW_PATH = '.singularity/workflow.yml';
+export const WORKFLOW_PATH = 'singularity/workflow.yml';
+export const CONTROL_ROOT = 'singularity';
+export const LEGACY_CONTROL_ROOT = '.singularity';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
@@ -93,7 +96,7 @@ export function validateDefinition(definition) {
   if (!definition.personas || !Object.keys(definition.personas).length) throw new SingularityFlowError('workflow.yml must define at least one persona.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
-  assertRelative(definition.workItemRoot ?? '.singularity/work-items', 'workItemRoot');
+  assertRelative(definition.workItemRoot ?? 'singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
   assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
   configuredInputsMode(definition);
@@ -242,11 +245,11 @@ function legacyDefinition(config, worldModel = {}) {
     version: 1,
     inputsMode: 'off',
     defaultBaseBranch: config.defaultBaseBranch ?? 'main',
-    workItemRoot: config.workItemRoot ?? '.singularity/work-items',
+    workItemRoot: config.workItemRoot ?? 'singularity/work-items',
     idPattern: config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
     git: { remote: 'origin', publish: 'off' },
-    templatesRoot: '.singularity/templates',
-    personaPromptsRoot: '.singularity/personas',
+    templatesRoot: 'singularity/templates',
+    personaPromptsRoot: 'singularity/personas',
     tokens: { mode: 'exact-or-unavailable' },
     documents: { allowedPhases: Object.keys(phases), maxFileBytes: 26214400, maxPreviewBytes: 1048576 },
     personas,
@@ -272,9 +275,14 @@ export async function loadDefinition(root) {
     await validateWorldModelPromptViewReferences(root, definition);
     return definition;
   }
-  const legacyPath = path.join(root, '.singularity/config.json');
-  if (!existsSync(legacyPath)) throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
-  const worldPath = path.join(root, '.singularity/worldmodel.json');
+  const legacyPath = path.join(root, 'singularity/config.json');
+  if (!existsSync(legacyPath)) {
+    if (existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
+      throw new SingularityFlowError(`This repository still uses ${LEGACY_CONTROL_ROOT}/. Run singularity-flow migrate-config to move it to ${CONTROL_ROOT}/.`);
+    }
+    throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
+  }
+  const worldPath = path.join(root, 'singularity/worldmodel.json');
   return legacyDefinition(await readJson(legacyPath), existsSync(worldPath) ? await readJson(worldPath) : {});
 }
 
@@ -286,13 +294,16 @@ async function copyIfMissing(source, destination) {
 }
 
 export async function initializeDefinition(root) {
+  if (!existsSync(path.join(root, CONTROL_ROOT)) && existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
+    throw new SingularityFlowError(`This repository still uses ${LEGACY_CONTROL_ROOT}/. Run singularity-flow migrate-config before initialization.`);
+  }
   const wrote = [];
   const mappings = [
     ['workflow.yml', WORKFLOW_PATH],
-    ['portfolio.yml', '.singularity/portfolio.yml'],
-    ['artifacts', '.singularity/templates'],
-    ['personas', '.singularity/personas'],
-    ['worldmodel-builder.md', '.singularity/prompts/worldmodel-builder.md']
+    ['portfolio.yml', 'singularity/portfolio.yml'],
+    ['artifacts', 'singularity/templates'],
+    ['personas', 'singularity/personas'],
+    ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md']
   ];
   for (const [source, destination] of mappings) {
     if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);
@@ -351,28 +362,48 @@ export async function snapshotResolution(root, definition, resolved) {
 }
 
 export async function migrateLegacyConfig(root) {
-  if (existsSync(path.join(root, WORKFLOW_PATH))) return { migrated: false, reason: `${WORKFLOW_PATH} already exists` };
-  const currentRoot = path.join(root, '.singularity');
+  const currentRoot = path.join(root, CONTROL_ROOT);
+  const hiddenRoot = path.join(root, LEGACY_CONTROL_ROOT);
   const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`);
+  if (existsSync(currentRoot) && existsSync(hiddenRoot)) {
+    throw new SingularityFlowError(`Both ${CONTROL_ROOT}/ and ${LEGACY_CONTROL_ROOT}/ exist. Consolidate them manually before migration.`);
+  }
+  if (existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(hiddenRoot)) return { migrated: false, reason: `${WORKFLOW_PATH} already exists` };
   let movedStateRoot = false;
-  if (!existsSync(currentRoot) && existsSync(previousRoot)) {
-    await rename(previousRoot, currentRoot);
+  let movedFrom = null;
+  const sourceRoot = existsSync(hiddenRoot) ? hiddenRoot : existsSync(previousRoot) ? previousRoot : null;
+  if (!existsSync(currentRoot) && sourceRoot) {
+    movedFrom = path.basename(sourceRoot);
+    await rename(sourceRoot, currentRoot);
     movedStateRoot = true;
   }
-  const legacyPath = path.join(currentRoot, 'config.json');
-  if (!existsSync(legacyPath)) throw new SingularityFlowError('No .singularity/config.json exists to migrate.');
-  const definition = await loadDefinition(root);
-  await mkdir(path.join(root, '.singularity/templates/legacy'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/personas'), { recursive: true });
-  for (const [id, phase] of Object.entries(definition.phases)) {
-    await writeText(path.join(root, '.singularity/templates', phase.defaultTemplate), `# {{work.id}} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`);
+  if (movedStateRoot) await rewriteControlRootReferences(currentRoot, movedFrom);
+  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+    const refreshed = movedStateRoot ? await refreshMovedRuntimeSnapshots(root, movedFrom) : { workItems: 0, initiatives: 0 };
+    return {
+      migrated: true,
+      path: WORKFLOW_PATH,
+      migratedWorkItems: refreshed.workItems,
+      migratedInitiatives: refreshed.initiatives,
+      movedStateRoot,
+      movedFrom,
+      rootOnly: true
+    };
   }
-  for (const [id, persona] of Object.entries(definition.personas)) await writeText(path.join(root, '.singularity/personas', persona.prompt), `Act as ${persona.label}. Follow the active phase contract and cite evidence.\n`);
+  const legacyPath = path.join(currentRoot, 'config.json');
+  if (!existsSync(legacyPath)) throw new SingularityFlowError('No singularity/config.json exists to migrate.');
+  const definition = await loadDefinition(root);
+  await mkdir(path.join(root, 'singularity/templates/legacy'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/personas'), { recursive: true });
+  for (const [id, phase] of Object.entries(definition.phases)) {
+    await writeText(path.join(root, 'singularity/templates', phase.defaultTemplate), `# {{work.id}} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`);
+  }
+  for (const [id, persona] of Object.entries(definition.personas)) await writeText(path.join(root, 'singularity/personas', persona.prompt), `Act as ${persona.label}. Follow the active phase contract and cite evidence.\n`);
   const clean = structuredClone(definition); delete clean._legacy;
   await writeFile(path.join(root, WORKFLOW_PATH), YAML.stringify(clean));
   const resolved = resolveWorkType(clean, 'legacy');
   const resolution = await snapshotResolution(root, clean, resolved);
-  const workRoot = path.join(root, clean.workItemRoot ?? '.singularity/work-items');
+  const workRoot = path.join(root, clean.workItemRoot ?? 'singularity/work-items');
   let migratedWorkItems = 0;
   if (existsSync(workRoot)) {
     for (const entry of await readdir(workRoot, { withFileTypes: true })) {
@@ -399,7 +430,91 @@ export async function migrateLegacyConfig(root) {
       migratedWorkItems += 1;
     }
   }
-  return { migrated: true, path: WORKFLOW_PATH, migratedWorkItems, movedStateRoot };
+  return { migrated: true, path: WORKFLOW_PATH, migratedWorkItems, movedStateRoot, movedFrom };
+}
+
+async function rewriteControlRootReferences(directory, movedFrom) {
+  const textExtensions = new Set(['.json', '.jsonl', '.md', '.txt', '.yaml', '.yml']);
+  async function visit(current) {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) await visit(absolute);
+      else if (entry.isFile() && textExtensions.has(path.extname(entry.name).toLowerCase())) {
+        const content = await readFile(absolute, 'utf8');
+        const updated = [LEGACY_CONTROL_ROOT, movedFrom].filter(Boolean).reduce(
+          (value, legacyRoot) => value.replaceAll(`${legacyRoot}/`, `${CONTROL_ROOT}/`),
+          content
+        );
+        if (updated !== content) await writeFile(absolute, updated);
+      }
+    }
+  }
+  await visit(directory);
+}
+
+async function refreshMovedRuntimeSnapshots(root, movedFrom) {
+  const definition = await loadDefinition(root);
+  const configSha256 = (await snapshot(path.join(root, WORKFLOW_PATH))).sha256;
+  let workItems = 0;
+  const workRoot = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
+  if (existsSync(workRoot)) {
+    for (const entry of await readdir(workRoot, { withFileTypes: true })) {
+      const statePath = path.join(workRoot, entry.name, 'workflow.json');
+      if (!entry.isDirectory() || !existsSync(statePath)) continue;
+      const state = await readJson(statePath);
+      if (!state.resolution) continue;
+      const previousSha256 = state.resolution.configSha256 ?? null;
+      state.resolution.configSha256 = configSha256;
+      state.migrations ??= [];
+      state.migrations.push({
+        type: 'control-root',
+        from: movedFrom,
+        to: CONTROL_ROOT,
+        previousConfigSha256: previousSha256,
+        configSha256,
+        at: new Date().toISOString()
+      });
+      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+      workItems += 1;
+    }
+  }
+
+  let initiatives = 0;
+  const portfolioPath = path.join(root, CONTROL_ROOT, 'portfolio.yml');
+  if (existsSync(portfolioPath)) {
+    const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+    const portfolioSha256 = (await snapshot(portfolioPath)).sha256;
+    const initiativeRoot = path.join(root, portfolio.initiativeRoot ?? 'singularity/initiatives');
+    if (existsSync(initiativeRoot)) {
+      for (const entry of await readdir(initiativeRoot, { withFileTypes: true })) {
+        const statePath = path.join(initiativeRoot, entry.name, 'state.json');
+        if (!entry.isDirectory() || !existsSync(statePath)) continue;
+        const state = await readJson(statePath);
+        if (!state.resolution) continue;
+        const previousSha256 = state.resolution.portfolioSha256 ?? null;
+        state.resolution.portfolioSha256 = portfolioSha256;
+        state.resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
+          profile: state.resolution.profile,
+          phases: state.resolution.phases,
+          repositories: state.resolution.repositories,
+          approvalAuthorities: state.resolution.approvalAuthorities,
+          templates: state.resolution.templates
+        })).digest('hex');
+        state.migrations ??= [];
+        state.migrations.push({
+          type: 'control-root',
+          from: movedFrom,
+          to: CONTROL_ROOT,
+          previousPortfolioSha256: previousSha256,
+          portfolioSha256,
+          at: new Date().toISOString()
+        });
+        await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+        initiatives += 1;
+      }
+    }
+  }
+  return { workItems, initiatives };
 }
 
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {

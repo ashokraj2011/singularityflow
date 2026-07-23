@@ -84,7 +84,7 @@ async function repositoryGrounding(root, definition, phase, persona, mode) {
     ...(definition.personas[persona]?.worldModelViews ?? [])
   ]);
   const config = {
-    outputDir: definition.worldModel?.outputDir ?? '.singularity/world-model',
+    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     grounding: mode,
     staleness: definition.worldModel?.staleness ?? 'warn',
     context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },

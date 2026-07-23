@@ -16,25 +16,25 @@ import { readJson } from '../src/util.mjs';
 
 async function fixtureRoot({ placeholder = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inject-'));
-  await mkdir(path.join(root, '.singularity/world-model/architecture'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/domains'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/evidence'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/personas'), { recursive: true });
-  await writeFile(path.join(root, '.singularity/world-model/architecture/overview.md'), '# Architecture\n\nHexagonal, event-driven.\n');
-  await writeFile(path.join(root, '.singularity/world-model/domains/payments.md'), '# Payments domain\n\nPCI boundaries live here.\n');
-  await writeFile(path.join(root, '.singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'Observed architecture' })}\n`);
-  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({ schema_version: '1.0', repository_commit: 'a'.repeat(40), evidence: { path: 'evidence/evidence.jsonl' } }));
-  await writeFile(path.join(root, '.singularity/personas/architect.md'), placeholder ? '# Architect\n\nDesign carefully.\n\n{{WORLD_MODEL}}\n' : '# Architect\n\nDesign carefully.\n');
+  await mkdir(path.join(root, 'singularity/world-model/architecture'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/domains'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/personas'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/world-model/architecture/overview.md'), '# Architecture\n\nHexagonal, event-driven.\n');
+  await writeFile(path.join(root, 'singularity/world-model/domains/payments.md'), '# Payments domain\n\nPCI boundaries live here.\n');
+  await writeFile(path.join(root, 'singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'Observed architecture' })}\n`);
+  await writeFile(path.join(root, 'singularity/world-model/manifest.json'), JSON.stringify({ schema_version: '1.0', repository_commit: 'a'.repeat(40), evidence: { path: 'evidence/evidence.jsonl' } }));
+  await writeFile(path.join(root, 'singularity/personas/architect.md'), placeholder ? '# Architect\n\nDesign carefully.\n\n{{WORLD_MODEL}}\n' : '# Architect\n\nDesign carefully.\n');
   return root;
 }
 
 function definition(rules, mode = 'append') {
   return {
-    personaPromptsRoot: '.singularity/personas',
+    personaPromptsRoot: 'singularity/personas',
     personas: { architect: { label: 'Architect', prompt: 'architect.md' } },
     phases: { design: {} },
     workTypes: { feature: {} },
-    worldModel: { outputDir: '.singularity/world-model', injection: { mode, maxBytes: 32768, rules } }
+    worldModel: { outputDir: 'singularity/world-model', injection: { mode, maxBytes: 32768, rules } }
   };
 }
 
@@ -138,10 +138,10 @@ test('recordInjection writes an auditable generation context record', async () =
   const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { persona: 'architect' });
   const workflow = { workItem: { id: 'ENG-9' } };
   const phase = { id: 'design', generation: 1 };
-  const workDir = path.join(root, '.singularity/work-items/ENG-9');
+  const workDir = path.join(root, 'singularity/work-items/ENG-9');
   const { record, file } = await recordInjection(root, workflow, phase, { ...rendered, persona: 'architect' }, { workDir });
   assert.equal(record.generation, 2);
-  assert.equal(file, '.singularity/work-items/ENG-9/context/design-gen2.json');
+  assert.equal(file, 'singularity/work-items/ENG-9/context/design-gen2.json');
   const written = await readJson(path.join(root, file));
   assert.equal(written.workId, 'ENG-9');
   assert.equal(written.files.length, 1);

@@ -14,8 +14,8 @@ export function groundingMode(definition, workflow = null) {
 }
 
 function excludedSourcePath(file, definition = {}) {
-  const outputDir = posix(definition.worldModel?.outputDir ?? definition.outputDir ?? '.singularity/world-model').replace(/\/$/, '');
-  const workItemRoot = posix(definition.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '');
+  const outputDir = posix(definition.worldModel?.outputDir ?? definition.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
+  const workItemRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
   return file === outputDir || file.startsWith(`${outputDir}/`)
     || file === workItemRoot || file.startsWith(`${workItemRoot}/`)
     || file.startsWith('.git/') || file.startsWith('node_modules/');
@@ -220,7 +220,7 @@ export function worldModelCommit(root, outputDir) {
 }
 
 export function groundingRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {
-  return posix(path.join(definition.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
+  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
 
 function severityResult(mode, messages) {
@@ -256,7 +256,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   if (!record.promptPath) problems.push(`grounding composition has no committed prompt snapshot: ${relative}`);
   else {
     const promptRelative = posix(record.promptPath);
-    const expectedRoot = `${posix(path.join(definition.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', 'prompts'))}/`;
+    const expectedRoot = `${posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'prompts'))}/`;
     if (!promptRelative.startsWith(expectedRoot)) problems.push(`grounding prompt snapshot escapes the work-item context: ${promptRelative}`);
     else {
       const info = await snapshot(path.join(root, promptRelative));
@@ -272,7 +272,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   for (const file of record.files ?? []) {
     if (seen.has(file.path)) problems.push(`grounding composition repeats ${file.path}`);
     seen.add(file.path);
-    if (!file.path?.startsWith(`${posix(definition.worldModel?.outputDir ?? '.singularity/world-model').replace(/\/$/, '')}/`)) problems.push(`grounding composition references a file outside the world model: ${file.path}`);
+    if (!file.path?.startsWith(`${posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '')}/`)) problems.push(`grounding composition references a file outside the world model: ${file.path}`);
     if (!/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) problems.push(`grounding composition has invalid hash for ${file.path}`);
     if (!['required', 'rule'].includes(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
     if (!Number.isInteger(file.bytes) || file.bytes < 1 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0 || file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
@@ -285,7 +285,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   let committedManifest = null;
   if (record.worldModelCommit && record.manifestSha256) {
-    const manifestPath = posix(path.join(definition.worldModel?.outputDir ?? '.singularity/world-model', 'manifest.json'));
+    const manifestPath = posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', 'manifest.json'));
     const content = run('git', ['show', `${record.worldModelCommit}:${manifestPath}`], { cwd: root, allowFailure: true });
     if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain manifest.json`);
     else {
@@ -298,7 +298,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     if (committedManifest.source_tree_sha256 !== record.modelSourceTreeSha256) problems.push('world-model source hash differs from the composition record');
     for (const view of requiredViews) {
       const viewPath = committedManifest.views?.[view]?.path;
-      const recordedPath = viewPath ? posix(path.join(definition.worldModel?.outputDir ?? '.singularity/world-model', viewPath)) : null;
+      const recordedPath = viewPath ? posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', viewPath)) : null;
       if (!recordedPath || !(record.files ?? []).some((file) => file.path === recordedPath)) problems.push(`grounding composition has no committed content for required view '${view}'`);
     }
     const requiredContextPaths = [committedManifest.core?.summary];
@@ -309,7 +309,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     }
     if (phase.worldModel?.evidence) requiredContextPaths.push(committedManifest.evidence?.path);
     for (const contextPath of requiredContextPaths.filter(Boolean)) {
-      const recordedPath = posix(path.join(definition.worldModel?.outputDir ?? '.singularity/world-model', contextPath));
+      const recordedPath = posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', contextPath));
       if (!(record.files ?? []).some((file) => file.path === recordedPath)) problems.push(`grounding composition omitted required context '${contextPath}'`);
     }
   }

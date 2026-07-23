@@ -21,11 +21,11 @@ export function validateInitiativeId(id) {
 }
 
 export function initiativeDir(root, portfolio, id) {
-  return path.join(root, portfolio.initiativeRoot ?? '.singularity/initiatives', validateInitiativeId(id));
+  return path.join(root, portfolio.initiativeRoot ?? 'singularity/initiatives', validateInitiativeId(id));
 }
 
 export function initiativeRelative(portfolio, id) {
-  return posix(path.join(portfolio.initiativeRoot ?? '.singularity/initiatives', validateInitiativeId(id)));
+  return posix(path.join(portfolio.initiativeRoot ?? 'singularity/initiatives', validateInitiativeId(id)));
 }
 
 export function initiativeStatePath(root, portfolio, id) {
@@ -52,7 +52,7 @@ function referencedAuthorities(resolved) {
 
 function assertAuthorityMembership(resolved) {
   const missing = referencedAuthorities(resolved).filter((id) => !(resolved.approvalAuthorities[id]?.members ?? []).length);
-  if (missing.length) throw new SingularityFlowError(`Initiative approval authorities require at least one local Git identity before start: ${missing.join(', ')}. Configure approvalAuthorities in .singularity/portfolio.yml.`);
+  if (missing.length) throw new SingularityFlowError(`Initiative approval authorities require at least one local Git identity before start: ${missing.join(', ')}. Configure approvalAuthorities in singularity/portfolio.yml.`);
 }
 
 function phaseState(phase, index, createdAt) {
@@ -133,7 +133,7 @@ export async function createInitiative(root, {
   assertAuthorityMembership(resolved);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.worldModelGrounding = groundingMode(definition);
-  resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? '.singularity/world-model';
+  resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
     worldModelGrounding: resolution.worldModelGrounding,

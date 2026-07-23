@@ -12,20 +12,20 @@ sequenceGates:
   remoteGeneration: hard
   publicationPending: hard
 defaultBaseBranch: main
-workItemRoot: .singularity/work-items
+workItemRoot: singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 
 git:
   remote: origin
   publish: required
 
-templatesRoot: .singularity/templates
-personaPromptsRoot: .singularity/personas
+templatesRoot: singularity/templates
+personaPromptsRoot: singularity/personas
 
 worldModel:
   views: [business, architecture, development, testing, release, operations, security]
-  outputDir: .singularity/world-model
-  promptSource: .singularity/prompts/worldmodel-builder.md
+  outputDir: singularity/world-model
+  promptSource: singularity/prompts/worldmodel-builder.md
   grounding: enforce
   staleness: warn
   injection:
@@ -307,10 +307,10 @@ phases:
 governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:
-    - .singularity/workflow.yml
-    - .singularity/agents.lock.yml
-    - .singularity/templates
-    - .singularity/personas
+    - singularity/workflow.yml
+    - singularity/agents.lock.yml
+    - singularity/templates
+    - singularity/personas
     - .github/agents
     - .claude/agents
     - plugin/agents

@@ -76,28 +76,28 @@ test('world-model context combines required phase views, persona views, and pers
   run('git', ['config', 'user.email', 'world@example.com'], root);
   await initializeDefinition(root);
   await writeFile(path.join(root, 'README.md'), '# World model test\n');
-  run('git', ['add', '.singularity', 'README.md'], root);
+  run('git', ['add', 'singularity', 'README.md'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const commit = run('git', ['rev-parse', 'HEAD'], root).trim();
 
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
   await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ persona: 'developer', workId: 'WM-1' }));
-  await mkdir(path.join(root, '.singularity/world-model/core'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/views'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/evidence'), { recursive: true });
-  await writeFile(path.join(root, '.singularity/world-model/core/summary.md'), 'SHARED CORE\n');
-  await writeFile(path.join(root, '.singularity/world-model/core/model.json'), JSON.stringify({ schema_version: '1.0' }));
+  await mkdir(path.join(root, 'singularity/world-model/core'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/views'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/world-model/core/summary.md'), 'SHARED CORE\n');
+  await writeFile(path.join(root, 'singularity/world-model/core/model.json'), JSON.stringify({ schema_version: '1.0' }));
   for (const view of ['architecture', 'security', 'development', 'testing']) {
-    await writeFile(path.join(root, `.singularity/world-model/views/${view}.md`), `${view.toUpperCase()} VIEW\n`);
+    await writeFile(path.join(root, `singularity/world-model/views/${view}.md`), `${view.toUpperCase()} VIEW\n`);
   }
-  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({
+  await writeFile(path.join(root, 'singularity/world-model/manifest.json'), JSON.stringify({
     schema_version: '1.0',
     repository_commit: commit,
     core: { summary: 'core/summary.md', model: 'core/model.json' },
     views: Object.fromEntries(['architecture', 'security', 'development', 'testing'].map((view) => [view, { path: `views/${view}.md` }])),
     domains: [], task_guides: [], evidence: { path: 'evidence/evidence.jsonl' }
   }));
-  await writeFile(path.join(root, '.singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'EVIDENCE LEDGER' })}\n`);
+  await writeFile(path.join(root, 'singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'EVIDENCE LEDGER' })}\n`);
 
   const output = run(process.execPath, [bin, 'wm', 'context', 'design', '--concat'], root);
   assert.match(output, /ARCHITECTURE VIEW/);
@@ -107,7 +107,7 @@ test('world-model context combines required phase views, persona views, and pers
   assert.match(output, /Act as a developer/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'verification', '--concat'], root), /EVIDENCE LEDGER/);
   assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-persona'], root), /Act as a developer/);
-  assert.doesNotMatch(await readFile(path.join(root, '.singularity/personas/developer.md'), 'utf8'), /architect persona/i);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/personas/developer.md'), 'utf8'), /architect persona/i);
 });
 
 test('wm inject renders matched persona context and records the generation audit', async () => {
@@ -117,39 +117,39 @@ test('wm inject renders matched persona context and records the generation audit
   run('git', ['config', 'user.email', 'inject@example.com'], root);
   await initializeDefinition(root);
   await writeFile(path.join(root, 'README.md'), '# Injection test\n');
-  run('git', ['add', '.singularity', 'README.md'], root);
+  run('git', ['add', 'singularity', 'README.md'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const commit = run('git', ['rev-parse', 'HEAD'], root).trim();
   run('git', ['switch', '-c', 'WM-1'], root);
 
-  const definitionPath = path.join(root, '.singularity/workflow.yml');
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.worldModel.injection.rules = [{ when: { persona: 'developer', phase: 'design', workType: 'feature' }, include: ['views/development.md'] }];
   await writeFile(definitionPath, YAML.stringify(definition));
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
   await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ persona: 'developer', workId: 'WM-1' }));
-  await mkdir(path.join(root, '.singularity/world-model/core'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/views'), { recursive: true });
-  await mkdir(path.join(root, '.singularity/world-model/evidence'), { recursive: true });
-  await writeFile(path.join(root, '.singularity/world-model/core/summary.md'), 'SHARED CORE\n');
-  await writeFile(path.join(root, '.singularity/world-model/core/model.json'), JSON.stringify({ schema_version: '1.0' }));
-  for (const view of ['architecture', 'security', 'development', 'testing']) await writeFile(path.join(root, `.singularity/world-model/views/${view}.md`), view === 'development' ? 'INJECTED DEVELOPMENT VIEW\n' : `${view.toUpperCase()} VIEW\n`);
-  await writeFile(path.join(root, '.singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'evidence' })}\n`);
-  await writeFile(path.join(root, '.singularity/world-model/manifest.json'), JSON.stringify({
+  await mkdir(path.join(root, 'singularity/world-model/core'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/views'), { recursive: true });
+  await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/world-model/core/summary.md'), 'SHARED CORE\n');
+  await writeFile(path.join(root, 'singularity/world-model/core/model.json'), JSON.stringify({ schema_version: '1.0' }));
+  for (const view of ['architecture', 'security', 'development', 'testing']) await writeFile(path.join(root, `singularity/world-model/views/${view}.md`), view === 'development' ? 'INJECTED DEVELOPMENT VIEW\n' : `${view.toUpperCase()} VIEW\n`);
+  await writeFile(path.join(root, 'singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'evidence' })}\n`);
+  await writeFile(path.join(root, 'singularity/world-model/manifest.json'), JSON.stringify({
     schema_version: '1.0', repository_commit: commit,
     core: { summary: 'core/summary.md', model: 'core/model.json' },
     views: Object.fromEntries(['architecture', 'security', 'development', 'testing'].map((view) => [view, { path: `views/${view}.md`, generated: true }])),
     domains: [], task_guides: [], evidence: { path: 'evidence/evidence.jsonl' }
   }));
   const sourceState = await worldModelSourceSnapshot(root, definition);
-  const manifestPath = path.join(root, '.singularity/world-model/manifest.json');
+  const manifestPath = path.join(root, 'singularity/world-model/manifest.json');
   const modelManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   modelManifest.source_tree_sha256 = sourceState.sha256;
   await writeFile(manifestPath, JSON.stringify(modelManifest));
-  run('git', ['add', '.singularity/workflow.yml', '.singularity/world-model'], root);
+  run('git', ['add', 'singularity/workflow.yml', 'singularity/world-model'], root);
   run('git', ['commit', '-m', 'build world model'], root);
   const modelCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
-  const workDir = path.join(root, '.singularity/work-items/WM-1');
+  const workDir = path.join(root, 'singularity/work-items/WM-1');
   await mkdir(workDir, { recursive: true });
   await writeFile(path.join(workDir, 'workflow.json'), JSON.stringify({
     workItem: { id: 'WM-1', workType: 'feature' }, currentPhase: 'design',
@@ -168,7 +168,7 @@ test('wm inject renders matched persona context and records the generation audit
   const audit = JSON.parse(await readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'));
   assert.equal(audit.persona, 'developer');
   assert.equal(audit.modelCommit, modelCommit);
-  assert.ok(audit.files.some((file) => file.path === '.singularity/world-model/views/development.md'));
+  assert.ok(audit.files.some((file) => file.path === 'singularity/world-model/views/development.md'));
   assert.ok(audit.files.some((file) => file.category === 'required'));
   assert.ok(audit.files.every((file) => /^[0-9a-f]{64}$/.test(file.sha256)));
   assert.match(audit.renderedSha256, /^[0-9a-f]{64}$/);
@@ -188,7 +188,7 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   run('git', ['config', 'user.name', 'Builder Tester'], root);
   run('git', ['config', 'user.email', 'builder@example.com'], root);
   await initializeDefinition(root);
-  const definitionPath = path.join(root, '.singularity/workflow.yml');
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
   await writeFile(definitionPath, YAML.stringify(definition));
@@ -202,16 +202,16 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const task = 'Design the evaluation pipeline';
   const output = run(process.execPath, [bin, 'wm', 'build', '--phase', 'design', '--task', task, '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
   assert.match(output, /World model built from source/);
-  const manifest = JSON.parse(await readFile(path.join(root, '.singularity/world-model/manifest.json'), 'utf8'));
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
   assert.match(manifest.source_tree_sha256, /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual(manifest.requested_views, ['architecture', 'security']);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\]\[source:[0-9a-f]{12}\] design/);
   assert.match(run(process.execPath, [bin, 'wm', 'check'], root), /fresh:/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'design', '--task', task, '--concat'], root), /Exact task guide/);
 
-  await mkdir(path.join(root, '.singularity/work-items/BUILD-1'), { recursive: true });
-  await writeFile(path.join(root, '.singularity/work-items/BUILD-1/workflow.json'), '{}\n');
-  run('git', ['add', '.singularity/work-items'], root);
+  await mkdir(path.join(root, 'singularity/work-items/BUILD-1'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/work-items/BUILD-1/workflow.json'), '{}\n');
+  run('git', ['add', 'singularity/work-items'], root);
   run('git', ['commit', '-m', 'lifecycle state only'], root);
   assert.match(run(process.execPath, [bin, 'wm', 'check'], root), /fresh:/);
 
@@ -227,7 +227,7 @@ test('wm build rejects generator writes outside the isolated output', async () =
   run('git', ['config', 'user.name', 'Isolation Tester'], root);
   run('git', ['config', 'user.email', 'isolation@example.com'], root);
   await initializeDefinition(root);
-  const definitionPath = path.join(root, '.singularity/workflow.yml');
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
   await writeFile(definitionPath, YAML.stringify(definition));
@@ -248,7 +248,7 @@ test('enforced workflows block generation until the governed prompt is composed'
   run('git', ['config', 'user.name', 'Grounding Tester'], root);
   run('git', ['config', 'user.email', 'grounding@example.com'], root);
   await initializeDefinition(root);
-  const definitionPath = path.join(root, '.singularity/workflow.yml');
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
   await writeFile(definitionPath, YAML.stringify(definition));
@@ -262,10 +262,10 @@ test('enforced workflows block generation until the governed prompt is composed'
   run(process.execPath, [bin, 'wm', 'build', '--phase', 'intake', '--task', task, '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
 
   flow(['start', 'GROUND-1', '--title', 'Grounded work'], root);
-  const workflowPath = path.join(root, '.singularity/work-items/GROUND-1/workflow.json');
+  const workflowPath = path.join(root, 'singularity/work-items/GROUND-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(workflow.resolution.worldModelGrounding, 'enforce');
-  const artifactPath = path.join(root, '.singularity/work-items/GROUND-1', workflow.phases.intake.requiredArtifact.path);
+  const artifactPath = path.join(root, 'singularity/work-items/GROUND-1', workflow.phases.intake.requiredArtifact.path);
   const artifact = (await readFile(artifactPath, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete governed intake evidence with measurable scope and acceptance details.');
   await writeFile(artifactPath, `${artifact}\nAdditional observed repository evidence and constraints are recorded here.\n`);
   assert.match(flow(['nextsteps'], root).stdout, /wm compose --phase intake/);

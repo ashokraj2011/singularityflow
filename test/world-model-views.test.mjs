@@ -35,7 +35,7 @@ test('world-model view designer adds unused views and protects referenced views'
   assert.ok(!workflow.worldModel.views.includes('data-governance'));
   assert.deepEqual(removeWorldModelView(added, 'data-governance').worldModel.views, workflow.worldModel.views);
   assert.throws(() => removeWorldModelView(workflow, 'architecture'), /still used by/);
-  assert.throws(() => removeWorldModelView(added, 'data-governance', ["Markdown '.singularity/prompts/worldmodel-builder.md'"]), /Markdown/);
+  assert.throws(() => removeWorldModelView(added, 'data-governance', ["Markdown 'singularity/prompts/worldmodel-builder.md'"]), /Markdown/);
 });
 
 test('workflow validation rejects undeclared structured world-model views', async () => {

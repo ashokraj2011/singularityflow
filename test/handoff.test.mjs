@@ -39,17 +39,17 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   run('git', ['commit', '-m', 'initial'], first);
   run('git', ['remote', 'add', 'origin', remote], first);
   flow(first, ['init']);
-  const configPath = path.join(first, '.singularity/workflow.yml');
+  const configPath = path.join(first, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', '.singularity'], first);
+  run('git', ['add', 'singularity'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
 
   flow(first, ['start', 'HAND-101', '--title', 'Handoff test']);
-  const intakePath = path.join(first, '.singularity', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
+  const intakePath = path.join(first, 'singularity', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
   const intake = (await readFile(intakePath, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete handoff evidence and measurable outcomes for another terminal.');
   await writeFile(intakePath, intake);
   flow(first, ['phase', 'publish', 'intake']);
@@ -86,7 +86,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.ready, true);
   assert.equal(session.activePersona, 'architect');
-  const workflow = JSON.parse(await readFile(path.join(second, '.singularity', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(second, 'singularity', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
 
   await writeFile(path.join(first, 'handoff-note.txt'), 'Remote handoff update\n');

@@ -10,7 +10,7 @@ import { snapshot } from '../src/util.mjs';
 
 async function fixture(mode = 'record', declaration = { phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inputs-'));
-  const itemRelative = '.singularity/work-items/INPUT-1';
+  const itemRelative = 'singularity/work-items/INPUT-1';
   const itemDirectory = path.join(root, itemRelative);
   const producerPath = path.join(itemDirectory, 'artifacts/requirements/requirements.md');
   await mkdir(path.dirname(producerPath), { recursive: true });

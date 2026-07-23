@@ -22,6 +22,15 @@
     },
     "templatesRoot": { "type": "string", "minLength": 1 },
     "personaPromptsRoot": { "type": "string", "minLength": 1 },
+    "planning": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "promptSource": { "type": "string", "minLength": 1 },
+        "maxContextBytes": { "type": "integer", "minimum": 16384, "maximum": 10485760 }
+      },
+      "additionalProperties": false
+    },
     "tokens": {
       "type": "object",
       "properties": {

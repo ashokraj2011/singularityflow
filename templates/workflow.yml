@@ -22,6 +22,11 @@ git:
 templatesRoot: singularity/templates
 personaPromptsRoot: singularity/personas
 
+planning:
+  enabled: true
+  promptSource: singularity/prompts/copilot-planning.md
+  maxContextBytes: 1048576
+
 worldModel:
   views: [business, architecture, development, testing, release, operations, security]
   outputDir: singularity/world-model
@@ -311,6 +316,7 @@ governance:
     - singularity/agents.lock.yml
     - singularity/templates
     - singularity/personas
+    - singularity/prompts
     - .github/agents
     - .claude/agents
     - plugin/agents

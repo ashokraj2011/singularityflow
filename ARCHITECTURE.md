@@ -142,6 +142,24 @@ Completion is the number of approved phases divided by the immutable total phase
 
 `apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, persona sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
 
+Planning Studio makes Electron an ACP client for the locally authenticated GitHub Copilot CLI:
+
+```mermaid
+flowchart LR
+    UI["Sandboxed Planning Studio"] --> IPC["Narrow planning IPC"]
+    IPC --> CTX["Deterministic CLI context pack"]
+    CTX --> ACP["Copilot ACP · native Plan mode"]
+    ACP --> UI
+    UI --> REVIEW["Human-reviewed complete artifact"]
+    REVIEW --> GUARD["HEAD + phase + target + input validation"]
+    GUARD --> GIT["Audit bundle + commit + push"]
+    GIT --> GATE["Existing publish / evidence / approval lifecycle"]
+```
+
+The Electron main process owns every issued context-pack handle, spawns `copilot --acp --stdio`, explicitly selects the ACP-advertised Plan mode, and rejects permission requests. It streams only normalized conversation, plan, activity, mode, and exact usage updates through preload. The renderer cannot nominate an arbitrary local context path.
+
+Context creation is read-only and pins the repository branch/HEAD, immutable workflow resolution, phase/generation, persona, target, configurable planning-prompt hash, and every governed source hash under `.git/singularity-flow/planning/`. Promotion fails if HEAD or the active phase moved. A successful promotion copies the exact context, reviewed artifact, and manifest into committed phase context, then uses the existing atomic commit/push protocol. It never submits, approves, materializes, merges, or bypasses the phase gate.
+
 The app may visualize repository state and edit workflow, sequence-gate policy, template, persona, and repository-agent source text, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
 
 ## Transaction and publication model

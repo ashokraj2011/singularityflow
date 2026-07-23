@@ -4,7 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { add, branch, changedFiles, commit, identity, pushBranch } from './git.mjs';
-import { loadDefinition, validateDefinition, worldModelPromptViewReferences, WORKFLOW_PATH } from './config.mjs';
+import {
+  DEFAULT_PLANNING_PROMPT,
+  loadDefinition,
+  normalizePlanning,
+  validateDefinition,
+  worldModelPromptViewReferences,
+  WORKFLOW_PATH
+} from './config.mjs';
 import { documentCatalog } from './documents.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
@@ -27,6 +34,7 @@ import {
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
+import { planningTargetCatalog } from './planning.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -66,6 +74,17 @@ async function worldModelPrompt(root, definition) {
   if (!builtin && await exists(absolute)) return { path: relative, name: path.posix.basename(relative), content: await readFile(absolute, 'utf8'), missing: false, builtin };
   const fallback = path.join(packageRoot, 'templates/worldmodel-builder.md');
   return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin };
+}
+
+async function planningPrompt(root, definition) {
+  const configured = normalizePlanning(definition.planning ?? {});
+  const relative = configured.promptSource;
+  const absolute = path.join(root, relative);
+  if (await exists(absolute)) {
+    return { path: relative, name: path.posix.basename(relative), content: await readFile(absolute, 'utf8'), missing: false, builtin: false };
+  }
+  const fallback = path.join(packageRoot, 'templates/copilot-planning.md');
+  return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin: true };
 }
 
 async function workItems(root, definition) {
@@ -162,6 +181,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const builderPrompt = await worldModelPrompt(root, definition);
+  const plannerPrompt = await planningPrompt(root, definition);
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
@@ -179,6 +199,11 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
+    planning: {
+      ...await planningTargetCatalog(root, { workId: selectedId, initiativeId: selectedInitiativeId }),
+      config: normalizePlanning(definition.planning ?? {}),
+      prompt: plannerPrompt
+    },
     worldModelPrompt: builderPrompt,
     worldModel: {
       root: modelRoot,
@@ -216,6 +241,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
 
 function allowedConfigurationPath(definition, relative, portfolio = null, root = null) {
   const promptSource = definition.worldModel?.promptSource;
+  const planningPromptSource = normalizePlanning(definition.planning ?? {}).promptSource;
   const removedLegacyControlFile = root && ['.singularity', '.sdlc'].some(
     (legacyRoot) => relative.startsWith(`${legacyRoot}/`) && !existsSync(path.join(root, legacyRoot))
   );
@@ -227,6 +253,8 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || (promptSource && promptSource !== 'builtin' && relative === posix(promptSource))
+    || relative === DEFAULT_PLANNING_PROMPT
+    || relative === posix(planningPromptSource)
     || relative.startsWith('.github/agents/')
     || relative.startsWith('.claude/agents/')
     || removedLegacyControlFile;
@@ -334,6 +362,7 @@ export async function desktopExportBundle(root) {
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const prompt = await worldModelPrompt(root, definition);
+  const planner = await planningPrompt(root, definition);
   const groups = [
     [{ path: WORKFLOW_PATH, content: await readFile(path.join(root, WORKFLOW_PATH), 'utf8') }],
     portfolio ? [{ path: PORTFOLIO_PATH, content: await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') }] : [],
@@ -343,6 +372,7 @@ export async function desktopExportBundle(root) {
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
     await exists(path.join(root, AGENT_LOCK_PATH)) ? [{ path: AGENT_LOCK_PATH, content: await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') }] : [],
     prompt.missing ? [] : [prompt],
+    planner.missing ? [] : [planner],
     await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
   ];
   const files = [...new Map(groups.flat().map((file) => [file.path, { path: file.path, content: file.content }])).values()].sort((left, right) => left.path.localeCompare(right.path));

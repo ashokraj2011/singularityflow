@@ -100,6 +100,7 @@ import {
 } from './initiative-report.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
+import { createPlanningContext, promotePlanningArtifact } from './planning.mjs';
 
 const VERSION = '0.8.0';
 
@@ -1736,6 +1737,19 @@ async function desktopCommand(positionals, options) {
   else if (subcommand === 'delete-template') result = await deleteDesktopTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishDesktopConfiguration(root, optionString(options, 'message'));
   else if (subcommand === 'session') result = await selectDesktopPersona(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'persona'));
+  else if (subcommand === 'planning-context') result = await createPlanningContext(root, {
+    scope: optionString(options, 'scope'),
+    id: optionString(options, 'id'),
+    phase: optionString(options, 'phase'),
+    persona: optionString(options, 'persona'),
+    target: optionString(options, 'target'),
+    objective: optionString(options, 'objective', '')
+  });
+  else if (subcommand === 'planning-promote') result = await promotePlanningArtifact(root, {
+    sessionId: optionString(options, 'session'),
+    persona: optionString(options, 'persona'),
+    content: await stdinText()
+  });
   else throw new SingularityFlowError(`Unknown desktop subcommand: ${subcommand}`);
   console.log(JSON.stringify(result, null, 2));
 }

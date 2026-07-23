@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizeSequenceGates, normalizeSessionPolicy, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizePlanning, normalizeSequenceGates, normalizeSessionPolicy, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
@@ -42,6 +42,22 @@ test('Copilot session persona policy is configurable and absent configuration st
   assert.throws(() => normalizeSessionPolicy({ personaSelection: 'always' }), /must be off, reuse, or prompt/);
   assert.throws(() => normalizeSessionPolicy({ promptOnResume: 'yes' }), /must be boolean/);
   assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);
+});
+
+test('Copilot Planning Studio configuration has bounded, repository-safe defaults', () => {
+  assert.deepEqual(normalizePlanning(), {
+    enabled: true,
+    promptSource: 'singularity/prompts/copilot-planning.md',
+    maxContextBytes: 1048576
+  });
+  assert.deepEqual(normalizePlanning({ enabled: false, promptSource: 'singularity/prompts/custom-planner.md', maxContextBytes: 32768 }), {
+    enabled: false,
+    promptSource: 'singularity/prompts/custom-planner.md',
+    maxContextBytes: 32768
+  });
+  assert.throws(() => normalizePlanning({ promptSource: '../outside.md' }), /repository-relative path/);
+  assert.throws(() => normalizePlanning({ maxContextBytes: 1024 }), /16384 through 10485760/);
+  assert.throws(() => normalizePlanning({ model: 'forced-model' }), /unknown field/);
 });
 
 test('world-model grounding is configurable and legacy-safe', async () => {

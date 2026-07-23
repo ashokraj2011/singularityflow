@@ -13,6 +13,7 @@ import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODE
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
 export const LEGACY_CONTROL_ROOT = '.singularity';
+export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
@@ -91,6 +92,19 @@ export function normalizeSessionPolicy(value = {}) {
   };
 }
 
+export function normalizePlanning(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('planning must be an object.');
+  for (const key of Object.keys(value)) if (!['enabled', 'promptSource', 'maxContextBytes'].includes(key)) throw new SingularityFlowError(`planning contains unknown field '${key}'.`);
+  if (value.enabled != null && typeof value.enabled !== 'boolean') throw new SingularityFlowError('planning.enabled must be boolean.');
+  const promptSource = value.promptSource ?? DEFAULT_PLANNING_PROMPT;
+  assertRelative(promptSource, 'planning.promptSource');
+  const maxContextBytes = value.maxContextBytes ?? 1048576;
+  if (!Number.isInteger(maxContextBytes) || maxContextBytes < 16384 || maxContextBytes > 10485760) {
+    throw new SingularityFlowError('planning.maxContextBytes must be an integer from 16384 through 10485760.');
+  }
+  return { enabled: value.enabled !== false, promptSource, maxContextBytes };
+}
+
 export function validateDefinition(definition) {
   if (definition?.version !== 1) throw new SingularityFlowError('workflow.yml version must be 1.');
   if (!definition.personas || !Object.keys(definition.personas).length) throw new SingularityFlowError('workflow.yml must define at least one persona.');
@@ -102,6 +116,7 @@ export function validateDefinition(definition) {
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
+  normalizePlanning(definition.planning ?? {});
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
@@ -303,7 +318,8 @@ export async function initializeDefinition(root) {
     ['portfolio.yml', 'singularity/portfolio.yml'],
     ['artifacts', 'singularity/templates'],
     ['personas', 'singularity/personas'],
-    ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md']
+    ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
+    ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
   ];
   for (const [source, destination] of mappings) {
     if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);

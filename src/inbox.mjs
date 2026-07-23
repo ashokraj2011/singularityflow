@@ -31,7 +31,7 @@ function submittedEvent(workflow, phaseId) {
 
 function remoteWorkflow(root, definition, remote, id) {
   const ref = `${remote}/${id}`;
-  const workRoot = String(definition.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '');
+  const workRoot = String(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
   const statePath = `${workRoot}/${id}/workflow.json`;
   const content = fileAtRef(root, ref, statePath);
   if (!content) return null;

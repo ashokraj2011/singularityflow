@@ -117,7 +117,7 @@ Do not generate unrelated views.
 - Do not claim tests pass unless they were executed successfully.
 - Do not claim code is unused merely because no reference was found.
 - Ignore generated code, build output, caches, dependencies, and vendored files unless architecturally significant.
-- Do not inspect or reuse an existing `.singularity/world-model` or `.singularity/work-items` tree; the CLI removes those runtime/generated directories from the isolated analysis copy.
+- Do not inspect or reuse an existing `singularity/world-model` or `singularity/work-items` tree; the CLI removes those runtime/generated directories from the isolated analysis copy.
 - Keep each view concise and relevant to its intended audience.
 - Store detailed evidence separately rather than repeating it in every view.
 

@@ -31,11 +31,11 @@ async function repository() {
   run('git', ['config', 'user.email', 'manual-intake@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Manual intake test\n');
   flow(root, ['init']);
-  const configPath = path.join(root, '.singularity/workflow.yml');
+  const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', '.singularity'], root);
+  run('git', ['add', 'README.md', 'singularity'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   return root;
 }
@@ -70,7 +70,7 @@ test('manual story intake commits complete details and every supplied document w
     '--document-url', 'https://example.com/context'
   ]);
 
-  const workRoot = path.join(root, '.singularity/work-items/WORK-123');
+  const workRoot = path.join(root, 'singularity/work-items/WORK-123');
   const source = JSON.parse(await readFile(path.join(workRoot, 'source.json'), 'utf8'));
   assert.equal(source.type, 'manual');
   assert.equal(source.title, 'Add invoice export');

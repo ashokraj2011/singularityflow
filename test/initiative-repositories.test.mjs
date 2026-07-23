@@ -50,7 +50,7 @@ async function repository() {
   run('git', ['config', 'user.email', ACTOR_EMAIL], { cwd: root });
   await writeFile(path.join(root, 'README.md'), '# Lead\n');
   await initializeDefinition(root);
-  const portfolioFile = path.join(root, '.singularity/portfolio.yml');
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Initiative Owner', email: ACTOR_EMAIL }];
   portfolio.repositories = {
@@ -111,7 +111,7 @@ test('materialization previews then creates idempotent repository story branches
 
   const check = path.join(root, 'check-api');
   run('git', ['clone', '--branch', 'API-1', api, check], { cwd: root });
-  const seed = YAML.parse(await readFile(path.join(check, '.singularity/seeds/API-1.yml'), 'utf8'));
+  const seed = YAML.parse(await readFile(path.join(check, 'singularity/seeds/API-1.yml'), 'utf8'));
   assert.equal(seed.initiative.id, 'INIT-MULTI');
   assert.equal(seed.story.repository, 'api');
 
@@ -126,8 +126,8 @@ test('repository sync observes child workflow milestones and all-blocking readin
   run('git', ['clone', '--branch', 'API-1', api, author], { cwd: root });
   run('git', ['config', 'user.name', 'API Developer'], { cwd: author });
   run('git', ['config', 'user.email', 'api@example.com'], { cwd: author });
-  await mkdir(path.join(author, '.singularity/work-items/API-1'), { recursive: true });
-  await writeFile(path.join(author, '.singularity/work-items/API-1/workflow.json'), JSON.stringify({
+  await mkdir(path.join(author, 'singularity/work-items/API-1'), { recursive: true });
+  await writeFile(path.join(author, 'singularity/work-items/API-1/workflow.json'), JSON.stringify({
     schemaVersion: 2,
     workItem: { id: 'API-1' },
     status: 'in_progress',

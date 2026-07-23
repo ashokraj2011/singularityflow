@@ -12,8 +12,8 @@ export async function validateRepositoryDirectory(repository) {
   if (!root?.isDirectory()) throw new Error('The selected repository folder does not exist or is not a directory.');
   const git = await stat(path.join(resolved, '.git')).catch(() => null);
   if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
-  const workflow = await stat(path.join(resolved, '.singularity', 'workflow.yml')).catch(() => null);
-  if (!workflow?.isFile()) throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing .singularity/workflow.yml or run 'singularity-flow init' there first.`);
+  const workflow = await stat(path.join(resolved, 'singularity', 'workflow.yml')).catch(() => null);
+  if (!workflow?.isFile()) throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
   return resolved;
 }
 

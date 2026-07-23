@@ -81,7 +81,7 @@ test('workflow designer adds, sequences, removes, and cleans stage definitions s
 
 test('workflow designer normalizes safe template repository paths', async () => {
   const original = await definition();
-  assert.equal(templateRepositoryPath(original, 'security/review.md'), '.singularity/templates/security/review.md');
+  assert.equal(templateRepositoryPath(original, 'security/review.md'), 'singularity/templates/security/review.md');
   assert.throws(() => templateRepositoryPath(original, '../review.md'), /without "\.\."/);
   assert.throws(() => templateRepositoryPath(original, 'review.txt'), /relative \.md path/);
 });
@@ -90,7 +90,7 @@ test('workflow designer creates personas and safely rewrites persona references'
   const original = await definition();
   const created = createPersona(original, { id: 'security-reviewer', label: 'Security reviewer', description: 'Review controls.', prompt: 'security/security-reviewer.md' });
   assert.equal(created.personas['security-reviewer'].prompt, 'security/security-reviewer.md');
-  assert.equal(personaPromptRepositoryPath(created, created.personas['security-reviewer'].prompt), '.singularity/personas/security/security-reviewer.md');
+  assert.equal(personaPromptRepositoryPath(created, created.personas['security-reviewer'].prompt), 'singularity/personas/security/security-reviewer.md');
   const referenced = structuredClone(created);
   referenced.phases.design.suggestedPersonas.push('security-reviewer');
   referenced.phases.design.approval.personas = ['security-reviewer'];

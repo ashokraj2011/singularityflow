@@ -106,7 +106,7 @@ test('TOFU locks hashes, sync reuses verified cache, and changed agent content r
   const fetchImpl = remoteFetch(values, calls);
   const preview = await lockAgent(root, 'architecture', { fetchImpl });
   assert.equal(preview.written, false);
-  await assert.rejects(() => readFile(path.join(root, '.singularity/agents.lock.yml')), /ENOENT/);
+  await assert.rejects(() => readFile(path.join(root, 'singularity/agents.lock.yml')), /ENOENT/);
   await lockAgent(root, 'architecture', { accepted: true, resolution: preview.resolution, fetchImpl });
   const synced = await syncAgent(root, 'architecture', { fetchImpl });
   assert.equal(synced.dependencies.filter((entry) => entry.status === 'ready').length, 2);
@@ -121,7 +121,7 @@ test('TOFU locks hashes, sync reuses verified cache, and changed agent content r
 test('locked skills route by phase and persona and are copied into generation context', async () => {
   const root = await rootWithAgent(); const values = { 'https://cdn.example.com/skill.md': '# Skill\nReview boundaries.\n', 'https://cdn.example.com/design.md': '# Design\n' }; const fetchImpl = remoteFetch(values);
   const preview = await lockAgent(root, 'architecture', { fetchImpl }); await lockAgent(root, 'architecture', { accepted: true, resolution: preview.resolution }); await syncAgent(root, 'architecture', { fetchImpl });
-  const itemDirectory = path.join(root, '.singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
+  const itemDirectory = path.join(root, 'singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
   const workflow = { workItem: { id: 'ARCH-1', workType: 'feature' } }; const phase = { id: 'design', generation: 0 };
   const selected = await renderAgentSkills(root, workflow, phase, { agent: 'architecture', persona: 'architect' }, { record: true, itemDirectory, fetchImpl });
   assert.match(selected.text, /Remote skill: secure-review/);
@@ -137,7 +137,7 @@ test('locked skills route by phase and persona and are copied into generation co
 test('dynamic output snapshots are reused and local edits need explicit replacement', async () => {
   const root = await rootWithAgent(); const values = { 'https://cdn.example.com/skill.md': '# Skill\n', 'https://cdn.example.com/design.md': '# Design\n', 'https://cdn.example.com/ARCH-1/design/1.md': '# Threat model v1\n' }; const calls = []; const fetchImpl = remoteFetch(values, calls);
   const preview = await lockAgent(root, 'architecture', { fetchImpl }); await lockAgent(root, 'architecture', { accepted: true, resolution: preview.resolution }); await syncAgent(root, 'architecture', { fetchImpl });
-  const itemDirectory = path.join(root, '.singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
+  const itemDirectory = path.join(root, 'singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
   const workflow = { workItem: { id: 'ARCH-1', workType: 'feature' } }; const phase = { id: 'design', generation: 0 };
   const first = await prepareRemoteOutputs(root, workflow, phase, { agent: 'architecture' }, { itemDirectory, fetchImpl });
   assert.equal(first.outputs[0].target, 'artifacts/design/threat-model.md');
@@ -174,7 +174,7 @@ test('explicit remote templates are copied into immutable work-item context', as
   const root = await rootWithAgent();
   for (const args of [['init', '-b', 'main'], ['config', 'user.name', 'Agent Tester'], ['config', 'user.email', 'agent@example.com']]) assert.equal(spawnSync('git', args, { cwd: root }).status, 0);
   await initializeDefinition(root);
-  const workflowFile = path.join(root, '.singularity/workflow.yml'); const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  const workflowFile = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
   definition.git.publish = 'off'; definition.workTypes.feature.templateOverrides.design = 'agent:architecture/design-template';
   await writeFile(workflowFile, YAML.stringify(definition));
   const values = { 'https://cdn.example.com/skill.md': '# Skill\n', 'https://cdn.example.com/design.md': '# Remote {{work.id}} design\n\n{{inputs}}\n' }; const fetchImpl = remoteFetch(values);

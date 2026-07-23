@@ -18,7 +18,7 @@ import {
 } from './grounding.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configRelative = '.singularity/worldmodel.json';
+const configRelative = 'singularity/worldmodel.json';
 
 function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
@@ -40,7 +40,7 @@ async function load(root, { persona: selectedPersona = null } = {}) {
     const definition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
     const activeId = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
-    const activeStatePath = path.join(root, definition.workItemRoot ?? '.singularity/work-items', activeId, 'workflow.json');
+    const activeStatePath = path.join(root, definition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
     const activeState = existsSync(activeStatePath) ? JSON.parse(await readFile(activeStatePath, 'utf8')) : null;
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
@@ -53,9 +53,9 @@ async function load(root, { persona: selectedPersona = null } = {}) {
     return {
       definition,
       workflow: activeState,
-      workItemRoot: definition.workItemRoot ?? '.singularity/work-items',
-      outputDir: definition.worldModel?.outputDir ?? '.singularity/world-model',
-      promptSource: definition.worldModel?.promptSource ?? '.singularity/prompts/worldmodel-builder.md',
+      workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
+      outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+      promptSource: definition.worldModel?.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
       runner: definition.worldModel?.runner ?? 'copilot -p "$(cat {prompt_file})" --allow-all-tools',
       grounding: groundingMode(definition, activeState), staleness: definition.worldModel?.staleness ?? 'warn', phases,
       context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
@@ -95,10 +95,10 @@ function render(template, root, config, options) {
 }
 
 async function init(root) {
-  const promptFile = path.join(root, '.singularity/prompts/worldmodel-builder.md');
+  const promptFile = path.join(root, 'singularity/prompts/worldmodel-builder.md');
   await mkdir(path.dirname(promptFile), { recursive: true });
   if (!existsSync(promptFile)) await copyFile(path.join(packageRoot, 'templates/worldmodel-builder.md'), promptFile);
-  console.log('World-model builder prompt initialized; phase routing comes from .singularity/workflow.yml.');
+  console.log('World-model builder prompt initialized; phase routing comes from singularity/workflow.yml.');
 }
 
 async function prompt(root, config, options) {
@@ -178,7 +178,7 @@ async function build(root, config, options) {
       } else await rm(destination, { recursive: true, force: true });
     }
     await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
-    await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? '.singularity/work-items'), { recursive: true, force: true });
+    await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), { recursive: true, force: true });
     await writeFile(promptFile, render(await readFile(source, 'utf8'), analysisRoot, buildConfig, options));
     const before = await repositoryContentSnapshot(analysisRoot);
     const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
@@ -242,7 +242,7 @@ function workflowChangedPaths(root, workflow) {
   if (!workflow?.workItem?.baseBranch) return pending;
   const committed = run('git', ['diff', '--name-only', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
   const files = committed.status === 0 ? committed.stdout.split(/\r?\n/).filter(Boolean) : [];
-  return [...new Set([...files, ...pending])].map(posix).filter((file) => !file.startsWith('.singularity/')).sort();
+  return [...new Set([...files, ...pending])].map(posix).filter((file) => !file.startsWith('singularity/')).sort();
 }
 
 function groundingSectionsText(selected, rulePaths) {
@@ -260,7 +260,7 @@ async function compose(root, options) {
   if (!persona) throw new SingularityFlowError('Provide --persona or start a persona session first.');
   const config = await load(root, { persona });
   const definition = config.definition ?? await loadDefinition(root);
-  const workItemRoot = definition.workItemRoot ?? '.singularity/work-items';
+  const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   const workflow = config.workflow ?? null;
   const requestedPhase = optionString(options, 'phase');
   const dryRun = optionBoolean(options, 'dry-run');

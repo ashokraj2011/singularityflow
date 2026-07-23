@@ -118,7 +118,7 @@ On macOS, open the DMG, drag **Singularity Flow** to **Applications**, then ejec
 
 On Windows, run the `Setup.exe`. The assisted installer defaults to the current user, can change the installation directory, and can create Desktop and Start Menu shortcuts. Enterprise deployment can install or uninstall silently with `/S`.
 
-The desktop does not currently auto-update. Install a newer signed package over the existing application when upgrading. Uninstalling preserves Electron user data and the recent-repository list; repositories and their `.singularity` content are never removed.
+The desktop does not currently auto-update. Install a newer signed package over the existing application when upgrading. Uninstalling preserves Electron user data and the recent-repository list; repositories and their `singularity` content are never removed.
 
 ## Verification commands
 

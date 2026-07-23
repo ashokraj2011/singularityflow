@@ -34,12 +34,12 @@ async function repository() {
   execute('git', ['config', 'user.email', 'sequence@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Sequence test\n');
   flow(root, ['init']);
-  const configPath = path.join(root, '.singularity/workflow.yml');
+  const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', '.singularity'], root);
+  execute('git', ['add', 'README.md', 'singularity'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
   flow(root, ['start', 'SEQ-1', '--title', 'Strict sequence']);
   return root;
@@ -57,7 +57,7 @@ function assertSequenceFailure(result, ...patterns) {
 
 test('out-of-sequence commands exit before changing workflow, session, or Git state', async () => {
   const root = await repository();
-  const workDir = path.join(root, '.singularity/work-items/SEQ-1');
+  const workDir = path.join(root, 'singularity/work-items/SEQ-1');
   const workflowFile = path.join(workDir, 'workflow.json');
   const sessionFile = path.join(root, '.git/singularity-flow/session.json');
 
@@ -79,7 +79,7 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
 
 test('soft gates require confirmation and audit a confirmed override with the selected persona', async () => {
   const root = await repository();
-  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
 
   const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, persona: 'product-owner' });
   assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);
@@ -102,7 +102,7 @@ test('soft gates require confirmation and audit a confirmed override with the se
 
 test('sequence gate policy is immutable after work-item creation', async () => {
   const root = await repository();
-  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   workflow.resolution.sequenceGates.phaseStatus = 'hard';
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
@@ -113,7 +113,7 @@ test('sequence gate policy is immutable after work-item creation', async () => {
 
 test('Copilot session persona policy is immutable after work-item creation', async () => {
   const root = await repository();
-  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   workflow.resolution.session.requireBeforeTools = false;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
@@ -124,7 +124,7 @@ test('Copilot session persona policy is immutable after work-item creation', asy
 
 test('older work-item session snapshots without work-item selection remain backward compatible', async () => {
   const root = await repository();
-  const workflowFile = path.join(root, '.singularity/work-items/SEQ-1/workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   delete workflow.resolution.session.workItemSelection;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
@@ -134,7 +134,7 @@ test('older work-item session snapshots without work-item selection remain backw
 
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {
   const root = await repository();
-  const workDir = path.join(root, '.singularity/work-items/SEQ-1');
+  const workDir = path.join(root, 'singularity/work-items/SEQ-1');
   const workflowFile = path.join(workDir, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const artifact = path.join(workDir, workflow.phases.intake.requiredArtifact.path);

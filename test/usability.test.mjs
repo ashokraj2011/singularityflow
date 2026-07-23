@@ -21,7 +21,7 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-usability-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Usability Tester'], root); run('git', ['config', 'user.email', 'usability@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Usability\n'); flow(root, 'init');
-  const definitionPath = path.join(root, '.singularity/workflow.yml'); const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  const definitionPath = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off'; definition.worldModel.grounding = 'off'; await writeFile(definitionPath, YAML.stringify(definition));
   run('git', ['add', '.'], root); run('git', ['commit', '-m', 'initialize'], root); return root;
 }
@@ -41,7 +41,7 @@ test('cockpit, doctor, workflow simulation, and review provide read-only orienta
 test('assignments are durable and guided run stops at the authoring boundary', async () => {
   const root = await repository(); flow(root, 'start', 'EASY-2', '--title', 'Coordinate authors');
   const assigned = flow(root, 'assign', 'intake', 'mobile-team').stdout; assert.match(assigned, /Assigned intake to mobile-team/);
-  const workflow = JSON.parse(await readFile(path.join(root, '.singularity/work-items/EASY-2/workflow.json'), 'utf8'));
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/EASY-2/workflow.json'), 'utf8'));
   assert.equal(workflow.collaboration.assignments.intake.assignee, 'mobile-team');
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /\[EASY-2\]\[phase:intake\]\[assign\]/);
   const guided = flow(root, 'run', '--task', 'Capture user outcome').stdout; assert.match(guided, /stopped at the authoring boundary/i); assert.doesNotMatch(guided, /approved/i);

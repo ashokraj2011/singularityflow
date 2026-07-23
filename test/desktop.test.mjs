@@ -41,11 +41,11 @@ async function repository() {
   run('git', ['config', 'user.email', 'desktop@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Desktop test\n');
   run(process.execPath, [bin, 'init'], root);
-  const workflowPath = path.join(root, '.singularity/workflow.yml');
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
   definition.git.publish = 'off';
   await writeFile(workflowPath, YAML.stringify(definition));
-  const portfolioPath = path.join(root, '.singularity/portfolio.yml');
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
   portfolio.git.publish = 'off';
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Desktop Tester', email: 'desktop@example.com' }];
@@ -62,7 +62,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.deepEqual(snapshot.repository.configurationChanges, []);
   assert.deepEqual(snapshot.repository.unrelatedChanges, []);
   assert.equal(snapshot.repository.publishReady, false);
-  assert.equal(snapshot.portfolioPath, '.singularity/portfolio.yml');
+  assert.equal(snapshot.portfolioPath, 'singularity/portfolio.yml');
   assert.equal(snapshot.portfolio.initiativeProfiles['initiative-lite'].phases.length, 4);
   assert.equal(snapshot.portfolio.initiativeProfiles['enterprise-delivery'].phases.length, 7);
   assert.deepEqual(snapshot.initiatives, []);
@@ -75,12 +75,12 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.worldModel.repositoryOwned, true);
   assert.equal(snapshot.worldModel.views.length, 7);
   assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').structuredReferences.includes("persona 'architect' prompt"));
-  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('.singularity/prompts/worldmodel-builder.md'));
-  assert.equal(snapshot.worldModelPrompt.path, '.singularity/prompts/worldmodel-builder.md');
+  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('singularity/prompts/worldmodel-builder.md'));
+  assert.equal(snapshot.worldModelPrompt.path, 'singularity/prompts/worldmodel-builder.md');
   assert.equal(snapshot.worldModelPrompt.missing, false);
   assert.deepEqual(snapshot.repositorySkills, []);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
-  assert.equal(snapshot.agentsLock.path, '.singularity/agents.lock.yml');
+  assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.definition.sequenceGates.default, 'soft');
   assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
@@ -98,7 +98,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.telemetry.exists, false);
   assert.ok(snapshot.telemetry.setup.path.endsWith('copilot-otel.sh'));
 
-  const statePath = path.join(root, '.singularity/work-items/DESK-1/workflow.json');
+  const statePath = path.join(root, 'singularity/work-items/DESK-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
   state.phases.intake.usage = [{
     status: 'exact', source: 'copilot-otel', provider: 'github', model: 'claude-sonnet-4.6',
@@ -135,7 +135,7 @@ test('desktop snapshot exposes initiative phases, assurance, documents, telemetr
 
 test('desktop snapshot separates publishable configuration from unrelated changes', async () => {
   const root = await repository();
-  const templatePath = '.singularity/templates/feature/design.md';
+  const templatePath = 'singularity/templates/feature/design.md';
   const template = await readFile(path.join(root, templatePath), 'utf8');
   await saveDesktopFile(root, templatePath, `${template}\nDesktop configuration change.\n`);
   await writeFile(path.join(root, 'README.md'), '# Unrelated source change\n');
@@ -147,19 +147,19 @@ test('desktop snapshot separates publishable configuration from unrelated change
 
 test('desktop configuration saves validate atomically and publish scoped changes', async () => {
   const root = await repository();
-  const workflowPath = path.join(root, '.singularity/workflow.yml');
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
   const original = await readFile(workflowPath, 'utf8');
-  await assert.rejects(() => saveDesktopFile(root, '.singularity/workflow.yml', 'version: 9\n'), /validation failed/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/workflow.yml', 'version: 9\n'), /validation failed/i);
   assert.equal(await readFile(workflowPath, 'utf8'), original);
-  const portfolioPath = path.join(root, '.singularity/portfolio.yml');
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const originalPortfolio = await readFile(portfolioPath, 'utf8');
-  await assert.rejects(() => saveDesktopFile(root, '.singularity/portfolio.yml', 'version: 2\n'), /portfolio validation failed/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/portfolio.yml', 'version: 2\n'), /portfolio validation failed/i);
   assert.equal(await readFile(portfolioPath, 'utf8'), originalPortfolio);
 
-  const templatePath = '.singularity/templates/feature/design.md';
+  const templatePath = 'singularity/templates/feature/design.md';
   const template = await readFile(path.join(root, templatePath), 'utf8');
   await saveDesktopFile(root, templatePath, `${template}\nDesktop-only design guidance.\n`);
-  await assert.rejects(() => saveDesktopFile(root, '.singularity/agents.lock.yml', 'version: 1\nagents: {}\n'), /read-only/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/agents.lock.yml', 'version: 1\nagents: {}\n'), /read-only/i);
   await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
   await saveDesktopFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
@@ -172,25 +172,25 @@ test('desktop configuration saves validate atomically and publish scoped changes
 
 test('desktop rolls back world-model view deletions while YAML or Markdown still refers to the view', async () => {
   const root = await repository();
-  const workflowPath = path.join(root, '.singularity/workflow.yml');
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
   const originalWorkflow = await readFile(workflowPath, 'utf8');
   const definition = YAML.parse(originalWorkflow);
   definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'architecture');
-  await assert.rejects(() => saveDesktopFile(root, '.singularity/workflow.yml', YAML.stringify(definition)), /architecture.*not declared/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/workflow.yml', YAML.stringify(definition)), /architecture.*not declared/i);
   assert.equal(await readFile(workflowPath, 'utf8'), originalWorkflow);
 
-  const promptPath = path.join(root, '.singularity/prompts/worldmodel-builder.md');
+  const promptPath = path.join(root, 'singularity/prompts/worldmodel-builder.md');
   const originalPrompt = await readFile(promptPath, 'utf8');
-  await assert.rejects(() => saveDesktopFile(root, '.singularity/prompts/worldmodel-builder.md', `${originalPrompt}\nLoad views/unknown-governance.md.\n`), /unknown-governance.*not declared/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/prompts/worldmodel-builder.md', `${originalPrompt}\nLoad views/unknown-governance.md.\n`), /unknown-governance.*not declared/i);
   assert.equal(await readFile(promptPath, 'utf8'), originalPrompt);
 });
 
 test('desktop creates templates and only deletes them when no workflow references them', async () => {
   const root = await repository();
-  const templatePath = '.singularity/templates/custom/security-review.md';
+  const templatePath = 'singularity/templates/custom/security-review.md';
   await saveDesktopFile(root, templatePath, '# {{work.id}} — Security review\n');
   assert.equal((await deleteDesktopTemplate(root, templatePath)).deleted, true);
-  await assert.rejects(() => deleteDesktopTemplate(root, '.singularity/templates/feature/design.md'), /still referenced by/);
+  await assert.rejects(() => deleteDesktopTemplate(root, 'singularity/templates/feature/design.md'), /still referenced by/);
   await assert.rejects(() => deleteDesktopTemplate(root, 'README.md'), /restricted to/);
 });
 
@@ -208,9 +208,9 @@ test('desktop manages repository prompts and skills and exports portable YAML an
   assert.ok(snapshot.repositorySkills.some((item) => item.path === skillPath));
   const bundle = await desktopExportBundle(root);
   assert.equal(bundle.worldModelRepositoryOwned, true);
-  assert.ok(bundle.files.some((item) => item.path === '.singularity/workflow.yml'));
-  assert.ok(bundle.files.some((item) => item.path === '.singularity/portfolio.yml'));
-  assert.ok(bundle.files.some((item) => item.path === '.singularity/prompts/worldmodel-builder.md'));
+  assert.ok(bundle.files.some((item) => item.path === 'singularity/workflow.yml'));
+  assert.ok(bundle.files.some((item) => item.path === 'singularity/portfolio.yml'));
+  assert.ok(bundle.files.some((item) => item.path === 'singularity/prompts/worldmodel-builder.md'));
   assert.ok(bundle.files.some((item) => item.path === skillPath));
   assert.equal((await deleteDesktopFile(root, skillPath)).deleted, true);
   await assert.rejects(() => readDesktopFile(root, 'README.md'), /not an exportable/i);

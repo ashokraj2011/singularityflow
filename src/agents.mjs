@@ -6,7 +6,7 @@ import { isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
 
-export const AGENT_LOCK_PATH = '.singularity/agents.lock.yml';
+export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const HARD_MAX_BYTES = 10 * 1024 * 1024;

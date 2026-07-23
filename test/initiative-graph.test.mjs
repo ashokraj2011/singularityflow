@@ -23,7 +23,7 @@ async function repository() {
   run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
   await writeFile(path.join(root, 'README.md'), '# Initiative\n');
   await initializeDefinition(root);
-  const file = path.join(root, '.singularity/portfolio.yml');
+  const file = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(file, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Initiative Owner', email: 'owner@example.com' }];
   await writeFile(file, YAML.stringify(portfolio));

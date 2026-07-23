@@ -24,12 +24,12 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-v2-test-'));
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
-  const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', '.singularity'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
+  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['add', 'README.md', 'singularity'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
 }
 
 async function completeArtifact(root, workflow, phaseId) {
-  const phase = workflow.phases[phaseId]; const file = path.join(root, '.singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
+  const phase = workflow.phases[phaseId]; const file = path.join(root, 'singularity/work-items', workflow.workItem.id, phase.requiredArtifact.path);
   let text = await readFile(file, 'utf8');
   text = text.replace(/TODO:[^\n]*/g, 'matched evidence for AC-001 and SPEC-001 with exact file references and complete operational detail.');
   text = text.replace(/\bTODO\b/g, 'matched evidence');
@@ -63,7 +63,7 @@ test('persona selection changes only the local session and persists for later ac
 test('artifact-only phases reject source changes', async () => {
   const root = await repository(); const workId = 'SCOPE-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); await mkdir(path.join(root, 'src'), { recursive: true }); await writeFile(path.join(root, 'src/not-allowed.mjs'), 'export const changedTooEarly = true;\n');
   const result = flow(root, ['phase', 'publish', 'intake'], { allowFailure: true, selection: selection('feature', 'product-owner') });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /artifact-only/);
@@ -72,7 +72,7 @@ test('artifact-only phases reject source changes', async () => {
 test('publication commits sanitized Copilot telemetry under the work item and reports provider cost', async () => {
   const root = await repository(); const workId = 'TELEMETRY-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const completedAt = new Date().toISOString();
   const span = {
@@ -104,7 +104,7 @@ test('publication commits sanitized Copilot telemetry under the work item and re
   const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout);
   assert.equal(report.phases[0].models[0], 'claude-sonnet-4.6'); assert.equal(report.cost, 0.0123); assert.equal(report.costStatus, 'exact');
   const committed = execute('git', ['show', '--name-only', '--format=', 'HEAD'], root).stdout;
-  assert.match(committed, /\.singularity\/work-items\/TELEMETRY-1\/telemetry\/intake-gen1\.json/);
+  assert.match(committed, /singularity\/work-items\/TELEMETRY-1\/telemetry\/intake-gen1\.json/);
   assert.doesNotMatch(committed, /copilot-otel\.jsonl/);
   assert.equal(flow(root, ['gate']).status, 0);
 });
@@ -112,7 +112,7 @@ test('publication commits sanitized Copilot telemetry under the work item and re
 test('Copilot telemetry published before turn completion is reconciled and committed on submit', async () => {
   const root = await repository(); const workId = 'TELEMETRY-LATE-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake');
   const published = flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
@@ -159,7 +159,7 @@ test('Copilot telemetry published before turn completion is reconciled and commi
 test('next executes one valid lifecycle action at a time', async () => {
   const root = await repository(); const workId = 'NEXT-AUTO-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
   assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
@@ -182,7 +182,7 @@ test('next executes one valid lifecycle action at a time', async () => {
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
   const root = await repository(); const workId = 'FEATURE-101';
   flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const personas = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', personas[phaseId]) });
@@ -203,11 +203,11 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   assert.equal(workflow.usage.exactRecords, 7); assert.equal(workflow.usage.unavailableRecords, 0);
   assert.match(workflow.phases.design.generationCommit, /^[0-9a-f]{40}$/); assert.equal(workflow.phases.design.publicationCommit, workflow.phases.design.generationCommit);
   assert.match(workflow.resolution.sourceSha256, /^[0-9a-f]{64}$/);
-  const designArtifact = await readFile(path.join(root, '.singularity/work-items', workId, workflow.phases.design.requiredArtifact.path), 'utf8');
+  const designArtifact = await readFile(path.join(root, 'singularity/work-items', workId, workflow.phases.design.requiredArtifact.path), 'utf8');
   assert.match(designArtifact, /"generationCommit": "[0-9a-f]{40}"/); assert.match(designArtifact, /"publicationCommit": "[0-9a-f]{40}"/);
   assert.ok(workflow.phases.design.approvals[0].selfApproval); assert.equal(workflow.workItem.workType, 'feature'); assert.ok(workflow.resolution.templates['implementation-spec'].sha256);
   assert.equal(workflow.resolution.inputsMode, 'record');
-  const designInputRecord = JSON.parse(await readFile(path.join(root, '.singularity/work-items', workId, 'context/inputs-design-gen1.json'), 'utf8'));
+  const designInputRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'context/inputs-design-gen1.json'), 'utf8'));
   assert.equal(designInputRecord.inputs[0].phase, 'requirements'); assert.equal(designInputRecord.inputs[0].status, 'captured');
   assert.match(designArtifact, /singularity-flow:inputs:start/);
   const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'complete'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
@@ -219,7 +219,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
 test('bugfix profile is immutable and rejection reopens an allowed earlier phase', async () => {
   const root = await repository(); const workId = 'BUG-101';
   flow(root, ['start', workId], { selection: selection('bugfix', 'qa') });
-  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.deepEqual(workflow.phaseOrder, ['intake', 'reproduction', 'fix-design', 'fix-spec', 'implementation', 'verification', 'conformance']); assert.equal(workflow.workItem.workType, 'bugfix');
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') }); flow(root, ['submit'], { selection: selection('bugfix', 'product-owner') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.usage.unavailableRecords, 1); assert.equal(workflow.phases.intake.usage[0].status, 'unavailable');
@@ -234,9 +234,9 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
 });
 
 test('multi-approval threshold requires distinct identities while allowing persona selection', async () => {
-  const root = await repository(); const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.phases.intake.approval.minimum = 2; await writeFile(configPath, YAML.stringify(config));
+  const root = await repository(); const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.phases.intake.approval.minimum = 2; await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', configPath], root); execute('git', ['commit', '-m', 'require two intake approvals'], root);
-  const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); flow(root, ['submit'], { selection: selection('feature', 'product-owner'), actor: 'Generator' });
   const firstApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
   assert.match(firstApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);

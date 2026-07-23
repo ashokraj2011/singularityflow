@@ -22,8 +22,8 @@ function flow(root, args, options = {}) { return run(process.execPath, [bin, ...
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-documents-')); run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Document Tester'], root); run('git', ['config', 'user.email', 'documents@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Documents\n'); flow(root, ['init']);
-  const configPath = path.join(root, '.singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake']; await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', '.singularity'], root); run('git', ['commit', '-m', 'initialize'], root); return root;
+  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake']; await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', 'README.md', 'singularity'], root); run('git', ['commit', '-m', 'initialize'], root); return root;
 }
 
 test('progress and document commands upload, list, and view files, images, and Figma links', async () => {
@@ -48,16 +48,16 @@ test('progress and document commands upload, list, and view files, images, and F
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.documents, 3);
   assert.match(flow(root, ['gate']).stdout, /document integrity: 3 supporting inputs/);
 
-  const workflowFile = path.join(root, '.singularity/work-items/DOCS-1/workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); const intake = path.join(root, '.singularity/work-items/DOCS-1', workflow.phases.intake.requiredArtifact.path);
+  const workflowFile = path.join(root, 'singularity/work-items/DOCS-1/workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); const intake = path.join(root, 'singularity/work-items/DOCS-1', workflow.phases.intake.requiredArtifact.path);
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
   const publication = flow(root, ['phase', 'publish', 'intake']);
   assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
   assert.match(publication.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
-  assert.match(publication.stdout, /Path: \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
+  assert.match(publication.stdout, /Path: singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
   assert.match(publication.stdout, /SHA-256: [0-9a-f]{64}/);
-  assert.match(publication.stdout, /--- BEGIN \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  assert.match(publication.stdout, /--- BEGIN singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
   assert.match(publication.stdout, /Complete intake evidence/);
-  assert.match(publication.stdout, /--- END \.singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  assert.match(publication.stdout, /--- END singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
   const review = flow(root, ['phase', 'show', 'intake']);
   assert.match(review.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
   assert.match(review.stdout, /PHASE-INTAKE/);

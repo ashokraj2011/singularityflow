@@ -21,7 +21,7 @@ async function repository() {
   run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
   await writeFile(path.join(root, 'README.md'), '# Initiative\n');
   await initializeDefinition(root);
-  const file = path.join(root, '.singularity/portfolio.yml');
+  const file = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(file, 'utf8'));
   for (const authority of Object.values(portfolio.approvalAuthorities)) {
     authority.members = [{ name: 'Initiative Owner', email: 'owner@example.com' }];
@@ -42,7 +42,7 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
   assert.equal(enterprise.phases.find((phase) => phase.id === 'elaboration').checklist.length, 15);
   assert.equal(enterprise.phases.find((phase) => phase.id === 'delivery').checklist.find((check) => check.id === 'monitoring-healthy').freshness.validFor, '24h');
   assert.ok(enterprise.phases.every((phase) => phase.bundleApproval.allowSelfApproval));
-  assert.doesNotMatch(await readFile(path.join(root, '.singularity/portfolio.yml'), 'utf8'), /brokerage/i);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /brokerage/i);
 });
 
 test('portfolio validation rejects bad references, assurance, conditions, and empty profiles', () => {
@@ -70,7 +70,7 @@ test('portfolio validation rejects bad references, assurance, conditions, and em
 test('initiative world-model views must be declared by the repository workflow', async () => {
   const root = await repository();
   const portfolio = await loadPortfolio(root);
-  const definition = YAML.parse(await readFile(path.join(root, '.singularity/workflow.yml'), 'utf8'));
+  const definition = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
   assert.doesNotThrow(() => validatePortfolioWorldModelViews(portfolio, definition));
   portfolio.initiativePhases.define.worldModelViews.push('undeclared-view');
   assert.throws(
@@ -103,7 +103,7 @@ test('initiative creation snapshots the profile and prepares phase-specific outp
 
 test('initiative start requires configured local authority membership', async () => {
   const root = await repository();
-  const file = path.join(root, '.singularity/portfolio.yml');
+  const file = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(file, 'utf8'));
   portfolio.approvalAuthorities['product-approvers'].members = [];
   await writeFile(file, YAML.stringify(portfolio));

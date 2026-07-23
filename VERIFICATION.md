@@ -22,7 +22,7 @@ singularity-flow --version  → 0.8.0
 sflow --version             → 0.8.0
 ```
 
-The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `.singularity` work items.
+The package dry run must include `bin/`, `src/`, `plugin/`, `templates/`, `schemas/`, `examples/`, `HELP.md`, and the project documentation. It must not include test fixtures, `.git`, or local `singularity` work items.
 
 ## Desktop installer checks
 
@@ -39,7 +39,7 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 
 ## Configuration checks
 
-- `singularity-flow init` creates `.singularity/workflow.yml`, all referenced templates, all persona prompts, and the world-model builder prompt without overwriting edited files.
+- `singularity-flow init` creates `singularity/workflow.yml`, all referenced templates, all persona prompts, and the world-model builder prompt without overwriting edited files.
 - Invalid YAML, unknown phase references, invalid persona capabilities, and missing templates fail clearly.
 - Work-type template overrides take precedence over phase defaults.
 - `start` snapshots the work type, resolved phases, configuration hash, and template hashes.
@@ -48,7 +48,7 @@ For a disposable clean clone, run `npm run install:local` and verify it fast-for
 
 ## Initiative orchestration checks
 
-- Missing `.singularity/portfolio.yml` remains inert and performs no initiative network access.
+- Missing `singularity/portfolio.yml` remains inert and performs no initiative network access.
 - Both starter profiles validate, resolve ordered phase contracts, and snapshot portfolio/template/repository/authority hashes.
 - Initiative branches exactly match IDs; every mutation commits and pushes, while failed publication blocks later transitions until sync.
 - Must, optional, and conditional checks enforce accepted assurance and freshness. Presence-only evidence cannot satisfy a Must item unless explicitly configured.
@@ -118,7 +118,7 @@ copilot skill list
 
 Run a feature and bugfix through every configured phase. For each generation verify:
 
-- Artifact location is `.singularity/work-items/<ID>/artifacts/<phase>/`.
+- Artifact location is `singularity/work-items/<ID>/artifacts/<phase>/`.
 - Managed metadata includes the correct actor, persona, generation, hashes, usage, and approvals.
 - Commit subject includes `[ID][phase:<id>][generated:<n>]`.
 - The work branch is pushed before the command reports success.

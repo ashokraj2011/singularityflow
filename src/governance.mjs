@@ -21,7 +21,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (!config._legacy && workflow.resolution.configSha256) {
-    const current = await snapshot(path.join(root, '.singularity/workflow.yml'));
+    const current = await snapshot(path.join(root, 'singularity/workflow.yml'));
     if (current.sha256 !== workflow.resolution.configSha256) errors.push('workflow.yml differs from the immutable work-item configuration snapshot');
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
       const present = await snapshot(path.join(root, template.path));
@@ -82,20 +82,20 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const telemetryPath = (phase.telemetry ?? []).find((item) => item.generation === generation)?.path;
         if (found && telemetryPath && run('git', ['cat-file', '-e', `${found[0]}:${telemetryPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`telemetry audit was not committed with ${phaseId} generation ${generation}`);
       }
-      const agentContextRelative = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
+      const agentContextRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {
         if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote agent context was not committed with ${phaseId} generation ${generation}`);
         else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
-        const outputRecord = path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
+        const outputRecord = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
         if (!(await exists(path.join(root, outputRecord)))) errors.push(`remote output provenance is missing: ${outputRecord}`);
         else if (found && run('git', ['cat-file', '-e', `${found[0]}:${outputRecord}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote output provenance was not committed with ${phaseId} generation ${generation}`);
       }
     }
     const inputIntegrity = await verifyInputsIntegrity(root, workflow, phase, {
       itemDirectory: workDir(root, config, workflow.workItem.id),
-      itemRelative: path.posix.join(config.workItemRoot ?? '.singularity/work-items', workflow.workItem.id)
+      itemRelative: path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id)
     });
     errors.push(...inputIntegrity.errors); warnings.push(...inputIntegrity.warnings); passes.push(...inputIntegrity.passes);
     const agentIntegrity = await verifyAgentIntegrity(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });

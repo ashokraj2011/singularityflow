@@ -134,6 +134,8 @@ checked.push('examples/workflow-with-quality-gates.yml');
 const workflowTemplate = validateDefinition(YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8')));
 if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix) fail('workflow template must include feature and bugfix profiles');
 if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.architect) fail('workflow template must include configurable personas');
+if (workflowTemplate.workItemRoot !== 'singularity/work-items') fail('workflow template must use the visible singularity/work-items root');
+if (workflowTemplate.templatesRoot !== 'singularity/templates' || workflowTemplate.personaPromptsRoot !== 'singularity/personas') fail('workflow template must keep editable resources in the visible singularity folder');
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));
@@ -141,6 +143,7 @@ validatePortfolioWorldModelViews(portfolioTemplate, workflowTemplate);
 if (!portfolioTemplate.initiativeProfiles?.['initiative-lite'] || !portfolioTemplate.initiativeProfiles?.['enterprise-delivery']) fail('portfolio template must include initiative-lite and enterprise-delivery profiles');
 if (portfolioTemplate.initiativeProfiles['initiative-lite'].phases.length !== 4) fail('initiative-lite must contain four phases');
 if (portfolioTemplate.initiativeProfiles['enterprise-delivery'].phases.length !== 7) fail('enterprise-delivery must contain seven phases');
+if (portfolioTemplate.initiativeRoot !== 'singularity/initiatives') fail('portfolio template must use the visible singularity/initiatives root');
 const portfolioSource = await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8');
 if (/brokerage/i.test(portfolioSource)) fail('portfolio template contains organization-specific terminology');
 checked.push('templates/portfolio.yml');

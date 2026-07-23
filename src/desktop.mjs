@@ -29,7 +29,7 @@ import { deriveInitiativeReport, initiativeNextActions } from './initiative-repo
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
-const DEFAULT_WORLD_MODEL_PROMPT = '.singularity/prompts/worldmodel-builder.md';
+const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
 const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
 
 async function textFiles(root, relativeRoot, { extensions = null } = {}) {
@@ -68,7 +68,7 @@ async function worldModelPrompt(root, definition) {
 }
 
 async function workItems(root, definition) {
-  const base = path.join(root, definition.workItemRoot ?? '.singularity/work-items');
+  const base = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
   if (!(await exists(base))) return [];
   const results = [];
   for (const entry of await readdir(base, { withFileTypes: true })) {
@@ -159,7 +159,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const agents = await discoverAgents(root);
   const telemetry = await copilotTelemetryStatus(root);
   const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
-  const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model');
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const builderPrompt = await worldModelPrompt(root, definition);
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
@@ -228,9 +228,9 @@ function allowedConfigurationPath(definition, relative, portfolio = null) {
 }
 
 function exportablePath(definition, relative, portfolio = null) {
-  const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model').replace(/\/$/, '');
-  const workRoot = posix(definition.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '');
-  const initiativeRoot = posix(portfolio?.initiativeRoot ?? '.singularity/initiatives').replace(/\/$/, '');
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
+  const workRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
+  const initiativeRoot = posix(portfolio?.initiativeRoot ?? 'singularity/initiatives').replace(/\/$/, '');
   return allowedConfigurationPath(definition, relative, portfolio)
     || relative === AGENT_LOCK_PATH
     || relative.startsWith(`${modelRoot}/`)
@@ -327,7 +327,7 @@ export async function desktopExportBundle(root) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
-  const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model');
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const prompt = await worldModelPrompt(root, definition);
   const groups = [
     [{ path: WORKFLOW_PATH, content: await readFile(path.join(root, WORKFLOW_PATH), 'utf8') }],

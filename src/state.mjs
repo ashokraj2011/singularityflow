@@ -29,8 +29,8 @@ export function validateId(config, id) {
   if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(id)) throw new SingularityFlowError(`Work ID ${id} does not match ${config.idPattern}.`);
 }
 
-export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? '.singularity/work-items', id); }
-export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? '.singularity/work-items', id)); }
+export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? 'singularity/work-items', id); }
+export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', id)); }
 export function workflowPath(root, config, id) { return path.join(workDir(root, config, id), 'workflow.json'); }
 export function statusPath(root, config, id) { return path.join(workDir(root, config, id), 'STATUS.md'); }
 export function sourcePath(root, config, id) { return path.join(workDir(root, config, id), 'source.json'); }
@@ -383,8 +383,8 @@ export async function registerArtifact(root, workflow, candidate, { phaseId, kin
 }
 
 function ignored(config, workflow, relativePath) {
-  if ([WORKFLOW_PATH, '.singularity/config.json', '.singularity/worldmodel.json'].includes(relativePath)) return true;
-  if (relativePath.startsWith('.singularity/world-model/')) return true;
+  if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
+  if (relativePath.startsWith('singularity/world-model/')) return true;
   if (['.git/', 'node_modules/', '.idea/', '.vscode/'].some((prefix) => relativePath.startsWith(prefix))) return true;
   const itemRoot = workDirRelative(config, workflow.workItem.id);
   return relativePath.startsWith(`${itemRoot}/`) && !relativePath.startsWith(`${itemRoot}/artifacts/`);
@@ -475,7 +475,7 @@ function generationCommit(root, workflow, phase, number = phase.generation) {
 
 export async function sourceTreeHash(root) {
   const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...changedFiles(root)])].filter((file) => !file.startsWith('.singularity/') && !file.startsWith('.git/') && !file.startsWith('node_modules/')).sort();
+  const files = [...new Set([...tracked, ...changedFiles(root)])].filter((file) => !file.startsWith('singularity/') && !file.startsWith('.git/') && !file.startsWith('node_modules/')).sort();
   const hash = createHash('sha256');
   for (const file of files) {
     if (!existsSync(path.join(root, file))) continue;

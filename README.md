@@ -35,7 +35,7 @@ The package contains:
 npm install --global ./singularity-flow-0.8.0.tgz
 cd your-repository
 singularity-flow init
-git add .singularity
+git add singularity
 git commit -m "Initialize Singularity Flow"
 git push
 ```
@@ -43,7 +43,7 @@ git push
 Initialization installs:
 
 ```text
-.singularity/
+singularity/
 ├── workflow.yml
 ├── personas/
 │   ├── architect.md
@@ -61,7 +61,9 @@ Initialization installs:
 
 These files are ordinary reviewed repository files and remain fully editable.
 
-Initialization also installs `.singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
+Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
+
+The leading dot was intentionally removed: repository-owned configuration, prompts, templates, artifacts, and workflow state now live in the visible `singularity/` folder. Private machine/session data remains under `.git/singularity-flow/` and `~/.singularity-flow/`.
 
 Start an initiative from GitHub Copilot:
 
@@ -71,6 +73,8 @@ Start an initiative from GitHub Copilot:
 /sflow-initiative-next
 /sflow-initiative-status
 ```
+
+Starting uses `main` (or the configured default branch) only as the source baseline for the new initiative branch. It does not merge anything into `main`; completed code still follows the repository's normal pull-request and merge process.
 
 ## Built-in help
 
@@ -145,7 +149,7 @@ export NPM_TOKEN="your-artifactory-token"
 
 The selected registry is used for both `npm ci` and the global tarball installation. The script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
-The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper explicitly selects the file exporter, selects the active repository dynamically, and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
+The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper explicitly selects the file exporter, selects the active repository dynamically, and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
 
 The single self-contained `install.sh` performs:
 
@@ -167,7 +171,7 @@ The script refuses a checkout with uncommitted changes and never resets, rebases
 
 ## Configuration
 
-`.singularity/workflow.yml` is the definition for new work items. It contains:
+`singularity/workflow.yml` is the definition for new work items. It contains:
 
 - `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, input, and approval policy.
 - `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
@@ -201,7 +205,7 @@ With no source flags, `start` first asks whether intake comes from a Jira story 
 
 The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live YAML-derived intake, workflow, and persona options; Copilot presents those options through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval uses `singularity-flow choices begin approve <WORK-ID> --fetch --json` and additionally binds the receipt to the submitted phase, generation, and artifact hashes while requiring the reviewer to type the exact phase ID. The completed token is passed as `--selection-receipt`, expires after 15 minutes, is bound to the work ID, repository HEAD, and Copilot session when available, and is deleted after one use. It never creates a commit by itself, never contains Jira credentials, and cannot be substituted for another work item or changed repository state.
 
-New repositories enable the session hook policy in `.singularity/workflow.yml`:
+New repositories enable the session hook policy in `singularity/workflow.yml`:
 
 ```yaml
 session:
@@ -214,7 +218,7 @@ session:
 
 `/sflow-session` applies this policy in order. For each new Copilot session it asks for the exact work ID or Jira ID, lists committed work-item branches from the configured Git remote, fetches the remote, checks out a missing local tracking branch, and fast-forwards to the exact remote head. Only then does it ask for or reuse a persona. A resumed conversation with the same Copilot session ID retains the binding. `/sflow-persona` changes the persona at any time.
 
-The attach path is deliberately conservative: dirty, missing, malformed, ahead, or diverged branches stop with a clear message. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `.singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.
+The attach path is deliberately conservative: dirty, missing, malformed, ahead, or diverged branches stop with a clear message. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.
 
 Reviewers can open `/sflow-inbox` or run `singularity-flow inbox` to fetch a repository-wide queue of committed phases awaiting approval. The inbox reads workflow state directly from remote work-item branches without checking each one out. It shows the work/Jira ID, title, phase, generation, approval threshold, waiting time, allowed reviewer personas, artifact path, self-approval warning, and exact remote commit. Selecting an item uses the same conservative session-attachment flow before displaying the complete phase documents; it never approves automatically.
 
@@ -338,7 +342,7 @@ Durations include nights and weekends; they are not business-hours or developer-
 
 ## Supporting documents and designs
 
-Supporting inputs are managed under `.singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
+Supporting inputs are managed under `singularity/work-items/<WORK-ID>/inputs/` and cataloged in `documents.json`. Uploads are allowed only in the initial phases configured by `documents.allowedPhases`; the starter profile allows intake, requirements/design/specification, and the corresponding bugfix phases.
 
 GitHub Copilot CLI can also load the bundled experimental Documents extension. Enable experimental features with `/experimental on`, start a fresh session, then use `/documents` for a searchable canvas or `/documents view PHASE-DESIGN` to open a specific artifact. The extension embeds a fresh document snapshot directly in the canvas; run `/documents` again after generating or uploading files to reload it. Hosts without canvas rendering automatically fall back to terminal output. Copilot currently does not allow plugins to add another built-in home tab, so the canvas is the supported tab-like document browser.
 
@@ -384,13 +388,13 @@ singularity-flow submit
 Artifacts live under:
 
 ```text
-.singularity/work-items/<WORK-ID>/artifacts/<phase>/
-.singularity/work-items/<WORK-ID>/inputs/DOC-nnn/<filename>
+singularity/work-items/<WORK-ID>/artifacts/<phase>/
+singularity/work-items/<WORK-ID>/inputs/DOC-nnn/<filename>
 ```
 
 Managed metadata records the work type, phase, generation, actor, persona, source/config/template hashes, token usage, commit information, and approval history. Do not edit `workflow.json`, `STATUS.md`, approval records, or the managed metadata block manually.
 
-Lifecycle commands normally follow `prepare/edit → publish → submit → approve/reject`. Named sequence gates in `.singularity/workflow.yml` are independently configurable as `hard` or `soft`, globally and per work type. Hard gates exit with code `2` before mutation. Soft gates show the same state, reason, and exact next command, then require a human to type `continue`; non-interactive use stops safely. Confirmed exceptions are attributed to the authenticated identity and selected persona, recorded in workflow history and artifact metadata, and exposed in status, reports, and governance warnings. Missing gate configuration defaults to hard, and the resolved policy is immutable for each work item. See `singularity-flow help sequencing` for all gate IDs and an example.
+Lifecycle commands normally follow `prepare/edit → publish → submit → approve/reject`. Named sequence gates in `singularity/workflow.yml` are independently configurable as `hard` or `soft`, globally and per work type. Hard gates exit with code `2` before mutation. Soft gates show the same state, reason, and exact next command, then require a human to type `continue`; non-interactive use stops safely. Confirmed exceptions are attributed to the authenticated identity and selected persona, recorded in workflow history and artifact metadata, and exposed in status, reports, and governance warnings. Missing gate configuration defaults to hard, and the resolved policy is immutable for each work item. See `singularity-flow help sequencing` for all gate IDs and an example.
 
 ## Approved phase inputs
 
@@ -414,7 +418,7 @@ Use `singularity-flow inputs design --dry-run` to inspect provenance without wri
 With installer-managed Copilot telemetry, `prepare` opens a generation capture window. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sflow-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
 
 ```text
-.singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
+singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
 ```
 
 For another provider, or when supplying a trusted external usage record, pass it explicitly:
@@ -522,7 +526,7 @@ singularity-flow agents sync architecture
 singularity-flow agents status architecture
 ```
 
-First trust and updates require exact agent-name confirmation. `.singularity/agents.lock.yml` pins hashes; sync only verifies and caches them. Remote skills are scoped prompt context, remote templates require an explicit `agent:<agent>/<resource>` workflow reference, and generated Markdown stays under the current phase artifact directory. See [HELP.md](HELP.md#remote-agent-markdown) for table schemas and refresh behavior.
+First trust and updates require exact agent-name confirmation. `singularity/agents.lock.yml` pins hashes; sync only verifies and caches them. Remote skills are scoped prompt context, remote templates require an explicit `agent:<agent>/<resource>` workflow reference, and generated Markdown stays under the current phase artifact directory. See [HELP.md](HELP.md#remote-agent-markdown) for table schemas and refresh behavior.
 
 ## Useful commands
 
@@ -564,11 +568,11 @@ First trust and updates require exact agent-name confirmation. `.singularity/age
 
 ## Migration
 
-From a repository using `.singularity/config.json`:
+From a repository using `singularity/config.json`:
 
 ```bash
 singularity-flow migrate-config
-git add .singularity/workflow.yml .singularity/templates .singularity/personas .singularity/work-items
+git add singularity/workflow.yml singularity/templates singularity/personas singularity/work-items
 git commit -m "Migrate Singularity Flow configuration"
 git push
 ```

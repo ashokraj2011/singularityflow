@@ -61,6 +61,9 @@ h1, h2, h3, p { text-wrap: pretty; }
 .repo-card strong { color: var(--ink); font-size: 12px; }
 .repo-card small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .repo-card button { border: 0; color: var(--muted); background: transparent; cursor: pointer; }
+.repo-switcher { position: relative; }
+.repository-menu { position: absolute; z-index: 30; bottom: calc(100% + 9px); left: 0; width: 440px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px; padding: 12px; background: #fff; box-shadow: 0 18px 50px rgba(35,32,27,.2); }
+.repository-browse { width: 100%; margin-top: 10px; }
 .connection { display: flex; align-items: center; gap: 7px; padding: 10px 5px 0; color: var(--muted); font-size: 10px; }
 .connection span { width: 7px; height: 7px; border-radius: 50%; background: #56a98a; box-shadow: 0 0 0 3px rgba(86,169,138,.12); }
 .connection.dirty span { background: #e2a33c; box-shadow: 0 0 0 3px rgba(226,163,60,.12); }
@@ -381,6 +384,35 @@ textarea { padding: 9px; resize: vertical; }
 .welcome .brand.large { position: absolute; top: 28px; left: 30px; min-height: 62px; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: rgba(255,255,255,.82); box-shadow: 0 8px 24px rgba(35,32,27,.08); }
 .welcome .brand.large strong { color: var(--ink); }
 .welcome .brand.large small { color: var(--muted); }
+.welcome-content { width: min(880px, calc(100vw - 80px)); max-height: calc(100vh - 110px); margin-top: 65px; padding: 28px 34px 34px; overflow: auto; border: 1px solid rgba(221,216,206,.8); border-radius: 24px; background: rgba(255,255,255,.82); box-shadow: 0 22px 60px rgba(35,32,27,.1); backdrop-filter: blur(12px); }
+.welcome-content > .empty { max-width: 680px; margin: 0 auto 28px; }
+.welcome-content > .empty h2 { margin-top: 18px; font-size: 36px; }
+.recent-repositories { width: 100%; border-top: 1px solid var(--line); padding-top: 22px; text-align: left; }
+.recent-repositories > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 11px; }
+.recent-repositories > header div { display: grid; gap: 2px; }
+.recent-repositories > header h3 { margin: 0; color: var(--ink); font-size: 17px; }
+.recent-repositories > header > span { color: var(--subtle); font-size: 11px; }
+.recent-repository-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.recent-repository { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 13px; background: #fff; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.recent-repository:hover { border-color: var(--line-strong); box-shadow: 0 8px 22px rgba(35,32,27,.08); transform: translateY(-1px); }
+.recent-repository.current { border-color: rgba(47,124,50,.35); background: #fbfdf9; }
+.recent-repository.unavailable { background: var(--surface-muted); opacity: .72; }
+.recent-repository-open { width: 100%; min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border: 0; border-radius: inherit; padding: 13px 35px 13px 13px; text-align: left; background: transparent; cursor: pointer; }
+.recent-repository-open:disabled { cursor: not-allowed; }
+.recent-repository-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--ink); font-size: 15px; }
+.recent-repository-copy { min-width: 0; display: grid; }
+.recent-repository-copy strong, .recent-repository-copy small, .recent-repository-copy em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-repository-copy strong { color: var(--ink); font-size: 13px; }
+.recent-repository-copy small { margin-top: 2px; color: var(--muted); font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
+.recent-repository-copy em { margin-top: 4px; color: var(--subtle); font-size: 10px; font-style: normal; }
+.recent-repository-arrow { color: var(--subtle); font-size: 16px; }
+.recent-repository-forget { position: absolute; top: 7px; right: 7px; width: 23px; height: 23px; border: 0; border-radius: 50%; color: var(--subtle); background: transparent; cursor: pointer; }
+.recent-repository-forget:hover { color: var(--red-700); background: var(--red-100); }
+.recent-repositories.compact { border: 0; padding: 0; }
+.recent-repositories.compact > header { margin-bottom: 9px; }
+.recent-repositories.compact .recent-repository-list { max-height: 310px; grid-template-columns: 1fr; overflow: auto; }
+.recent-repositories.compact .recent-repository-open { padding-block: 10px; }
+.recent-repositories.compact .recent-repository-icon { width: 31px; height: 31px; }
 .empty { max-width: 560px; margin: 92px auto; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .empty-mark { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 12px; color: #fff; background: #181817; box-shadow: 0 8px 20px rgba(35,32,27,.16); font-size: 21px; font-weight: 700; }
 .empty h2 { margin: 22px 0 10px; color: var(--navy-950); font-family: var(--font-sans); font-size: 40px; font-weight: 760; letter-spacing: -.05em; line-height: 1.03; }

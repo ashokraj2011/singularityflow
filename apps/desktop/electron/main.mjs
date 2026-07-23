@@ -4,10 +4,17 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
+import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
+
+function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
+
+async function recentRepositories() {
+  return (await readRecentRepositories(recentRepositoriesPath())).map((entry) => ({ ...entry, available: existsSync(entry.path) }));
+}
 
 function cliPath() {
   const root = app.isPackaged ? path.join(process.resourcesPath, 'cli') : path.resolve(here, '../../..');
@@ -49,11 +56,28 @@ async function snapshot(repository, workId = null) {
   return result;
 }
 
+async function openRepository(repository) {
+  const root = await validateRepositoryDirectory(repository);
+  const result = await snapshot(root);
+  await rememberRecentRepository(recentRepositoriesPath(), {
+    path: result.repository.root,
+    name: path.basename(result.repository.root),
+    branch: result.repository.branch
+  });
+  return result;
+}
+
 function registerHandlers() {
   ipcMain.handle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;
-    return snapshot(await validateRepositoryDirectory(result.filePaths[0]));
+    return openRepository(result.filePaths[0]);
+  });
+  ipcMain.handle('repository:recent', () => recentRepositories());
+  ipcMain.handle('repository:open', (_event, { repository }) => openRepository(repository));
+  ipcMain.handle('repository:forget', async (_event, { repository }) => {
+    await forgetRecentRepository(recentRepositoriesPath(), repository);
+    return recentRepositories();
   });
   ipcMain.handle('repository:snapshot', (_event, { repository, workId }) => snapshot(path.resolve(repository), workId));
   ipcMain.handle('inbox:refresh', async (_event, { repository }) => {

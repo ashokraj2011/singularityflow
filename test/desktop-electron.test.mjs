@@ -45,6 +45,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
   assert.match(source, />＋ Workflow</);
   assert.match(source, />＋ New stage</);
   assert.match(source, /Artifact path/);
@@ -79,8 +80,20 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Waiting for Copilot export/);
   assert.match(source, /pending export/);
   assert.match(source, /No estimate shown/);
+  assert.match(source, /Recent repositories/);
+  assert.match(source, /Saved locations/);
+  assert.match(source, /Open another repository/);
+  assert.match(source, /Remove .* from recent repositories/);
   assert.match(styles, /\.cost-dashboard/);
   assert.match(styles, /\.cost-breakdown-grid/);
+  assert.match(styles, /\.recent-repositories/);
+  assert.match(styles, /\.repository-menu/);
+  assert.match(preload, /recentRepositories/);
+  assert.match(preload, /openRepository/);
+  assert.match(preload, /forgetRepository/);
+  assert.match(main, /repository:recent/);
+  assert.match(main, /repository:open/);
+  assert.match(main, /repository:forget/);
   assert.match(preload, /deleteTemplate/);
   assert.match(preload, /refreshInbox/);
   assert.match(preload, /attachInboxItem/);

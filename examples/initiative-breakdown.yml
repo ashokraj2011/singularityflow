@@ -1,0 +1,30 @@
+version: 1
+initiativeId: INIT-2026-001
+
+epics:
+  - id: EPIC-001
+    title: Mobile customer experience
+    stories:
+      - id: API-201
+        title: Publish customer summary
+        repository: api
+        blocking: true
+        suggestedWorkType: feature
+
+      - id: MOB-101
+        title: Render customer summary
+        repository: mobile
+        blocking: true
+        suggestedWorkType: figma-mobile
+        dependsOn:
+          - story: API-201
+            requiredPhase: implementation-spec
+        consumesContracts:
+          - id: customer-api
+            version: 2
+
+      - id: OBS-301
+        title: Add customer journey dashboard
+        repository: platform
+        blocking: false
+        suggestedWorkType: chore

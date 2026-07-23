@@ -1,5 +1,29 @@
 # Singularity Flow Lite 0.8.0 architecture
 
+## Initiative layer
+
+The optional initiative layer uses `.singularity/portfolio.yml` and a lead branch named exactly after the initiative ID. It does not alter the existing `.singularity/work-items` runtime.
+
+```mermaid
+flowchart TB
+  P["portfolio.yml"] --> R["Immutable initiative resolution"]
+  R --> O["Phase outputs"]
+  R --> C["Checklist contracts"]
+  O --> B["Exact phase bundle hash"]
+  C --> E["Append-only evidence"]
+  E --> B
+  K["Versioned interface contracts"] --> B
+  S["Repository story milestones"] --> B
+  B --> A["Configured-local approvals"]
+  A --> N["Next initiative phase"]
+```
+
+Evidence, approvals, and invalidations are canonical JSON named by SHA-256. A justification graph links outputs, checks, evidence, approvals, contracts, and story dependencies. Regeneration, rejection, expired evidence, contract changes, and child regression invalidate only the transitive consumer cone.
+
+Cross-repository materialization uses managed clones under the lead repository’s Git directory, safe branch attachment, committed story seeds, normal fast-forward pushes, and a resumable journal. Jira creation is optional; Git remains canonical.
+
+See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
+
 ## System boundary
 
 Singularity Flow separates probabilistic generation from deterministic lifecycle control:

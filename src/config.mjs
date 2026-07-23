@@ -289,6 +289,7 @@ export async function initializeDefinition(root) {
   const wrote = [];
   const mappings = [
     ['workflow.yml', WORKFLOW_PATH],
+    ['portfolio.yml', '.singularity/portfolio.yml'],
     ['artifacts', '.singularity/templates'],
     ['personas', '.singularity/personas'],
     ['worldmodel-builder.md', '.singularity/prompts/worldmodel-builder.md']

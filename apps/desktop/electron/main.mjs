@@ -50,8 +50,13 @@ function portableName(value) {
   return String(value ?? '').toLowerCase().replace(/\.md$/i, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'imported-skill';
 }
 
-async function snapshot(repository, workId = null) {
-  const result = await invokeCli(repository, ['desktop', 'snapshot', ...(workId ? [workId] : []), '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+async function snapshot(repository, workId = null, initiativeId = null) {
+  const result = await invokeCli(repository, [
+    'desktop', 'snapshot',
+    ...(workId ? [workId] : []),
+    ...(initiativeId ? ['--initiative', initiativeId] : []),
+    '--json'
+  ], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   activeRepository = path.resolve(result.repository.root);
   return result;
 }
@@ -79,7 +84,7 @@ function registerHandlers() {
     await forgetRecentRepository(recentRepositoriesPath(), repository);
     return recentRepositories();
   });
-  ipcMain.handle('repository:snapshot', (_event, { repository, workId }) => snapshot(path.resolve(repository), workId));
+  ipcMain.handle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(path.resolve(repository), workId, initiativeId));
   ipcMain.handle('inbox:refresh', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const approvalInbox = await invokeCli(root, ['inbox', '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });

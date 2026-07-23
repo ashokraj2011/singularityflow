@@ -67,6 +67,36 @@ The normal phase loop is:
 
 Use `/sflow-progress` for deterministic completion and `/sflow-report` for timing, waiting, rework, and token metrics.
 
+## Multi-repository initiatives
+
+Initiative orchestration is an opt-in layer above repository story workflows. `.singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.
+
+Operate an initiative inside GitHub Copilot:
+
+```text
+/sflow-initiative-start INIT-2026-001
+/sflow-initiative-phase
+/sflow-initiative-next
+/sflow-initiative-status
+/sflow-initiative-documents
+/sflow-initiative-checklist
+/sflow-initiative-evidence
+/sflow-initiative-materialize
+/sflow-initiative-approve
+```
+
+Start and approval use Copilot selectable options and one-time receipts when persistent terminal input is unavailable. Personas control prompt perspective; they never grant initiative approval authority. Authority comes from normalized local Git emails configured in `approvalAuthorities`, and reports label this `configured-local` rather than cryptographic identity.
+
+`/sflow-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected persona prompt → required repository world-model views → active-agent remote skill Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, publication is blocked when the prompt, world model, or an approved input is missing or changed.
+
+Every generation, evidence record, approval, rejection, materialization, synchronization, and transition is committed and pushed to the exact initiative branch. Append-only evidence may replay after a concurrent append; approvals and lifecycle transitions always recompute against the new branch head.
+
+Use `singularity-flow initiative materialize --dry-run` before creating story branches. The real operation requires exact initiative-ID confirmation. Story seeds recommend a work type and pin approved initiative inputs/contracts without bypassing the contributor’s interactive work-type and persona selection.
+
+Flow Studio’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
+
+See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
+
 ## How the workflow works
 
 The repository owns the process in `.singularity/workflow.yml`. A work type selects an ordered phase sequence. Each phase selects an artifact template, world-model views, write scope, quality checks, suggested personas, approval personas, threshold, and allowed rejection targets.

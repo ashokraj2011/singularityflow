@@ -226,6 +226,41 @@ test('inputs skill previews and renders approved phase dataflow', async () => {
   assert.match(content, /managed input block/);
 });
 
+test('initiative Copilot skills expose orchestration without persona authority shortcuts', async () => {
+  const names = [
+    'sflow-initiative-start',
+    'sflow-initiative-phase',
+    'sflow-initiative-next',
+    'sflow-initiative-status',
+    'sflow-initiative-checklist',
+    'sflow-initiative-documents',
+    'sflow-initiative-evidence',
+    'sflow-initiative-materialize',
+    'sflow-initiative-approve'
+  ];
+  for (const name of names) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /GitHub Copilot|Copilot/, `${name} must target Copilot`);
+    assert.match(content, /singularity-flow initiative/, `${name} must use the initiative CLI`);
+    assert.doesNotMatch(content, /\bCodex\b/, `${name} must not describe a Codex integration`);
+  }
+  const start = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-start', 'SKILL.md'), 'utf8');
+  assert.match(start, /initiative choices begin start <INIT-ID> --json/);
+  assert.match(start, /ask_user/);
+  assert.match(start, /Never infer/);
+  const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-approve', 'SKILL.md'), 'utf8');
+  assert.match(approve, /configured-local/);
+  assert.match(approve, /does not grant approval authority/);
+  assert.match(approve, /Every approval creates and pushes its own commit/);
+  const documents = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-documents', 'SKILL.md'), 'utf8');
+  assert.match(documents, /reproduce every generated text document in full/);
+  assert.match(documents, /Shell\/tool block is collapsible/);
+  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-initiative-phase', 'SKILL.md'), 'utf8');
+  assert.match(phase, /initiative context/);
+  assert.match(phase, /repository world-model views/);
+  assert.match(phase, /Do not approve automatically/);
+});
+
 test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {
   const calls = [];
   const execute = (command, args, options) => {

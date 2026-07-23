@@ -16,6 +16,16 @@ import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
 import { deriveReport } from './report.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
+import {
+  loadPortfolio, PORTFOLIO_PATH, validatePortfolio,
+  validatePortfolioWorldModelViews
+} from './initiative-config.mjs';
+import {
+  initiativeDir, initiativeProgress, listInitiatives, loadInitiative
+} from './initiative-state.mjs';
+import { evaluateInitiativePhase } from './initiative-evidence.mjs';
+import { interfaceContractStatus } from './initiative-contracts.mjs';
+import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -83,8 +93,8 @@ async function workItems(root, definition) {
   return results.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
 }
 
-function configurationChangeScope(definition, changes) {
-  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file));
+function configurationChangeScope(definition, portfolio, changes) {
+  const configurationChanges = changes.filter((file) => allowedConfigurationPath(definition, file, portfolio));
   const unrelatedChanges = changes.filter((file) => !configurationChanges.includes(file));
   return {
     configurationChanges,
@@ -93,13 +103,46 @@ function configurationChangeScope(definition, changes) {
   };
 }
 
-export async function desktopSnapshot(root, requestedWorkId = null) {
+async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
+  if (!portfolio || !initiativeId) return null;
+  const { initiative } = await loadInitiative(root, initiativeId, portfolio);
+  const phaseId = initiative.currentPhase ?? initiative.phaseOrder.at(-1);
+  const phaseGate = phaseId ? await evaluateInitiativePhase(root, portfolio, initiative, phaseId) : null;
+  const directory = initiativeDir(root, portfolio, initiativeId);
+  const documents = [];
+  for (const currentPhase of initiative.phaseOrder) {
+    for (const output of Object.values(initiative.phases[currentPhase].outputs)) {
+      const absolute = path.join(directory, output.path);
+      const renderable = ['markdown', 'yaml', 'interface-contract'].includes(output.kind);
+      documents.push({
+        ...output,
+        phase: currentPhase,
+        repositoryPath: posix(path.relative(root, absolute)),
+        content: renderable && await exists(absolute) ? await readFile(absolute, 'utf8') : null
+      });
+    }
+  }
+  return {
+    state: initiative,
+    progress: initiativeProgress(initiative),
+    report: await deriveInitiativeReport(root, initiativeId),
+    phaseGate,
+    contracts: await interfaceContractStatus(root, initiativeId),
+    nextActions: await initiativeNextActions(root, initiativeId),
+    documents
+  };
+}
+
+export async function desktopSnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const items = await workItems(root, definition);
+  const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
   const currentBranch = branch(root);
   const changes = changedFiles(root);
-  const changeScope = configurationChangeScope(definition, changes);
+  const changeScope = configurationChangeScope(definition, portfolio, changes);
   const selectedId = requestedWorkId ?? items.find((item) => item.branch === currentBranch)?.id ?? null;
+  const selectedInitiativeId = requestedInitiativeId ?? initiatives.find((item) => item.branch === currentBranch)?.id ?? null;
   let workflow = null;
   let progress = null;
   let documents = [];
@@ -121,6 +164,7 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
+  const portfolioText = portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null;
   return {
     schemaVersion: 1,
     repository: { root, branch: currentBranch, changes, ...changeScope },
@@ -128,6 +172,9 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
+    portfolio,
+    portfolioPath: PORTFOLIO_PATH,
+    portfolioText,
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
@@ -150,6 +197,9 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
     agentStatus: await agentStatus(root),
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') : '# No remote agents are trusted yet.\n' },
     workItems: items,
+    initiatives,
+    selectedInitiativeId,
+    initiative: await initiativeDesktopSnapshot(root, portfolio, selectedInitiativeId),
     approvalInbox: { remote: definition.git?.remote ?? 'origin', fetched: false, generatedAt: null, count: 0, items: [] },
     selectedWorkId: selectedId,
     workflow,
@@ -163,10 +213,12 @@ export async function desktopSnapshot(root, requestedWorkId = null) {
   };
 }
 
-function allowedConfigurationPath(definition, relative) {
+function allowedConfigurationPath(definition, relative, portfolio = null) {
   const promptSource = definition.worldModel?.promptSource;
   return relative === WORKFLOW_PATH
+    || relative === PORTFOLIO_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
+    || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
     || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
@@ -175,29 +227,38 @@ function allowedConfigurationPath(definition, relative) {
     || relative.startsWith('.claude/agents/');
 }
 
-function exportablePath(definition, relative) {
+function exportablePath(definition, relative, portfolio = null) {
   const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model').replace(/\/$/, '');
   const workRoot = posix(definition.workItemRoot ?? '.singularity/work-items').replace(/\/$/, '');
-  return allowedConfigurationPath(definition, relative)
+  const initiativeRoot = posix(portfolio?.initiativeRoot ?? '.singularity/initiatives').replace(/\/$/, '');
+  return allowedConfigurationPath(definition, relative, portfolio)
     || relative === AGENT_LOCK_PATH
     || relative.startsWith(`${modelRoot}/`)
-    || relative.startsWith(`${workRoot}/`);
+    || relative.startsWith(`${workRoot}/`)
+    || (portfolio && relative.startsWith(`${initiativeRoot}/`));
 }
 
 export async function saveDesktopFile(root, requestedPath, content) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative)) throw new SingularityFlowError(`Desktop editing is restricted to ${WORKFLOW_PATH}, templates, persona prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files and agent locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, persona prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try { validateDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
+  }
+  if (relative === PORTFOLIO_PATH) {
+    try { validatePortfolio(YAML.parse(content)); }
+    catch (error) { throw new SingularityFlowError(`Change was not saved because portfolio validation failed: ${error.message}`); }
   }
   const absolute = path.join(root, relative);
   const existed = await exists(absolute);
   const previous = existed ? await readFile(absolute, 'utf8') : null;
   await writeText(absolute, content);
   try {
-    await loadDefinition(root);
+    const updatedDefinition = await loadDefinition(root);
+    const updatedPortfolio = await loadPortfolio(root, { required: false });
+    if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
     await discoverAgents(root);
   } catch (error) {
     if (existed) await writeText(absolute, previous);
@@ -213,10 +274,13 @@ export async function deleteDesktopTemplate(root, requestedPath) {
 
 export async function deleteDesktopFile(root, requestedPath) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
   const templatesRoot = posix(definition.templatesRoot).replace(/\/$/, '');
+  const initiativeTemplatesRoot = posix(portfolio?.templatesRoot ?? templatesRoot).replace(/\/$/, '');
   const promptsRoot = posix(definition.personaPromptsRoot).replace(/\/$/, '');
   const deletable = relative.startsWith(`${templatesRoot}/`)
+    || relative.startsWith(`${initiativeTemplatesRoot}/`)
     || relative.startsWith(`${promptsRoot}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith('.github/agents/')
@@ -228,6 +292,12 @@ export async function deleteDesktopFile(root, requestedPath) {
     for (const [phaseId, phase] of Object.entries(definition.phases)) if (phase.defaultTemplate === template) references.push(`phase ${phaseId}`);
     for (const [workTypeId, profile] of Object.entries(definition.workTypes)) {
       for (const [phaseId, value] of Object.entries(profile.templateOverrides ?? {})) if (value === template) references.push(`workflow ${workTypeId}/${phaseId}`);
+    }
+  }
+  if (portfolio && relative.startsWith(`${initiativeTemplatesRoot}/`)) {
+    const initiativeTemplate = relative.slice(initiativeTemplatesRoot.length + 1);
+    for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases)) {
+      for (const output of phase.outputs) if (output.template === initiativeTemplate) references.push(`initiative ${phaseId}/${output.id}`);
     }
   }
   if (relative.startsWith(`${promptsRoot}/`)) {
@@ -243,8 +313,9 @@ export async function deleteDesktopFile(root, requestedPath) {
 
 export async function readDesktopFile(root, requestedPath) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!exportablePath(definition, relative)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, or work-item file: ${relative}`);
+  if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, work-item, or initiative file: ${relative}`);
   const absolute = path.join(root, relative);
   if (!(await exists(absolute))) throw new SingularityFlowError(`File does not exist: ${relative}`);
   const content = await readFile(absolute);
@@ -254,11 +325,13 @@ export async function readDesktopFile(root, requestedPath) {
 
 export async function desktopExportBundle(root) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
   const modelRoot = posix(definition.worldModel?.outputDir ?? '.singularity/world-model');
   const prompt = await worldModelPrompt(root, definition);
   const groups = [
     [{ path: WORKFLOW_PATH, content: await readFile(path.join(root, WORKFLOW_PATH), 'utf8') }],
+    portfolio ? [{ path: PORTFOLIO_PATH, content: await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') }] : [],
     await textFiles(root, definition.templatesRoot),
     await textFiles(root, definition.personaPromptsRoot),
     await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
@@ -273,21 +346,27 @@ export async function desktopExportBundle(root) {
 
 export async function validateDesktopConfiguration(root) {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
+  if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);
   return {
     valid: true,
     workTypes: Object.keys(definition.workTypes).length,
     personas: Object.keys(definition.personas).length,
     phases: Object.keys(definition.phases).length,
-    agents: agents.length
+    agents: agents.length,
+    initiativeProfiles: Object.keys(portfolio?.initiativeProfiles ?? {}).length,
+    initiativePhases: Object.keys(portfolio?.initiativePhases ?? {}).length,
+    repositories: Object.keys(portfolio?.repositories ?? {}).length
   };
 }
 
 export async function publishDesktopConfiguration(root, message = 'Configure Singularity Flow desktop workflow') {
   const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
   const changed = changedFiles(root);
-  const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file));
-  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, template, persona, prompt, skill, or agent changes are ready to publish.');
+  const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio));
+  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, persona, prompt, skill, or agent changes are ready to publish.');
   const unrelated = changed.filter((file) => !configurationChanges.includes(file));
   if (unrelated.length) throw new SingularityFlowError(`Publish is blocked by unrelated working-tree changes: ${unrelated.join(', ')}`);
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);

@@ -20,6 +20,7 @@ The package contains:
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
+- Opt-in initiative orchestration for Epics and repository-specific stories, with typed evidence, interface contracts, cross-repository milestones, and enterprise phase gates.
 
 ## Requirements
 
@@ -59,6 +60,17 @@ Initialization installs:
 ```
 
 These files are ordinary reviewed repository files and remain fully editable.
+
+Initialization also installs `.singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
+
+Start an initiative from GitHub Copilot:
+
+```text
+/sflow-initiative-start INIT-2026-001
+/sflow-initiative-phase
+/sflow-initiative-next
+/sflow-initiative-status
+```
 
 ## Built-in help
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { copyFile, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
@@ -98,6 +99,7 @@ function normalizeRepository(id, input) {
     url: repository.url.trim(),
     defaultBranch,
     required: repository.required !== false,
+    metadata: normalizeRepositoryMetadata(repository.metadata ?? {}, `Workspace repository '${id}' metadata`),
     path: relativePath,
     role: repository.role === 'lead' ? 'lead' : 'participant'
   };

@@ -265,7 +265,8 @@ export async function bootstrapDesktopPortfolio(root, {
       [repository.id]: {
         url: repository.url,
         defaultBranch: repository.defaultBranch || definition.defaultBaseBranch || 'main',
-        required: repository.required !== false
+        required: repository.required !== false,
+        metadata: repository.metadata ?? {}
       }
     };
   }

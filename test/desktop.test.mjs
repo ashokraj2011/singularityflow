@@ -138,7 +138,12 @@ test('desktop bootstraps governed portfolio and Jira policy without storing cred
       id: 'mobile',
       url: 'git@github.com:company/mobile.git',
       defaultBranch: 'develop',
-      required: true
+      required: true,
+      metadata: {
+        appId: 'APP-1001',
+        name: 'Mobile application',
+        owner: 'Digital Channels'
+      }
     },
     jira: {
       enabled: true,
@@ -157,6 +162,11 @@ test('desktop bootstraps governed portfolio and Jira policy without storing cred
   assert.doesNotMatch(content, /must-never-be-written/);
   const portfolio = YAML.parse(content);
   assert.equal(portfolio.repositories.mobile.defaultBranch, 'develop');
+  assert.deepEqual(portfolio.repositories.mobile.metadata, {
+    appId: 'APP-1001',
+    name: 'Mobile application',
+    owner: 'Digital Channels'
+  });
   assert.deepEqual(portfolio.jira.allowedHosts, ['company.atlassian.net']);
   assert.deepEqual(portfolio.jira.allowedProjects, ['APP']);
   assert.equal(portfolio.jira.writeMode, 'preview');

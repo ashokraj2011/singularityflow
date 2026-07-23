@@ -101,8 +101,8 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   const platform = await remoteRepository(root, 'platform');
   const baseDirectory = path.join(root, 'workspaces');
   const input = workspaceInput(baseDirectory, {
-    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' },
-    mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile' }
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform', metadata: { appId: 'APP-PLATFORM', name: 'Shared platform' } },
+    mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile', metadata: { appId: 'APP-MOBILE', owner: 'Digital' } }
   });
   const preview = previewWorkspace(input);
   assert.match(preview.root, /PAY-100--payments-modernization$/);
@@ -116,6 +116,8 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   const loaded = await readWorkspace(created.workspace.path);
   assert.equal(loaded.anchor.issueTypeName, 'Business Initiative');
   assert.equal(loaded.localOnly, true);
+  assert.deepEqual(loaded.repositories.platform.metadata, { appId: 'APP-PLATFORM', name: 'Shared platform' });
+  assert.deepEqual(loaded.repositories.mobile.metadata, { appId: 'APP-MOBILE', owner: 'Digital' });
 
   const requirement = path.join(root, 'requirement.pdf');
   await writeFile(requirement, 'pinned requirement');

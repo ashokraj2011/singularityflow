@@ -67,6 +67,35 @@ test('portfolio validation rejects bad references, assurance, conditions, and em
   assert.throws(() => validatePortfolio(empty), /at least one phase/);
 });
 
+test('portfolio repository metadata accepts App IDs, names, and scalar organization fields', () => {
+  const portfolio = {
+    version: 1,
+    repositories: {
+      mobile: {
+        url: 'git@github.com:company/mobile.git',
+        metadata: {
+          appId: 'APP-1001',
+          name: 'Mobile application',
+          criticality: 1,
+          regulated: true
+        }
+      }
+    },
+    approvalAuthorities: {},
+    initiativeProfiles: { lite: { phases: ['define'] } },
+    initiativePhases: { define: {} }
+  };
+  const validated = validatePortfolio(portfolio);
+  assert.equal(validated.repositories.mobile.metadata.appId, 'APP-1001');
+  assert.equal(validated.repositories.mobile.metadata.criticality, 1);
+  const nested = structuredClone(portfolio);
+  nested.repositories.mobile.metadata.owner = { team: 'Digital' };
+  assert.throws(() => validatePortfolio(nested), /must be a string, number, or boolean/);
+  const unsafe = structuredClone(portfolio);
+  unsafe.repositories.mobile.metadata['../owner'] = 'Digital';
+  assert.throws(() => validatePortfolio(unsafe), /metadata key/);
+});
+
 test('initiative world-model views must be declared by the repository workflow', async () => {
   const root = await repository();
   const portfolio = await loadPortfolio(root);

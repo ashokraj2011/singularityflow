@@ -695,6 +695,16 @@ button.full { width: 100%; }
 .designer-modal-body > p { margin: 0 0 3px; color: var(--muted); font-family: var(--font-editorial); font-size: 13px; line-height: 1.55; }
 .designer-modal > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 19px; border-top: 1px solid var(--line); background: #f6f4f1; }
 .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.modal-grid .full { grid-column: 1 / -1; }
+.repository-metadata-fields { display: grid; gap: 9px; border: 1px solid var(--line); border-radius: 12px; padding: 13px; background: #f8faf8; }
+.repository-metadata-fields > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.repository-metadata-fields > header > div { display: grid; gap: 3px; }
+.repository-metadata-fields > header strong { font-size: 12px; font-weight: 590; }
+.repository-metadata-fields > header span { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.repository-metadata-fields > div { display: grid; grid-template-columns: minmax(130px,.7fr) minmax(180px,1.3fr) auto; align-items: center; gap: 8px; }
+.repository-metadata-fields > div input { width: 100%; }
+.repository-registry-list > div { grid-template-columns: minmax(0,1fr) auto; }
+.repository-registry-list em { grid-column: 1 / -1; overflow: hidden; color: var(--green-700); font-size: 9px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .check-row { display: flex !important; align-items: flex-start; gap: 9px !important; color: #53626d !important; text-transform: none !important; letter-spacing: normal !important; line-height: 1.5; }
 .check-row input { width: auto; min-height: auto; margin-top: 2px; }
 .form-error { border: 1px solid #e3b6ba; border-radius: 3px; padding: 9px 10px; color: var(--red-700); background: var(--red-100); font-size: 11px; }

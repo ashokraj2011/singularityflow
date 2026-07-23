@@ -226,6 +226,7 @@ function storySeed(root, initiative, story) {
       epicJiraKey: story.epicJiraKey ?? null,
       jiraKey: story.jiraKey ?? null,
       repository: story.repository,
+      repositoryMetadata: structuredClone(initiative.resolution.repositories?.[story.repository]?.metadata ?? {}),
       blocking: story.blocking,
       suggestedWorkType: story.suggestedWorkType,
       dependsOn: story.dependsOn

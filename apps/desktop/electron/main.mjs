@@ -1,19 +1,66 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
 import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
 import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
+import { JiraCredentialStore } from './jira-credentials.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
+let mainWindow = null;
 const planningPacks = new Map();
 const planningBridges = new Map();
+const jiraCache = new Map();
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
+function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
+function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
+
+function cliResourcePath(...segments) {
+  const root = app.isPackaged ? path.join(process.resourcesPath, 'cli') : path.resolve(here, '../../..');
+  return path.join(root, ...segments);
+}
+
+async function importCliModule(name) {
+  return import(pathToFileURL(cliResourcePath('src', name)).href);
+}
+
+function assertTrustedSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted desktop request.');
+  const senderUrl = event.sender.getURL();
+  if (app.isPackaged ? !senderUrl.startsWith('file:') : !/^http:\/\/(127\.0\.0\.1|localhost):5173/.test(senderUrl)) {
+    throw new Error('Untrusted desktop origin.');
+  }
+}
+
+async function jiraPolicy(repository) {
+  const root = assertRepository(repository);
+  const { loadPortfolio } = await importCliModule('initiative-config.mjs');
+  const portfolio = await loadPortfolio(root);
+  if (!portfolio.jira?.enabled) throw new Error('Jira is disabled in singularity/portfolio.yml.');
+  return { root, portfolio, policy: portfolio.jira };
+}
+
+function assertJiraConnectionPolicy(connection, policy) {
+  const hostname = new URL(connection.baseUrl).hostname.toLowerCase();
+  if (policy.allowedHosts?.length && !policy.allowedHosts.includes(hostname)) throw new Error(`Jira host ${hostname} is outside the repository allowlist.`);
+  if (connection.deployment !== policy.deployment) throw new Error(`Repository policy requires Jira ${policy.deployment}.`);
+  if (!policy.authentication?.permitted?.includes(connection.auth.mode)) throw new Error(`Authentication mode ${connection.auth.mode} is not permitted by repository policy.`);
+}
+
+function jiraCacheRead(key, minutes) {
+  const entry = jiraCache.get(key);
+  return entry && Date.now() - entry.at < Math.max(0, minutes) * 60_000 ? entry.value : null;
+}
+
+function jiraCacheWrite(key, value) {
+  jiraCache.set(key, { at: Date.now(), value });
+  return value;
+}
 
 async function recentRepositories() {
   return (await readRecentRepositories(recentRepositoriesPath())).map((entry) => ({ ...entry, available: existsSync(entry.path) }));
@@ -273,6 +320,131 @@ function registerHandlers() {
     ['desktop', 'initiative-sync', '--initiative', initiativeId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
+  ipcMain.handle('jira:status', async (event, { repository }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    return { policy, credentials: await jiraCredentialStore().status() };
+  });
+  ipcMain.handle('jira:connect', async (event, { repository, connection: input }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    const { normalizeJiraConnection, discoverJiraConnection } = await importCliModule('jira.mjs');
+    const connection = normalizeJiraConnection(input);
+    assertJiraConnectionPolicy(connection, policy);
+    const discovery = await discoverJiraConnection({ connection });
+    const saved = await jiraCredentialStore().save({
+      ...connection,
+      account: discovery.account,
+      server: discovery.server
+    });
+    jiraCache.clear();
+    return { ...saved, discovery };
+  });
+  ipcMain.handle('jira:disconnect', async (event, { repository, name }) => {
+    assertTrustedSender(event);
+    await jiraPolicy(repository);
+    jiraCache.clear();
+    return jiraCredentialStore().disconnect(name);
+  });
+  ipcMain.handle('jira:projects', async (event, { repository, query, refresh = false }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    assertJiraConnectionPolicy(connection, policy);
+    const key = `projects:${connection.name}:${query ?? ''}`;
+    const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
+    if (cached) return cached;
+    const { listProjects } = await importCliModule('jira.mjs');
+    const projects = await listProjects({ connection, query, limit: 100 });
+    const allowed = policy.allowedProjects?.length ? projects.filter((project) => policy.allowedProjects.includes(project.key)) : projects;
+    return jiraCacheWrite(key, allowed);
+  });
+  ipcMain.handle('jira:epics', async (event, { repository, projectKey, refresh = false }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    if (!policy.read.epics) throw new Error('Jira Epic browsing is disabled by repository policy.');
+    if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new Error(`Project ${projectKey} is outside the repository allowlist.`);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const key = `epics:${connection.name}:${projectKey}`;
+    const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
+    if (cached) return cached;
+    const { listEpics } = await importCliModule('jira.mjs');
+    return jiraCacheWrite(key, await listEpics(projectKey, { connection, issueType: policy.epicIssueType, limit: 100 }));
+  });
+  ipcMain.handle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    if (!policy.read.stories) throw new Error('Jira story browsing is disabled by repository policy.');
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const key = `children:${connection.name}:${epicKey}`;
+    const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
+    if (cached) return cached;
+    const { listEpicStories } = await importCliModule('jira.mjs');
+    return jiraCacheWrite(key, await listEpicStories(epicKey, { connection, limit: 100 }));
+  });
+  ipcMain.handle('jira:adopt-preview', async (event, {
+    repository, initiativeId, epicKey, repositoryMap
+  }) => {
+    assertTrustedSender(event);
+    const { root, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const { previewJiraAdoption } = await importCliModule('jira-initiative.mjs');
+    return previewJiraAdoption(root, initiativeId, epicKey, { repositoryMap, connection });
+  });
+  ipcMain.handle('jira:adopt', async (event, {
+    repository, initiativeId, epicKey, repositoryMap, replace = false
+  }) => {
+    assertTrustedSender(event);
+    const { root, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const [{ adoptJiraEpic }, { commitInitiativeChange }, { identity }] = await Promise.all([
+      importCliModule('jira-initiative.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const actor = identity(root).email?.toLowerCase() ?? identity(root).name;
+    const result = await adoptJiraEpic(root, initiativeId, epicKey, { repositoryMap, replace, connection, actor });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    return { sourceSha256: result.sourceSha256, unresolved: result.unresolved, breakdown: result.breakdown, publication };
+  });
+  ipcMain.handle('jira:write-plan', async (event, { repository, initiativeId }) => {
+    assertTrustedSender(event);
+    const { root, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const [{ createJiraWritePlan }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('jira-initiative.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const result = await createJiraWritePlan(root, initiativeId, { connection });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+    return { plan: result.plan, publication };
+  });
+  ipcMain.handle('jira:apply', async (event, {
+    repository, initiativeId, planSha256, confirmation
+  }) => {
+    assertTrustedSender(event);
+    const { root, policy } = await jiraPolicy(repository);
+    const connection = await jiraCredentialStore().load(policy.connection);
+    const [{ applyJiraWritePlan }, { commitInitiativeChange }, { identity }] = await Promise.all([
+      importCliModule('jira-initiative.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const actor = identity(root).email?.toLowerCase() ?? identity(root).name;
+    const result = await applyJiraWritePlan(root, initiativeId, { planSha256, confirmation, connection, actor });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    jiraCache.clear();
+    return { plan: result.plan, results: result.results, publication };
+  });
+  ipcMain.handle('jira:open', async (event, { repository, url }) => {
+    assertTrustedSender(event);
+    const { policy } = await jiraPolicy(repository);
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('Jira links must be public-form HTTPS URLs without embedded credentials.');
+    if (policy.allowedHosts?.length && !policy.allowedHosts.includes(parsed.hostname.toLowerCase())) throw new Error('Jira link is outside the repository host allowlist.');
+    await shell.openExternal(parsed.href);
+    return { opened: parsed.href };
+  });
   ipcMain.handle('documents:upload', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Add supporting documents' });
@@ -319,6 +491,8 @@ async function createWindow() {
     backgroundColor: '#0b0d10',
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
+  mainWindow = window;
+  window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };

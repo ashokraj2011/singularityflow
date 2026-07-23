@@ -211,6 +211,35 @@ Verify access with `singularity-flow jira pull ENG-142` or list assigned work wi
 
 Jira input is normalized into committed `source.json` and readable `USER-STORY.md` files. Attachments are not downloaded automatically; upload the evidence you need explicitly.
 
+For Jira Data Center, use a PAT instead of Cloud Basic authentication:
+
+```bash
+export JIRA_BASE_URL="https://jira.company.example"
+export JIRA_DEPLOYMENT="data-center"
+export JIRA_PAT="<personal-access-token>"
+```
+
+Connection and hierarchy commands:
+
+```bash
+singularity-flow jira status
+singularity-flow jira projects
+singularity-flow jira epics --project APP
+singularity-flow jira children APP-100
+singularity-flow jira permissions --project APP
+```
+
+The Electron **Jira workspace** is the preferred corporate setup. Repository policy in `singularity/portfolio.yml` controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer, placed in Git, passed to CLI child processes, or included in Copilot context.
+
+Select an existing Epic, map each child to an owning repository, and choose an existing initiative. Preview then adopt it to create a committed source snapshot and `breakdown.yml` with separate Singularity Work IDs and Jira IDs. Outbound changes use a two-step flow:
+
+```bash
+singularity-flow initiative jira-plan
+singularity-flow initiative jira-apply --plan <exact-sha256>
+```
+
+The plan is committed and pushed before review. Apply requires `jira.writeMode: approved`, an approved Plan/Elaboration phase, discovered Jira permissions, the exact plan hash, and exact initiative-ID confirmation. Optimistic `updatedAt` checks reject stale updates. Operation receipts are committed and pushed; status transitions, assignee, sprint, priority, and resolution are never writable through this connector.
+
 ## Manual intake and documents
 
 Jira is optional. A manual YAML or JSON story can capture the audience, problem, desired outcome, scope, out-of-scope items, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents.
@@ -840,6 +869,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-release` | Prepare final release/conformance activities |
 | `/sflow-jira-story` | Inspect or import one Jira story |
 | `/sflow-jira-work` | Find assigned Jira work |
+| `/sflow-jira-initiative` | Browse Epics, adopt child stories into an initiative, and prepare reviewed Jira write plans |
 | `/sflow-workflow-rules` | Explain deterministic workflow rules |
 
 If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot skill list`.

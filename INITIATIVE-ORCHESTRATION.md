@@ -180,19 +180,50 @@ The identifiers have distinct jobs:
 - Story Work ID: stable child identity, Git branch, seed filename, and later Singularity work-item ID, such as `MOB-101`.
 - Jira ID: external `jiraKey` returned by Jira, such as `MOB-4821`. It is recorded separately and is never invented by Copilot.
 
-When Jira write configuration exists, deterministic labels make Epic/story creation retryable. Returned Epic and Story Jira IDs are written back to `breakdown.yml` and into new story seeds before the initiative materialization commit is pushed. Without Jira writes, committed Git records remain the source of truth and the Jira ID remains visibly `not created`. A story contributor still selects a work type and persona; its seed recommends values and supplies approved inputs/contracts without bypassing selection.
+The Jira connector can adopt an existing hierarchy or create a reviewed outbound plan. In **Jira workspace**, connect with an API token/PAT stored through the operating-system keychain, browse Project → Epic → child stories, map each child to a configured repository, select an existing initiative, preview, and adopt. Adoption commits a hash-pinned Jira source snapshot and preserves the separate IDs above.
 
-Enable Jira creation in `singularity/portfolio.yml`:
+Enable and constrain the connector in `singularity/portfolio.yml` before starting the initiative; the resolved policy is immutable for that initiative:
 
 ```yaml
 jira:
-  write: true
+  enabled: true
+  connection: corporate-jira
+  deployment: cloud
+  allowedHosts: [company.atlassian.net]
+  allowedProjects: [PORT]
+  authentication:
+    permitted: [user-token, service-account]
+  read:
+    epics: true
+    stories: true
+    attachmentPolicy: metadata-only
+    cacheMinutes: 10
+  writeMode: approved
+  writeOperations: [create-epic, create-story, update-owned-fields]
+  allowedFields: [summary, description, parent, labels, components]
   projectKey: PORT
   epicIssueType: Epic
   storyIssueType: Story
 ```
 
-Provide `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` to the Electron process or CLI environment. Credentials are never written to Git. With `write: false` (the starter default), preview and Git planning remain available and no Jira network call occurs.
+Use `writeMode: off` for read-only operation, `preview` to create committed plans without applying them, or `approved` to permit the guarded apply path. Status, assignee, sprint, priority, and resolution cannot be added to `allowedFields`.
+
+CLI users provide `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` for Cloud. Data Center users set `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`. Credentials are never written to Git.
+
+```bash
+singularity-flow initiative jira-adopt APP-100 \
+  --repository APP-101=api \
+  --repository APP-102=mobile \
+  --dry-run
+singularity-flow initiative jira-adopt APP-100 \
+  --repository APP-101=api \
+  --repository APP-102=mobile
+
+singularity-flow initiative jira-plan
+singularity-flow initiative jira-apply --plan <exact-sha256>
+```
+
+The write plan is committed and pushed before application. Apply requires an approved Plan/Elaboration phase, exact plan hash, exact initiative-ID confirmation, effective Jira create/edit permission, and unchanged source issue timestamps. Each completed operation receives a committed receipt. The earlier `jira.write: true` materializer remains compatible for existing configurations, but new profiles should use the reviewed plan path.
 
 ## Version interface contracts
 
@@ -225,7 +256,7 @@ Reports group every planned story under its epic even before branch materializat
 
 ## Flow Studio
 
-Open the Electron app with `npm run desktop:dev`, choose the lead repository, and open **Initiatives**. It provides four- or seven-phase flow, three delivery lanes, checklist assurance/freshness, next actions, epic-grouped story progress, Work ID/Jira ID mapping, contract routing, governed documents, duration, and Copilot usage/cost. Its Portfolio designer edits validated YAML.
+Open the Electron app with `npm run desktop:dev`, choose the lead repository, and open **Initiatives**. It provides four- or seven-phase flow, three delivery lanes, checklist assurance/freshness, next actions, epic-grouped story progress, Work ID/Jira ID mapping, contract routing, governed documents, duration, and Copilot usage/cost. Its Portfolio designer edits validated YAML. Open **Jira workspace** for secure sign-in, hierarchy browsing, repository mapping, adoption, and reviewed write plans.
 
 After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, contracts, and repository world-model files remain read-only in the designer.
 

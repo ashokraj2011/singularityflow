@@ -1,13 +1,90 @@
 import { SingularityFlowError } from './util.mjs';
 
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
+const JIRA_AUTH_MODES = new Set(['user-token', 'service-account', 'pat']);
+
+function jiraFailure(message, { status = null, category = 'request', retryAfter = null } = {}) {
+  const error = new SingularityFlowError(message);
+  error.status = status;
+  error.category = category;
+  error.retryAfter = retryAfter;
+  return error;
+}
+
+function normalizeHttpsUrl(value, label = 'Jira URL') {
+  let parsed;
+  try { parsed = new URL(String(value ?? '')); } catch {
+    throw new SingularityFlowError(`${label} must be a valid HTTPS URL.`);
+  }
+  if (parsed.protocol !== 'https:') throw new SingularityFlowError(`${label} must use HTTPS.`);
+  if (parsed.username || parsed.password) throw new SingularityFlowError(`${label} must not contain embedded credentials.`);
+  parsed.hash = '';
+  parsed.search = '';
+  return parsed.toString().replace(/\/$/, '');
+}
+
+export function normalizeJiraConnection(input = {}) {
+  const deployment = String(input.deployment ?? 'cloud').toLowerCase();
+  if (!JIRA_DEPLOYMENTS.has(deployment)) throw new SingularityFlowError('Jira deployment must be cloud or data-center.');
+  const baseUrl = normalizeHttpsUrl(input.baseUrl);
+  const mode = String(input.auth?.mode ?? input.authMode ?? (deployment === 'data-center' ? 'pat' : 'user-token')).toLowerCase();
+  if (!JIRA_AUTH_MODES.has(mode)) throw new SingularityFlowError('Jira authentication mode must be user-token, service-account, or pat.');
+  if (deployment === 'data-center' && mode !== 'pat') throw new SingularityFlowError('Jira Data Center uses PAT authentication in this connector.');
+  if (deployment === 'cloud' && mode === 'pat') throw new SingularityFlowError('Jira Cloud uses an API token with an email or service-account identity.');
+
+  const email = input.auth?.email ?? input.email ?? null;
+  const token = input.auth?.token ?? input.apiToken ?? input.token ?? null;
+  if (!token) throw new SingularityFlowError('A Jira API token or PAT is required.');
+  if (mode !== 'pat' && !email) throw new SingularityFlowError('Jira Cloud authentication requires an email address.');
+
+  const cloudId = input.cloudId ? String(input.cloudId).trim() : null;
+  const apiBaseUrl = cloudId
+    ? `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}`
+    : baseUrl;
+  return {
+    name: String(input.name ?? 'jira').trim() || 'jira',
+    deployment,
+    baseUrl,
+    apiBaseUrl,
+    apiVersion: deployment === 'cloud' ? '3' : '2',
+    cloudId,
+    auth: { mode, email: email ? String(email).trim() : null, token: String(token) }
+  };
+}
+
 export function jiraCredentials(env = process.env) {
   const baseUrl = env.JIRA_BASE_URL?.replace(/\/$/, '');
-  const email = env.JIRA_EMAIL;
-  const apiToken = env.JIRA_API_TOKEN;
-  if (!baseUrl || !email || !apiToken) {
-    throw new SingularityFlowError('Jira access requires JIRA_BASE_URL, JIRA_EMAIL, and JIRA_API_TOKEN. Singularity Flow never accepts or stores an Atlassian password.');
+  const deployment = String(env.JIRA_DEPLOYMENT ?? 'cloud').toLowerCase();
+  const email = env.JIRA_EMAIL ?? null;
+  const apiToken = env.JIRA_API_TOKEN ?? env.JIRA_PAT;
+  if (!baseUrl || !apiToken || (deployment !== 'data-center' && !email)) {
+    throw new SingularityFlowError('Jira access requires JIRA_BASE_URL plus JIRA_EMAIL and JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center. Singularity Flow never accepts or stores a password.');
   }
-  return { baseUrl, email, apiToken };
+  return { baseUrl, email, apiToken, deployment };
+}
+
+export function jiraConnectionFromEnv(env = process.env) {
+  const credentials = jiraCredentials(env);
+  return normalizeJiraConnection({
+    baseUrl: credentials.baseUrl,
+    deployment: credentials.deployment,
+    email: credentials.email,
+    token: credentials.apiToken,
+    authMode: credentials.deployment === 'data-center' ? 'pat' : (env.JIRA_AUTH_MODE ?? 'user-token'),
+    cloudId: env.JIRA_CLOUD_ID,
+    name: env.JIRA_CONNECTION_NAME ?? 'environment'
+  });
+}
+
+export function quoteJql(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
+function validateProjectKey(value) {
+  const key = String(value ?? '').trim();
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,31}$/.test(key)) throw new SingularityFlowError(`Invalid Jira project key: ${value ?? ''}`);
+  return key;
 }
 
 function nodeText(node) {
@@ -178,35 +255,86 @@ export function normalizeIssue(issue, {
   };
 }
 
-async function request(apiPath, {
+function resolveConnection({ connection, env = process.env } = {}) {
+  return connection ? normalizeJiraConnection(connection) : jiraConnectionFromEnv(env);
+}
+
+function restPath(connection, suffix) {
+  return `/rest/api/${connection.apiVersion}/${String(suffix).replace(/^\/+/, '')}`;
+}
+
+function authorizationHeader(connection) {
+  if (connection.auth.mode === 'pat') return `Bearer ${connection.auth.token}`;
+  return `Basic ${Buffer.from(`${connection.auth.email}:${connection.auth.token}`).toString('base64')}`;
+}
+
+function retryDelay(response, attempt) {
+  const header = response.headers?.get?.('retry-after');
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  return Math.min(500 * (2 ** attempt), 8_000);
+}
+
+export async function jiraRequest(apiPath, {
   method = 'GET',
   body,
   env = process.env,
-  fetchImpl = globalThis.fetch
+  connection,
+  fetchImpl = globalThis.fetch,
+  sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  maxRetries = 3
 } = {}) {
-  const credentials = jiraCredentials(env);
+  const resolved = resolveConnection({ connection, env });
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node.js runtime does not provide fetch().');
-  const response = await fetchImpl(`${credentials.baseUrl}${apiPath}`, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Basic ${Buffer.from(`${credentials.email}:${credentials.apiToken}`).toString('base64')}`
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const text = await response.text();
-  let payload = null;
-  if (text) {
-    try { payload = JSON.parse(text); } catch { payload = text; }
+  const target = /^https:\/\//.test(apiPath) ? apiPath : `${resolved.apiBaseUrl}${apiPath}`;
+  let attempt = 0;
+  while (true) {
+    let response;
+    try {
+      response = await fetchImpl(target, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: authorizationHeader(resolved)
+        },
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+    } catch (error) {
+      if (attempt < maxRetries) {
+        await sleep(Math.min(500 * (2 ** attempt), 8_000));
+        attempt += 1;
+        continue;
+      }
+      throw jiraFailure(`Jira is unreachable: ${error.message}`, { category: 'network' });
+    }
+    if (RETRYABLE_STATUS.has(response.status) && attempt < maxRetries) {
+      await sleep(retryDelay(response, attempt));
+      attempt += 1;
+      continue;
+    }
+    const text = await response.text();
+    let payload = null;
+    if (text) {
+      try { payload = JSON.parse(text); } catch { payload = text; }
+    }
+    if (!response.ok) {
+      const detail = typeof payload === 'string'
+        ? payload
+        : payload?.errorMessages?.join('; ') || payload?.errors && JSON.stringify(payload.errors) || payload?.message || JSON.stringify(payload);
+      const category = response.status === 401 ? 'authentication'
+        : response.status === 403 ? 'authorization'
+          : response.status === 404 ? 'not-found'
+            : response.status === 409 ? 'conflict'
+              : response.status === 429 ? 'rate-limit' : 'request';
+      throw jiraFailure(`Jira request failed (${response.status}): ${detail}`, {
+        status: response.status,
+        category,
+        retryAfter: response.headers?.get?.('retry-after') ?? null
+      });
+    }
+    return { payload, connection: resolved, credentials: { baseUrl: resolved.baseUrl, email: resolved.auth.email, apiToken: resolved.auth.token } };
   }
-  if (!response.ok) {
-    const detail = typeof payload === 'string'
-      ? payload
-      : payload?.errorMessages?.join('; ') || payload?.message || JSON.stringify(payload);
-    throw new SingularityFlowError(`Jira request failed (${response.status}): ${detail}`);
-  }
-  return { payload, credentials };
 }
 
 const STANDARD_FIELDS = [
@@ -225,16 +353,18 @@ function envFields(env = process.env) {
 
 export async function getIssue(key, {
   env = process.env,
+  connection,
   fetchImpl = globalThis.fetch,
   acceptanceField = env.SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD,
   storyPointsField = env.SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD,
   sprintField = env.SINGULARITY_FLOW_JIRA_SPRINT_FIELD,
   extraFields = envFields(env)
 } = {}) {
+  const resolved = resolveConnection({ connection, env });
   const fields = [...new Set([...STANDARD_FIELDS, acceptanceField, storyPointsField, sprintField, ...extraFields].filter(Boolean))];
   const query = new URLSearchParams({ fields: fields.join(','), expand: 'names' });
-  const { payload, credentials } = await request(`/rest/api/3/issue/${encodeURIComponent(key)}?${query}`, { env, fetchImpl });
-  return normalizeIssue(payload, { baseUrl: credentials.baseUrl, acceptanceField, storyPointsField, sprintField, extraFields });
+  const { payload } = await jiraRequest(`${restPath(resolved, `issue/${encodeURIComponent(key)}`)}?${query}`, { connection: resolved, fetchImpl });
+  return normalizeIssue(payload, { baseUrl: resolved.baseUrl, acceptanceField, storyPointsField, sprintField, extraFields });
 }
 
 export async function listMyIssues({
@@ -243,29 +373,32 @@ export async function listMyIssues({
   limit = 25,
   jql,
   env = process.env,
+  connection,
   fetchImpl = globalThis.fetch,
   acceptanceField = env.SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD,
   storyPointsField = env.SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD,
   sprintField = env.SINGULARITY_FLOW_JIRA_SPRINT_FIELD,
   extraFields = envFields(env)
 } = {}) {
+  const resolved = resolveConnection({ connection, env });
   const clauses = [];
-  if (project) clauses.push(`project = ${JSON.stringify(project)}`);
+  if (project) clauses.push(`project = ${quoteJql(validateProjectKey(project))}`);
   clauses.push('assignee = currentUser()');
-  if (issueType) clauses.push(`issuetype = ${JSON.stringify(issueType)}`);
+  if (issueType) clauses.push(`issuetype = ${quoteJql(issueType)}`);
   clauses.push('statusCategory != Done');
   const resolvedJql = jql || `${clauses.join(' AND ')} ORDER BY priority DESC, updated DESC`;
   const fields = [...new Set([...STANDARD_FIELDS, acceptanceField, storyPointsField, sprintField, ...extraFields].filter(Boolean))];
-  const { payload, credentials } = await request('/rest/api/3/search/jql', {
+  const searchPath = resolved.deployment === 'cloud' ? 'search/jql' : 'search';
+  const { payload } = await jiraRequest(restPath(resolved, searchPath), {
     method: 'POST',
     body: { jql: resolvedJql, fields, maxResults: Math.max(1, Math.min(Number(limit) || 25, 100)), expand: 'names' },
-    env,
+    connection: resolved,
     fetchImpl
   });
   return {
     jql: resolvedJql,
     issues: (payload?.issues ?? []).map((issue) => normalizeIssue(issue, {
-      baseUrl: credentials.baseUrl,
+      baseUrl: resolved.baseUrl,
       acceptanceField,
       storyPointsField,
       sprintField,
@@ -279,9 +412,11 @@ export async function listMyIssues({
 export async function listFields({
   query,
   env = process.env,
+  connection,
   fetchImpl = globalThis.fetch
 } = {}) {
-  const { payload } = await request('/rest/api/3/field', { env, fetchImpl });
+  const resolved = resolveConnection({ connection, env });
+  const { payload } = await jiraRequest(restPath(resolved, 'field'), { connection: resolved, fetchImpl });
   const needle = String(query ?? '').trim().toLowerCase();
   return (Array.isArray(payload) ? payload : [])
     .filter((field) => !needle || `${field.id} ${field.name}`.toLowerCase().includes(needle))
@@ -299,19 +434,22 @@ export async function searchIssues(jql, {
   fields = ['summary', 'status', 'issuetype', 'parent', 'labels'],
   limit = 50,
   env = process.env,
+  connection,
   fetchImpl = globalThis.fetch
 } = {}) {
   if (!String(jql ?? '').trim()) throw new SingularityFlowError('Jira search requires JQL.');
-  const { payload, credentials } = await request('/rest/api/3/search/jql', {
+  const resolved = resolveConnection({ connection, env });
+  const searchPath = resolved.deployment === 'cloud' ? 'search/jql' : 'search';
+  const { payload } = await jiraRequest(restPath(resolved, searchPath), {
     method: 'POST',
     body: { jql: String(jql), fields, maxResults: Math.max(1, Math.min(Number(limit) || 50, 100)) },
-    env,
+    connection: resolved,
     fetchImpl
   });
-  return (payload?.issues ?? []).map((issue) => normalizeIssue(issue, { baseUrl: credentials.baseUrl }));
+  return (payload?.issues ?? []).map((issue) => normalizeIssue(issue, { baseUrl: resolved.baseUrl }));
 }
 
-function adfParagraph(text) {
+export function adfParagraph(text) {
   return {
     type: 'doc',
     version: 1,
@@ -332,25 +470,27 @@ export async function createIssue({
   fields = {}
 } = {}, {
   env = process.env,
+  connection,
   fetchImpl = globalThis.fetch
 } = {}) {
   if (!projectKey || !issueType || !summary) throw new SingularityFlowError('Jira issue creation requires projectKey, issueType, and summary.');
+  const resolved = resolveConnection({ connection, env });
   const body = {
     fields: {
-      project: { key: projectKey },
-      issuetype: { name: issueType },
+      project: { key: validateProjectKey(projectKey) },
+      issuetype: /^\d+$/.test(String(issueType)) ? { id: String(issueType) } : { name: issueType },
       summary,
-      description: adfParagraph(description),
+      description: resolved.deployment === 'cloud' ? adfParagraph(description) : String(description ?? ''),
       labels: [...new Set(labels)],
       ...(parentKey ? { parent: { key: parentKey } } : {}),
       ...fields
     }
   };
-  const { payload, credentials } = await request('/rest/api/3/issue', { method: 'POST', body, env, fetchImpl });
+  const { payload } = await jiraRequest(restPath(resolved, 'issue'), { method: 'POST', body, connection: resolved, fetchImpl });
   return {
     id: payload?.id ?? null,
     key: payload?.key ?? null,
-    url: payload?.key ? `${credentials.baseUrl}/browse/${payload.key}` : null
+    url: payload?.key ? `${resolved.baseUrl}/browse/${payload.key}` : null
   };
 }
 
@@ -359,9 +499,179 @@ export async function findOrCreateIssue({
   ...issue
 } = {}, options = {}) {
   if (!idempotencyLabel || !/^[A-Za-z0-9_-]+$/.test(idempotencyLabel)) throw new SingularityFlowError('Jira idempotencyLabel must contain letters, numbers, underscores, or hyphens.');
-  const existing = await searchIssues(`labels = ${JSON.stringify(idempotencyLabel)} ORDER BY created ASC`, { ...options, limit: 2 });
+  const existing = await searchIssues(`labels = ${quoteJql(idempotencyLabel)} ORDER BY created ASC`, { ...options, limit: 2 });
   if (existing.length) return { id: existing[0].id, key: existing[0].key, url: existing[0].url, created: false };
   return { ...await createIssue({ ...issue, labels: [...(issue.labels ?? []), idempotencyLabel] }, options), created: true };
+}
+
+export async function getCurrentUser(options = {}) {
+  const resolved = resolveConnection(options);
+  const { payload } = await jiraRequest(restPath(resolved, 'myself'), { ...options, connection: resolved });
+  return {
+    accountId: payload?.accountId ?? payload?.key ?? payload?.name ?? null,
+    displayName: payload?.displayName ?? payload?.name ?? null,
+    email: payload?.emailAddress ?? null,
+    active: payload?.active !== false,
+    locale: payload?.locale ?? null,
+    timeZone: payload?.timeZone ?? null
+  };
+}
+
+export async function getServerInfo(options = {}) {
+  const resolved = resolveConnection(options);
+  const { payload } = await jiraRequest(restPath(resolved, 'serverInfo'), { ...options, connection: resolved });
+  return {
+    deployment: resolved.deployment,
+    baseUrl: resolved.baseUrl,
+    version: payload?.version ?? null,
+    buildNumber: payload?.buildNumber ?? null,
+    serverTitle: payload?.serverTitle ?? null,
+    deploymentType: payload?.deploymentType ?? (resolved.deployment === 'cloud' ? 'Cloud' : 'Data Center')
+  };
+}
+
+export async function listProjects({
+  query,
+  limit = 50,
+  ...options
+} = {}) {
+  const resolved = resolveConnection(options);
+  const suffix = resolved.deployment === 'cloud'
+    ? `project/search?${new URLSearchParams({ maxResults: String(Math.max(1, Math.min(Number(limit) || 50, 100))), ...(query ? { query: String(query) } : {}) })}`
+    : 'project';
+  const { payload } = await jiraRequest(restPath(resolved, suffix), { ...options, connection: resolved });
+  const values = Array.isArray(payload) ? payload : (payload?.values ?? []);
+  return values.map((project) => ({
+    id: project.id ?? null,
+    key: project.key ?? null,
+    name: project.name ?? project.key ?? null,
+    projectType: project.projectTypeKey ?? null,
+    simplified: project.simplified ?? null,
+    url: project.key ? `${resolved.baseUrl}/browse/${project.key}` : null
+  }));
+}
+
+export async function getMyPermissions(projectKey, options = {}) {
+  const resolved = resolveConnection(options);
+  const query = new URLSearchParams({
+    projectKey: validateProjectKey(projectKey),
+    permissions: 'BROWSE_PROJECTS,CREATE_ISSUES,EDIT_ISSUES,ADD_COMMENTS'
+  });
+  const { payload } = await jiraRequest(`${restPath(resolved, 'mypermissions')}?${query}`, { ...options, connection: resolved });
+  return Object.fromEntries(Object.entries(payload?.permissions ?? {}).map(([key, permission]) => [key, {
+    id: permission.id ?? null,
+    name: permission.name ?? key,
+    havePermission: Boolean(permission.havePermission)
+  }]));
+}
+
+export async function listIssueTypes(projectKey, options = {}) {
+  const resolved = resolveConnection(options);
+  if (resolved.deployment === 'cloud') {
+    const { payload } = await jiraRequest(restPath(resolved, `issue/createmeta/${encodeURIComponent(validateProjectKey(projectKey))}/issuetypes`), {
+      ...options,
+      connection: resolved
+    });
+    return (payload?.issueTypes ?? payload?.values ?? []).map((type) => ({
+      id: type.id ?? null,
+      name: type.name ?? null,
+      subtask: Boolean(type.subtask),
+      hierarchyLevel: type.hierarchyLevel ?? null
+    }));
+  }
+  const query = new URLSearchParams({ projectKeys: validateProjectKey(projectKey), expand: 'projects.issuetypes' });
+  const { payload } = await jiraRequest(`${restPath(resolved, 'issue/createmeta')}?${query}`, { ...options, connection: resolved });
+  return (payload?.projects?.[0]?.issuetypes ?? []).map((type) => ({
+    id: type.id ?? null,
+    name: type.name ?? null,
+    subtask: Boolean(type.subtask),
+    hierarchyLevel: type.hierarchyLevel ?? null
+  }));
+}
+
+export async function discoverJiraConnection(options = {}) {
+  const resolved = resolveConnection(options);
+  const [server, account, projects] = await Promise.all([
+    getServerInfo({ ...options, connection: resolved }),
+    getCurrentUser({ ...options, connection: resolved }),
+    listProjects({ ...options, connection: resolved, limit: 25 })
+  ]);
+  return {
+    connected: true,
+    name: resolved.name,
+    deployment: resolved.deployment,
+    baseUrl: resolved.baseUrl,
+    account,
+    server,
+    projects,
+    discoveredAt: new Date().toISOString()
+  };
+}
+
+export async function listEpics(projectKey, {
+  issueType = 'Epic',
+  limit = 100,
+  ...options
+} = {}) {
+  const key = validateProjectKey(projectKey);
+  return searchIssues(`project = ${quoteJql(key)} AND issuetype = ${quoteJql(issueType)} ORDER BY updated DESC`, {
+    ...options,
+    limit,
+    fields: [...STANDARD_FIELDS]
+  });
+}
+
+export async function listEpicStories(epicKey, {
+  limit = 100,
+  ...options
+} = {}) {
+  if (!/^[A-Za-z][A-Za-z0-9_-]*-\d+$/.test(String(epicKey ?? ''))) throw new SingularityFlowError('A valid Jira Epic key is required.');
+  return searchIssues(`(parent = ${quoteJql(epicKey)} OR "Epic Link" = ${quoteJql(epicKey)}) ORDER BY rank, key`, {
+    ...options,
+    limit,
+    fields: [...STANDARD_FIELDS]
+  });
+}
+
+export async function updateIssue(key, fields, {
+  expectedUpdatedAt = null,
+  env = process.env,
+  connection,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (!key || !fields || typeof fields !== 'object' || Array.isArray(fields)) throw new SingularityFlowError('Jira update requires an issue key and fields.');
+  const resolved = resolveConnection({ connection, env });
+  if (expectedUpdatedAt) {
+    const current = await getIssue(key, { connection: resolved, fetchImpl });
+    if (current.updatedAt !== expectedUpdatedAt) {
+      throw jiraFailure(`Jira issue ${key} changed after the write plan was created. Refresh the plan before applying it.`, { category: 'conflict', status: 409 });
+    }
+  }
+  const normalizedFields = {
+    ...fields,
+    ...(typeof fields.description === 'string'
+      ? { description: resolved.deployment === 'cloud' ? adfParagraph(fields.description) : fields.description }
+      : {})
+  };
+  await jiraRequest(restPath(resolved, `issue/${encodeURIComponent(key)}`), {
+    method: 'PUT',
+    body: { fields: normalizedFields },
+    connection: resolved,
+    fetchImpl
+  });
+  return getIssue(key, { connection: resolved, fetchImpl });
+}
+
+export async function addComment(key, body, options = {}) {
+  const resolved = resolveConnection(options);
+  const content = resolved.deployment === 'cloud' ? adfParagraph(body) : String(body ?? '');
+  const { payload } = await jiraRequest(restPath(resolved, `issue/${encodeURIComponent(key)}/comment`), {
+    ...options,
+    method: 'POST',
+    body: { body: content },
+    connection: resolved
+  });
+  return { id: payload?.id ?? null, createdAt: payload?.created ?? null };
 }
 
 function line(label, value) {

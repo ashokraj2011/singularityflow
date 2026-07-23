@@ -11,6 +11,11 @@ export const INITIATIVE_GATES = new Set(['off', 'warn', 'block']);
 export const INITIATIVE_APPROVAL_MODES = new Set(['individual', 'bundle', 'none']);
 export const EVIDENCE_ASSURANCE = new Set(['machine-verified', 'system-verified', 'human-approved', 'presence-only']);
 export const INITIATIVE_OUTPUT_KINDS = new Set(['markdown', 'yaml', 'binary-bundle', 'interface-contract']);
+export const JIRA_WRITE_MODES = new Set(['off', 'preview', 'approved']);
+export const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
+export const JIRA_WRITE_OPERATIONS = new Set(['create-epic', 'create-story', 'update-owned-fields', 'add-comment']);
+const DEFAULT_JIRA_FIELDS = ['summary', 'description', 'parent', 'labels', 'components'];
+const FORBIDDEN_JIRA_FIELDS = new Set(['status', 'assignee', 'sprint', 'priority', 'resolution']);
 
 function object(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${label} must be an object.`);
@@ -38,6 +43,80 @@ function array(value, label) {
 
 function unique(values, label) {
   if (new Set(values).size !== values.length) throw new SingularityFlowError(`${label} contains duplicates.`);
+}
+
+function hostname(value, label) {
+  let parsed;
+  try { parsed = new URL(value.includes('://') ? value : `https://${value}`); } catch {
+    throw new SingularityFlowError(`${label} must be a valid hostname or HTTPS URL.`);
+  }
+  if (parsed.protocol !== 'https:') throw new SingularityFlowError(`${label} must use HTTPS.`);
+  if (parsed.username || parsed.password) throw new SingularityFlowError(`${label} must not contain credentials.`);
+  return parsed.hostname.toLowerCase();
+}
+
+export function normalizeJiraPolicy(value = {}) {
+  object(value, 'jira');
+  const deployment = value.deployment ?? 'cloud';
+  if (!JIRA_DEPLOYMENTS.has(deployment)) throw new SingularityFlowError('jira.deployment must be cloud or data-center.');
+  const legacyWrite = typeof value.write === 'boolean' ? value.write : null;
+  const writeConfig = value.write && typeof value.write === 'object' && !Array.isArray(value.write) ? value.write : {};
+  const writeMode = value.writeMode ?? writeConfig.mode ?? (legacyWrite ? 'approved' : 'off');
+  if (!JIRA_WRITE_MODES.has(writeMode)) throw new SingularityFlowError('jira.writeMode must be off, preview, or approved.');
+  const operations = [...(writeConfig.operations ?? value.writeOperations ?? ['create-epic', 'create-story', 'update-owned-fields'])];
+  operations.forEach((operation) => {
+    if (!JIRA_WRITE_OPERATIONS.has(operation)) throw new SingularityFlowError(`jira write operation '${operation}' is unsupported.`);
+  });
+  unique(operations, 'jira write operations');
+  const allowedFields = [...(writeConfig.allowedFields ?? value.allowedFields ?? DEFAULT_JIRA_FIELDS)];
+  allowedFields.forEach((field) => safeId(field, 'jira allowed field'));
+  unique(allowedFields, 'jira allowed fields');
+  const unsafe = allowedFields.filter((field) => FORBIDDEN_JIRA_FIELDS.has(field));
+  if (unsafe.length) throw new SingularityFlowError(`jira allowedFields cannot include governed fields: ${unsafe.join(', ')}.`);
+  const forbiddenFields = [...new Set([...(writeConfig.forbiddenFields ?? []), ...FORBIDDEN_JIRA_FIELDS])];
+  const allowedHosts = [...(value.allowedHosts ?? [])].map((entry, index) => hostname(String(entry), `jira.allowedHosts[${index}]`));
+  unique(allowedHosts, 'jira allowedHosts');
+  const allowedProjects = [...(value.allowedProjects ?? [])].map((key) => String(key).toUpperCase());
+  allowedProjects.forEach((key) => {
+    if (!/^[A-Z][A-Z0-9_-]{0,31}$/.test(key)) throw new SingularityFlowError(`Invalid Jira allowed project key '${key}'.`);
+  });
+  unique(allowedProjects, 'jira allowedProjects');
+  const permittedAuth = [...(value.authentication?.permitted ?? (deployment === 'cloud' ? ['user-token', 'service-account'] : ['pat']))];
+  const acceptedAuth = deployment === 'cloud' ? new Set(['user-token', 'service-account']) : new Set(['pat']);
+  permittedAuth.forEach((mode) => {
+    if (!acceptedAuth.has(mode)) throw new SingularityFlowError(`jira authentication mode '${mode}' is not supported for ${deployment}.`);
+  });
+  const tokenExpiryWarningDays = value.authentication?.tokenExpiryWarningDays ?? 14;
+  if (!Number.isInteger(tokenExpiryWarningDays) || tokenExpiryWarningDays < 0) throw new SingularityFlowError('jira.authentication.tokenExpiryWarningDays must be a non-negative integer.');
+  const cacheMinutes = value.read?.cacheMinutes ?? 10;
+  if (!Number.isInteger(cacheMinutes) || cacheMinutes < 0 || cacheMinutes > 1440) throw new SingularityFlowError('jira.read.cacheMinutes must be an integer from 0 to 1440.');
+  const attachmentPolicy = value.read?.attachmentPolicy ?? 'metadata-only';
+  if (!['none', 'metadata-only'].includes(attachmentPolicy)) throw new SingularityFlowError('jira.read.attachmentPolicy must be none or metadata-only.');
+  const projectKey = value.projectKey ?? '';
+  if (projectKey && !/^[A-Z][A-Z0-9_-]{0,31}$/.test(projectKey)) throw new SingularityFlowError(`Invalid Jira projectKey '${projectKey}'.`);
+  return {
+    enabled: value.enabled === true,
+    connection: safeId(value.connection ?? 'corporate-jira', 'jira.connection'),
+    deployment,
+    allowedHosts,
+    allowedProjects,
+    authentication: {
+      permitted: permittedAuth,
+      tokenExpiryWarningDays
+    },
+    read: {
+      epics: value.read?.epics !== false,
+      stories: value.read?.stories !== false,
+      attachmentPolicy,
+      cacheMinutes
+    },
+    write: legacyWrite ?? writeMode === 'approved',
+    writeMode,
+    writePolicy: { mode: writeMode, operations, allowedFields, forbiddenFields },
+    projectKey,
+    epicIssueType: value.epicIssueType ?? value.issueTypes?.epic ?? 'Epic',
+    storyIssueType: value.storyIssueType ?? value.issueTypes?.story ?? 'Story'
+  };
 }
 
 function duration(value, label) {
@@ -146,6 +225,7 @@ export function validatePortfolio(value) {
   portfolio.approvalAuthorities = object(portfolio.approvalAuthorities ?? {}, 'approvalAuthorities');
   portfolio.initiativeProfiles = object(portfolio.initiativeProfiles ?? {}, 'initiativeProfiles');
   portfolio.initiativePhases = object(portfolio.initiativePhases ?? {}, 'initiativePhases');
+  portfolio.jira = normalizeJiraPolicy(portfolio.jira ?? {});
 
   for (const [id, repository] of Object.entries(portfolio.repositories)) {
     safeId(id, 'Repository ID'); object(repository, `Repository '${id}'`);
@@ -237,7 +317,8 @@ export function resolveInitiativeProfile(portfolio, profileId) {
     label: profile.label,
     phases: profile.phases.map((id, order) => ({ ...structuredClone(portfolio.initiativePhases[id]), order })),
     repositories: structuredClone(portfolio.repositories),
-    approvalAuthorities: structuredClone(portfolio.approvalAuthorities)
+    approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
+    jira: structuredClone(portfolio.jira)
   };
 }
 
@@ -257,6 +338,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     phases: resolved.phases,
     repositories: resolved.repositories,
     approvalAuthorities: resolved.approvalAuthorities,
+    jira: resolved.jira,
     templates
   });
   return {
@@ -267,6 +349,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     templates,
     phases: structuredClone(resolved.phases),
     repositories: structuredClone(resolved.repositories),
-    approvalAuthorities: structuredClone(resolved.approvalAuthorities)
+    approvalAuthorities: structuredClone(resolved.approvalAuthorities),
+    jira: structuredClone(resolved.jira)
   };
 }

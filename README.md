@@ -264,6 +264,12 @@ singularity-flow jira list --project ENG
 singularity-flow start ENG-142 --jira
 ```
 
+Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`; the Cloud path continues to use email plus API token. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery.
+
+For corporate desktop use, enable and constrain the connector in `singularity/portfolio.yml`, then open **Jira workspace**. Credentials are validated in Electron’s main process and encrypted with the operating-system credential store; the renderer, Git repository, Copilot context, CLI child environments, and application logs never receive the saved token. Host and project allowlists, deployment/auth mode, caching, permitted write operations, and owned fields are repository policy. The app can browse Projects → Epics → child stories, map each story to a repository, and adopt a hash-pinned Jira snapshot into an existing Singularity initiative while preserving separate Work IDs and Jira IDs.
+
+Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, and unchanged Jira `updatedAt` values. Applied operations produce committed receipts. Governed Jira fields such as status, assignee, sprint, priority, and resolution are excluded.
+
 ### Manual story intake without Jira
 
 Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
@@ -562,6 +568,10 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |
 | `singularity-flow jira list` | List assigned Jira work with optional project, type, limit, and JQL filters. |
 | `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |
+| `singularity-flow jira status\|projects\|epics\|children\|permissions` | Discover connection, visible hierarchy, and effective project permissions. |
+| `singularity-flow initiative jira-adopt <EPIC>` | Preview or adopt a Jira Epic and its children into a Git initiative with repository mappings. |
+| `singularity-flow initiative jira-plan` | Create, commit, and push a hash-pinned outbound Jira change plan. |
+| `singularity-flow initiative jira-apply --plan <SHA>` | Apply one approved, unchanged plan and commit/push per-operation receipts. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |

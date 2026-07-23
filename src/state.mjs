@@ -448,6 +448,24 @@ function addUsageAggregate(workflow, phase, usage) {
   increment(workflow.usage.byWorkItem, workflow.workItem.id);
 }
 
+function rebuildUsageAggregates(workflow) {
+  workflow.usage = {
+    mode: workflow.usage?.mode ?? 'exact-or-unavailable',
+    totalTokens: 0,
+    records: 0,
+    exactRecords: 0,
+    unavailableRecords: 0,
+    byPhase: {},
+    byPersona: {},
+    byWorkType: {},
+    byWorkItem: {}
+  };
+  for (const phaseId of workflow.phaseOrder) {
+    const phase = workflow.phases[phaseId];
+    for (const usage of phase.usage ?? []) addUsageAggregate(workflow, phase, usage);
+  }
+}
+
 function generationCommit(root, workflow, phase, number = phase.generation) {
   const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${number}]`;
   const result = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true });
@@ -491,6 +509,8 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const capture = rawUsage
     ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
     : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase) };
+  capture.pending = !rawUsage && capture.usage.length === 0;
+  if (capture.pending) capture.warnings.push('The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
   const normalizedUsage = (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1));
   phase.generation += 1; phase.generatedBy = session.actor; phase.generatedPersona = session.persona; phase.sourceCommit = head(root);
@@ -511,6 +531,65 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), persona: session.persona, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
   await saveWorkflow(root, config, workflow); return phase;
+}
+
+export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId } = {}) {
+  const phase = phaseId ? workflow.phases[phaseId] : currentPhase(workflow);
+  if (!phase) return { updated: false, reason: 'No active phase is available.' };
+  const generation = phase.generation;
+  const context = (phase.telemetry ?? []).find((item) => item.generation === generation);
+  if (!context) return { updated: false, phase: phase.id, generation, reason: 'No telemetry record exists for the current generation.' };
+  if (context.status !== 'pending') return { updated: false, phase: phase.id, generation, status: context.status, reason: `Telemetry is already ${context.status}.` };
+
+  const capture = { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase, { generation }) };
+  if (!capture.usage.length) return {
+    updated: false,
+    pending: true,
+    phase: phase.id,
+    generation,
+    status: 'pending',
+    reason: capture.warnings.at(-1) ?? 'The completed Copilot turn is not available yet.',
+    warnings: capture.warnings
+  };
+
+  const session = await loadSession(root, { required: false });
+  const usageSession = { persona: phase.generatedPersona ?? session?.persona ?? null };
+  const normalizedUsage = capture.usage.map((record) => normalizeUsage(record, usageSession, generation));
+  phase.usage = [...(phase.usage ?? []).filter((item) => item.generation !== generation), ...normalizedUsage];
+  const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== generation), {
+    generation,
+    path: telemetry.path,
+    sha256: telemetry.sha256,
+    status: telemetry.status,
+    models: telemetry.models,
+    providerCost: telemetry.providerCost
+  }];
+  rebuildUsageAggregates(workflow);
+  workflow.history.push({
+    at: nowIso(),
+    actor: actorKey(session?.actor ?? phase.generatedBy ?? {}) ?? 'unknown',
+    persona: session?.persona ?? phase.generatedPersona ?? null,
+    event: 'phase_telemetry_reconciled',
+    phase: phase.id,
+    detail: `generation ${generation}: ${telemetry.status}`
+  });
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await refreshRequiredArtifact(root, config, workflow, phase);
+  await saveWorkflow(root, config, workflow);
+  return {
+    updated: true,
+    phase: phase.id,
+    generation,
+    status: telemetry.status,
+    models: telemetry.models,
+    usage: normalizedUsage,
+    providerCost: telemetry.providerCost,
+    path: telemetry.path
+  };
 }
 
 async function qualityChecks(root, phase) {

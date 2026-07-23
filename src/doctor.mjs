@@ -5,6 +5,7 @@ import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadSession } from './session.mjs';
 import { loadWorkflow, pendingPublicationPath, validateWorkflow, workflowPath } from './state.mjs';
 import { run } from './util.mjs';
+import { copilotTelemetryStatus } from './telemetry.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
@@ -29,6 +30,21 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     return summarize(root, checks, null, null);
   }
+  const telemetry = await copilotTelemetryStatus(root);
+  checks.push(check(
+    'copilot-telemetry',
+    telemetry.ready ? 'pass' : 'warn',
+    telemetry.ready
+      ? `Copilot telemetry has ${telemetry.completedChatSpans} completed chat span(s) in the repository exporter.`
+      : telemetry.fileConfigured
+        ? `Copilot telemetry is configured, but no completed chat span is available yet (${telemetry.bytes} bytes).`
+        : 'This process was not started with the repository-scoped Copilot telemetry exporter.',
+    telemetry.ready
+      ? null
+      : telemetry.fileConfigured
+        ? 'Finish the current Copilot response, then run singularity-flow telemetry status from the next turn.'
+        : 'Fully exit Copilot, open a new terminal in this repository, verify `type copilot`, and start a new session.'
+  ));
   const currentBranch = branch(root);
   const requested = workId ?? currentBranch;
   let workflow = null;

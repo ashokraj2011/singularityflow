@@ -494,7 +494,7 @@ Use `/sflow-report` in Copilot.
 
 ## Token usage and optional cost
 
-Installer-managed Copilot sessions are captured automatically between phase preparation and publication. Raw traces remain inside the repository Git directory, while each generation commits a sanitized record at:
+Installer-managed Copilot sessions are captured automatically from phase preparation onward. Copilot writes the current chat span only after its response finishes, so publication can initially show `pending`. The next `submit` or `/sflow-next` action reconciles that completed span in a separate commit and push before submission. Raw traces remain inside the repository Git directory, while each generation commits a sanitized record at:
 
 ```text
 .singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
@@ -521,6 +521,8 @@ tokens:
 ```
 
 No model prices are bundled because prices change over time. Exact total tokens without an input/output breakdown cannot be priced safely and remain unavailable for cost calculation.
+
+Use `singularity-flow telemetry status` to see whether the current Copilot process inherited the repository file exporter, the raw-file path and size, completed chat spans, and pending generations. Use `singularity-flow telemetry reconcile [PHASE]` to retry a delayed generation explicitly. Reconciliation commits and pushes only the sanitized record, never the raw trace.
 
 ## Git state transfer and recovery
 
@@ -786,7 +788,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables metadata-only Copilot OpenTelemetry in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `.singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables the metadata-only Copilot OpenTelemetry file exporter in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `.singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
 
 For a company Artifactory or registry:
 
@@ -804,7 +806,7 @@ If Copilot telemetry is managed centrally, opt out of the local file exporter:
 SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh
 ```
 
-The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPORTER_PATH`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or explicit `COPILOT_OTEL_ENABLED` setting. Open a new terminal after installation.
+The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPORTER_PATH`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or explicit `COPILOT_OTEL_ENABLED` setting. Fully exit any currently running Copilot CLI process, open a new terminal in the repository, verify `type copilot`, and start a new session. An existing process cannot inherit newly installed environment variables.
 
 ## Low-friction cockpit, diagnostics, and guided execution
 
@@ -891,7 +893,7 @@ Use `singularity-flow jira fields --query <name>` against the Jira site and conf
 
 ### Report token or cost values are unavailable
 
-Copilot or the provider did not expose exact usage, the exact model name has no configured price, or the record has only total tokens without a safe input/output breakdown. Singularity Flow does not estimate these values.
+Run `singularity-flow telemetry status`. If it says the exporter is not active, fully exit Copilot, open a new terminal in the repository, verify `type copilot`, and start a new Copilot session. If a generation is pending, finish the current Copilot response and let the next `submit` or `/sflow-next` reconcile it, or run `singularity-flow telemetry reconcile <PHASE>` explicitly. Older turns created before telemetry was enabled cannot be reconstructed. If token data exists but cost does not, the provider did not expose exact cost or the exact model name has no configured price. Singularity Flow does not estimate these values.
 
 ### Desktop cannot open a repository
 
@@ -937,6 +939,8 @@ singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+singularity-flow telemetry status [--json]
+singularity-flow telemetry reconcile [PHASE] [--json]
 singularity-flow documents list [WORK-ID] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID]
 singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]

@@ -24,6 +24,8 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm install --global "\$PROJECT_DIR\/\$TARBALL" --registry="\$REGISTRY"/);
   assert.match(script, /singularity-flow plugin install/);
   assert.match(script, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
+  assert.match(script, /COPILOT_OTEL_ENABLED=true/);
+  assert.match(script, /COPILOT_OTEL_EXPORTER_TYPE=file/);
   assert.match(script, /singularity-flow\/copilot-otel\.jsonl/);
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /Prompt\/response content remains disabled/);
@@ -75,9 +77,12 @@ if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-f
   assert.match(result.stdout, new RegExp(`Installed Singularity Flow ${version.replaceAll('.', '\\.')}`));
   assert.match(result.stdout, /Copilot OpenTelemetry: enabled/);
   assert.match(result.stdout, /Prompt and response content capture remains disabled/);
+  assert.match(result.stdout, /fully exit any currently running Copilot CLI process/);
   const telemetryEnv = await readFile(path.join(fixture, '.singularity-flow', 'copilot-otel.sh'), 'utf8');
   const shellProfile = await readFile(path.join(fixture, '.zshrc'), 'utf8');
   assert.match(telemetryEnv, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
+  assert.match(telemetryEnv, /COPILOT_OTEL_ENABLED=true/);
+  assert.match(telemetryEnv, /COPILOT_OTEL_EXPORTER_TYPE=file/);
   assert.match(telemetryEnv, /git rev-parse --absolute-git-dir/);
   assert.match(telemetryEnv, /sflow_git_dir\/singularity-flow\/copilot-otel\.jsonl/);
   assert.match(telemetryEnv, /copilot\(\)/);

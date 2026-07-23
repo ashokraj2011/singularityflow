@@ -109,6 +109,53 @@ test('publication commits sanitized Copilot telemetry under the work item and re
   assert.equal(flow(root, ['gate']).status, 0);
 });
 
+test('Copilot telemetry published before turn completion is reconciled and committed on submit', async () => {
+  const root = await repository(); const workId = 'TELEMETRY-LATE-1';
+  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  const workflowFile = path.join(root, '.singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  const published = flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  assert.match(published.stdout, /Telemetry: pending/);
+  assert.match(published.stdout, /reconciled automatically on the next submit action/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.phases.intake.telemetry[0].status, 'pending');
+  assert.equal(workflow.phases.intake.usage[0].status, 'unavailable');
+  assert.equal(JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout).costCoverage.pendingRecords, 1);
+
+  const span = {
+    name: 'chat gpt-5.4',
+    startTime: new Date(Date.now() - 1000).toISOString(),
+    endTime: new Date().toISOString(),
+    attributes: {
+      'gen_ai.operation.name': 'chat', 'gen_ai.provider.name': 'github',
+      'gen_ai.response.model': 'gpt-5.4', 'gen_ai.usage.input_tokens': 800,
+      'gen_ai.usage.output_tokens': 200, 'github.copilot.cost': 0.01
+    }
+  };
+  await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${JSON.stringify(span)}\n`);
+  const telemetryStatus = JSON.parse(flow(root, ['telemetry', 'status', '--json']).stdout);
+  assert.equal(telemetryStatus.exists, true);
+  assert.equal(telemetryStatus.ready, true);
+  assert.equal(telemetryStatus.completedChatSpans, 1);
+  assert.deepEqual(telemetryStatus.pending.map((item) => `${item.phase}@${item.generation}`), ['intake@1']);
+  const submitted = flow(root, ['submit', '--phase', 'intake'], { selection: selection('feature', 'product-owner') });
+  assert.match(submitted.stdout, /Reconciled intake generation 1 telemetry/);
+  assert.match(submitted.stdout, /Models: gpt-5.4 \| Tokens: 1000 \| Provider cost: \$0.010000/);
+
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.equal(workflow.phases.intake.telemetry[0].status, 'exact');
+  assert.equal(workflow.phases.intake.usage[0].totalTokens, 1000);
+  assert.equal(workflow.phases.intake.usage[0].providerCost, 0.01);
+  assert.equal(workflow.usage.totalTokens, 1000);
+  assert.equal(workflow.usage.exactRecords, 1);
+  assert.equal(workflow.usage.unavailableRecords, 0);
+  assert.ok(workflow.history.some((item) => item.event === 'phase_telemetry_reconciled'));
+  const subjects = execute('git', ['log', '-3', '--format=%s'], root).stdout;
+  assert.match(subjects, /\[TELEMETRY-LATE-1\]\[phase:intake\]\[telemetry:1\] reconcile Copilot usage/);
+});
+
 test('next executes one valid lifecycle action at a time', async () => {
   const root = await repository(); const workId = 'NEXT-AUTO-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });

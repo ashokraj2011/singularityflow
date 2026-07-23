@@ -123,7 +123,7 @@ install_copilot_telemetry() {
     '    command mkdir -p "$sflow_git_dir/singularity-flow"' \
     '    command touch "$sflow_telemetry_file"' \
     '    command chmod 600 "$sflow_telemetry_file"' \
-    '    COPILOT_OTEL_FILE_EXPORTER_PATH="$sflow_telemetry_file" command copilot "$@"' \
+    '    COPILOT_OTEL_ENABLED=true COPILOT_OTEL_EXPORTER_TYPE=file COPILOT_OTEL_FILE_EXPORTER_PATH="$sflow_telemetry_file" command copilot "$@"' \
     '  else' \
     '    command copilot "$@"' \
     '  fi' \
@@ -156,6 +156,7 @@ install_copilot_telemetry() {
   printf 'Copilot OpenTelemetry: enabled in %s\n' "$profile"
   printf '%s\n' 'Raw telemetry output: <repository-git-dir>/singularity-flow/copilot-otel.jsonl'
   printf '%s\n' 'Prompt and response content capture remains disabled.'
+  printf '%s\n' 'Important: fully exit any currently running Copilot CLI process; telemetry environment cannot be added to an existing process.'
 }
 
 cd "$PROJECT_DIR"

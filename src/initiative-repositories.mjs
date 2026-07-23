@@ -359,7 +359,15 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         implementationSpec: milestoneReached(workflow, 'implementation-spec') || milestoneReached(workflow, 'fix-spec'),
         verification: milestoneReached(workflow, 'verification'),
         conformance: milestoneReached(workflow, 'conformance')
-      }
+      },
+      telemetry: workflow ? {
+        totalTokens: workflow.usage?.totalTokens ?? null,
+        models: [...new Set(Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.usage ?? []).map((usage) => usage.model).filter(Boolean)))],
+        providerCost: (() => {
+          const values = Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.usage ?? []).map((usage) => usage.providerCost).filter(Number.isFinite));
+          return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+        })()
+      } : previous.telemetry ?? null
     };
     for (const dependency of story.dependsOn) {
       const dependencyState = initiative.childStories[dependency.story];

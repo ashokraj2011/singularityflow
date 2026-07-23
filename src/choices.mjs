@@ -108,10 +108,18 @@ async function removeExpired(root) {
 }
 
 export async function beginSelectionReceipt(root, definition, { action, workId, workflow = null }) {
+  return beginCustomSelectionReceipt(root, {
+    action,
+    workId,
+    context: action === 'approve' ? approvalContext(workflow) : null,
+    choiceSets: choiceSets(definition, action, workflow)
+  });
+}
+
+export async function beginCustomSelectionReceipt(root, { action, workId, choiceSets: configuredChoices, context = null }) {
   await removeExpired(root);
   const copilot = await loadCopilotSession(root);
   const createdAt = new Date();
-  const context = action === 'approve' ? approvalContext(workflow) : null;
   const receipt = {
     schemaVersion: 1,
     token: randomUUID(),
@@ -121,8 +129,8 @@ export async function beginSelectionReceipt(root, definition, { action, workId, 
     copilotSessionId: copilot?.sessionId ?? null,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + RECEIPT_TTL_MS).toISOString(),
-    ...(context ? { approvalContext: context } : {}),
-    choiceSets: choiceSets(definition, action, workflow),
+    ...(context ? { actionContext: context, ...(action === 'approve' ? { approvalContext: context } : {}) } : {}),
+    choiceSets: configuredChoices,
     answers: {},
     ready: false
   };
@@ -149,6 +157,15 @@ export async function selectionReceiptStatus(root, token) {
 }
 
 export async function resolveSelectionReceipt(root, definition, token, { action, workId, workflow = null }) {
+  return resolveCustomSelectionReceipt(root, token, {
+    action,
+    workId,
+    context: action === 'approve' ? approvalContext(workflow) : null,
+    choiceSets: choiceSets(definition, action, workflow)
+  });
+}
+
+export async function resolveCustomSelectionReceipt(root, token, { action, workId, choiceSets: current, context = null }) {
   const receipt = await readReceipt(root, token);
   await assertActive(root, receipt);
   if (receipt.action !== action || receipt.workId !== workId) {
@@ -157,10 +174,9 @@ export async function resolveSelectionReceipt(root, definition, token, { action,
   if (receipt.repositoryHead !== head(root)) {
     throw new SingularityFlowError(`Selection receipt '${token}' is stale because the repository HEAD changed. Ask the contributor to review the choices again.`);
   }
-  if (action === 'approve' && JSON.stringify(receipt.approvalContext) !== JSON.stringify(approvalContext(workflow))) {
-    throw new SingularityFlowError(`Selection receipt '${token}' is stale because the submitted phase, generation, or artifact hashes changed.`);
+  if (JSON.stringify(receipt.actionContext ?? receipt.approvalContext ?? null) !== JSON.stringify(context ?? null)) {
+    throw new SingularityFlowError(`Selection receipt '${token}' is stale because the action context changed.`);
   }
-  const current = choiceSets(definition, action, workflow);
   const answers = {};
   for (const choices of current) {
     const selected = receipt.answers?.[choices.id]?.id;

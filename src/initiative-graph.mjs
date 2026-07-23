@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { identity } from './git.mjs';
-import { appendInitiativeRecord, readInitiativeRecords } from './initiative-evidence.mjs';
+import {
+  appendInitiativeRecord, authorityDescription, isAuthorized, readInitiativeRecords
+} from './initiative-evidence.mjs';
 import { loadInitiative, saveInitiative } from './initiative-state.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
@@ -161,4 +163,76 @@ export async function activeInitiativeInvalidations(root, portfolio, initiativeI
 
 export function nextInitiativePhase(initiative) {
   return initiative.phaseOrder.map((id) => initiative.phases[id]).find((phase) => phase.status !== 'approved') ?? null;
+}
+
+function rejectionTarget(initiative, phaseId, subject) {
+  const phase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
+  if (!phase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
+  if (subject === 'phase') return { node: initiativeNode('phase', phaseId), policy: phase.bundleApproval, type: 'phase', id: phaseId };
+  const output = phase.outputs.find((candidate) => candidate.id === subject);
+  if (output) return { node: initiativeNode('output', phaseId, subject), policy: output.approval.mode === 'bundle' ? phase.bundleApproval : output.approval, type: 'output', id: subject };
+  const check = phase.checklist.find((candidate) => candidate.id === subject);
+  if (check) return { node: initiativeNode('check', phaseId, subject), policy: check.approval.mode === 'bundle' ? phase.bundleApproval : check.approval, type: 'check', id: subject };
+  throw new SingularityFlowError(`Unknown rejection subject '${subject}'.`);
+}
+
+export async function rejectInitiative(root, {
+  initiativeId,
+  phaseId = null,
+  subject = 'phase',
+  reason,
+  persona = null,
+  channel = 'terminal'
+} = {}) {
+  if (!reason?.trim()) throw new SingularityFlowError('Initiative rejection reason is required.');
+  let loaded = await loadInitiative(root, initiativeId);
+  const selectedPhase = phaseId ?? loaded.initiative.currentPhase;
+  if (selectedPhase !== loaded.initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${loaded.initiative.currentPhase ?? 'complete'}'.`);
+  const phase = loaded.initiative.phases[selectedPhase];
+  if (phase.status !== 'awaiting_approval') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is ${phase.status}; rejection requires awaiting_approval.`);
+  const target = rejectionTarget(loaded.initiative, selectedPhase, subject);
+  const actor = identity(root);
+  if (!isAuthorized(loaded.initiative.resolution, target.policy, actor)) throw new SingularityFlowError(`${actor.email?.toLowerCase() ?? actor.name} is not authorized to reject ${target.type} '${target.id}'. Required authority: ${authorityDescription(target.policy)}.`);
+  const decision = {
+    schemaVersion: 1,
+    type: 'approval',
+    decision: 'rejected',
+    initiativeId,
+    phase: selectedPhase,
+    subject: { type: target.type, id: target.id, sha256: null },
+    reason: reason.trim(),
+    actor,
+    identityAssurance: 'configured-local',
+    persona,
+    channel,
+    at: nowIso(),
+    selfApproval: false
+  };
+  const approval = await appendInitiativeRecord(root, loaded.portfolio, initiativeId, 'approvals', decision);
+  const invalidation = await invalidateInitiativeCone(root, {
+    initiativeId,
+    starts: [target.node],
+    reason: reason.trim(),
+    cause: 'rejected',
+    persona
+  });
+  loaded = await loadInitiative(root, initiativeId);
+  const reopened = loaded.initiative.phases[selectedPhase];
+  reopened.status = 'in_progress';
+  reopened.submittedAt = null;
+  reopened.approvedAt = null;
+  reopened.rejectedAt = decision.at;
+  reopened.rejectionReason = decision.reason;
+  loaded.initiative.currentPhase = selectedPhase;
+  loaded.initiative.status = 'in_progress';
+  loaded.initiative.history.push({
+    at: decision.at,
+    actor: actor.email?.toLowerCase() ?? actor.name,
+    persona,
+    event: 'initiative_rejected',
+    phase: selectedPhase,
+    detail: `${target.type}/${target.id}: ${decision.reason}`
+  });
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  return { ...loaded, approval, invalidation, target };
 }

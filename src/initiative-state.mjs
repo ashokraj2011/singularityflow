@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { branch, identity } from './git.mjs';
+import { add, branch, commit, head, identity, pushBranch } from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution
 } from './initiative-config.mjs';
 import {
-  SingularityFlowError, exists, nowIso, posix, readJson, snapshot, writeJson, writeText
+  SingularityFlowError, exists, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
@@ -27,6 +27,10 @@ export function initiativeRelative(portfolio, id) {
 
 export function initiativeStatePath(root, portfolio, id) {
   return path.join(initiativeDir(root, portfolio, id), 'state.json');
+}
+
+export function initiativePendingPublicationPath(root, portfolio, id) {
+  return path.join(initiativeDir(root, portfolio, id), 'publication-pending.json');
 }
 
 function outputKey(phaseId, outputId) { return `${phaseId}/${outputId}`; }
@@ -315,4 +319,51 @@ export function initiativeProgress(initiative) {
 
 export function initiativeDefinitionHash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+export async function commitInitiativeChange(root, portfolio, initiative, message, {
+  extraPaths = [],
+  appendOnly = false
+} = {}) {
+  if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
+  const pending = initiativePendingPublicationPath(root, portfolio, initiative.initiative.id);
+  if (await exists(pending)) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
+  add(root, [...new Set([initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths])]);
+  const sha = commit(root, message);
+  const mode = portfolio.git?.publish ?? 'required';
+  if (mode === 'off') return { sha, pushed: false, replayed: false };
+  const remote = portfolio.git?.remote ?? 'origin';
+  let pushed = pushBranch(root, remote, initiative.initiative.branch);
+  let replayed = false;
+  if (pushed.status !== 0 && appendOnly) {
+    const rebased = run('git', ['pull', '--rebase', remote, initiative.initiative.branch], { cwd: root, allowFailure: true });
+    if (rebased.status === 0) {
+      replayed = true;
+      pushed = pushBranch(root, remote, initiative.initiative.branch);
+    }
+  }
+  if (pushed.status !== 0) {
+    await writeJson(pending, {
+      schemaVersion: 1,
+      initiativeId: initiative.initiative.id,
+      branch: initiative.initiative.branch,
+      remote,
+      commit: sha,
+      appendOnly,
+      createdAt: nowIso(),
+      error: (pushed.stderr || pushed.stdout).trim()
+    });
+    throw new SingularityFlowError(`Initiative commit ${sha.slice(0, 8)} was retained locally but push failed. Run singularity-flow initiative sync after fixing remote access.`);
+  }
+  return { sha: branch(root) === initiative.initiative.branch ? head(root) : sha, pushed: true, replayed };
+}
+
+export async function syncInitiativePublication(root, portfolio, initiative) {
+  const pending = initiativePendingPublicationPath(root, portfolio, initiative.initiative.id);
+  if (!(await exists(pending))) return { pending: false, pushed: null };
+  const record = await readJson(pending);
+  const result = pushBranch(root, record.remote, record.branch);
+  if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
+  await unlink(pending);
+  return { pending: false, pushed: head(root), remote: record.remote, branch: record.branch };
 }

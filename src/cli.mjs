@@ -2,6 +2,7 @@ import readline from 'node:readline/promises';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
   SingularityFlowError,
@@ -10,6 +11,7 @@ import {
   optionString,
   optionStrings,
   parseArgs,
+  posix,
   readJson,
   requirePositional,
   table,
@@ -75,7 +77,28 @@ import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, wor
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
-import { answerSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
+import {
+  answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt,
+  resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus
+} from './choices.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
+import {
+  commitInitiativeChange, createInitiative, initiativeDir, initiativeProgress, listInitiatives,
+  loadInitiative, prepareInitiativePhase, syncInitiativePublication, validateInitiativeId
+} from './initiative-state.mjs';
+import {
+  approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
+  readInitiativeRecords, registerInitiativeEvidence
+} from './initiative-evidence.mjs';
+import { rejectInitiative } from './initiative-graph.mjs';
+import {
+  initiativeBreakdownReview, materializeInitiative, syncInitiativeRepositories
+} from './initiative-repositories.mjs';
+import { interfaceContractStatus, registerInterfaceContract } from './initiative-contracts.mjs';
+import {
+  deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
+} from './initiative-report.mjs';
+import { runInitiativeGate } from './initiative-governance.mjs';
 
 const VERSION = '0.8.0';
 
@@ -182,6 +205,26 @@ Usage:
   singularity-flow desktop delete-template <PATH> --json
   singularity-flow desktop publish [--message TEXT] --json
   singularity-flow desktop session <PERSONA> [--work-id ID] --json
+  singularity-flow initiative profiles [--json]
+  singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
+  singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT] [--selection-receipt TOKEN]
+  singularity-flow initiative resume <INIT-ID> [--fetch]
+  singularity-flow initiative status [INIT-ID] [--json]
+  singularity-flow initiative next [INIT-ID] [--json]
+  singularity-flow initiative phase [publish] [PHASE]
+  singularity-flow initiative documents [PHASE] [--json]
+  singularity-flow initiative checklist [PHASE] [--json]
+  singularity-flow initiative evidence add <CHECK-ID> --assurance LEVEL [--path FILE | --url URL]
+  singularity-flow initiative evidence list [CHECK-ID] [--json]
+  singularity-flow initiative verify [PHASE] [--json]
+  singularity-flow initiative approve <OUTPUT|CHECK|phase> [--selection-receipt TOKEN]
+  singularity-flow initiative reject <OUTPUT|CHECK|phase> --reason TEXT
+  singularity-flow initiative breakdown [--probe] [--json]
+  singularity-flow initiative materialize [--dry-run] [--yes]
+  singularity-flow initiative sync
+  singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
+  singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
+  singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
 
 Optional Jira environment:
   JIRA_BASE_URL=https://company.atlassian.net
@@ -1272,6 +1315,389 @@ async function stdinText() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function initiativeProfileChoices(portfolio) {
+  return Object.entries(portfolio.initiativeProfiles).map(([id, profile]) => ({
+    id,
+    label: profile.label ?? id,
+    description: `${profile.phases.length} governed phases`
+  }));
+}
+
+function initiativePersonaChoices(definition) {
+  return Object.entries(definition.personas).map(([id, persona]) => ({
+    id,
+    label: persona.label ?? id,
+    description: persona.description ?? ''
+  }));
+}
+
+function initiativeStartChoiceSets(portfolio, definition) {
+  return [
+    { id: 'initiative-profile', label: 'Initiative profile', options: initiativeProfileChoices(portfolio) },
+    { id: 'persona', label: 'Persona', options: initiativePersonaChoices(definition) }
+  ];
+}
+
+async function chooseInitiativeProfile(portfolio, selection = null) {
+  const choices = initiativeProfileChoices(portfolio);
+  if (selection) {
+    if (!choices.some((choice) => choice.id === selection)) throw new SingularityFlowError(`Unknown initiative profile '${selection}'.`);
+    return selection;
+  }
+  if (!input.isTTY || !output.isTTY) {
+    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION) {
+      const selected = JSON.parse(process.env.SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION).profile;
+      if (choices.some((choice) => choice.id === selected)) return selected;
+    }
+    throw new SingularityFlowError('Selecting an initiative profile requires an interactive terminal or a Copilot selection receipt.');
+  }
+  const io = readline.createInterface({ input, output });
+  try {
+    console.log('\nChoose initiative profile:');
+    choices.forEach((choice, index) => console.log(`  ${index + 1}. ${choice.label} (${choice.id}) — ${choice.description}`));
+    const selected = Number((await io.question(`Enter 1-${choices.length}: `)).trim()) - 1;
+    if (!Number.isInteger(selected) || !choices[selected]) throw new SingularityFlowError('Invalid initiative profile selection.');
+    return choices[selected].id;
+  } finally { io.close(); }
+}
+
+async function confirmInitiativeExact(prompt, expected) {
+  if (!input.isTTY || !output.isTTY) {
+    if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM === expected) return true;
+    throw new SingularityFlowError(`This initiative action requires interactive exact confirmation '${expected}' or a Copilot selection receipt.`);
+  }
+  const io = readline.createInterface({ input, output });
+  try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
+  finally { io.close(); }
+}
+
+function initiativeFlowText(progress) {
+  const symbols = { approved: '✓', in_progress: '●', awaiting_approval: '◆', stale: '!', not_started: '○' };
+  return progress.phases.map((phase) => `[${symbols[phase.status] ?? '?'} ${phase.label}]`).join(' → ');
+}
+
+async function initiativeChoicesCommand(root, config, portfolio, positionals, options) {
+  const action = requirePositional(positionals, 3, 'initiative choice action');
+  if (positionals[2] === 'answer') {
+    const receipt = await answerSelectionReceipt(root, requirePositional(positionals, 3, 'receipt token'), requirePositional(positionals, 4, 'choice ID'), requirePositional(positionals, 5, 'selected ID'));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2)); else printSelectionReceipt(receipt);
+    return;
+  }
+  if (positionals[2] === 'status') {
+    const receipt = await selectionReceiptStatus(root, requirePositional(positionals, 3, 'receipt token'));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2)); else printSelectionReceipt(receipt);
+    return;
+  }
+  if (positionals[2] !== 'begin') throw new SingularityFlowError('Initiative choices supports begin, answer, or status.');
+  const initiativeId = requirePositional(positionals, 4, 'initiative ID');
+  validateInitiativeId(initiativeId);
+  let choiceSets;
+  let context = null;
+  let receiptAction;
+  if (action === 'start') {
+    choiceSets = initiativeStartChoiceSets(portfolio, config);
+    receiptAction = 'initiative-start';
+  } else if (action === 'approve') {
+    const { initiative } = await loadInitiative(root, initiativeId, portfolio);
+    const phaseId = initiative.currentPhase;
+    const subject = positionals[5] ?? 'phase';
+    const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
+    const expected = `${phaseId}:${subject}`;
+    choiceSets = [
+      { id: 'persona', label: 'Persona', options: initiativePersonaChoices(config) },
+      { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
+    ];
+    context = { phase: phaseId, subject, bundleSha256: bundle.sha256 };
+    receiptAction = 'initiative-approve';
+  } else throw new SingularityFlowError('Initiative choice action must be start or approve.');
+  const receipt = await beginCustomSelectionReceipt(root, { action: receiptAction, workId: initiativeId, choiceSets, context });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2)); else printSelectionReceipt(receipt);
+}
+
+async function initiativeCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  const root = repoRoot();
+  const portfolio = await loadPortfolio(root);
+  const config = await loadConfig(root);
+  if (subcommand === 'profiles') {
+    const profiles = initiativeProfileChoices(portfolio);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(profiles, null, 2));
+    else console.log(table(profiles.map((profile) => ({ id: profile.id, label: profile.label, description: profile.description })), [
+      { key: 'id', label: 'PROFILE' }, { key: 'label', label: 'LABEL' }, { key: 'description', label: 'PHASES' }
+    ]));
+    return;
+  }
+  if (subcommand === 'choices') return initiativeChoicesCommand(root, config, portfolio, positionals, options);
+  if (subcommand === 'start') {
+    const initiativeId = requirePositional(positionals, 2, 'initiative ID');
+    validateInitiativeId(initiativeId);
+    if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
+    const choiceSets = initiativeStartChoiceSets(portfolio, config);
+    const receiptToken = optionString(options, 'selection-receipt');
+    const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
+      action: 'initiative-start',
+      workId: initiativeId,
+      choiceSets
+    }) : null;
+    const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile']);
+    const selectedPersona = await selectPersona(root, config, actionActor(root), initiativeId, { selection: receipt?.answers.persona ?? null });
+    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+    const source = optionBoolean(options, 'jira')
+      ? await getIssue(initiativeId)
+      : { type: 'manual', id: initiativeId, title: optionString(options, 'title', initiativeId), description: optionString(options, 'description', '') };
+    checkout(root, initiativeId, { base: optionString(options, 'base', config.defaultBaseBranch), fetch: optionBoolean(options, 'fetch') });
+    const created = await createInitiative(root, {
+      id: initiativeId,
+      title: optionString(options, 'title', source.title ?? initiativeId),
+      profile,
+      source,
+      persona: selectedPersona.persona
+    });
+    const publication = await commitInitiativeChange(root, created.portfolio, created.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
+    const progress = initiativeProgress(created.initiative);
+    console.log(`Initiative ${initiativeId} started as ${profile}.`);
+    console.log(initiativeFlowText(progress));
+    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+    console.log(`Next: singularity-flow initiative phase ${created.initiative.currentPhase}`);
+    return;
+  }
+  if (subcommand === 'resume') {
+    const initiativeId = requirePositional(positionals, 2, 'initiative ID');
+    if (branch(root) !== initiativeId) assertClean(root);
+    checkout(root, initiativeId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+    const loaded = await loadInitiative(root, initiativeId);
+    const session = await selectPersona(root, config, actionActor(root), initiativeId);
+    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} as ${session.persona}.`);
+    console.log(initiativeFlowText(initiativeProgress(loaded.initiative)));
+    return;
+  }
+  if (subcommand === 'list') {
+    const initiatives = await listInitiatives(root, portfolio);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(initiatives, null, 2));
+    else console.log(table(initiatives, [{ key: 'id', label: 'INITIATIVE' }, { key: 'profile', label: 'PROFILE' }, { key: 'status', label: 'STATUS' }, { key: 'currentPhase', label: 'CURRENT' }]));
+    return;
+  }
+  const acceptsExplicitId = new Set(['status', 'next', 'report', 'gate']);
+  const initiativeId = optionString(options, 'initiative') ?? (acceptsExplicitId.has(subcommand) && positionals[2] ? positionals[2] : branch(root));
+  const loaded = await loadInitiative(root, initiativeId, portfolio);
+  const initiative = loaded.initiative;
+  if (subcommand === 'status') {
+    const progress = initiativeProgress(initiative);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ initiative, progress }, null, 2));
+    else {
+      console.log(`\n${initiative.initiative.id} — ${initiative.initiative.title}`);
+      console.log(`Profile: ${initiative.initiative.profileLabel} · Status: ${initiative.status} · Current: ${initiative.currentPhase ?? 'complete'}`);
+      console.log(`${initiativeFlowText(progress)}\n${progress.percentage}% complete`);
+    }
+    return;
+  }
+  if (subcommand === 'phase') {
+    const publish = positionals[2] === 'publish';
+    const phaseId = publish ? positionals[3] ?? initiative.currentPhase : positionals[2] ?? initiative.currentPhase;
+    const session = await loadSession(root, { required: false });
+    if (publish) {
+      const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    } else {
+      const result = await prepareInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
+      console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      result.outputs.forEach((document) => console.log(`- ${document.id}: ${document.path} (${document.sha256.slice(0, 12)})`));
+    }
+    return;
+  }
+  if (subcommand === 'documents') {
+    const phaseId = positionals[2] ?? initiative.currentPhase ?? initiative.phaseOrder.at(-1);
+    const records = Object.values(initiative.phases[phaseId]?.outputs ?? {});
+    const documents = await Promise.all(records.map(async (record) => {
+      const absolute = path.join(initiativeDir(root, portfolio, initiativeId), record.path);
+      return { ...record, repositoryPath: posix(path.relative(root, absolute)), content: existsSync(absolute) ? await readFile(absolute, 'utf8') : null };
+    }));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(documents, null, 2));
+    else for (const document of documents) {
+      console.log(`\n--- BEGIN ${document.repositoryPath} ---`);
+      console.log(document.content ?? '[not generated]');
+      console.log(`--- END ${document.repositoryPath} ---`);
+    }
+    return;
+  }
+  if (subcommand === 'checklist' || subcommand === 'verify') {
+    const phaseId = positionals[2] ?? initiative.currentPhase ?? initiative.phaseOrder.at(-1);
+    const gate = await evaluateInitiativePhase(root, portfolio, initiative, phaseId);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(gate, null, 2));
+    else {
+      console.log(table(gate.checklist, [{ key: 'id', label: 'CHECK' }, { key: 'requirement', label: 'REQUIREMENT' }, { key: 'status', label: 'STATUS' }, { key: 'gate', label: 'GATE' }]));
+      gate.errors.forEach((error) => console.log(`BLOCK: ${error}`));
+      gate.warnings.forEach((warning) => console.log(`WARN: ${warning}`));
+    }
+    if (subcommand === 'verify' && !gate.ready) process.exitCode = 2;
+    return;
+  }
+  if (subcommand === 'evidence') {
+    const action = positionals[2] ?? 'list';
+    if (action === 'add') {
+      const checkId = requirePositional(positionals, 3, 'checklist ID');
+      const phaseId = optionString(options, 'phase', initiative.currentPhase);
+      const session = await loadSession(root, { required: false });
+      const appended = await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId,
+        checkId,
+        assurance: optionString(options, 'assurance'),
+        verificationMethod: optionString(options, 'verification'),
+        source: {
+          path: optionString(options, 'path'),
+          url: optionString(options, 'url'),
+          externalId: optionString(options, 'external-id'),
+          observedState: optionString(options, 'observed-state'),
+          version: optionString(options, 'source-version')
+        },
+        persona: session?.persona ?? null,
+        decision: optionString(options, 'decision'),
+        reason: optionString(options, 'reason'),
+        supersedes: optionStrings(options, 'supersedes')
+      });
+      const fresh = await loadInitiative(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
+      console.log(`Evidence ${appended.sha256.slice(0, 12)} committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+      return;
+    }
+    if (action === 'list') {
+      const records = await readInitiativeRecords(root, portfolio, initiativeId, 'evidence');
+      const checkId = positionals[3];
+      const selected = checkId ? records.filter((entry) => entry.record.check === checkId) : records;
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(selected, null, 2));
+      else console.log(table(selected.map((entry) => ({ hash: entry.sha256.slice(0, 12), phase: entry.record.phase, check: entry.record.check, assurance: entry.record.assurance, observed: entry.record.observedAt })), [
+        { key: 'hash', label: 'HASH' }, { key: 'phase', label: 'PHASE' }, { key: 'check', label: 'CHECK' }, { key: 'assurance', label: 'ASSURANCE' }, { key: 'observed', label: 'OBSERVED' }
+      ]));
+      return;
+    }
+    throw new SingularityFlowError(`Unknown initiative evidence action '${action}'.`);
+  }
+  if (subcommand === 'approve') {
+    const subject = positionals[2] ?? 'phase';
+    const phaseId = initiative.currentPhase;
+    const receiptToken = optionString(options, 'selection-receipt');
+    const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
+    const expected = `${phaseId}:${subject}`;
+    const choiceSets = [
+      { id: 'persona', label: 'Persona', options: initiativePersonaChoices(config) },
+      { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
+    ];
+    const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
+      action: 'initiative-approve',
+      workId: initiativeId,
+      choiceSets,
+      context: { phase: phaseId, subject, bundleSha256: bundle.sha256 }
+    }) : null;
+    const session = await selectPersona(root, config, actionActor(root), initiativeId, { selection: receipt?.answers.persona ?? null });
+    if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected))) throw new SingularityFlowError('Initiative approval cancelled.');
+    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+    const result = await approveInitiative(root, { initiativeId, phaseId, subject, persona: session.persona, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`);
+    console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
+    if (result.next) console.log(`Current phase: ${result.next}`);
+    else if (result.initiative.status === 'complete') console.log('Initiative complete.');
+    return;
+  }
+  if (subcommand === 'reject') {
+    const subject = positionals[2] ?? 'phase';
+    const session = await loadSession(root, { required: false });
+    const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), persona: session?.persona ?? null });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
+    console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    return;
+  }
+  if (subcommand === 'breakdown') {
+    const review = await initiativeBreakdownReview(root, initiativeId, { probe: optionBoolean(options, 'probe') });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
+    else {
+      console.log(`${review.initiativeId}: ${review.epics} epics, ${review.stories.length} repository stories`);
+      console.log(table(review.stories, [{ key: 'id', label: 'STORY' }, { key: 'epicId', label: 'EPIC' }, { key: 'repository', label: 'REPOSITORY' }, { key: 'blocking', label: 'BLOCKING' }]));
+    }
+    return;
+  }
+  if (subcommand === 'materialize') {
+    if (optionBoolean(options, 'dry-run')) {
+      const preview = await materializeInitiative(root, initiativeId, { dryRun: true });
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
+      else console.log(`Would materialize ${preview.review.stories.length} stories across ${Object.keys(preview.review.repositories).length} repositories.`);
+      return;
+    }
+    if (!(await confirmInitiativeExact(`Materialize every reviewed repository story for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Initiative materialization cancelled.');
+    const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
+    console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
+    return;
+  }
+  if (subcommand === 'sync') {
+    const pending = await syncInitiativePublication(root, portfolio, initiative);
+    const result = await syncInitiativeRepositories(root, initiativeId);
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:sync] repository evidence`);
+    console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
+    return;
+  }
+  if (subcommand === 'contracts') {
+    if (positionals[2] === 'add') {
+      const session = await loadSession(root, { required: false });
+      const result = await registerInterfaceContract(root, {
+        initiativeId,
+        contractId: optionString(options, 'id'),
+        version: optionString(options, 'version'),
+        format: optionString(options, 'format'),
+        sourcePath: optionString(options, 'path'),
+        producers: optionStrings(options, 'producer'),
+        consumers: optionStrings(options, 'consumer'),
+        compatibilityPolicy: optionString(options, 'compatibility', 'explicit-review'),
+        persona: session?.persona ?? null
+      });
+      const fresh = await loadInitiative(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
+      console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      return;
+    }
+    const contracts = await interfaceContractStatus(root, initiativeId);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(contracts, null, 2));
+    else console.log(table(contracts, [{ key: 'key', label: 'CONTRACT' }, { key: 'format', label: 'FORMAT' }, { key: 'integrity', label: 'INTEGRITY' }, { key: 'status', label: 'STATUS' }]));
+    return;
+  }
+  if (subcommand === 'report') {
+    const reportId = positionals[2] ?? initiativeId;
+    const report = await deriveInitiativeReport(root, reportId);
+    const format = optionString(options, 'format', 'md');
+    const rendered = format === 'json' ? `${JSON.stringify(report, null, 2)}\n` : renderInitiativeReport(report);
+    const target = optionString(options, 'out');
+    if (target) {
+      await writeText(path.resolve(root, target), rendered);
+      console.log(`Initiative report written to ${path.resolve(root, target)}`);
+    } else process.stdout.write(rendered);
+    return;
+  }
+  if (subcommand === 'next') {
+    const actions = await initiativeNextActions(root, initiativeId);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(actions, null, 2));
+    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}: ${action.command}\n   ${action.reason}`));
+    return;
+  }
+  if (subcommand === 'gate') {
+    const result = await runInitiativeGate(root, positionals[2] ?? initiativeId, { terminal: optionBoolean(options, 'terminal') });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      result.passes.forEach((message) => console.log(`PASS: ${message}`));
+      result.warnings.forEach((message) => console.warn(`WARN: ${message}`));
+      result.errors.forEach((message) => console.error(`ERROR: ${message}`));
+    }
+    if (!result.valid) process.exitCode = 2;
+    return;
+  }
+  throw new SingularityFlowError(`Unknown initiative subcommand '${subcommand}'.`);
+}
+
 async function desktopCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'desktop subcommand');
   const root = repoRoot();
@@ -1340,6 +1766,7 @@ export async function main(argv) {
     case 'jira': return jiraCommand(positionals, options);
     case 'plugin': return pluginCommand(positionals, options);
     case 'desktop': return desktopCommand(positionals, options);
+    case 'initiative': return initiativeCommand(positionals, options);
     case 'hook': return hookCommand(positionals);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);
   }

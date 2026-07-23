@@ -2,6 +2,10 @@ version: 1
 initiativeRoot: .singularity/initiatives
 templatesRoot: .singularity/templates
 
+git:
+  remote: origin
+  publish: required
+
 # Initiative approvals are authorized by normalized local Git email. Populate
 # these groups before starting an initiative. Personas remain prompt behavior
 # and never grant initiative approval authority.

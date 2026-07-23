@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   EVIDENCE_ASSURANCE
@@ -151,6 +151,12 @@ export async function registerInitiativeEvidence(root, {
     const absolute = path.join(root, normalizedSource.path);
     sourceSnapshot = await snapshot(absolute);
     if (!sourceSnapshot.exists) throw new SingularityFlowError(`Evidence source does not exist: ${normalizedSource.path}`);
+    const originalPath = normalizedSource.path;
+    const destination = path.join(initiativeDir(root, portfolio, initiative.initiative.id), 'evidence', 'files', `${sourceSnapshot.sha256}-${path.basename(originalPath)}`);
+    await mkdir(path.dirname(destination), { recursive: true });
+    if (!(await exists(destination))) await copyFile(absolute, destination);
+    normalizedSource.originalPath = originalPath;
+    normalizedSource.path = posix(path.relative(root, destination));
   } else if (!normalizedSource.url && !normalizedSource.externalId && !normalizedSource.observedState) {
     throw new SingularityFlowError('Evidence requires a repository path, URL, external ID, or observed state.');
   }
@@ -209,12 +215,22 @@ async function evidenceState(root, entry, now) {
 export async function evaluateInitiativeChecklist(root, initiative, portfolio, phaseId, { now = new Date() } = {}) {
   const definitions = phaseDefinition(initiative, phaseId).checklist;
   const all = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'evidence');
+  const invalidations = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'invalidations');
   const superseded = supersededEvidence(all);
   const results = [];
   for (const check of definitions) {
     const matching = [];
+    const checkNode = `check:${phaseId}/${check.id}`;
+    const invalidatedAt = invalidations
+      .filter((entry) => entry.record.affected?.includes(checkNode))
+      .map((entry) => Date.parse(entry.record.at))
+      .filter(Number.isFinite)
+      .sort((left, right) => right - left)[0] ?? null;
     for (const entry of all.filter((candidate) => candidate.record.phase === phaseId && candidate.record.check === check.id && !superseded.has(candidate.sha256))) {
-      matching.push(await evidenceState(root, entry, now));
+      const state = await evidenceState(root, entry, now);
+      matching.push(invalidatedAt && Date.parse(entry.record.observedAt) <= invalidatedAt
+        ? { ...state, status: 'invalidated', reason: 'dependency cone invalidated this evidence' }
+        : state);
     }
     const active = matching.filter((entry) => entry.status === 'active');
     const decision = active.slice().reverse().find((entry) => ['not_applicable', 'waived'].includes(entry.record.decision));
@@ -246,13 +262,14 @@ export async function evaluateInitiativeChecklist(root, initiative, portfolio, p
   return results;
 }
 
-function activeApprovalRecords(records, { phaseId, subjectType, subjectId, subjectHash }) {
+function activeApprovalRecords(records, { phaseId, subjectType, subjectId, subjectHash }, invalidated = new Set()) {
   return records.filter(({ record }) =>
     record.decision === 'approved'
     && record.phase === phaseId
     && record.subject.type === subjectType
     && record.subject.id === subjectId
     && record.subject.sha256 === subjectHash
+    && !invalidated.has(recordSha256(record))
     && !record.invalidatedBy);
 }
 
@@ -265,6 +282,9 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
   const checklist = await evaluateInitiativeChecklist(root, initiative, portfolio, phaseId, { now });
   const evidenceRecords = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'evidence');
   const approvals = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'approvals');
+  const invalidations = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'invalidations');
+  const invalidatedApprovals = new Set(invalidations.flatMap((entry) =>
+    (entry.record.affected ?? []).filter((node) => node.startsWith('approval:')).map((node) => node.slice('approval:'.length))));
   const contracts = Object.values(initiative.contracts ?? {}).map((contract) => ({
     id: contract.id,
     version: contract.version,
@@ -297,10 +317,11 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
       evidence: check.evidence.filter((entry) => entry.status === 'active').map((entry) => entry.sha256).sort()
     })),
     evidence: evidenceRecords.filter(({ record }) => record.phase === phaseId).map((entry) => entry.sha256).sort(),
+    invalidations: invalidations.filter(({ record }) => (record.affected ?? []).some((node) => node.includes(`:${phaseId}/`) || node === `phase:${phaseId}`)).map((entry) => entry.sha256).sort(),
     contracts,
     children
   };
-  return { value, sha256: recordSha256(value), checklist, approvals };
+  return { value, sha256: recordSha256(value), checklist, approvals, invalidations, invalidatedApprovals };
 }
 
 export async function evaluateInitiativePhase(root, portfolio, initiative, phaseId, { now = new Date() } = {}) {
@@ -317,7 +338,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
     if (!current.exists || current.sha256 !== output.sha256) errors.push(`output ${phaseId}/${output.id} changed after publication`);
     const policy = outputDefinitionValue.approval;
     if (policy.mode === 'individual') {
-      const decisions = activeApprovalRecords(bundle.approvals, { phaseId, subjectType: 'output', subjectId: output.id, subjectHash: output.sha256 });
+      const decisions = activeApprovalRecords(bundle.approvals, { phaseId, subjectType: 'output', subjectId: output.id, subjectHash: output.sha256 }, bundle.invalidatedApprovals);
       if (distinctApprovals(decisions) < policy.minimum) errors.push(`output ${phaseId}/${output.id} has ${distinctApprovals(decisions)}/${policy.minimum} approvals`);
       else passes.push(`output approval: ${phaseId}/${output.id}`);
     }
@@ -414,7 +435,7 @@ export async function approveInitiative(root, {
     subjectType: target.type,
     subjectId: target.id,
     subjectHash: target.sha256
-  });
+  }, bundle.invalidatedApprovals);
   if (current.some(({ record }) => actorEmail(record.actor) === actorEmail(actor))) throw new SingularityFlowError(`${actorEmail(actor)} already approved this exact ${target.type} hash.`);
   const generatedByEmail = actorEmail(target.generatedBy);
   const phaseGeneratedByActor = Object.values(phase.outputs).some((output) => actorEmail(output.generatedBy) === actorEmail(actor));

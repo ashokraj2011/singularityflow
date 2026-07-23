@@ -122,7 +122,9 @@ test('freshness and source hashes make evidence stale without mutating status', 
   const bundle = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'define', { now: future });
   assert.equal(bundle.checklist.find((check) => check.id === 'business-case-approved').status, 'stale');
 
-  await writeFile(path.join(root, 'evidence.md'), '# Changed after registration\n');
+  const evidence = await readInitiativeRecords(root, loaded.portfolio, 'INIT-EVIDENCE', 'evidence');
+  const registered = evidence.find((entry) => entry.record.check === 'scope-agreed');
+  await writeFile(path.join(root, registered.record.source.path), '# Changed after registration\n');
   const tampered = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'define');
   assert.equal(tampered.checklist.find((check) => check.id === 'scope-agreed').status, 'stale');
 });

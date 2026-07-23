@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
+import { validatePortfolio } from '../src/initiative-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -118,7 +119,7 @@ for (const entry of extensionDirs) {
   else checked.push(path.relative(root, file));
 }
 
-for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json']) {
+for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json', 'schemas/portfolio.schema.json']) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);
 }
@@ -131,6 +132,14 @@ const workflowTemplate = validateDefinition(YAML.parse(await readFile(path.join(
 if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix) fail('workflow template must include feature and bugfix profiles');
 if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.architect) fail('workflow template must include configurable personas');
 checked.push('templates/workflow.yml');
+
+const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));
+if (!portfolioTemplate.initiativeProfiles?.['initiative-lite'] || !portfolioTemplate.initiativeProfiles?.['enterprise-delivery']) fail('portfolio template must include initiative-lite and enterprise-delivery profiles');
+if (portfolioTemplate.initiativeProfiles['initiative-lite'].phases.length !== 4) fail('initiative-lite must contain four phases');
+if (portfolioTemplate.initiativeProfiles['enterprise-delivery'].phases.length !== 7) fail('enterprise-delivery must contain seven phases');
+const portfolioSource = await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8');
+if (/fidelity|brokerage/i.test(portfolioSource)) fail('portfolio template contains organization-specific terminology');
+checked.push('templates/portfolio.yml');
 
 const help = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), '--help'], { encoding: 'utf8' });
 if (help.status !== 0 || !help.stdout.includes('singularity-flow approve')) fail('CLI help smoke test failed');

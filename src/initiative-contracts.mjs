@@ -6,6 +6,7 @@ import {
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
+import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import {
   SingularityFlowError, exists, nowIso, posix, repoRelative, snapshot, writeJson, writeText
 } from './util.mjs';
@@ -41,7 +42,12 @@ export async function registerInterfaceContract(root, {
   const key = contractKey(contractId, String(version));
   const existing = initiative.contracts[key];
   if (existing && existing.sha256 !== sourceSnapshot.sha256) throw new SingularityFlowError(`Contract ${key} already exists with different content. Create a new version instead of rewriting it.`);
-  const unknownStories = [...new Set([...producers, ...consumers])].filter((storyId) => !initiative.childStories?.[storyId]);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const plannedStories = new Set([
+    ...breakdown.stories.map((story) => story.id),
+    ...Object.keys(initiative.childStories ?? {})
+  ]);
+  const unknownStories = [...new Set([...producers, ...consumers])].filter((storyId) => !plannedStories.has(storyId));
   if (unknownStories.length) throw new SingularityFlowError(`Contract ${key} references unknown stories: ${unknownStories.join(', ')}.`);
   const directory = path.join(initiativeDir(root, portfolio, initiativeId), 'contracts', contractId, String(version));
   const destination = path.join(directory, path.basename(sourceRelative));

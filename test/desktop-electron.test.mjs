@@ -118,6 +118,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Flow workspace/);
   assert.match(source, /singularity\.sidebar\.collapsed/);
   assert.match(source, /sidebar-collapsed/);
+  assert.match(source, /sidebar-edge-toggle/);
+  assert.match(source, /aria-controls="primary-navigation"/);
+  assert.match(source, /event\.metaKey \|\| event\.ctrlKey/);
+  assert.match(source, /event\.key\.toLowerCase\(\) !== 'b'/);
   assert.match(source, /className="page-stage"/);
   assert.match(source, /function NavIcon/);
   assert.match(source, /Artifact Studio/);
@@ -149,7 +153,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.pinned-media-strip/);
   assert.match(styles, /\.impact-graph/);
   assert.match(styles, /\.welcome-visual/);
-  assert.match(styles, /SF Pro Display/);
+  assert.match(styles, /Avenir Next/);
+  assert.match(styles, /--evergreen-950: #092d20/);
+  assert.match(styles, /\.sidebar-edge-toggle/);
+  assert.match(styles, /\.shell\.sidebar-collapsed \{ grid-template-columns: 72px/);
+  assert.doesNotMatch(styles, /#712ae2/i);
   assert.match(styles, /\.shell\.sidebar-collapsed/);
   assert.match(styles, /\.workflow-layout > \.design-pane/);
   assert.match(styles, /@keyframes page-arrive/);

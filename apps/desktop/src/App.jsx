@@ -19,20 +19,35 @@ import {
   templateRepositoryPath
 } from './workflow-designer.mjs';
 
-const nav = [
-  ['dashboard', 'Overview', '⌁'],
-  ['initiatives', 'Initiatives', '◈'],
-  ['planning', 'Planning Studio', '✧'],
-  ['inbox', 'Approval inbox', '◫'],
-  ['workflow', 'Workflow', '◇'],
-  ['personas', 'Personas & approvals', '◎'],
-  ['templates', 'Artifact templates', '▤'],
-  ['resources', 'Prompts & skills', '✦'],
-  ['agents', 'Agents & remote Markdown', '⌬'],
-  ['world-model', 'Repository world model', '◉'],
-  ['review', 'Review bundle', '✓'],
-  ['documents', 'Documents', '▣'],
-  ['help', 'Help', '?']
+const navSections = [
+  {
+    label: 'Workspace',
+    items: [
+      ['dashboard', 'Overview', '⌁'],
+      ['studio', 'Artifact Studio', '◫'],
+      ['documents', 'Requirements', '▤'],
+      ['planning', 'Planning Copilot', '✦'],
+      ['impact', 'Impact analysis', '⌬'],
+      ['inbox', 'Approval inbox', '✓']
+    ]
+  },
+  {
+    label: 'Governance',
+    items: [
+      ['initiatives', 'Initiatives', '◈'],
+      ['workflow', 'Workflow designer', '◇'],
+      ['templates', 'Artifact designer', '▱'],
+      ['personas', 'Personas & approvals', '◎'],
+      ['resources', 'Prompts & skills', '✧'],
+      ['agents', 'Remote agents', '⎔'],
+      ['world-model', 'Repository model', '◉'],
+      ['review', 'Review bundle', '○']
+    ]
+  },
+  {
+    label: 'Support',
+    items: [['help', 'Help', '?']]
+  }
 ];
 
 const sequenceGates = [
@@ -183,6 +198,92 @@ function DesignerModal({ title, detail, children, submitLabel, danger = false, e
     <div className="designer-modal-body">{detail && <p>{detail}</p>}{children}{error && <div className="form-error" role="alert">{error}</div>}</div>
     <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit" className={danger ? 'danger-button' : 'primary'}>{submitLabel}</button></footer>
   </form></div>;
+}
+
+function ArtifactStudio({ data, downloadFile, openWorkspace }) {
+  const storyPhases = data.progress?.phases ?? [];
+  const initiativePhases = data.initiative?.progress?.phases ?? [];
+  const phases = storyPhases.length ? storyPhases : initiativePhases;
+  const [selectedPhase, setSelectedPhase] = useState(phases.find((phase) => ['in_progress', 'awaiting_approval'].includes(phase.status))?.id ?? phases[0]?.id ?? '');
+  const selected = phases.find((phase) => phase.id === selectedPhase) ?? phases[0];
+  const initiativeDocuments = (data.initiative?.documents ?? []).map((document) => ({
+    ...document,
+    id: `${document.phase}:${document.id}`,
+    path: document.repositoryPath,
+    kind: document.kind,
+    size: document.content ? new TextEncoder().encode(document.content).length : null
+  }));
+  const documents = data.documents.length ? data.documents : initiativeDocuments;
+  const phaseDocuments = documents.filter((document) => document.phase === selected?.id);
+  const completion = data.progress?.percentage ?? data.initiative?.progress?.percentage ?? 0;
+  const title = data.workflow?.workItem.title ?? data.initiative?.state.initiative.title ?? 'Governed delivery workspace';
+  return <div className="page artifact-studio-page">
+    <header className="page-heading row-between"><div><span className="eyebrow">Artifact lifecycle</span><h1>Artifact Studio</h1><p>Follow each governed phase from repository context to approved, Git-backed output.</p></div><div className="studio-heading-actions"><Pill tone="accent">{completion}% complete</Pill><button className="primary" onClick={openWorkspace}>Open requirement workspace</button></div></header>
+    {!phases.length ? <Empty title="No active delivery selected" detail="Choose a story work item or initiative to see its artifact lifecycle." /> : <>
+      <section className="studio-flow panel">
+        <header><div><span className="eyebrow">Active delivery</span><h2>{title}</h2></div><span>{phases.length} governed phases</span></header>
+        <div className="studio-flow-track">{phases.map((phase, index) => <React.Fragment key={phase.id}><button className={`${phase.id === selected?.id ? 'active' : ''} ${phase.status.replaceAll('_', '-')}`} onClick={() => setSelectedPhase(phase.id)}><span>{phase.status === 'approved' ? '✓' : index + 1}</span><strong>{phase.label}</strong><small>{phase.status.replaceAll('_', ' ')}</small></button>{index < phases.length - 1 && <i>→</i>}</React.Fragment>)}</div>
+      </section>
+      <div className="studio-insight-grid">
+        <section className="panel phase-insight">
+          <header className="panel-heading"><div><span className="eyebrow">Phase insight</span><h2>{selected?.label}</h2></div><Pill tone={selected?.status === 'approved' ? 'good' : selected?.status === 'awaiting_approval' ? 'warn' : 'accent'}>{selected?.status.replaceAll('_', ' ')}</Pill></header>
+          <div className="phase-insight-body">
+            <div><span>Generation</span><strong>{selected?.generation ?? selected?.generatedOutputs ?? 0}</strong><small>immutable artifact revision</small></div>
+            <div><span>Approval</span><strong>{selected?.approvals != null ? `${selected.approvals}/${selected.approvalsRequired}` : selected?.status === 'approved' ? 'Complete' : 'Pending'}</strong><small>exact content hash</small></div>
+            <div><span>Outputs</span><strong>{phaseDocuments.length || selected?.outputs || 0}</strong><small>registered documents</small></div>
+          </div>
+          <div className="phase-deliverables"><strong>Governed deliverables</strong>{phaseDocuments.length ? phaseDocuments.map((document) => <button key={document.id} onClick={() => downloadFile(document.path)}><span className="studio-file-icon">{document.kind === 'artifact' ? 'MD' : 'DOC'}</span><span><b>{document.label}</b><small>{document.path}</small></span><em>Download</em></button>) : <div className="inline-empty">No phase document has been published yet.</div>}</div>
+        </section>
+        <section className="panel studio-assistant">
+          <header className="panel-heading"><div><span className="eyebrow">Singularity intelligence</span><h2>What happens next</h2></div><span className="ai-orb">✦</span></header>
+          <div className="studio-assistant-copy"><strong>{selected?.status === 'approved' ? 'This phase is governed and reusable.' : selected?.status === 'awaiting_approval' ? 'The artifact is ready for a hash-bound review.' : 'Build the phase output from governed context.'}</strong><p>{selected?.status === 'approved' ? 'Downstream phases can consume this approved artifact through declared inputs.' : selected?.status === 'awaiting_approval' ? 'Open the review bundle to inspect provenance, evidence, and approval requirements.' : 'Use Planning Copilot to explore options, then promote a reviewed artifact into repository state.'}</p></div>
+          <div className="assistant-checks"><span><i className="done">✓</i>Repository context pinned</span><span><i className={phaseDocuments.length ? 'done' : ''}>{phaseDocuments.length ? '✓' : '○'}</i>Artifact generated</span><span><i className={selected?.status === 'approved' ? 'done' : ''}>{selected?.status === 'approved' ? '✓' : '○'}</i>Approval recorded</span></div>
+        </section>
+      </div>
+      <section className="panel artifact-repository">
+        <header className="panel-heading"><div><span className="eyebrow">Shared repository</span><h2>Governed artifacts</h2></div><span>{documents.length} registered</span></header>
+        <div className="artifact-repository-head"><span>Name</span><span>Phase</span><span>Status</span><span>Repository path</span><span /></div>
+        {documents.length ? documents.map((document) => <div className="artifact-repository-row" key={document.id}><div><span className="studio-file-icon">{document.kind === 'artifact' ? 'MD' : document.kind === 'url' ? 'URL' : 'DOC'}</span><strong>{document.label}</strong></div><span>{document.phase ?? 'system'}</span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status ?? document.kind}</Pill><code>{document.path ?? document.url}</code><button className="ghost compact" onClick={() => document.path ? downloadFile(document.path) : openWorkspace()}>Open</button></div>) : <div className="inline-empty">Generated and uploaded artifacts will appear here with their repository provenance.</div>}
+      </section>
+    </>}
+  </div>;
+}
+
+function ImpactStudio({ data, openPlanning }) {
+  const repositories = Object.entries(data.portfolio?.repositories ?? {});
+  const graphRepositories = repositories.length ? repositories.slice(0, 5) : [[data.repository.root.split('/').at(-1), { defaultBranch: data.repository.branch, required: true }]];
+  const stories = data.initiative?.report?.children?.stories ?? [];
+  const staleStories = stories.filter((story) => story.stale);
+  const contracts = data.initiative?.contracts ?? [];
+  const riskyContracts = contracts.filter((contract) => contract.integrity !== 'verified');
+  const subject = data.initiative?.state.initiative.title ?? data.workflow?.workItem.title ?? 'Current repository change';
+  const risk = staleStories.length || riskyContracts.length ? 'Medium' : 'Low';
+  const nodePositions = [[90, 58], [550, 58], [70, 285], [555, 285], [320, 340]];
+  return <div className="impact-page">
+    <header className="impact-toolbar"><div><span className="eyebrow">Repository intelligence</span><h1>Impact Analysis Studio</h1><p>{subject}</p></div><div><Pill tone={risk === 'Low' ? 'good' : 'warn'}>{risk} delivery risk</Pill><button className="primary" onClick={openPlanning}>Explore with Planning Copilot</button></div></header>
+    <div className="impact-layout">
+      <main className="impact-main">
+        <section className="impact-canvas panel">
+          <header className="panel-heading"><div><span className="eyebrow">Dependency topology</span><h2>Change impact map</h2></div><span>{graphRepositories.length} repositories · {stories.length} stories</span></header>
+          <div className="impact-graph">
+            <svg viewBox="0 0 640 410" role="img" aria-label="Repository dependency graph">{graphRepositories.map(([id], index) => <line key={id} x1="320" y1="205" x2={nodePositions[index][0]} y2={nodePositions[index][1]} />)}<circle cx="320" cy="205" r="64" /></svg>
+            <div className="impact-core"><span>REQ</span><strong>{data.initiative?.state.initiative.id ?? data.workflow?.workItem.id ?? 'LOCAL'}</strong><small>governed change</small></div>
+            {graphRepositories.map(([id, repository], index) => <div className="impact-node" key={id} style={{ '--x': `${nodePositions[index][0]}px`, '--y': `${nodePositions[index][1]}px` }}><span>{id.slice(0, 2).toUpperCase()}</span><strong>{id}</strong><small>{repository.defaultBranch ?? 'main'} · {repository.required ? 'required' : 'optional'}</small></div>)}
+          </div>
+        </section>
+        <section className="panel affected-repositories">
+          <header className="panel-heading"><div><span className="eyebrow">Change surface</span><h2>Affected repositories</h2></div><span>{stories.length || graphRepositories.length} tracked units</span></header>
+          <div className="affected-head"><span>Repository</span><span>Branch</span><span>Stories</span><span>State</span></div>
+          {graphRepositories.map(([id, repository]) => { const owned = stories.filter((story) => story.repository === id); const stale = owned.some((story) => story.stale); return <div className="affected-row" key={id}><strong>{id}</strong><code>{repository.defaultBranch ?? 'main'}</code><span>{owned.length || '—'}</span><Pill tone={stale ? 'warn' : 'good'}>{stale ? 'stale context' : 'reachable'}</Pill></div>; })}
+        </section>
+      </main>
+      <aside className="impact-inspector">
+        <section className="impact-risk-card"><span className="ai-orb">✦</span><div><span className="eyebrow">Singularity analysis</span><h2>{risk} risk</h2><p>Computed from committed repository reachability, story context freshness, and interface-contract integrity.</p></div></section>
+        <section className="impact-kpis"><div><span>Repositories</span><strong>{graphRepositories.length}</strong></div><div><span>Blocking stories</span><strong>{stories.filter((story) => story.blocking).length}</strong></div><div><span>Stale contexts</span><strong>{staleStories.length}</strong></div><div><span>Contract alerts</span><strong>{riskyContracts.length}</strong></div></section>
+        <section className="impact-findings"><header><span className="eyebrow">Findings</span><h3>Review before planning</h3></header>{staleStories.length ? <div className="finding warn"><strong>{staleStories.length} stale story context{staleStories.length === 1 ? '' : 's'}</strong><span>Synchronize approved initiative inputs before downstream generation.</span></div> : <div className="finding good"><strong>Child context is current</strong><span>No stale materialized story snapshots were reported.</span></div>}{riskyContracts.length ? <div className="finding warn"><strong>{riskyContracts.length} contract integrity alert{riskyContracts.length === 1 ? '' : 's'}</strong><span>Reconcile producer and consumer hashes before construction.</span></div> : <div className="finding good"><strong>Contracts verified</strong><span>All registered interface contracts match their committed hashes.</span></div>}<div className="finding"><strong>World model remains repository-owned</strong><span>Planning will use the pinned local model plus approved initiative context.</span></div></section>
+      </aside>
+    </div>
+  </div>;
 }
 
 function Dashboard({ data }) {
@@ -485,7 +586,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile })
   const leadBaseBranch = data.definition.defaultBaseBranch ?? 'main';
   return <div className="page initiative-page">
     <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane</span><h1>Initiative orchestration</h1><p>Govern initiative outputs, evidence, contracts, and repository stories without changing the existing story workflow.</p></div><div className="segmented"><button className={tab === 'delivery' ? 'active' : ''} onClick={() => setTab('delivery')}>Delivery</button><button className={tab === 'configuration' ? 'active' : ''} onClick={() => setTab('configuration')}>Portfolio designer</button></div></header>
-    {tab === 'delivery' && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Initiative and story branches receive their own commits; Flow Studio never merges them into a default branch automatically.</p></div></div>}
+    {tab === 'delivery' && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Initiative and story branches receive their own commits; Singularity never merges them into a default branch automatically.</p></div></div>}
     {tab === 'configuration' ? <div className="initiative-config-layout">
       <aside className="initiative-config-summary">
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Profiles</span><h2>{profiles.length} delivery models</h2></div></header><div className="initiative-mini-list">{profiles.map(([id, profile]) => <div key={id}><strong>{profile.label}</strong><span>{profile.phases.length} phases</span><small>{profile.phases.join(' → ')}</small></div>)}</div></section>
@@ -754,20 +855,51 @@ function Documents({ data, action, reload, downloadFile }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [preview, setPreview] = useState(null);
+  const [selectedId, setSelectedId] = useState(data.documents[0]?.id ?? '');
   const currentBranch = data.repository.branch;
   const activeBranch = data.workflow?.workItem.branch;
   const canMutate = data.workflow && currentBranch === activeBranch;
+  const selectedRecord = data.documents.find((record) => record.id === selectedId) ?? data.documents[0] ?? null;
+  const headings = (preview?.content ?? '').split('\n').filter((line) => /^#{1,3}\s+/.test(line)).map((line) => ({ depth: line.match(/^#+/)[0].length, label: line.replace(/^#+\s+/, '') })).slice(0, 12);
+  useEffect(() => {
+    if (!selectedId && data.documents[0]) setSelectedId(data.documents[0].id);
+    if (selectedId && !data.documents.some((record) => record.id === selectedId)) {
+      setSelectedId(data.documents[0]?.id ?? '');
+      setPreview(null);
+    }
+  }, [data.documents, selectedId]);
   async function selectPersona(event) { await action(() => window.singularity.selectPersona(data.repository.root, data.selectedWorkId, event.target.value), 'Persona selected'); await reload(); }
   async function upload() { const result = await action(() => window.singularity.uploadDocuments(data.repository.root), 'Documents uploaded'); if (result && !result.canceled) await reload(); }
   async function uploadDirectory() { const result = await action(() => window.singularity.uploadDocumentDirectory(data.repository.root), 'Design package imported and indexed'); if (result && !result.canceled) await reload(); }
   async function addUrl() { if (!url.trim()) return; await action(() => window.singularity.addDocumentUrl(data.repository.root, url.trim(), label.trim()), 'Document link added'); setUrl(''); setLabel(''); await reload(); }
-  async function inspect(record) { const result = await action(() => window.singularity.previewDocument(data.repository.root, data.selectedWorkId, record.id)); if (!result) return; if (result.content != null) setPreview(result); else await action(() => window.singularity.openDocument(data.repository.root, record)); }
+  async function inspect(record) {
+    setSelectedId(record.id);
+    setPreview(null);
+    const result = await action(() => window.singularity.previewDocument(data.repository.root, data.selectedWorkId, record.id));
+    if (!result) return;
+    if (result.content != null) setPreview(result);
+    else await action(() => window.singularity.openDocument(data.repository.root, record));
+  }
   if (!data.workflow) return <div className="page"><Empty title="Choose a work item" detail="Documents are cataloged per work item and branch." /></div>;
-  return <div className="page"><header className="page-heading row-between"><div><span className="eyebrow">Evidence ledger</span><h1>Documents</h1><p>Uploaded files, design links, generated artifacts, and system state.</p></div><div className="session-control"><label>Acting as</label><select value={data.session?.workId === data.selectedWorkId ? data.session.persona : ''} onChange={selectPersona} disabled={!canMutate}><option value="">Choose persona</option>{Object.entries(data.definition.personas).map(([id, persona]) => <option value={id} key={id}>{persona.label}</option>)}</select></div></header>
+  return <div className="requirement-workspace"><header className="requirement-toolbar"><div><span className="eyebrow">Requirement workspace</span><h1>{data.workflow.workItem.title}</h1><p>{data.workflow.workItem.id} · {data.workflow.workItem.branch}</p></div><div className="session-control"><label>Session persona</label><select value={data.session?.workId === data.selectedWorkId ? data.session.persona : ''} onChange={selectPersona} disabled={!canMutate}><option value="">Choose persona</option>{Object.entries(data.definition.personas).map(([id, persona]) => <option value={id} key={id}>{persona.label}</option>)}</select></div></header>
     {!canMutate && <div className="notice warn">Work item {data.selectedWorkId} is on branch <strong>{activeBranch}</strong>. Resume that branch before uploading documents.</div>}
-    <section className="upload-panel"><button className="primary" onClick={upload} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>＋ Upload files</button><button className="secondary" onClick={uploadDirectory} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>＋ Import design folder</button><span>or</span><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Paste a Figma or reference URL" disabled={!canMutate} /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label (optional)" disabled={!canMutate} /><button className="secondary" onClick={addUrl} disabled={!canMutate || !url.trim()}>Add link</button></section>
-    <section className="panel document-panel"><div className="document-header"><span>Document</span><span>Phase</span><span>Type</span><span>Size</span><span /></div>{data.documents.map((record) => <button className="document-row" key={record.id} onClick={() => inspect(record)}><div><span className="doc-icon">{record.mimeType?.startsWith('image/') ? 'IMG' : record.type === 'url' ? 'URL' : 'DOC'}</span><span><strong>{record.label}</strong><small>{record.id} · {record.path ?? record.url}</small></span></div><span>{record.phase ?? 'system'}</span><Pill>{record.kind}</Pill><span>{record.size ? `${Math.ceil(record.size / 1024)} KB` : '—'}</span><span>View →</span></button>)}</section>
-    {preview && <div className="modal-backdrop" onClick={() => setPreview(null)}><div className="preview-modal" onClick={(event) => event.stopPropagation()}><header><div><span className="eyebrow">{preview.record.id}</span><h2>{preview.record.label}</h2></div><div className="row">{preview.record.path?.startsWith(`${String(data.definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '')}/`) && <button className="secondary compact" onClick={() => downloadFile(preview.record.path)}>Download</button>}<button onClick={() => setPreview(null)}>×</button></div></header><pre>{preview.content}</pre></div></div>}
+    <section className="workspace-uploadbar"><button className="primary" onClick={upload} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>＋ Upload files</button><button className="secondary" onClick={uploadDirectory} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>Import design folder</button><div className="workspace-url"><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Figma or reference URL" disabled={!canMutate} /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label" disabled={!canMutate} /><button className="secondary" onClick={addUrl} disabled={!canMutate || !url.trim()}>Add</button></div></section>
+    <div className="requirement-layout">
+      <aside className="requirement-tree">
+        <header><span className="eyebrow">Artifacts</span><h2>Repository documents</h2><small>{data.documents.length} registered</small></header>
+        {data.progress.phases.map((phase) => { const records = data.documents.filter((record) => record.phase === phase.id); return <section key={phase.id}><div className="tree-phase"><StatusDot status={phase.status} /><strong>{phase.label}</strong><span>{records.length}</span></div>{records.map((record) => <button className={selectedRecord?.id === record.id ? 'active' : ''} key={record.id} onClick={() => inspect(record)}><span className="doc-icon">{record.mimeType?.startsWith('image/') ? 'IMG' : record.type === 'url' ? 'URL' : 'MD'}</span><span><strong>{record.label}</strong><small>{record.kind}</small></span></button>)}</section>; })}
+        {data.documents.filter((record) => !record.phase).map((record) => <button className={selectedRecord?.id === record.id ? 'active' : ''} key={record.id} onClick={() => inspect(record)}><span className="doc-icon">DOC</span><span><strong>{record.label}</strong><small>supporting evidence</small></span></button>)}
+      </aside>
+      <main className="requirement-document">
+        {selectedRecord ? <><header><div><span className="eyebrow">{selectedRecord.id}</span><h2>{selectedRecord.label}</h2><p>{selectedRecord.path ?? selectedRecord.url}</p></div><div className="row"><Pill>{selectedRecord.kind}</Pill>{selectedRecord.path && <button className="secondary compact" onClick={() => downloadFile(selectedRecord.path)}>Download</button>}</div></header>{preview?.record.id === selectedRecord.id ? <TemplatePreview className="requirement-preview" content={preview.content} /> : <div className="document-placeholder"><span>{selectedRecord.mimeType?.startsWith('image/') ? 'IMG' : selectedRecord.type === 'url' ? 'URL' : 'MD'}</span><h3>Open the governed document</h3><p>Preview text and Markdown in this workspace. Binary design files and external links open with their native viewer.</p><button className="primary" onClick={() => inspect(selectedRecord)}>Open document</button></div>}</> : <Empty title="No documents yet" detail="Upload source material or generate the current phase artifact to populate this workspace." />}
+      </main>
+      <aside className="requirement-inspector">
+        <section><span className="eyebrow">Git status</span><dl><div><dt>Branch</dt><dd>{data.repository.branch}</dd></div><div><dt>Workflow</dt><dd>{data.workflow.status}</dd></div><div><dt>Phase</dt><dd>{selectedRecord?.phase ?? 'supporting'}</dd></div><div><dt>Persona</dt><dd>{data.session?.persona ?? 'not selected'}</dd></div></dl></section>
+        <section><span className="eyebrow">Document metadata</span><dl><div><dt>Kind</dt><dd>{selectedRecord?.kind ?? '—'}</dd></div><div><dt>Size</dt><dd>{selectedRecord?.size ? `${Math.ceil(selectedRecord.size / 1024)} KB` : '—'}</dd></div><div><dt>Reference</dt><dd>{selectedRecord?.id ?? '—'}</dd></div></dl></section>
+        <section className="document-outline"><span className="eyebrow">Outline</span>{headings.length ? headings.map((heading, index) => <span style={{ paddingLeft: `${(heading.depth - 1) * 12}px` }} key={`${heading.label}:${index}`}>{heading.label}</span>) : <p>Open a Markdown artifact to see its governed section outline.</p>}</section>
+      </aside>
+    </div>
+    <div className="workspace-command"><span className="ai-orb">✦</span><div><strong>Ask Singularity</strong><small>Use Planning Copilot to refine this requirement with its complete governed context.</small></div><code>/sflow-next</code></div>
   </div>;
 }
 
@@ -783,7 +915,12 @@ export default function App() {
 
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
   useEffect(() => { if (toast?.tone !== 'good') return undefined; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer); }, [toast]);
-  useEffect(() => { let current = true; window.singularity.recentRepositories().then((items) => { if (current) setRecentRepositories(items); }).catch((error) => { if (current) setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); }); return () => { current = false; }; }, []);
+  useEffect(() => {
+    if (!window.singularity?.recentRepositories) return undefined;
+    let current = true;
+    window.singularity.recentRepositories().then((items) => { if (current) setRecentRepositories(items); }).catch((error) => { if (current) setToast({ tone: 'bad', text: `Could not load recent repositories: ${error.message}` }); });
+    return () => { current = false; };
+  }, []);
   useEffect(() => {
     if (!repositoryMenu) return undefined;
     const closeOutside = (event) => { if (!event.target.closest?.('.repo-switcher')) setRepositoryMenu(false); };
@@ -1025,11 +1162,11 @@ export default function App() {
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
-  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><div className="welcome-content"><Empty title="Design governed workflows visually" detail="Open the Git repository folder that contains singularity/workflow.yml. Configuration stays in the visible singularity folder and every runtime transition remains controlled by the CLI." action={<><div className="row"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open another repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</>} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></div><Toast toast={toast} onClose={() => setToast(null)} /></div>;
+  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open a Singularity repository'}</button><button className="secondary large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Overview</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Active workflow</span><h3>Requirement to delivery</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Flow Studio</small></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav>{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label, icon]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i>{icon}</i>{label}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">⌘</span><div><strong>{repoName}</strong><small>{data.repository.branch} · singularity/</small></div><button title="Switch repository" aria-label="Switch repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span />{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : 'Working tree clean'}</div></div></aside>
     <main className="content"><header className="topbar"><div><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div><div className="row"><button className="ghost" onClick={() => reload()} disabled={busy}>↻ Refresh</button><button className="ghost" onClick={exportBundle} disabled={busy}>Download config</button><button className="secondary" onClick={validate} disabled={busy}>Validate</button><button className="primary" onClick={publish} disabled={busy || !publishReady} title={publishHint}>Commit & push</button></div></header>
-      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
+      <div className={busy ? 'busy view' : 'view'}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

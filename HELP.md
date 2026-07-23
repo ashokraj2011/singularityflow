@@ -116,7 +116,14 @@ planning:
 
 The prompt is editable in **Prompts & skills**. The context limit may be 16 KiB through 10 MiB. Tool permission requests are rejected, renderer sandboxing remains enabled, and a plan file is read only when it remains inside the open repository. ACP model/token usage is displayed only when Copilot supplies exact values. See `PLANNING-STUDIO.md` for the complete architecture and walkthrough.
 
-Flow Studio’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
+Singularity Desktop’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
+
+The **Singularity** workspace groups daily delivery into four focused views:
+
+- **Artifact Studio** shows the phase sequence, generation and approval state, governed outputs, and the shared artifact repository.
+- **Requirements** shows a repository document tree, full Markdown preview, Git metadata, and section outline; uploaded design packages and reference links remain attached to the selected work item.
+- **Planning Copilot** builds a governed, hash-recorded context pack and invokes local GitHub Copilot in Plan mode before a reviewed artifact can be promoted.
+- **Impact analysis** visualizes repositories and child stories, then reports committed context freshness and interface-contract integrity without inventing unobserved dependencies.
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
 
@@ -954,7 +961,7 @@ Run `singularity-flow telemetry status`. If it says the exporter is not active, 
 
 ### Desktop cannot open a repository
 
-Confirm the directory is a Git repository and contains `singularity/workflow.yml`. If Flow Studio finds the former `.singularity/` or `.sdlc/` control folder, it offers a guarded migration before opening the repository. The migration changes only the current branch working tree; review the rename and use **Commit & push** when ready. It never merges into `main`. For a repository with no control folder, run `singularity-flow init` and commit the initialized files first.
+Confirm the directory is a Git repository and contains `singularity/workflow.yml`. If Singularity Desktop finds the former `.singularity/` or `.sdlc/` control folder, it offers a guarded migration before opening the repository. The migration changes only the current branch working tree; review the rename and use **Commit & push** when ready. It never merges into `main`. For a repository with no control folder, run `singularity-flow init` and commit the initialized files first.
 
 ### Agent sync reports stale or changed content
 

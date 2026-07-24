@@ -154,7 +154,35 @@ async function openExistingWorkspace(workspacePath) {
   const workspace = await readWorkspace(workspacePath);
   const status = await workspaceStatus(workspace.path);
   await rememberWorkspace(workspaceRegistryPath(), workspace, status);
-  return openRepository(requireReadyLeadRepository(status), { workspace: status });
+  return openWorkspaceStatus(status);
+}
+
+async function openWorkspaceStatus(status, { message = null } = {}) {
+  let repository = null;
+  try {
+    repository = requireReadyLeadRepository(status);
+  } catch {
+    const jira = await jiraCredentialStore().safeStatus();
+    const profile = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
+    repository = await firstUsableRepository(
+      [...(profile.repositories ?? []), ...await recentRepositories()],
+      validateRepositoryDirectory
+    );
+    if (!repository) {
+      throw new Error(
+        `Workspace '${status.workspace.name}' is saved at ${status.workspace.path}, but its lead repository is not ready. `
+        + `Add one initialized Singularity repository, reopen this workspace, and use Repair missing clones.`
+      );
+    }
+  }
+  const result = await openRepository(repository, { workspace: status });
+  if (message) {
+    result.workspaceSetup = {
+      mode: status.healthy ? 'saved' : 'saved-needs-repair',
+      message
+    };
+  }
+  return result;
 }
 
 async function openWorkspaceSetup(baseDirectory) {
@@ -1127,11 +1155,14 @@ function registerHandlers() {
     assertTrustedSender(event);
     assertRepository(repository);
     const workspaceApi = await workspaceModule();
-    const created = await workspaceApi.createWorkspaceConfiguration({
+    const created = await workspaceApi.saveWorkspaceConfiguration({
       baseDirectory, id, name, repositories, leadRepository
     }, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
-    return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
+    const message = created.materializationError
+      ? `Workspace configuration saved. Some repositories could not be cloned: ${created.materializationError}`
+      : `Workspace ${created.workspace.name} saved and all repositories are ready.`;
+    return openWorkspaceStatus(created.status, { message });
   });
   trustedHandle('workspace:status', async (event, { workspace }) => {
     assertTrustedSender(event);
@@ -1145,8 +1176,15 @@ function registerHandlers() {
   });
   trustedHandle('workspace:repair', async (event, { workspace }) => {
     assertTrustedSender(event);
-    const { repairWorkspace } = await workspaceModule();
-    return repairWorkspace(assertWorkspace(workspace));
+    const workspaceApi = await workspaceModule();
+    const repaired = await workspaceApi.repairWorkspace(assertWorkspace(workspace));
+    await workspaceApi.rememberWorkspace(workspaceRegistryPath(), repaired.status.workspace, repaired.status);
+    return {
+      ...repaired,
+      snapshot: repaired.status.healthy
+        ? await openWorkspaceStatus(repaired.status, { message: 'Workspace repositories repaired and ready.' })
+        : null
+    };
   });
   trustedHandle('workspace:documents-stage', async (event, { workspace }) => {
     assertTrustedSender(event);

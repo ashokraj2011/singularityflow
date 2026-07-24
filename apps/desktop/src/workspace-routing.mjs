@@ -1,4 +1,4 @@
 export function workspaceLandingPage(result, experienceMode) {
-  if (result?.workspaceSetup?.mode === 'create') return 'workspaces';
+  if (['create', 'saved-needs-repair'].includes(result?.workspaceSetup?.mode)) return 'workspaces';
   return experienceMode === 'business' ? 'epics' : 'workspaces';
 }

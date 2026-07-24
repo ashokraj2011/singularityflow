@@ -1120,7 +1120,7 @@ function WorkspaceStudio({
       repositories: repositoryConfiguration(),
       leadRepository: repositories[leadIndex]?.id.trim(),
       confirmation
-    }), `Workspace ${workspaceName} created with isolated repository clones`);
+    }));
     if (result) onOpened(result, 'workspaces');
   }
 
@@ -1137,7 +1137,8 @@ function WorkspaceStudio({
 
   async function repair() {
     const result = await action(() => window.singularity.repairWorkspace(health.workspace.path), 'Missing workspace clones repaired');
-    if (result) setHealth(result.status);
+    if (result?.snapshot) onOpened(result.snapshot, 'workspaces');
+    else if (result) setHealth(result.status);
   }
 
   async function stageDocuments() {
@@ -1200,6 +1201,8 @@ function WorkspaceStudio({
 
   return <div className="page workspace-page">
     <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy ? 'good' : 'warn'}>{health.healthy ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
+
+    {data.workspaceSetup?.mode?.startsWith('saved') && <div className={`workspace-save-result ${data.workspaceSetup.mode === 'saved-needs-repair' ? 'warning' : 'success'}`} role="status"><span>{data.workspaceSetup.mode === 'saved-needs-repair' ? '!' : '✓'}</span><div><strong>Workspace configuration saved</strong><small>{data.workspaceSetup.message}</small></div></div>}
 
     {health && <section className="workspace-current panel">
       <header className="workspace-current-head"><div><span className="workspace-anchor-type">Active workspace</span><h2>{health.workspace.name}</h2><p>{health.workspace.path}</p></div><div className="workspace-actions"><button className="ghost" onClick={refreshHealth}>Refresh health</button><button className="secondary" onClick={sync}>Fetch remotes</button><button className="secondary" onClick={stageDocuments}>Stage documents</button>{!health.healthy && <button className="primary" onClick={repair}>Repair missing clones</button>}</div></header>

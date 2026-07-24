@@ -85,6 +85,7 @@ test('Electron welcome screen opens the workspace boundary and preserves loading
 test('Electron routes new workspace selections to configuration before Epic intake', () => {
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'business'), 'workspaces');
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'engineer'), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-needs-repair' } }, 'business'), 'workspaces');
   assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'business'), 'epics');
   assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'engineer'), 'workspaces');
 });
@@ -288,6 +289,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Staged — not governed/);
   assert.match(source, /not separate setup steps/);
   assert.match(source, /Save workspace/);
+  assert.match(source, /Workspace configuration saved/);
+  assert.match(styles, /\.workspace-save-result/);
   assert.match(source, /Isolated project contexts/);
   assert.doesNotMatch(source, /<RecentRepositories/);
   assert.doesNotMatch(source, /Open another repository/);
@@ -455,6 +458,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /configuration:template-url-preview/);
   assert.match(main, /fetchRemoteMarkdown/);
   assert.match(main, /workspace:configuration-create/);
+  assert.match(main, /saveWorkspaceConfiguration/);
+  assert.match(main, /Workspace configuration saved/);
+  assert.match(main, /openWorkspaceStatus/);
   assert.match(main, /workspace:repository-choose/);
   assert.match(main, /inspectWorkspaceSelection/);
   assert.match(main, /openWorkspaceSetup/);

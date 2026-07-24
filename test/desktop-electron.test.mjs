@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
+import { workspaceLandingPage } from '../apps/desktop/src/workspace-routing.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -70,8 +71,18 @@ test('Electron welcome screen renders persistent repository errors and loading f
   assert.match(source, /Opening the selected project context/);
   assert.match(source, /Open or create workspace/);
   assert.match(source, /Workspace configuration/);
+  assert.match(source, /\{ id: 'workspaces', label: 'Workspace setup', section: 'Project setup' \}/);
+  assert.match(source, /acceptOpened\(result, workspaceLandingPage\(result, experienceMode\)\)/);
+  assert.match(source, /defaultBaseDirectory=\{data\.workspaceSetup\?\.baseDirectory/);
   assert.match(source, /if \(!data\).*<Toast toast=\{toast\}/s);
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
+});
+
+test('Electron routes new workspace selections to configuration before Epic intake', () => {
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'business'), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'engineer'), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'business'), 'epics');
+  assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'engineer'), 'workspaces');
 });
 
 test('Electron Epic start remains usable without an existing portfolio and renderer failures stay recoverable', async () => {

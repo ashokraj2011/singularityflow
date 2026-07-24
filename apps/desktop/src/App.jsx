@@ -975,7 +975,6 @@ function WorkspaceStudio({
   const [repositories, setRepositories] = useState([]);
   const [leadIndex, setLeadIndex] = useState(0);
   const [preview, setPreview] = useState(null);
-  const [confirmation, setConfirmation] = useState('');
   const [health, setHealth] = useState(current ?? null);
   const saveActions = useRef(null);
 
@@ -994,7 +993,6 @@ function WorkspaceStudio({
 
   function resetPreview() {
     setPreview(null);
-    setConfirmation('');
   }
 
   async function chooseBase() {
@@ -1119,7 +1117,7 @@ function WorkspaceStudio({
       name: workspaceName.trim(),
       repositories: repositoryConfiguration(),
       leadRepository: repositories[leadIndex]?.id.trim(),
-      confirmation
+      confirmation: workspaceId.trim()
     }));
     if (result) onOpened(result, 'workspaces');
   }
@@ -1221,8 +1219,8 @@ function WorkspaceStudio({
     <section className="workspace-create panel">
       <header className="panel-heading"><div><span className="eyebrow">New workspace</span><h2>Define the project boundary once</h2><p>Jira connection and initiative governance are not separate setup steps. Repository routing lives here.</p></div><Pill>{repositories.length} repositories</Pill></header>
       <div className={`workspace-save-callout ${formReady ? 'ready' : ''}`}>
-        <div><span className="eyebrow">Workspace action</span><strong>Save workspace</strong><small>{formReady ? 'All required details are ready. Review the clone plan, confirm the workspace ID, and save.' : `Complete: ${missingWorkspaceFields.join(', ')}.`}</small></div>
-        <button className="primary" disabled={!formReady} onClick={buildPreview}>{preview ? 'Refresh save plan' : 'Review & save workspace'}</button>
+        <div><span className="eyebrow">Workspace action</span><strong>Save workspace</strong><small>{formReady ? 'All required details are ready. Review the target and repository plan, then save.' : `Complete: ${missingWorkspaceFields.join(', ')}.`}</small></div>
+        <button className="primary" disabled={!formReady} onClick={buildPreview}>{preview ? 'Refresh save plan' : 'Review save plan'}</button>
       </div>
       <div className="workspace-identity-grid">
         <label><span>Workspace name</span><input value={workspaceName} placeholder="Payments modernization" onChange={(event) => { setWorkspaceName(event.target.value); resetPreview(); }} /></label>
@@ -1245,7 +1243,7 @@ function WorkspaceStudio({
         </article>)}
       </div>
       {!validRepositories && <div className="workspace-form-note">Complete a unique repository ID, display name, Git URL, Jira project key, and Application ID for every repository.</div>}
-      <div className="workspace-preview-actions" ref={saveActions}>{preview ? <><div className="workspace-save-plan"><strong>Save plan ready</strong><small>Clones will be created under this workspace only after exact confirmation.</small></div><code>{preview.root}</code><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`Type ${workspaceId}`} /><button className="primary" disabled={confirmation !== workspaceId.trim()} onClick={create}>Confirm & save workspace</button></> : <div className="workspace-save-plan"><strong>No save plan yet</strong><small>Complete the required fields, then use Review & save workspace above.</small></div>}</div>
+      <div className="workspace-preview-actions" ref={saveActions}>{preview ? <><div className="workspace-save-plan"><strong>Preview ready — not saved yet</strong><small>The configuration will be stored in workspace.json; repository clones can be repaired independently.</small></div><code>{preview.root}/workspace.json</code><button className="primary" onClick={create}>Save workspace now</button></> : <div className="workspace-save-plan"><strong>No save plan yet</strong><small>Complete the required fields, then use Review save plan above.</small></div>}</div>
       {preview && <div className="workspace-operation-list">{preview.operations.map((operation) => <div key={operation.repository}><Pill tone={operation.repository === repositories[leadIndex]?.id.trim() ? 'accent' : 'neutral'}>{operation.repository === repositories[leadIndex]?.id.trim() ? 'Epic lead' : 'clone'}</Pill><strong>{operation.repository}</strong><code>{operation.url}</code><span>{operation.target}</span></div>)}</div>}
     </section>
   </div>;

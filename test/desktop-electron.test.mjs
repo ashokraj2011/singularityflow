@@ -280,8 +280,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Jira project key/);
   assert.match(source, /KAN from KAN-8/);
   assert.match(source, /Epic-level artifacts are committed here/);
-  assert.match(source, /Review & save workspace/);
-  assert.match(source, /Confirm & save workspace/);
+  assert.match(source, /Review save plan/);
+  assert.match(source, /Save workspace now/);
   assert.match(source, /Complete: \$\{missingWorkspaceFields\.join\(', '\)\}/);
   assert.match(styles, /\.workspace-save-callout/);
   assert.doesNotMatch(navigation, /Initiative governance/);
@@ -289,6 +289,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Staged — not governed/);
   assert.match(source, /not separate setup steps/);
   assert.match(source, /Save workspace/);
+  assert.match(source, /Preview ready — not saved yet/);
+  assert.match(source, /Save workspace now/);
+  assert.match(source, /confirmation: workspaceId\.trim\(\)/);
+  assert.doesNotMatch(source, /placeholder=\{`Type \$\{workspaceId\}`\}/);
   assert.match(source, /Workspace configuration saved/);
   assert.match(styles, /\.workspace-save-result/);
   assert.match(source, /Isolated project contexts/);

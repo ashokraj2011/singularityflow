@@ -25,13 +25,39 @@ export function workspaceJiraRouting(workspace, credentials = {}) {
 }
 
 export function assertWorkspaceEpicKey(routing, value) {
-  const key = String(value ?? '').trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) throw new Error('Enter a valid Jira Epic key such as KAN-8.');
+  const raw = String(value ?? '').trim();
+  let reference = raw;
+  if (/^https:\/\//i.test(raw)) {
+    let url;
+    try { url = new URL(raw); } catch {
+      throw new Error('The Jira Epic URL is invalid. Paste a complete HTTPS browse URL such as https://company.atlassian.net/browse/KAN-8.');
+    }
+    reference = url.pathname.match(/\/browse\/([^/?#]+)/i)?.[1]
+      ?? url.searchParams.get('selectedIssue')
+      ?? url.searchParams.get('issueKey')
+      ?? '';
+  }
+  const key = reference.trim().toUpperCase();
+  if (!/^(?:[A-Z][A-Z0-9_]*-\d+|\d+)$/.test(key)) {
+    throw new Error('Enter a Jira Epic key such as KAN-8, paste its Jira browse URL, or enter its numeric issue ID.');
+  }
+  if (key.includes('-')) {
+    const issueProject = key.slice(0, key.lastIndexOf('-'));
+    if (!routing.projectKeys.includes(issueProject)) {
+      throw new Error(`Jira ${key} is outside this workspace. Allowed projects: ${routing.projectKeys.join(', ') || 'none'}.`);
+    }
+  }
+  return key;
+}
+
+export function assertWorkspaceEpicIssue(routing, issue) {
+  const key = String(issue?.key ?? '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) throw new Error('Jira returned an issue without a valid key.');
   const issueProject = key.slice(0, key.lastIndexOf('-'));
   if (!routing.projectKeys.includes(issueProject)) {
     throw new Error(`Jira ${key} is outside this workspace. Allowed projects: ${routing.projectKeys.join(', ') || 'none'}.`);
   }
-  return key;
+  return issue;
 }
 
 export function workspacePortfolioConfiguration(workspace, credentials = {}) {

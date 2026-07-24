@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
+  archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
-  rememberWorkspace, resolveWorkspaceDocument, saveWorkspaceConfiguration, stageWorkspaceDocuments,
-  validateWorkspaceManifest, workspaceStatus
+  rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
+  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceStatus
 } from '../src/workspace.mjs';
 import { run } from '../src/util.mjs';
 
@@ -204,6 +204,56 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   entries = await readWorkspaceRegistry(registry);
   assert.deepEqual(entries, []);
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+});
+
+test('workspace editing updates Jira routing and metadata while archive remains recoverable', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-edit-'));
+  const registry = path.join(root, 'registry.json');
+  const remote = await remoteRepository(root, 'platform');
+  const created = await saveWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'payments-platform',
+    name: 'Payments platform',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: remote,
+        defaultBranch: 'main',
+        required: true,
+        path: 'repos/platform',
+        jira: { board: 'PAY' },
+        metadata: { appId: 'APP-1', name: 'Payments platform' }
+      }
+    }
+  }, { confirmation: 'payments-platform' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+  const updated = await updateWorkspaceConfiguration(created.workspace.path, {
+    name: 'Payments delivery',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        ...created.workspace.repositories.platform,
+        jira: { board: 'KAN' },
+        metadata: { appId: 'APP-2', name: 'Payments API', owner: 'Digital' }
+      }
+    }
+  }, { confirmation: 'payments-platform' });
+  assert.equal(updated.workspace.name, 'Payments delivery');
+  assert.equal(updated.workspace.repositories.platform.jira.board, 'KAN');
+  assert.equal(updated.workspace.repositories.platform.metadata.owner, 'Digital');
+  await assert.rejects(() => updateWorkspaceConfiguration(created.workspace.path, {
+    name: 'Invalid',
+    leadRepository: 'platform',
+    repositories: {
+      platform: { ...created.workspace.repositories.platform, url: 'https://example.com/replacement.git' }
+    }
+  }, { confirmation: 'payments-platform' }), /cannot change url/);
+
+  await archiveWorkspace(registry, created.workspace.path, { confirmation: 'payments-platform' });
+  assert.ok((await readWorkspaceRegistry(registry))[0].archivedAt);
+  assert.equal(await stat(path.join(created.workspace.path, 'workspace.json')).then(() => true), true);
+  await restoreWorkspace(registry, created.workspace.path);
+  assert.equal((await readWorkspaceRegistry(registry))[0].archivedAt, null);
 });
 
 test('concurrent workspace registry updates preserve every workspace', async () => {

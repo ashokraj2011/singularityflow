@@ -28,6 +28,7 @@ import {
   inspectWorkspaceSelection
 } from './workspace-selection.mjs';
 import {
+  assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
@@ -484,6 +485,19 @@ function registerHandlers() {
     const { forgetWorkspace } = await workspaceModule();
     await forgetWorkspace(workspaceRegistryPath(), workspace);
     if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
+    return recentWorkspaces();
+  });
+  trustedHandle('workspace:archive', async (event, { workspace, confirmation }) => {
+    assertTrustedSender(event);
+    const { archiveWorkspace } = await workspaceModule();
+    await archiveWorkspace(workspaceRegistryPath(), assertWorkspace(workspace), { confirmation });
+    if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
+    return recentWorkspaces();
+  });
+  trustedHandle('workspace:restore', async (event, { workspace }) => {
+    assertTrustedSender(event);
+    const { restoreWorkspace } = await workspaceModule();
+    await restoreWorkspace(workspaceRegistryPath(), workspace);
     return recentWorkspaces();
   });
   trustedHandle('workspace:choose-base', async (event) => {
@@ -1192,6 +1206,29 @@ function registerHandlers() {
       : `Workspace ${created.workspace.name} saved and all repositories are ready.`;
     return openWorkspaceStatus(created.status, { message });
   });
+  trustedHandle('workspace:configuration-update-preview', async (event, {
+    repository, workspace, name, repositories, leadRepository
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const { previewWorkspaceUpdate } = await workspaceModule();
+    return previewWorkspaceUpdate(assertWorkspace(workspace), { name, repositories, leadRepository });
+  });
+  trustedHandle('workspace:configuration-update', async (event, {
+    repository, workspace, name, repositories, leadRepository, confirmation
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceApi = await workspaceModule();
+    const updated = await workspaceApi.updateWorkspaceConfiguration(assertWorkspace(workspace), {
+      name, repositories, leadRepository
+    }, { confirmation });
+    await workspaceApi.rememberWorkspace(workspaceRegistryPath(), updated.workspace, updated.status);
+    const message = updated.materializationError
+      ? `Workspace changes saved. Some new repositories could not be cloned: ${updated.materializationError}`
+      : `Workspace ${updated.workspace.name} updated and all repositories are ready.`;
+    return openWorkspaceStatus(updated.status, { message });
+  });
   trustedHandle('workspace:status', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { workspaceStatus } = await workspaceModule();
@@ -1251,6 +1288,39 @@ function registerHandlers() {
     const credentials = await jiraCredentialStore().safeStatus();
     return { routing: workspaceJiraRouting(manifest, credentials), credentials };
   });
+  trustedHandle('workspace:jira-connect', async (event, { repository, workspace, connection: input }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const [{ readWorkspace }, { normalizeJiraConnection, discoverJiraConnection }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('jira.mjs')
+    ]);
+    const manifest = await readWorkspace(workspaceRoot);
+    const routing = workspaceJiraRouting(manifest);
+    if (!routing.configured) throw new Error('Add a Jira project key to at least one workspace repository before connecting Jira.');
+    const connection = normalizeJiraConnection({ ...input, name: input?.name || 'corporate-jira' });
+    const discovery = await discoverJiraConnection({ connection });
+    const visibleProjects = new Set((discovery.projects ?? []).map((project) => project.key));
+    const unverifiedProjects = routing.projectKeys.filter((project) => !visibleProjects.has(project));
+    const saved = await jiraCredentialStore().save({
+      ...connection,
+      account: discovery.account,
+      server: discovery.server
+    });
+    jiraCache.clear();
+    return { ...saved, discovery, routing: workspaceJiraRouting(manifest, saved), unverifiedProjects };
+  });
+  trustedHandle('workspace:jira-disconnect', async (event, { repository, workspace }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    assertWorkspace(workspace);
+    const credentials = await jiraCredentialStore().safeStatus();
+    jiraCache.clear();
+    return credentials.selected
+      ? jiraCredentialStore().disconnect(credentials.selected)
+      : credentials;
+  });
   trustedHandle('workspace:jira-epic', async (event, { repository, workspace, epicKey }) => {
     assertTrustedSender(event);
     assertRepository(repository);
@@ -1265,7 +1335,7 @@ function registerHandlers() {
     if (!routing.connected) throw new Error('Connect Jira for this operating-system account before fetching an Epic.');
     const key = assertWorkspaceEpicKey(routing, epicKey);
     const connection = await jiraCredentialStore().load(credentials.selected);
-    const issue = await getIssue(key, { connection });
+    const issue = assertWorkspaceEpicIssue(routing, await getIssue(key, { connection }));
     if (String(issue.issueType ?? '').toLowerCase() !== 'epic' && Number(issue.hierarchyLevel) !== 1) {
       throw new Error(`Jira ${key} is a ${issue.issueType ?? 'work item'}, not an Epic.`);
     }

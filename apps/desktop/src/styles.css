@@ -1017,6 +1017,14 @@ button.ghost { color: #096b43; }
 .workspace-current-head p { max-width: 720px; margin: 0; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-anchor-type { color: var(--green-700); font-size: 9px; font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
 .workspace-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.workspace-actions .danger { color: #9a3f48; }
+.workspace-archive-confirmation { display: grid; grid-template-columns: minmax(260px,1fr) minmax(260px,.75fr) auto auto; align-items: end; gap: 12px; border-bottom: 1px solid #edc9cc; padding: 16px 22px; background: #fff7f7; }
+.workspace-archive-confirmation > div,.workspace-archive-confirmation label { display: grid; gap: 4px; }
+.workspace-archive-confirmation strong { color: #762f37; font-size: 13px; }
+.workspace-archive-confirmation span { color: #8b6468; font-size: 10px; line-height: 1.4; }
+.workspace-archive-confirmation label > span { font-weight: 700; }
+.workspace-archive-confirmation input { height: 40px; border: 1px solid #ddb4b8; border-radius: 9px; padding: 0 11px; background: #fff; }
+.workspace-archive-confirmation button.danger { border-color: #cc8f95; color: #893841; background: #fff; }
 .workspace-health-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); border-bottom: 1px solid var(--line); }
 .workspace-health-grid > div { min-width: 0; display: grid; gap: 3px; padding: 20px 22px; }
 .workspace-health-grid > div + div { border-left: 1px solid var(--line); }
@@ -1108,6 +1116,25 @@ button.ghost { color: #096b43; }
 .workspace-operation-list > div { min-height: 50px; display: grid; grid-template-columns: 70px 120px minmax(180px,.8fr) minmax(220px,1.2fr); align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
 .workspace-operation-list > div:last-child { border-bottom: 0; }
 .workspace-operation-list code, .workspace-operation-list span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.archived-workspaces { overflow: hidden; }
+.archived-workspaces > .panel-heading p { max-width: 760px; margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+.archived-workspaces > div { min-height: 66px; display: grid; grid-template-columns: 38px minmax(240px,1fr) auto; align-items: center; gap: 13px; padding: 10px 20px; border-top: 1px solid var(--line); }
+.archived-workspaces > div > div { min-width: 0; display: grid; gap: 2px; }
+.archived-workspaces strong { font-size: 12px; }
+.archived-workspaces small { overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.archived-workspaces em { color: var(--subtle); font-size: 9px; font-style: normal; }
+.workspace-jira-routing { display: grid; grid-template-columns: minmax(320px,.7fr) minmax(460px,1.3fr); align-items: start; gap: 34px; padding: 28px; }
+.workspace-jira-routing > div:first-child { display: flex; align-items: flex-start; gap: 18px; }
+.workspace-jira-routing h2 { margin: 4px 0 7px; font: 650 23px/1.2 var(--font-display); }
+.workspace-jira-routing p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.workspace-jira-connected { display: grid; justify-items: start; gap: 8px; border: 1px solid #b8dbc5; border-radius: 14px; padding: 20px; background: #f1faf4; }
+.workspace-jira-connected strong { color: #174b31; font-size: 16px; }
+.workspace-jira-connected small { color: #587064; font-size: 10px; }
+.workspace-jira-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+.workspace-jira-form label { display: grid; gap: 6px; }
+.workspace-jira-form label > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.workspace-jira-form .full { grid-column: 1/-1; }
+.workspace-jira-form input,.workspace-jira-form select { min-height: 42px; }
 
 @media (max-width: 1320px) {
   .studio-insight-grid { grid-template-columns: 1fr; }
@@ -1123,6 +1150,8 @@ button.ghost { color: #096b43; }
   .workspace-step, .repository-selection { grid-template-columns: 36px minmax(180px,.65fr) minmax(190px,1fr); }
   .workspace-repository-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .workspace-repository-fields .wide { grid-column: 1/-1; }
+  .workspace-archive-confirmation { grid-template-columns: 1fr 1fr; align-items: end; }
+  .workspace-jira-routing { grid-template-columns: 1fr; }
   .workspace-step > :last-child { grid-column: 3; }
   .workspace-operation-list > div { grid-template-columns: 64px 90px minmax(180px,1fr); }
   .workspace-operation-list > div > span { grid-column: 3; }

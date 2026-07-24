@@ -131,14 +131,20 @@ use the five-phase `epic-planning` profile:
 /sflow-epic-status
 ```
 
-The Electron **Business experience** presents a focused three-item navigation
-(`Epics`, `Reviews`, and `Help`) and a five-stage Epic workspace:
-Sources, Requirements, Planning, Stories, and Complete. Product Owners and
-Business Analysts enter this experience by default; anyone can switch between
-Business and Engineer experiences from the sidebar. Planning combines the
-Story decomposition and high-level specification without hiding either
-governed phase. Each stage exposes one primary action and keeps completed stages
-available for audit.
+The Electron **Business experience** owns the planning journey through dedicated
+`Epics`, `Requirements`, `Planning`, `Artifact templates`, and `Create Stories`
+destinations, followed by `Reviews` and `Help`. Product Owners and Business
+Analysts enter this experience by default; anyone can switch between Business
+and Engineer experiences from the sidebar. Planning combines Story decomposition
+and the high-level specification without hiding either governed phase. The
+Business user reviews the generated Stories and their `REQ-nnn`/`AC-nnn`
+allocation before the publication screen creates or attaches each Jira Story,
+uses the returned Jira key as its stable Work ID, and creates the corresponding
+canonical Git branch with governed seed and receipt commits. Each stage exposes
+one primary action and keeps completed stages available for audit.
+These planning and artifact-template destinations are intentionally owned by
+the Business experience; the Engineer navigation stays focused on downstream
+delivery, impact, review, and advanced workflow controls.
 
 An Epic can be imported from Jira or created without Jira. Local Epics reserve
 collision-safe IDs such as `SF-E-001` through an atomic branch push; their

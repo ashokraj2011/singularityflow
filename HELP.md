@@ -156,9 +156,30 @@ Sources → Requirements → Planning → Stories → Complete
 Planning groups the underlying User Story Plan and High-level Specification
 phases into one reviewable workspace; their hashes and approvals remain
 separate. Product Owner and Business Analyst onboarding roles default to the
-Business experience (`Epics`, `Reviews`, `Help`). Other roles default to the
+Business experience:
+
+```text
+Epics → Requirements → Planning → Artifact templates → Create Stories → Reviews
+```
+
+Requirements generation, Story decomposition, high-level specification, and
+artifact-template authoring are therefore available without switching to the
+Engineer experience. The Planning screen shows every generated Story with its
+repository, `REQ-nnn`/`AC-nnn` lineage, and dependencies. **Create Stories**
+requires the Story plan and high-level specification to be approved, previews
+the exact Jira and Git operations, and then:
+
+1. Creates or attaches the Jira Story using the reviewed write-plan hash.
+2. Freezes the returned Jira key as the Story Work ID.
+3. Creates the canonical branch in the configured repository.
+4. Commits the governed seed, approved Epic inputs, and append-only receipts.
+
+Artifact-template edits remain ordinary repository changes until **Commit
+templates** validates, commits, and pushes them. Other roles default to the
 Engineer experience, and the user can switch at any time without changing
-repository state.
+repository state. The Engineer navigation does not duplicate Requirements,
+Planning, or Artifact templates; those Epic-level responsibilities remain in
+the Business experience.
 
 Start from Jira when it is available, or choose **Describe the work**. The
 local path atomically reserves a configurable Epic branch ID such as

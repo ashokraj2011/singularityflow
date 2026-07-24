@@ -27,6 +27,11 @@ import {
   firstUsableRepository,
   inspectWorkspaceSelection
 } from './workspace-selection.mjs';
+import {
+  assertWorkspaceEpicKey,
+  workspaceJiraRouting,
+  workspacePortfolioConfiguration
+} from './workspace-epic.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
@@ -572,6 +577,19 @@ function registerHandlers() {
     });
     return snapshot(root);
   });
+  trustedHandle('configuration:bootstrap-workspace-portfolio', async (event, { repository, workspace }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const { readWorkspace } = await workspaceModule();
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    await invokeCli(root, ['desktop', 'portfolio-bootstrap', '--json'], {
+      input: JSON.stringify(workspacePortfolioConfiguration(manifest, credentials)),
+      timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
+    });
+    return snapshot(root);
+  });
   trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
   trustedHandle('planning:preflight', (event, { repository }) => {
     assertTrustedSender(event);
@@ -1024,6 +1042,16 @@ function registerHandlers() {
     const allowed = policy.allowedProjects?.length ? projects.filter((project) => policy.allowedProjects.includes(project.key)) : projects;
     return jiraCacheWrite(key, allowed);
   });
+  trustedHandle('jira:epic', async (event, { repository, epicKey }) => {
+    assertTrustedSender(event);
+    const { connection } = await governedJiraConnection(repository, { issueKey: epicKey });
+    const { getIssue } = await importCliModule('jira.mjs');
+    const issue = await getIssue(epicKey, { connection });
+    if (String(issue.issueType ?? '').toLowerCase() !== 'epic' && Number(issue.hierarchyLevel) !== 1) {
+      throw new Error(`Jira ${issue.key} is a ${issue.issueType ?? 'work item'}, not an Epic.`);
+    }
+    return issue;
+  });
   trustedHandle('jira:epics', async (event, { repository, projectKey, refresh = false }) => {
     assertTrustedSender(event);
     const { policy, connection } = await governedJiraConnection(repository, { projectKey });
@@ -1213,6 +1241,35 @@ function registerHandlers() {
       timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
     });
     return { publication, document, snapshot: await snapshot(root, workId) };
+  });
+  trustedHandle('workspace:jira-context', async (event, { repository, workspace }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const { readWorkspace } = await workspaceModule();
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    return { routing: workspaceJiraRouting(manifest, credentials), credentials };
+  });
+  trustedHandle('workspace:jira-epic', async (event, { repository, workspace, epicKey }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const [{ readWorkspace }, { getIssue }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('jira.mjs')
+    ]);
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before fetching an Epic.');
+    const key = assertWorkspaceEpicKey(routing, epicKey);
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    const issue = await getIssue(key, { connection });
+    if (String(issue.issueType ?? '').toLowerCase() !== 'epic' && Number(issue.hierarchyLevel) !== 1) {
+      throw new Error(`Jira ${key} is a ${issue.issueType ?? 'work item'}, not an Epic.`);
+    }
+    return issue;
   });
   trustedHandle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
     assertTrustedSender(event);

@@ -869,7 +869,7 @@ function ImpactStudio({ data, openPlanning }) {
   </div>;
 }
 
-function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel = null, compact = false }) {
+function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel = null }) {
   const [values, setValues] = useState({
     approvalName: '',
     approvalEmail: '',
@@ -929,10 +929,9 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel =
       writeMode: values.jiraWriteMode
     });
   }
-  return <div className={`portfolio-setup${compact ? ' compact' : ''}`}>
-    {!compact && <section className="portfolio-setup-intro"><span className="jira-mark">{jiraFirst ? 'J' : 'S'}</span><span className="eyebrow">{jiraFirst ? 'Jira setup' : 'Advanced governance setup'}</span><h1>{jiraFirst ? 'Connect Jira to bring in Epics' : 'Set up your Epic workspace'}</h1><p>{jiraFirst ? <>Define the allowed Jira host and project for this repository. Credentials are entered on the next screen and stay encrypted in the operating-system keychain.</> : <>This creates the governed profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</>}</p><div className="portfolio-setup-steps">{jiraFirst ? <><span><b>1</b>Policy</span><span><b>2</b>Credentials</span><span><b>3</b>Choose Epic</span></> : <><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></>}</div></section>}
+  return <div className="portfolio-setup">
+    <section className="portfolio-setup-intro"><span className="jira-mark">{jiraFirst ? 'J' : 'S'}</span><span className="eyebrow">{jiraFirst ? 'Jira setup' : 'Advanced governance setup'}</span><h1>{jiraFirst ? 'Connect Jira to bring in Epics' : 'Set up your Epic workspace'}</h1><p>{jiraFirst ? <>Define the allowed Jira host and project for this repository. Credentials are entered on the next screen and stay encrypted in the operating-system keychain.</> : <>This creates the governed profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</>}</p><div className="portfolio-setup-steps">{jiraFirst ? <><span><b>1</b>Policy</span><span><b>2</b>Credentials</span><span><b>3</b>Choose Epic</span></> : <><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></>}</div></section>
     <section className="portfolio-setup-form panel">
-      {compact && <header className="portfolio-setup-compact-head"><div><span className="eyebrow">One-time planning setup</span><h1>Initialize this Epic workspace</h1><p>Add only what you need now. Profiles, approvals, repositories, and Jira policy remain editable in Engineer tools.</p></div><Pill tone="neutral">Repository local</Pill></header>}
       {!jiraFirst && <><header><span className="eyebrow">Approval identity</span><h2>Who owns the initial gates?</h2><p>Leave these blank to use the repository’s configured Git name and email.</p></header>
       <div className="control-grid"><label><span>Display name</span><input value={values.approvalName} placeholder="Use Git user.name" onChange={(event) => set('approvalName', event.target.value)} /></label><label><span>Email</span><input type="email" value={values.approvalEmail} placeholder="Use Git user.email" onChange={(event) => set('approvalEmail', event.target.value)} /></label></div>
       <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Advanced governance.</p></header>
@@ -1954,6 +1953,29 @@ function EpicArtifactView({ selected, phases, title, detail, openPlanning, downl
   return <div className="epic-workspace-view"><section className="panel epic-artifact-hero"><div><span className="eyebrow">Governed artifact workspace</span><h2>{title}</h2><p>{detail}</p></div>{openPlanning && <button className="primary" onClick={openPlanning}>Open Planning Copilot</button>}</section><section className="panel initiative-documents expanded"><header className="panel-heading"><div><span className="eyebrow">Hash-bound outputs</span><h2>{documents.length} documents</h2></div></header>{documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="secondary compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Open full document</button></div>)}</section></div>;
 }
 
+function EpicRequirementsView({ data, selected, action, reload, openPlanning, downloadFile }) {
+  const intake = selected.state.phases['epic-intake'];
+  const requirements = selected.state.phases['epic-requirements'];
+  const intakeApproved = intake?.status === 'approved';
+  const requirementsApproved = requirements?.status === 'approved';
+  const identitySource = selected.state.lineage?.idAuthority === 'jira' ? 'Jira Epic' : 'Provided Epic details';
+  return <div className="epic-workspace-view">
+    <section className="panel epic-requirements-context">
+      <div><span className="eyebrow">Requirements source</span><h2>{selected.state.initiative.title}</h2><p><code>{selected.state.initiative.id}</code> · {identitySource}. Add the supporting evidence and resolve source gaps before generating the formatted requirement set.</p></div>
+      <div className="requirements-output-map"><span className={intakeApproved ? 'complete' : 'active'}><b>{intakeApproved ? '✓' : '1'}</b>Epic details & sources</span><i>→</i><span className={requirementsApproved ? 'complete' : intakeApproved ? 'active' : ''}><b>{requirementsApproved ? '✓' : '2'}</b>Requirements specification</span><i>→</i><span><b>3</b>Planning input</span></div>
+    </section>
+    <EpicSourcesView data={data} selected={selected} action={action} reload={reload} />
+    {!intakeApproved ? <>
+      <EpicArtifactView selected={selected} phases={['epic-intake']} title="Review the Epic intake" detail="Generate the source catalog, source gaps, and intake summary from the Jira snapshot or supplied Epic details plus the documents above." downloadFile={downloadFile} openPlanning={openPlanning} />
+      <PhaseGovernance data={data} selected={selected} phaseId="epic-intake" action={action} reload={reload} />
+    </> : <>
+      <EpicArtifactView selected={selected} phases={['epic-requirements']} title="Generate the formatted requirements artifact" detail="Copilot produces the requirements specification, REQ-nnn / AC-nnn traceability, non-functional requirements, exclusions, and open questions. The approved hashes become mandatory Planning inputs." downloadFile={downloadFile} openPlanning={requirementsApproved ? null : openPlanning} />
+      <PhaseGovernance data={data} selected={selected} phaseId="epic-requirements" action={action} reload={reload} />
+      {requirementsApproved && <div className="requirements-ready-note"><span>✓</span><div><strong>Requirements are approved for Planning</strong><p>The Story plan consumes the exact approved requirements specification and traceability hashes. Later edits create a new generation and invalidate affected planning outputs.</p></div></div>}
+    </>}
+  </div>;
+}
+
 function PhaseGovernance({ data, selected, phaseId, action, reload }) {
   const phase = selected.state.phases[phaseId];
   const [persona, setPersona] = useState(
@@ -2143,12 +2165,16 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     'epic-planning': { label: 'Epic planning' }
   };
   const personas = data.definition?.personas ?? {};
-  const [source, setSource] = useState(data.portfolio?.jira?.enabled ? 'jira' : 'local');
+  const workspace = data.workspace?.workspace ?? null;
+  const workspacePath = workspace?.path ?? null;
+  const workspaceRepositories = Object.values(workspace?.repositories ?? {});
+  const workspaceProjectKeys = [...new Set(workspaceRepositories.map((repository) => repository.jira?.board).filter(Boolean))];
+  const leadProjectKey = workspace?.repositories?.[workspace.leadRepository]?.jira?.board ?? workspaceProjectKeys[0] ?? '';
+  const jiraConfigured = Boolean(data.portfolio?.jira?.enabled || (workspacePath && workspaceProjectKeys.length));
+  const [source, setSource] = useState(jiraConfigured ? 'jira' : 'local');
   const [status, setStatus] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [projectKey, setProjectKey] = useState(data.portfolio?.jira?.projectKey ?? '');
-  const [epics, setEpics] = useState([]);
   const [epicKey, setEpicKey] = useState('');
+  const [fetchedEpic, setFetchedEpic] = useState(null);
   const [localPreview, setLocalPreview] = useState(null);
   const [localTitle, setLocalTitle] = useState('');
   const [localDescription, setLocalDescription] = useState('');
@@ -2163,12 +2189,15 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
   );
   useEffect(() => {
     let active = true;
-    if (!data.portfolio?.jira?.enabled) return undefined;
-    window.singularity.jiraStatus(data.repository.root)
+    if (!jiraConfigured) return undefined;
+    const request = data.portfolio?.jira?.enabled
+      ? window.singularity.jiraStatus(data.repository.root)
+      : window.singularity.workspaceJiraContext(data.repository.root, workspacePath);
+    request
       .then((result) => { if (active) setStatus(result); })
       .catch((error) => { if (active) setStatus({ error: error.message, credentials: { connected: false } }); });
     return () => { active = false; };
-  }, [data.repository.root, data.portfolio?.jira?.enabled]);
+  }, [data.repository.root, data.portfolio?.jira?.enabled, workspacePath, jiraConfigured]);
   useEffect(() => {
     let active = true;
     if (source !== 'local') return undefined;
@@ -2181,28 +2210,24 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       .catch((error) => { if (active) setLocalPreview({ error: error.message }); });
     return () => { active = false; };
   }, [data.repository.root, source]);
-  async function loadProjects() {
-    const result = await action(() => window.singularity.jiraProjects(data.repository.root));
-    if (!result) return;
-    setProjects(result);
-    const next = projectKey || result[0]?.key || '';
-    setProjectKey(next);
-    if (next) {
-      const values = await action(() => window.singularity.jiraEpics(data.repository.root, next));
-      if (values) setEpics(values);
-    }
-  }
-  async function chooseProject(key) {
-    setProjectKey(key);
-    setEpicKey('');
-    const result = await action(() => window.singularity.jiraEpics(data.repository.root, key));
-    if (result) setEpics(result);
+  async function fetchEpic() {
+    const key = epicKey.trim().toUpperCase();
+    setEpicKey(key);
+    setFetchedEpic(null);
+    const result = await action(() => workspacePath
+      ? window.singularity.workspaceJiraEpic(data.repository.root, workspacePath, key)
+      : window.singularity.jiraEpic(data.repository.root, key));
+    if (result) setFetchedEpic(result);
   }
   async function start() {
     if (!data.portfolio) {
       const initialized = await action(
-        () => window.singularity.bootstrapPortfolio(data.repository.root, { jira: { enabled: false } }),
-        'Epic planning initialized from the repository defaults'
+        () => workspacePath
+          ? window.singularity.bootstrapWorkspacePortfolio(data.repository.root, workspacePath)
+          : window.singularity.bootstrapPortfolio(data.repository.root, { jira: { enabled: false } }),
+        workspacePath
+          ? 'Epic planning initialized from the selected workspace'
+          : 'Epic planning initialized from the repository defaults'
       );
       if (!initialized) return;
       const published = await action(
@@ -2220,16 +2245,16 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       return;
     }
     const result = await action(
-      () => window.singularity.startEpicWizard(data.repository.root, epicKey, profile, persona),
-      `Epic ${epicKey} fetched from Jira, initialized, committed, and pushed`
+      () => window.singularity.startEpicWizard(data.repository.root, fetchedEpic.key, profile, persona),
+      `Epic ${fetchedEpic.key} fetched from Jira, initialized, committed, and pushed`
     );
-    if (result) await reload(null, epicKey);
+    if (result) await reload(null, fetchedEpic.key);
   }
   const connected = status?.credentials?.connected;
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
   const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
   const canStart = source === 'jira'
-    ? connected && epicKey && profile && persona
+    ? connected && fetchedEpic?.key === epicKey && profile && persona
     : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
@@ -2240,14 +2265,14 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       <EpicJourneyDiagram />
     </section>
     <section className="panel epic-start-form">
-      <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={`${source === 'jira' ? 'active' : ''} ${data.portfolio?.jira?.enabled ? '' : 'needs-setup'}`} onClick={() => data.portfolio?.jira?.enabled ? setSource('jira') : onSetupJira()}><strong>Bring from Jira</strong><small>{data.portfolio?.jira?.enabled ? 'Use an existing Epic key and Jira identity' : 'Set up Jira, then choose an existing Epic'}</small>{!data.portfolio?.jira?.enabled && <b>Set up Jira →</b>}</button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Reserve a local Singularity Epic ID</small></button></div>
+      <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={`${source === 'jira' ? 'active' : ''} ${jiraConfigured ? '' : 'needs-setup'}`} onClick={() => jiraConfigured ? setSource('jira') : onSetupJira()}><strong>Bring from Jira</strong><small>{jiraConfigured ? `Fetch an Epic from ${workspaceProjectKeys.join(', ') || data.portfolio?.jira?.projectKey || 'the configured project'}` : 'Add Jira routing to the workspace first'}</small>{!jiraConfigured && <b>Set up Jira →</b>}</button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Enter Epic-like details without Jira</small></button></div>
       {source === 'jira' ? <>
-        <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Connection</span><h3>Use your Jira identity</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}.` : 'Connect Jira securely, then return here to choose an Epic.'}</p></div>{connected ? <Pill tone="good">ready</Pill> : <button className="secondary" onClick={onSetupJira}>Set up Jira</button>}</div>
-        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Choose an Epic</h3><div className="epic-start-controls"><select value={projectKey} disabled={!connected || !projects.length} onChange={(event) => chooseProject(event.target.value)}><option value="">Project…</option>{projects.map((project) => <option value={project.key} key={project.key}>{project.key} — {project.name}</option>)}</select><select value={epicKey} disabled={!epics.length} onChange={(event) => setEpicKey(event.target.value)}><option value="">Epic…</option>{epics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title}</option>)}</select><button className="secondary" disabled={!connected} onClick={loadProjects}>{projects.length ? 'Refresh Jira' : 'Load Jira Epics'}</button></div></div></div>
+        <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Workspace Jira connection</span><h3>Use the Jira routing already configured</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}. Allowed projects: ${status.routing?.projectKeys?.join(', ') || data.portfolio?.jira?.allowedProjects?.join(', ') || 'repository policy'}.` : 'This workspace has Jira project routing, but this operating-system user still needs a valid Jira connection.'}</p></div>{connected ? <Pill tone="good">ready</Pill> : <button className="secondary" onClick={onSetupJira}>Connect Jira</button>}</div>
+        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Fetch the Epic by ID</h3><p>Singularity reads the Epic title, description, status, and Jira identity, then pins that snapshot before requirements are generated.</p><div className="epic-key-fetch"><label><span>Jira Epic ID</span><input value={epicKey} disabled={!connected} onChange={(event) => { setEpicKey(event.target.value.toUpperCase()); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={fetchEpic}>Fetch Epic</button></div>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone="good">Fetched from Jira</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{fetchedEpic.issueType} · {fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded</small></article>}</div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
       <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div>{!data.portfolio && <p className="epic-defaults-note">The governed Epic defaults will be created when you start. No separate portfolio setup is required.</p>}</div></div>
       {source === 'local' && !localStartReady && <div className="notice warn epic-start-blocker"><strong>Local Epic creation starts from a clean {defaultBranch} branch.</strong><span>{data.repository.changes.length ? `Commit or set aside the ${data.repository.changes.length} current working-tree change(s), then switch to ${defaultBranch}.` : `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.`}</span></div>}
-      <footer><div><strong>The Epic branch is the shared control plane.</strong><span>No default branch is merged automatically. Jira publication remains a reviewed, explicit action.</span></div><button className="primary" disabled={!canStart} onClick={start}>Start Epic workflow</button></footer>
+      <footer><div><strong>Next: source details → formatted requirements → Planning.</strong><span>The requirements specification and traceability file are committed to the Epic branch and become the approved inputs to Story planning.</span></div><button className="primary" disabled={!canStart} onClick={start}>{source === 'jira' ? 'Use Epic & start requirements' : 'Create requirements workspace'}</button></footer>
     </section>
   </div>;
 }
@@ -2320,7 +2345,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
               : null;
     if (nextTab) setTab(nextTab);
   }, [entryTab, selected?.state.initiative.id, selected?.state.currentPhase, selected?.state.status]);
-  if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} compact={['requirements', 'planning'].includes(entryTab)} /></div>;
+  if (!portfolio) return <div className="page initiative-page"><EpicStartWizard data={data} action={action} reload={reload} onSetupJira={setupJira} /></div>;
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
   const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
   let portfolioDraft = portfolio;
@@ -2480,7 +2505,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
       <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" />
-    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Epic intake artifacts" detail="The Epic identity, source catalog, gaps, assumptions, and intake summary remain hash-bound to this Epic branch." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-intake" action={action} reload={reload} /></div> : tab === 'requirements' ? <div className="epic-workspace-view"><EpicArtifactView selected={selected} phases={['epic-requirements']} title="Requirements and traceability" detail="Every REQ-nnn and AC-nnn must cite a pinned source, page, frame, or section before approval." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-requirements" action={action} reload={reload} /></div> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} /><PhaseGovernance data={data} selected={selected} phaseId="epic-plan" action={action} reload={reload} />{selected.state.phases['epic-spec'] && <><EpicArtifactView selected={selected} phases={['epic-spec']} title="High-level solution specification" detail="Define repository boundaries, interfaces, security, observability, tests, and the contracts that later spec-to-code review will evaluate." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-spec" action={action} reload={reload} /></>}</div> : tab === 'publish' ? <div className="epic-workspace-view">
+    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Epic intake artifacts" detail="The Epic identity, source catalog, gaps, assumptions, and intake summary remain hash-bound to this Epic branch." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-intake" action={action} reload={reload} /></div> : tab === 'requirements' ? <EpicRequirementsView data={data} selected={selected} action={action} reload={reload} openPlanning={openPlanning} downloadFile={downloadFile} /> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} /><PhaseGovernance data={data} selected={selected} phaseId="epic-plan" action={action} reload={reload} />{selected.state.phases['epic-spec'] && <><EpicArtifactView selected={selected} phases={['epic-spec']} title="High-level solution specification" detail="Define repository boundaries, interfaces, security, observability, tests, and the contracts that later spec-to-code review will evaluate." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-spec" action={action} reload={reload} /></>}</div> : tab === 'publish' ? <div className="epic-workspace-view">
       <section className="panel jira-artifact-publish">
         <header className="panel-heading"><div><span className="eyebrow">Reviewed outbound package</span><h2>Select what Jira receives</h2><p>The exact file hashes become part of the Jira write plan. Selected Markdown/YAML files are attached with hash-stamped filenames; retries reuse matching attachments.</p></div><Pill tone={specificationReady ? 'good' : 'warn'}>{specificationReady ? 'Specification approved' : 'Approve specification first'}</Pill></header>
         <div className="jira-artifact-options">{jiraArtifactCandidates.map((document) => { const reference = `${document.phase}/${document.id}`; return <label key={reference} className={jiraArtifacts[reference] ? 'selected' : ''}><input type="checkbox" checked={Boolean(jiraArtifacts[reference])} onChange={(event) => setJiraArtifacts((current) => ({ ...current, [reference]: event.target.checked }))} /><span><strong>{document.label}</strong><small>{reference} · {document.sha256.slice(0, 12)}</small></span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status}</Pill></label>; })}</div>

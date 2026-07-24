@@ -72,5 +72,9 @@
   },
   "dependencies": {
     "yaml": "^2.9.0"
+  },
+  "overrides": {
+    "@electron/asar": "4.2.1",
+    "@electron/get": "5.0.0"
   }
 }

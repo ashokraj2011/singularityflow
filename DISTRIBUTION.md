@@ -27,6 +27,15 @@ npm run desktop:package:win
 
 `npm run desktop:package:current` chooses macOS or Windows from the current host. `npm run desktop:dist` remains an alias for the same command. Packaging runs the Node tests, deterministic checks, and renderer build before electron-builder.
 
+Use Node.js 22.12 or newer for desktop development and packaging. The root
+dependency policy pins maintained `@electron/asar` and `@electron/get`
+implementations over the older transitive versions still declared by the
+current stable electron-builder. The project `.npmrc` also omits automatically
+installed peer packages because the supported Windows target is NSIS, not
+Squirrel.Windows. If a future release adds a Squirrel target, install
+`electron-builder-squirrel-windows` explicitly and revise that policy together
+with its packaging tests.
+
 Local packaging defaults to signing mode `auto`. Complete credentials produce a signed local package; otherwise the output is visibly named `-unsigned`. Unsigned packages are suitable only for testing and cause Gatekeeper or SmartScreen warnings. Files are written under `apps/desktop/release/local/<version>/` with SHA-256 checksums and `release-manifest.json`.
 
 The source tree must be clean. For a deliberate package of uncommitted development work, add `--allow-dirty`. Rebuilding a populated, version-specific output directory requires `--replace`; only that exact release directory is removed.

@@ -449,6 +449,17 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
   return true;
 }
 
+// The sorted union of every world-model view the portfolio's initiative phases route context to.
+// Used to auto-declare the repository's worldModel.views during onboarding so bootstrap self-heals
+// instead of throwing validatePortfolioWorldModelViews.
+export function portfolioWorldModelViews(portfolio) {
+  const views = new Set();
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
+    for (const view of phase.worldModelViews ?? []) views.add(view);
+  }
+  return [...views].sort();
+}
+
 export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = null } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);

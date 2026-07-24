@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { add, branch, changedFiles, commit, identity, pushBranch } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
+  ensureRepositoryWorldModelViews,
   loadDefinition,
   normalizePlanning,
   validateDefinition,
@@ -35,7 +36,8 @@ import { deriveReport } from './report.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import {
   loadPortfolio, PORTFOLIO_PATH, validatePortfolio,
-  validatePortfolioWorldModelViews
+  validatePortfolioWorldModelViews,
+  portfolioWorldModelViews
 } from './initiative-config.mjs';
 import {
   initiativeProgress, listInitiatives, loadInitiative, secureInitiativePath
@@ -384,7 +386,11 @@ export async function bootstrapDesktopPortfolio(root, {
     };
   }
   const portfolio = validatePortfolio(starter);
-  validatePortfolioWorldModelViews(portfolio, definition);
+  // Self-heal: declare the world-model views the portfolio needs in the repo's workflow.yml so a
+  // repo onboarded without a worldModel block does not fail validation. Then re-load and assert.
+  const declaredViews = await ensureRepositoryWorldModelViews(root, portfolioWorldModelViews(portfolio));
+  const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
+  validatePortfolioWorldModelViews(portfolio, validatedDefinition);
   await writeText(target, YAML.stringify(starter));
   return {
     path: PORTFOLIO_PATH,

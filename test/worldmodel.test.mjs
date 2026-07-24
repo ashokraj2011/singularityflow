@@ -279,3 +279,36 @@ test('enforced workflows block generation until the governed prompt is composed'
   assert.equal(published.phases.intake.generation, 1);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[GROUND-1\]\[phase:intake\]\[generated:1\]/);
 });
+
+test('wm build --local commits the world model but does not push, and a new branch inherits it', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-local-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'repo');
+  run('git', ['init', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Local Tester'], root);
+  run('git', ['config', 'user.email', 'local@example.com'], root);
+  await initializeDefinition(root);
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Local build\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  const remoteMainBefore = run('git', ['ls-remote', remote, 'refs/heads/main'], root).trim();
+
+  // git.publish stays at its default (required); --local must still skip the push.
+  const output = run(process.execPath, [bin, 'wm', 'build', '--local', '--phase', 'design', '--task', 'Design it', '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
+  assert.match(output, /local, not pushed/);
+
+  const localHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\]/);
+  const remoteMainAfter = run('git', ['ls-remote', remote, 'refs/heads/main'], root).trim();
+  assert.equal(remoteMainAfter, remoteMainBefore, 'origin/main must be unchanged (not pushed)');
+
+  // A work-item branch forked from local main inherits the world-model commit.
+  run('git', ['switch', '-c', 'FEAT-1'], root);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), localHead);
+  assert.ok(run('git', ['log', '--format=%H', 'main'], root).includes(localHead));
+});

@@ -949,6 +949,21 @@ every declared regular file, rejects escaping paths/symlinks and unexpected
 repository writes, records a source-tree hash, atomically installs the output,
 commits it, and publishes it according to `git.publish`.
 
+Pass `--local` to commit the world model to the current branch **without pushing**
+it — for example during workspace onboarding, so the model is not published to the
+remote default branch. The commit then rides the first work-item branch forked
+from this branch and is pushed with it. Because the local commit diverges from the
+remote default branch, start the work item **without `--fetch`** (which would run
+`git pull --ff-only` on the base and fail); reconcile the base branch afterward.
+Singularity Desktop's **World model** page exposes the same action as **Generate
+world model** (always `--local`).
+
+The initiative portfolio routes context to world-model views that must be declared
+in the repository's `workflow.yml` under `worldModel.views`. Portfolio bootstrap
+now auto-declares any missing views (covering both the portfolio's needs and the
+repository's own phase/persona references), so onboarding a repository without a
+`worldModel` block succeeds instead of failing.
+
 `wm compose` renders the active persona prompt with mandatory phase/persona
 views, an exact task guide when `--task` is supplied, applicable evidence,
 focused `worldModel.injection.rules`, and verified active-agent skills. Rules may

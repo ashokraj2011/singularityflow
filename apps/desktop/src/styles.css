@@ -2667,6 +2667,10 @@ label > span,
 .epic-picker-meta { max-width: 1040px; display: flex; justify-content: flex-end; margin-top: 7px; color: #718078; font-size: 9px; }
 .epic-reference-fallback { max-width: 1040px; margin-top: 11px; color: #52675a; font-size: 11px; }
 .epic-reference-fallback summary { width: fit-content; cursor: pointer; color: #157849; font-weight: 620; }
+.epic-routing-warning { max-width: 1040px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.epic-routing-warning > div { display: grid; gap: 3px; }
+.epic-routing-warning > div > span { line-height: 1.5; }
+.epic-routing-warning > button { flex: 0 0 auto; }
 .fetched-epic-card { max-width: 880px; display: grid; gap: 7px; margin-top: 14px; border: 1px solid #a9d1b8; border-radius: 13px; padding: 15px 17px; background: #f2faf5; }
 .fetched-epic-card > div { display: flex; align-items: center; gap: 9px; }
 .fetched-epic-card h4 { margin: 0; color: #183d29; font-size: 16px; font-weight: 620; }

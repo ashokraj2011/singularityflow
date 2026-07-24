@@ -1,0 +1,9 @@
+version: 1
+epicId: "{{workId}}"
+requirements:
+  - id: REQ-001
+    sources: []
+acceptanceCriteria:
+  - id: AC-001
+    requirements: [REQ-001]
+    sources: []

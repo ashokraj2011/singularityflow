@@ -139,6 +139,98 @@ and resets affected later phases without deleting artifacts or unrelated
 approvals. Reports combine initiative and child telemetry and label cost exact
 only when every observed source supplies provider cost.
 
+## Epic-to-Story planning and lifecycle lineage
+
+New Epics default to the immutable `epic-planning` profile:
+
+```text
+Epic Intake → Requirements → Plan → Create Stories
+```
+
+The workflow ends its governance lifecycle after the reviewed Jira Story plan
+has been applied and every canonical Story branch has been seeded. The Epic
+then remains as a read-only delivery dashboard. Select another configured
+initiative profile at start when the Epic itself needs the full delivery
+lifecycle.
+
+Use the collision-safe Copilot commands:
+
+```text
+/sflow-epic-start MOB-100
+/sflow-epic-sources
+/sflow-epic-generate
+/sflow-epic-create-stories
+/sflow-epic-status
+/sflow-epic-review
+/sflow-story-branch
+```
+
+The terminal equivalents are:
+
+```bash
+singularity-flow epic start MOB-100
+singularity-flow epic sources add --file requirements.pdf
+singularity-flow epic generate intake
+singularity-flow epic submit intake
+singularity-flow epic create-stories
+singularity-flow epic create-stories --plan <exact-sha256>
+singularity-flow epic review MOB-123
+singularity-flow epic checks MOB-123 --packet <exact-sha256>
+```
+
+Source bytes are uploaded through a configured Jira attachment, Artifactory,
+SharePoint, S3, or HTTPS-reference adapter. Git stores only immutable provider
+identity/version, URL, SHA-256, byte count, MIME type, uploader identity, and
+timestamp. Downloads are kept under `.git/singularity-flow/epic-sources/`,
+verified before prompt composition, and never committed. Artifactory and
+SharePoint tokens saved in Desktop are encrypted with Electron `safeStorage`;
+Jira uses the existing secure Jira connection and S3 uses the AWS default
+credential chain, including corporate SSO profiles.
+
+Requirements use stable `REQ-nnn` and `AC-nnn` identifiers. Every traceability
+entry must cite a pinned `SRC-*` plus a page, frame, or section. Story-plan
+version 2 allocates those identifiers to immutable temporary `STORY-nnn` plan
+IDs. Jira then returns the canonical Work ID and branch name. The numeric Jira
+issue ID, initial key, current key, aliases, and temporary plan ID all remain in
+lineage; a later Jira re-key never silently renames Git history.
+
+Developers can work directly on the canonical Story branch or register a child:
+
+```bash
+singularity-flow story branch create feature/login-ui --parent MOB-123
+singularity-flow story branch attach --parent MOB-123
+singularity-flow story branch status --parent MOB-123
+singularity-flow story submit
+singularity-flow story branch promote --parent MOB-123 --mode pr
+```
+
+A noncanonical branch without an explicit parent is rejected. Submission writes
+and publishes an exact-hash review packet containing lineage, generated
+documents, approved specification inputs, source/test tree hashes, generation
+metadata, model/token records, and branch policy. `pr`, `direct`, and `either`
+completion policies are pinned per repository. Direct promotion is
+fast-forward-only and never force-pushes.
+
+Product Owners use **Epic workspace → Review** or `epic review`. The isolated
+review checkout discovers published packets across participating repositories
+without changing the reviewer’s working tree. **Run and record checks** performs
+deterministic lineage/hash/freshness governance and reads GitHub Actions and PR
+state through the authenticated `gh` CLI for the exact submitted SHA. It never
+runs repository build or test code locally. The evidence commit is pushed to
+the submitted branch; approval and rejection decisions remain bound to the
+packet hash.
+
+Git is canonical for the approved plan. `singularity-flow epic drift observe`
+records Jira as a timestamped external observation. Choose `drift adopt` to
+promote external values into a new Git artifact generation, or
+`drift restore-plan` to create a new reviewed Jira write plan. No automatic
+two-way overwrite occurs.
+
+Desktop’s Epic workspace separates **Epic overview**, **Sources**,
+**Requirements**, **Planning**, **Stories**, **Review**, and **Configuration**.
+It shows local role, Jira account, configured Git identity, and GitHub login as
+separate identity domains; none is described as cryptographically equivalent.
+
 ## Copilot Planning Studio
 
 Open **Planning Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.

@@ -52,6 +52,29 @@ contextBridge.exposeInMainWorld('singularity', {
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
+  epicSources: (repository, initiativeId) => ipcRenderer.invoke('epic:sources', { repository, initiativeId }),
+  saveEpicStorageCredential: (repository, providerId, token) => ipcRenderer.invoke('epic:storage-credential', { repository, providerId, token }),
+  disconnectEpicStorage: (repository, providerId) => ipcRenderer.invoke('epic:storage-disconnect', { repository, providerId }),
+  uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-upload', {
+    repository, initiativeId, providerId, mimeType
+  }),
+  addEpicSourceUrl: (repository, initiativeId, providerId, url, label, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-add-url', {
+    repository, initiativeId, providerId, url, label, mimeType
+  }),
+  verifyEpicSources: (repository, initiativeId, providerId = null, materialize = true) => ipcRenderer.invoke('epic:sources-verify', {
+    repository, initiativeId, providerId, materialize
+  }),
+  epicReviewInbox: (repository, initiativeId) => ipcRenderer.invoke('epic:review-inbox', { repository, initiativeId }),
+  epicReview: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:review', {
+    repository, initiativeId, storyId, packetSha256
+  }),
+  runEpicChecks: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:checks', {
+    repository, initiativeId, storyId, packetSha256
+  }),
+  decideEpicReview: (repository, initiativeId, storyId, packetSha256, decision, persona, target = null, reason = null) => ipcRenderer.invoke('epic:decision', {
+    repository, initiativeId, storyId, packetSha256, decision, persona, target, reason
+  }),
+  observeEpicJiraDrift: (repository, initiativeId) => ipcRenderer.invoke('epic:jira-drift', { repository, initiativeId }),
   jiraStatus: (repository) => ipcRenderer.invoke('jira:status', { repository }),
   connectJira: (repository, connection) => ipcRenderer.invoke('jira:connect', { repository, connection }),
   disconnectJira: (repository, name) => ipcRenderer.invoke('jira:disconnect', { repository, name }),

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { currentPhase, sourceTreeHash, validateWorkflow, workDir } from './state.mjs';
+import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state.mjs';
 import { exists, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
@@ -65,7 +65,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const found = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject));
       if (!found) errors.push(`${phaseId} generation ${generation} has no required Git commit`);
       else if (config.git?.publish === 'required') {
-        const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflow.workItem.branch}`;
+        const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}`;
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         if (published.status !== 0) errors.push(`${phaseId} generation ${generation} is not present on the remote branch`);
       }
@@ -154,9 +154,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (config.git?.publish === 'required' && terminal) {
-    const remote = config.git.remote ?? 'origin'; const remoteHead = run('git', ['ls-remote', remote, `refs/heads/${workflow.workItem.branch}`], { cwd: root, allowFailure: true }).stdout.trim().split(/\s+/)[0];
+    const remote = config.git.remote ?? 'origin'; const publicationBranch = workflowPublicationBranch(root, workflow); const remoteHead = run('git', ['ls-remote', remote, `refs/heads/${publicationBranch}`], { cwd: root, allowFailure: true }).stdout.trim().split(/\s+/)[0];
     const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-    if (remoteHead !== localHead) errors.push(`terminal: local HEAD is not published to ${remote}/${workflow.workItem.branch}`);
+    if (remoteHead !== localHead) errors.push(`terminal: local HEAD is not published to ${remote}/${publicationBranch}`);
     else passes.push('remote publication');
   }
 

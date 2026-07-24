@@ -275,7 +275,11 @@ export async function createInitiative(root, {
       resolutionSha256: resolution.resolutionSha256
     }
   }));
-  await writeText(breakdownPath.absolute, YAML.stringify({ version: 1, initiativeId: id, epics: [] }));
+  await writeText(breakdownPath.absolute, YAML.stringify({
+    version: resolved.id === 'epic-planning' ? 2 : 1,
+    initiativeId: id,
+    epics: []
+  }));
   await writeText(repositoriesPath.absolute, YAML.stringify({
     version: 1,
     initiativeId: id,
@@ -407,6 +411,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       let text = await readFile(template.absolute, 'utf8');
       const replacements = {
         '{{initiative.id}}': initiative.initiative.id,
+        '{{workId}}': initiative.initiative.id,
         '{{initiative.title}}': initiative.initiative.title,
         '{{phase.id}}': phase.id,
         '{{phase.label}}': phase.label,

@@ -114,6 +114,40 @@ Start an initiative from GitHub Copilot:
 
 Starting uses `main` (or the configured default branch) only as the source baseline for the new initiative branch. It does not merge anything into `main`; completed code still follows the repository's normal pull-request and merge process.
 
+### Epic planning is the streamlined default
+
+For a Jira Epic that should end with reviewed Stories and canonical repository
+branches, use the four-phase `epic-planning` profile:
+
+```text
+/sflow-epic-start MOB-100
+/sflow-epic-sources
+/sflow-epic-generate
+/sflow-epic-create-stories
+/sflow-epic-status
+```
+
+The same lifecycle is available as `singularity-flow epic ...`. Pinned source
+files stay in Jira attachments, Artifactory, SharePoint, S3, or an approved
+HTTPS location; Git carries immutable source records and lineage rather than
+large source bytes. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
+2 then traces these to `STORY-nnn → returned Jira key/numeric ID → canonical
+branch → optional Developer child branch → review packet → GitHub Actions/PR
+evidence → conformance → exact-hash decision`.
+
+Developers register custom branches explicitly:
+
+```bash
+singularity-flow story branch create feature/login-ui --parent MOB-123
+singularity-flow story submit
+```
+
+Reviewers use **Epic workspace → Review** or
+`singularity-flow epic review MOB-123`. Exact-SHA checks read GitHub evidence
+through `gh` and do not run repository code on the reviewer’s machine. See
+[HELP.md](HELP.md#epic-to-story-planning-and-lifecycle-lineage) for the complete
+workflow and corporate credential/storage behavior.
+
 ## Built-in help
 
 The canonical product manual is [HELP.md](HELP.md). For an end-to-end diagram and operational walkthrough, use [HOW-TO.md](HOW-TO.md). Load all help or one focused topic from the terminal:

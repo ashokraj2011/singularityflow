@@ -42,33 +42,38 @@ function normalizeContract(value, storyId) {
 
 export function validateInitiativeBreakdown(value, portfolio) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('Initiative breakdown must be an object.');
-  if (value.version !== 1) throw new SingularityFlowError('Initiative breakdown version must be 1.');
+  if (![1, 2].includes(value.version)) throw new SingularityFlowError('Initiative breakdown version must be 1 or 2.');
   if (!Array.isArray(value.epics)) throw new SingularityFlowError('Initiative breakdown epics must be an array.');
   const epics = [];
   const stories = [];
   for (const [epicIndex, rawEpic] of value.epics.entries()) {
     if (!rawEpic || typeof rawEpic !== 'object') throw new SingularityFlowError(`Epic ${epicIndex + 1} must be an object.`);
-    const epicId = safeId(rawEpic.id, `Epic ${epicIndex + 1} ID`);
+    const epicId = safeId(rawEpic.planId ?? rawEpic.id, `Epic ${epicIndex + 1} ID`);
     if (!Array.isArray(rawEpic.stories)) throw new SingularityFlowError(`Epic '${epicId}' stories must be an array.`);
     if (rawEpic.description != null && typeof rawEpic.description !== 'string') throw new SingularityFlowError(`Epic '${epicId}' description must be text.`);
     const epic = {
       id: epicId,
+      planId: epicId,
       title: rawEpic.title ?? epicId,
       description: rawEpic.description ?? '',
       acceptanceCriteria: textList(rawEpic.acceptanceCriteria, `Epic '${epicId}' acceptanceCriteria`),
       jiraKey: rawEpic.jiraKey ?? null,
+      jiraIssueId: rawEpic.jiraIssueId == null ? null : String(rawEpic.jiraIssueId),
       stories: []
     };
     for (const [storyIndex, rawStory] of rawEpic.stories.entries()) {
       if (!rawStory || typeof rawStory !== 'object') throw new SingularityFlowError(`Epic '${epicId}' story ${storyIndex + 1} must be an object.`);
-      const id = safeId(rawStory.id, `Epic '${epicId}' story ID`);
+      const id = safeId(rawStory.planId ?? rawStory.id, `Epic '${epicId}' story ID`);
       const repository = safeId(rawStory.repository, `Story '${id}' repository`);
       if (rawStory.description != null && typeof rawStory.description !== 'string') throw new SingularityFlowError(`Story '${id}' description must be text.`);
       if (!portfolio.repositories[repository]) throw new SingularityFlowError(`Story '${id}' references unknown repository '${repository}'.`);
       const story = {
         id,
+        planId: id,
+        workId: safeId(value.version === 2 ? (rawStory.workId ?? rawStory.jiraKey ?? id) : id, `Story '${id}' Work ID`),
         title: rawStory.title ?? id,
         description: rawStory.description ?? '',
+        requirements: textList(rawStory.requirements, `Story '${id}' requirements`),
         acceptanceCriteria: textList(rawStory.acceptanceCriteria, `Story '${id}' acceptanceCriteria`),
         epicId,
         repository,
@@ -77,8 +82,20 @@ export function validateInitiativeBreakdown(value, portfolio) {
         dependsOn: (rawStory.dependsOn ?? []).map((dependency) => normalizeDependency(dependency, id)),
         consumesContracts: (rawStory.consumesContracts ?? []).map((contract) => normalizeContract(contract, id)),
         jiraKey: rawStory.jiraKey ?? null,
+        initialJiraKey: rawStory.initialJiraKey ?? rawStory.jiraKey ?? null,
+        jiraAliases: textList(rawStory.jiraAliases, `Story '${id}' jiraAliases`),
+        jiraIssueId: rawStory.jiraIssueId == null ? null : String(rawStory.jiraIssueId),
+        epicKey: rawStory.epicKey ?? rawEpic.jiraKey ?? null,
         estimate: rawStory.estimate ?? null
       };
+      if (value.version === 2) {
+        for (const requirement of story.requirements) {
+          if (!/^REQ-\d{3,}$/.test(requirement)) throw new SingularityFlowError(`Story '${id}' requirement '${requirement}' must use REQ-nnn traceability.`);
+        }
+        for (const criterion of story.acceptanceCriteria) {
+          if (!/^AC-\d{3,}$/.test(criterion)) throw new SingularityFlowError(`Story '${id}' acceptance criterion '${criterion}' must use AC-nnn traceability.`);
+        }
+      }
       epic.stories.push(story);
       stories.push(story);
     }
@@ -103,28 +120,35 @@ export function validateInitiativeBreakdown(value, portfolio) {
     visiting.delete(id); visited.add(id);
   }
   storyIds.forEach((id) => visit(id));
-  return { version: 1, initiativeId: value.initiativeId ?? null, epics, stories };
+  return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
 }
 
 export function initiativeBreakdownDocument(breakdown) {
+  const version = breakdown.version ?? 1;
   return {
-    version: 1,
+    version,
     initiativeId: breakdown.initiativeId,
     epics: breakdown.epics.map((epic) => ({
-      id: epic.id,
+      ...(version === 2 ? { planId: epic.planId ?? epic.id } : { id: epic.id }),
       title: epic.title,
       ...(epic.description ? { description: epic.description } : {}),
       ...(epic.acceptanceCriteria.length ? { acceptanceCriteria: epic.acceptanceCriteria } : {}),
       ...(epic.jiraKey ? { jiraKey: epic.jiraKey } : {}),
+      ...(epic.jiraIssueId ? { jiraIssueId: epic.jiraIssueId } : {}),
       stories: epic.stories.map((story) => ({
-        id: story.id,
+        ...(version === 2 ? { planId: story.planId ?? story.id, workId: story.workId } : { id: story.id }),
         title: story.title,
         ...(story.description ? { description: story.description } : {}),
+        ...(story.requirements?.length ? { requirements: story.requirements } : {}),
         ...(story.acceptanceCriteria.length ? { acceptanceCriteria: story.acceptanceCriteria } : {}),
         repository: story.repository,
         blocking: story.blocking,
         suggestedWorkType: story.suggestedWorkType,
         ...(story.jiraKey ? { jiraKey: story.jiraKey } : {}),
+        ...(story.initialJiraKey ? { initialJiraKey: story.initialJiraKey } : {}),
+        ...(story.jiraAliases?.length ? { jiraAliases: story.jiraAliases } : {}),
+        ...(story.jiraIssueId ? { jiraIssueId: story.jiraIssueId } : {}),
+        ...(story.epicKey ? { epicKey: story.epicKey } : {}),
         ...(story.estimate != null ? { estimate: story.estimate } : {}),
         ...(story.dependsOn.length ? { dependsOn: story.dependsOn } : {}),
         ...(story.consumesContracts.length ? { consumesContracts: story.consumesContracts } : {})
@@ -149,7 +173,11 @@ export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('elaboration') ? 'elaboration' : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+  return initiative.phaseOrder.includes('epic-plan')
+    ? 'epic-plan'
+    : initiative.phaseOrder.includes('elaboration')
+      ? 'elaboration'
+      : initiative.phaseOrder.includes('plan') ? 'plan' : null;
 }
 
 function stableLabel(initiativeId, itemId) {
@@ -245,16 +273,22 @@ function storySeed(root, initiative, story) {
       leadRepositoryCommit: head(root)
     },
     story: {
-      id: story.id,
-      workId: story.id,
+      id: story.workId,
+      planId: story.planId ?? story.id,
+      workId: story.workId,
       title: story.title,
       description: story.description,
       acceptanceCriteria: story.acceptanceCriteria,
       epicId: story.epicId,
       epicJiraKey: story.epicJiraKey ?? null,
       jiraKey: story.jiraKey ?? null,
+      jiraIssueId: story.jiraIssueId ?? null,
+      initialJiraKey: story.initialJiraKey ?? story.jiraKey ?? null,
+      jiraAliases: story.jiraAliases ?? [],
       repository: story.repository,
       repositoryMetadata: structuredClone(initiative.resolution.repositories?.[story.repository]?.metadata ?? {}),
+      branchCompletionPolicy: initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy ?? 'pr',
+      requiredChecks: structuredClone(initiative.resolution.repositories?.[story.repository]?.requiredChecks ?? []),
       blocking: story.blocking,
       suggestedWorkType: story.suggestedWorkType,
       dependsOn: story.dependsOn
@@ -275,25 +309,26 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
   configureCloneIdentity(target, actor);
   run('git', ['fetch', '--prune', 'origin'], { cwd: target });
-  const remoteHead = remoteBranchHead(repository.url, story.id, target);
+  const branchName = story.workId ?? story.id;
+  const remoteHead = remoteBranchHead(repository.url, branchName, target);
   if (remoteHead) {
-    const switched = run('git', ['switch', '-C', story.id, `origin/${story.id}`], { cwd: target, allowFailure: true });
-    if (switched.status !== 0) throw new SingularityFlowError(`Unable to attach branch ${story.id}: ${(switched.stderr || switched.stdout).trim()}`);
+    const switched = run('git', ['switch', '-C', branchName, `origin/${branchName}`], { cwd: target, allowFailure: true });
+    if (switched.status !== 0) throw new SingularityFlowError(`Unable to attach branch ${branchName}: ${(switched.stderr || switched.stdout).trim()}`);
   } else {
     const base = `origin/${repository.defaultBranch}`;
     if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) throw new SingularityFlowError(`Repository '${story.repository}' has no default branch '${repository.defaultBranch}'.`);
-    run('git', ['switch', '-C', story.id, base], { cwd: target });
+    run('git', ['switch', '-C', branchName, base], { cwd: target });
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
-  const relativeSeed = posix(path.join('singularity', 'seeds', `${story.id}.yml`));
+  const relativeSeed = posix(path.join('singularity', 'seeds', `${branchName}.yml`));
   let seedPath = await secureRepositoryPath(target, relativeSeed, {
-    label: `Story '${story.id}' seed`,
+    label: `Story '${branchName}' seed`,
     type: 'file'
   });
   const seed = storySeed(root, initiative, story);
   if (seedPath.exists) {
     const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
-    if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== story.id) throw new SingularityFlowError(`Existing branch '${story.id}' contains an unrelated Singularity Flow seed.`);
+    if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== branchName) throw new SingularityFlowError(`Existing branch '${branchName}' contains an unrelated Singularity Flow seed.`);
     const refreshed = {
       ...current,
       version: 1,
@@ -305,19 +340,19 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     if (YAML.stringify(current) !== YAML.stringify(refreshed)) {
       await writeText(seedPath.absolute, YAML.stringify(refreshed));
       run('git', ['add', '--', relativeSeed], { cwd: target });
-      run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${story.id}][seed] Refresh initiative linkage`], { cwd: target });
-      const pushed = run('git', ['push', 'origin', `HEAD:${story.id}`], { cwd: target, allowFailure: true });
-      if (pushed.status !== 0) throw new SingularityFlowError(`Story '${story.id}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
-      return { status: 'updated', branch: story.id, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
+      run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Refresh initiative linkage`], { cwd: target });
+      const pushed = run('git', ['push', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
+      if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
+      return { status: 'updated', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
     }
-    return { status: 'attached', branch: story.id, commit: remoteHead, seed: relativeSeed };
+    return { status: 'attached', branch: branchName, commit: remoteHead, seed: relativeSeed };
   }
   await writeText(seedPath.absolute, YAML.stringify(seed));
   run('git', ['add', '--', relativeSeed], { cwd: target });
-  run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${story.id}][seed] Link initiative`], { cwd: target });
-  const pushed = run('git', ['push', '-u', 'origin', `HEAD:${story.id}`], { cwd: target, allowFailure: true });
-  if (pushed.status !== 0) throw new SingularityFlowError(`Story '${story.id}' seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
-  return { status: 'created', branch: story.id, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
+  run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Link initiative`], { cwd: target });
+  const pushed = run('git', ['push', '-u', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
+  if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
+  return { status: 'created', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
 }
 
 async function materializeJira(portfolio, initiative, breakdown, { env, fetchImpl } = {}) {
@@ -375,9 +410,16 @@ export async function materializeInitiative(root, initiativeId, {
   const jira = await materializeJira(portfolio, initiative, breakdown, { env, fetchImpl });
   for (const epic of breakdown.epics) {
     epic.jiraKey = jira.epics[epic.id]?.key ?? epic.jiraKey;
+    epic.jiraIssueId = jira.epics[epic.id]?.id ?? epic.jiraIssueId;
     for (const story of epic.stories) {
       story.jiraKey = jira.stories[story.id]?.key ?? story.jiraKey;
+      story.jiraIssueId = jira.stories[story.id]?.id ?? story.jiraIssueId;
+      story.initialJiraKey ??= story.jiraKey ?? null;
+      story.workId = breakdown.version === 2
+        ? (story.workId && story.workId !== story.id ? story.workId : (story.jiraKey ?? story.workId ?? story.id))
+        : story.id;
       story.epicJiraKey = epic.jiraKey ?? null;
+      story.epicKey = epic.jiraKey ?? story.epicKey ?? null;
     }
   }
   breakdown.stories = breakdown.epics.flatMap((epic) => epic.stories);
@@ -399,8 +441,9 @@ export async function materializeInitiative(root, initiativeId, {
       receipt = await materializeStory(root, portfolio, initiative, story, actor);
       initiative.childStories[story.id] = {
         ...story,
-        workId: story.id,
-        branch: story.id,
+        workId: story.workId,
+        branch: story.workId,
+        canonicalBranch: story.workId,
         seedCommit: receipt.commit,
         observedCommit: receipt.commit,
         status: 'seeded',
@@ -411,7 +454,7 @@ export async function materializeInitiative(root, initiativeId, {
         contractSnapshots: Object.fromEntries(story.consumesContracts.map((contract) => [contract.id, contract]))
       };
     } catch (error) {
-      receipt = { status: 'failed', branch: story.id, error: error.message };
+      receipt = { status: 'failed', branch: story.workId ?? story.id, error: error.message };
     }
     attempt.stories.push({ storyId: story.id, repository: story.repository, ...receipt });
     await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
@@ -443,6 +486,7 @@ const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete']);
 const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved']);
 
 function parseChildWorkflow(text, story) {
+  const workId = story.workId ?? story.id;
   let workflow;
   try {
     workflow = JSON.parse(text);
@@ -455,14 +499,15 @@ function parseChildWorkflow(text, story) {
   if (![1, 2].includes(workflow.schemaVersion)) {
     throw new SingularityFlowError(`Child workflow for '${story.id}' has unsupported schema version '${workflow.schemaVersion}'.`);
   }
-  if (workflow.workItem?.id !== story.id) {
-    throw new SingularityFlowError(`Child workflow belongs to '${workflow.workItem?.id ?? 'unknown'}'; expected '${story.id}'.`);
+  if (workflow.workItem?.id !== workId) {
+    throw new SingularityFlowError(`Child workflow belongs to '${workflow.workItem?.id ?? 'unknown'}'; expected '${workId}'.`);
   }
   if (workflow.schemaVersion === 2 && workflow.workItem.branch == null) {
     throw new SingularityFlowError(`Child workflow '${story.id}' has no immutable branch identity.`);
   }
-  if (workflow.workItem.branch != null && workflow.workItem.branch !== story.id) {
-    throw new SingularityFlowError(`Child workflow branch is '${workflow.workItem.branch}'; expected '${story.id}'.`);
+  const lineageBranches = [workId, ...(workflow.lineage?.childBranches ?? []).map((entry) => entry.name)];
+  if (workflow.workItem.branch != null && !lineageBranches.includes(workflow.workItem.branch)) {
+    throw new SingularityFlowError(`Child workflow branch is '${workflow.workItem.branch}'; expected canonical branch '${workId}' or a registered child branch.`);
   }
   if (!CHILD_WORKFLOW_STATUSES.has(workflow.status)) {
     throw new SingularityFlowError(`Child workflow '${story.id}' has invalid status '${workflow.status}'.`);
@@ -531,6 +576,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
   const regressions = [];
   const results = [];
   for (const story of breakdown.stories) {
+    const workId = story.workId ?? story.id;
     const repository = portfolio.repositories[story.repository];
     const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
@@ -551,12 +597,12 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (fetched.stderr || fetched.stdout).trim() });
       continue;
     }
-    const commit = run('git', ['rev-parse', `origin/${story.id}`], { cwd: cache, allowFailure: true }).stdout.trim();
+    const commit = run('git', ['rev-parse', `origin/${workId}`], { cwd: cache, allowFailure: true }).stdout.trim();
     if (!commit) {
       results.push({ storyId: story.id, repository: story.repository, status: 'missing-branch' });
       continue;
     }
-    const workflowText = run('git', ['show', `${commit}:singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
+    const workflowText = run('git', ['show', `${commit}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
     const previous = initiative.childStories[story.id] ?? {};
     let workflow = null;
     if (workflowText.status === 0) {
@@ -567,7 +613,8 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         const current = {
           ...previous,
           ...story,
-          branch: story.id,
+          branch: workId,
+          canonicalBranch: workId,
           observedCommit: commit,
           observedAt,
           status: 'invalid',
@@ -598,7 +645,8 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     const current = {
       ...previous,
       ...story,
-      branch: story.id,
+      branch: workId,
+      canonicalBranch: workId,
       observedCommit: commit,
       observedAt: nowIso(),
       status: workflow?.status ?? 'seeded',
@@ -623,6 +671,20 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       },
       telemetry: workflow ? childTelemetry(workflow) : previous.telemetry ?? null
     };
+    if (workflow) {
+      current.canonicalBranch = workflow.lineage?.canonicalBranch ?? workId;
+      current.childBranches = structuredClone(workflow.lineage?.childBranches ?? []);
+      current.submissions = structuredClone(workflow.lineage?.submissions ?? []);
+      current.reviewEvidence = structuredClone(workflow.lineage?.reviewEvidence ?? []);
+      current.branchCompletionPolicy = workflow.lineage?.branchCompletionPolicy
+        ?? initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy
+        ?? 'pr';
+      current.requiredChecks = structuredClone(workflow.lineage?.requiredChecks ?? []);
+      current.conformance = workflow.phases?.conformance ? {
+        status: workflow.phases.conformance.status,
+        treeSha256: workflow.phases.conformance.conformanceTree ?? null
+      } : null;
+    }
     recordMilestoneRegressions(previous, current, story.id, regressions);
     initiative.childStories[story.id] = current;
     lock.repositories[story.repository] = {

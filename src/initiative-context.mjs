@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { renderAgentSkills } from './agents.mjs';
+import { verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
 import {
   resolveWorldModelContext,
@@ -84,6 +85,29 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
     });
   }
   return sections;
+}
+
+async function epicSourceSections(root, initiative, phase) {
+  if (initiative.resolution.profile !== 'epic-planning') return { sections: [], warnings: [] };
+  const result = await verifyEpicSources(root, initiative.initiative.id, { materialize: true });
+  const required = ['epic-intake', 'epic-requirements', 'epic-plan'].includes(phase.id);
+  const failures = result.results.filter((entry) => entry.status !== 'verified');
+  if (required && failures.length) {
+    throw new SingularityFlowError(`Epic source verification failed:\n- ${failures.map((entry) => `${entry.sourceId}: ${entry.status}${entry.error ? ` (${entry.error})` : ''}`).join('\n- ')}`);
+  }
+  const sections = result.results.filter((entry) => entry.status === 'verified').map((entry) => ({
+    sourceId: entry.sourceId,
+    path: entry.cachePath,
+    sha256: entry.expectedSha256,
+    version: entry.version ?? entry.record?.version ?? null,
+    bytes: entry.record?.bytes ?? null,
+    mimeType: entry.record?.mimeType ?? 'application/octet-stream',
+    name: entry.record?.name ?? entry.sourceId
+  }));
+  return {
+    sections,
+    warnings: failures.map((entry) => `Epic source ${entry.sourceId} is ${entry.status}.`)
+  };
 }
 
 async function repositoryGrounding(root, definition, phase, persona, mode) {
@@ -208,6 +232,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const personaText = await readFile(personaPath.absolute, 'utf8');
   const personaSnapshot = await snapshot(personaPath.absolute);
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
+  const epicSources = await epicSourceSections(root, initiative, phase);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
   const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode);
   const pseudoWorkflow = {
@@ -228,6 +253,16 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     '',
     input.content.trim()
   ].join('\n')).join('\n\n');
+  const sourceText = epicSources.sections.map((source) => [
+    `## Pinned Epic source: ${source.sourceId} — ${source.name}`,
+    '',
+    `- Local verified cache: \`${source.path}\``,
+    `- SHA-256: \`${source.sha256}\``,
+    `- Provider version: \`${source.version ?? 'unavailable'}\``,
+    `- MIME type: \`${source.mimeType}\``,
+    '',
+    'Read the exact cached file through the local filesystem. Cite this source ID plus page, frame, or section in every derived requirement and acceptance criterion.'
+  ].join('\n')).join('\n\n');
   const rendered = [
     `# Governed Copilot prompt — ${initiativeId}/${phaseId} generation ${generation}`,
     '',
@@ -240,6 +275,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     personaText.trim(),
     grounding.text,
     remote.text,
+    sourceText,
     inputText
   ].filter((section) => section?.trim()).join('\n\n') + '\n';
   const renderedSha256 = createHash('sha256').update(rendered).digest('hex');
@@ -259,6 +295,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     worldModel: grounding.record,
     worldModelFiles: grounding.files,
     inputs: inputs.map(({ content, ...input }) => input),
+    epicSources: epicSources.sections,
     remoteAgent: session?.workId === initiativeId && session.agent ? {
       id: session.agent,
       skills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256, bytes: skill.size }))
@@ -269,7 +306,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       itemDirectory.relative,
       promptRelative(initiative, phaseId, generation)
     )),
-    warnings: [...grounding.warnings, ...remote.warnings],
+    warnings: [...grounding.warnings, ...remote.warnings, ...epicSources.warnings],
     recordedAt: nowIso()
   };
   if (!dryRun) {

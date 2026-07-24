@@ -18,7 +18,7 @@ import {
 } from './grounding.mjs';
 import { injectPersonaPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
-import { validateInitiativeBreakdown } from './initiative-repositories.mjs';
+import { initiativeBreakdownDocument, validateInitiativeBreakdown } from './initiative-repositories.mjs';
 import {
   commitInitiativeChange,
   loadInitiative,
@@ -116,7 +116,7 @@ function targetInstructions(target) {
       'The proposed artifact must be one complete, parseable YAML document.',
       'Do not wrap the final artifact in a Markdown code fence.',
       target.id === 'story-plan'
-        ? 'Use the executable breakdown shape: version: 1, initiativeId, epics[], and stories[]. Every epic needs id, title, description, acceptanceCriteria, and stories. Every story needs a stable id (the Story Work ID), title, description, testable acceptanceCriteria, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate. jiraKey is optional external state and must never be invented.'
+        ? 'Use executable breakdown version 2: initiativeId and epics[]. The existing Jira Epic uses planId plus its governed jiraKey. Every Story uses an immutable temporary planId such as STORY-001; Jira returns workId/jiraKey later. Include title, description, REQ-nnn requirements, AC-nnn acceptanceCriteria, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate. Never invent Jira Story keys.'
         : 'Preserve stable IDs and express dependencies as structured values.'
     ].join('\n');
   }
@@ -248,6 +248,7 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
       { kind: 'persona', ...context.record.personaPrompt },
       ...context.record.worldModelFiles.map((file) => ({ kind: 'world-model', ...file })),
       ...context.record.inputs.map((file) => ({ kind: 'approved-input', ...file })),
+      ...(context.record.epicSources ?? []).map((file) => ({ kind: 'epic-source', ...file })),
       ...(context.record.remoteAgent?.skills ?? []).map((skill) => ({
         kind: 'remote-skill',
         path: `agent:${context.record.remoteAgent.id}/${skill.id}`,
@@ -587,7 +588,7 @@ export async function promotePlanningArtifact(root, {
         mustExist: true,
         type: 'file'
       });
-      await writeText(breakdownPath.absolute, YAML.stringify({ version: 1, initiativeId: breakdown.initiativeId, epics: breakdown.epics }));
+      await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
     }
     const auditRelative = path.join('context', 'planning', `${definition.id}-gen${fresh.phases[definition.id].generation + 1}`, sessionId);
     const planPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, path.join(auditRelative, targetDefinition.kind === 'yaml' ? 'plan.yml' : 'plan.md'), {

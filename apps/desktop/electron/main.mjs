@@ -14,6 +14,7 @@ import {
   requireReadyLeadRepository
 } from './desktop-scope.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
+import { StorageCredentialStore } from './storage-credentials.mjs';
 import {
   ONBOARDING_ROLES,
   prepareOnboardingProfile,
@@ -40,8 +41,10 @@ const copilotBackend = new CopilotBackendController({
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
 function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
+function storageCredentialsPath() { return path.join(app.getPath('userData'), 'storage-credentials.json'); }
 function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
+function storageCredentialStore() { return new StorageCredentialStore(storageCredentialsPath(), safeStorage); }
 
 function cliResourcePath(...segments) {
   const root = app.isPackaged ? path.join(process.resourcesPath, 'cli') : path.resolve(here, '../../..');
@@ -203,6 +206,9 @@ async function snapshot(repository, workId = null, initiativeId = null) {
     '--json'
   ], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   activeRepository = path.resolve(result.repository.root);
+  const jira = await jiraCredentialStore().safeStatus();
+  result.desktopProfile = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
+  result.jiraSession = jira;
   if (activeWorkspace?.workspace?.path) {
     const { workspaceStatus } = await workspaceModule();
     const status = await workspaceStatus(activeWorkspace.workspace.path);
@@ -526,6 +532,146 @@ function registerHandlers() {
     ['desktop', 'initiative-sync', '--initiative', initiativeId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
+  trustedHandle('epic:sources', async (event, { repository, initiativeId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { listEpicSources } = await importCliModule('epic-sources.mjs');
+    const result = await listEpicSources(root, initiativeId);
+    return {
+      manifest: result.manifest,
+      credentials: await storageCredentialStore().status()
+    };
+  });
+  trustedHandle('epic:storage-credential', async (event, { repository, providerId, token }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    return storageCredentialStore().save(providerId, token);
+  });
+  trustedHandle('epic:storage-disconnect', async (event, { repository, providerId }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    return storageCredentialStore().disconnect(providerId);
+  });
+  async function epicSourceRuntime(root, initiativeId, providerId = null) {
+    const { loadInitiative } = await importCliModule('initiative-state.mjs');
+    const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+    const storage = initiative.resolution.storage ?? portfolio.storage;
+    const selectedId = providerId ?? storage.defaultProvider;
+    const provider = storage.providers?.[selectedId];
+    if (!provider) throw new Error(`Unknown Epic source provider '${selectedId ?? ''}'.`);
+    const runtime = { tokens: {} };
+    for (const [id, configured] of Object.entries(storage.providers ?? {})) {
+      if (!['artifactory', 'sharepoint'].includes(configured.type)) continue;
+      try { runtime.tokens[id] = (await storageCredentialStore().load(id)).token; } catch { /* Reported only if that provider is used. */ }
+    }
+    if (Object.values(storage.providers ?? {}).some((entry) => entry.type === 'jira-attachment')) {
+      const governed = await governedInitiativeJiraConnection(root, initiativeId, { issueKey: initiativeId });
+      runtime.jiraConnection = governed.connection;
+    }
+    if (['artifactory', 'sharepoint'].includes(provider.type) && !runtime.tokens[selectedId]) {
+      throw new Error(`No secure credential is configured for storage provider '${selectedId}'.`);
+    }
+    return { selectedId, runtime };
+  }
+  trustedHandle('epic:sources-upload', async (event, {
+    repository, initiativeId, providerId = null, mimeType = 'application/octet-stream'
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const selected = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      title: `Add governed sources to ${initiativeId}`
+    });
+    if (selected.canceled) return { canceled: true, records: [] };
+    const [{ registerEpicSource }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-sources.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    const records = [];
+    for (const filePath of selected.filePaths) {
+      const result = await registerEpicSource(root, {
+        initiativeId,
+        providerId: runtime.selectedId,
+        filePath,
+        mimeType,
+        runtime: runtime.runtime
+      });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
+      records.push({ ...result.record, publication });
+    }
+    return { canceled: false, records };
+  });
+  trustedHandle('epic:sources-add-url', async (event, {
+    repository, initiativeId, providerId = null, url, label = null, mimeType = 'application/octet-stream'
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ registerEpicSource }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-sources.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    const result = await registerEpicSource(root, {
+      initiativeId,
+      providerId: runtime.selectedId,
+      url,
+      label,
+      mimeType,
+      runtime: runtime.runtime
+    });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
+    return { record: result.record, publication };
+  });
+  trustedHandle('epic:sources-verify', async (event, {
+    repository, initiativeId, providerId = null, materialize = true
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { verifyEpicSources } = await importCliModule('epic-sources.mjs');
+    const selected = await epicSourceRuntime(root, initiativeId, providerId);
+    return verifyEpicSources(root, initiativeId, { materialize, runtime: selected.runtime });
+  });
+  trustedHandle('epic:review-inbox', async (event, { repository, initiativeId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { listEpicReviewInbox } = await importCliModule('epic-review.mjs');
+    return listEpicReviewInbox(root, initiativeId);
+  });
+  trustedHandle('epic:review', async (event, { repository, initiativeId, storyId, packetSha256 = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { epicReviewStory } = await importCliModule('epic-review.mjs');
+    return epicReviewStory(root, initiativeId, storyId, { packetSha256 });
+  });
+  trustedHandle('epic:checks', async (event, { repository, initiativeId, storyId, packetSha256 = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { epicCheckStory } = await importCliModule('epic-review.mjs');
+    return epicCheckStory(root, initiativeId, storyId, { packetSha256 });
+  });
+  trustedHandle('epic:decision', async (event, {
+    repository, initiativeId, storyId, packetSha256, decision, persona, target = null, reason = null
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { epicReviewDecision } = await importCliModule('epic-review.mjs');
+    return epicReviewDecision(root, initiativeId, storyId, {
+      packetSha256, decision, persona, target, reason
+    });
+  });
+  trustedHandle('epic:jira-drift', async (event, { repository, initiativeId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const governed = await governedInitiativeJiraConnection(root, initiativeId);
+    const [{ observeJiraDrift }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('jira-initiative.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const result = await observeJiraDrift(root, initiativeId, { connection: governed.connection });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-drift] observe`);
+    return { record: result.record, publication };
+  });
   trustedHandle('jira:status', async (event, { repository }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);

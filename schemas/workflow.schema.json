@@ -6,6 +6,21 @@
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
     "schemaVersion": { "enum": [1, 2] },
+    "lineage": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "canonicalBranch": { "type": "string", "minLength": 1 },
+        "parentStoryId": { "type": "string", "minLength": 1 },
+        "epicId": { "type": ["string", "null"] },
+        "planId": { "type": ["string", "null"] },
+        "jiraIssueId": { "type": ["string", "null"] },
+        "initialJiraKey": { "type": ["string", "null"] },
+        "currentJiraKey": { "type": ["string", "null"] },
+        "childBranches": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
     "workItem": {
       "type": "object",
       "required": ["id", "title", "branch", "baseBranch", "createdAt", "createdBy", "source"],

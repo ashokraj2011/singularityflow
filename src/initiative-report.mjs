@@ -14,6 +14,7 @@ import {
   loadInitiative
 } from './initiative-state.mjs';
 import { nowIso } from './util.mjs';
+import { listEpicSources } from './epic-sources.mjs';
 
 function milliseconds(start, end) {
   const from = Date.parse(start ?? '');
@@ -85,7 +86,8 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
     return {
       ...story,
       ...(observed ?? {}),
-      workId: story.id,
+      planId: story.planId ?? story.id,
+      workId: story.workId ?? story.id,
       jiraKey: observed?.jira?.key ?? observed?.jiraKey ?? story.jiraKey ?? null,
       epicJiraKey: epic?.jiraKey ?? observed?.epicJiraKey ?? null,
       materialized: Boolean(observed),
@@ -99,7 +101,8 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
   for (const observed of Object.values(initiative.childStories ?? {})) {
     if (!plannedIds.has(observed.id)) children.push({
       ...observed,
-      workId: observed.id,
+      planId: observed.planId ?? observed.id,
+      workId: observed.workId ?? observed.id,
       jiraKey: observed.jira?.key ?? observed.jiraKey ?? null,
       materialized: true,
       progress: observed.progress ?? { completed: 0, total: 0, percentage: observed.status === 'complete' ? 100 : 0 }
@@ -123,6 +126,9 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
     };
   });
   const telemetry = aggregateTelemetry(initiative, children);
+  const sourceManifest = initiative.resolution.profile === 'epic-planning'
+    ? (await listEpicSources(root, initiativeId)).manifest
+    : { sources: [] };
   const selfApprovals = approvals.filter((entry) => entry.record.selfApproval).map((entry) => ({
     phase: entry.record.phase,
     subject: `${entry.record.subject.type}/${entry.record.subject.id}`,
@@ -147,6 +153,12 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
     approvals: { records: approvals.length, selfApprovals },
     invalidations: invalidations.length,
     contracts: await interfaceContractStatus(root, initiativeId),
+    sources: {
+      total: sourceManifest.sources.length,
+      pinned: sourceManifest.sources.filter((source) => source.status === 'pinned').length,
+      records: sourceManifest.sources
+    },
+    jiraDrift: initiative.jiraDrift ?? null,
     children: {
       total: children.length,
       blocking: children.filter((story) => story.blocking).length,
@@ -195,6 +207,8 @@ export function renderInitiativeReport(report) {
     lines.push('', '| Work ID | Jira ID | Repository | Status | Phase | Progress |', '|---|---|---|---|---|---:|');
     for (const story of epic.stories) lines.push(`| ${story.workId} | ${story.jiraKey ?? 'not created'} | ${story.repository} | ${story.status} | ${story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')} | ${story.progress?.percentage ?? 0}% |`);
   }
+  if (report.sources.total) lines.push('', '## Epic source lineage', '', `- Pinned source versions: ${report.sources.pinned}/${report.sources.total}`);
+  if (report.jiraDrift) lines.push(`- Latest Jira observation: ${report.jiraDrift.observedAt}; ${report.jiraDrift.drifted} drifted issue(s)`);
   lines.push('', '## Copilot usage and cost', '');
   lines.push(`- Models: ${report.telemetry.models.join(', ') || 'unavailable'}`);
   lines.push(`- Tokens: ${report.telemetry.totalTokens ?? 'unavailable'}`);
@@ -207,15 +221,31 @@ export async function initiativeNextActions(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.status === 'complete') return [{
     action: 'report',
-    command: `singularity-flow initiative report ${initiativeId}`,
-    reason: 'The initiative is complete; review final conformance, evidence assurance, time, tokens, and cost.'
+    command: initiative.resolution.lifecycleMode === 'planning-only'
+      ? `singularity-flow epic report ${initiativeId}`
+      : `singularity-flow initiative report ${initiativeId}`,
+    reason: initiative.resolution.lifecycleMode === 'planning-only'
+      ? 'Epic planning governance is complete; the read-only dashboard now tracks accepted canonical Story results.'
+      : 'The initiative is complete; review final conformance, evidence assurance, time, tokens, and cost.'
   }];
   const phase = initiative.phases[initiative.currentPhase];
-  const materializationPhase = initiative.phaseOrder.includes('elaboration') ? 'elaboration' : 'plan';
+  if (initiative.resolution.profile === 'epic-planning' && phase.id === 'epic-intake') {
+    const sources = await listEpicSources(root, initiativeId);
+    if (!sources.manifest.sources.length) return [{
+      action: 'add-sources',
+      command: `singularity-flow epic sources add --epic ${initiativeId} --file <PATH>`,
+      reason: 'Pin the Epic requirements, research, designs, or other source material before generating intake artifacts.'
+    }];
+  }
+  const materializationPhase = initiative.phaseOrder.includes('epic-plan')
+    ? 'epic-plan'
+    : initiative.phaseOrder.includes('elaboration') ? 'elaboration' : 'plan';
   if (initiative.phases[materializationPhase]?.status === 'approved' && initiative.materialization.status !== 'complete') return [{
     action: 'materialize',
-    command: `singularity-flow initiative materialize ${initiativeId} --dry-run`,
-    reason: 'The story plan is approved but repository branches have not been fully materialized.'
+    command: initiative.resolution.profile === 'epic-planning'
+      ? `singularity-flow epic create-stories --epic ${initiativeId}`
+      : `singularity-flow initiative materialize ${initiativeId} --dry-run`,
+    reason: 'The Story plan is approved but Jira Stories and canonical repository branches have not been fully materialized.'
   }];
   if (phase.status === 'in_progress') {
     const outputs = Object.values(phase.outputs);

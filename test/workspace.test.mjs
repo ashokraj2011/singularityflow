@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
-  rememberWorkspace, resolveWorkspaceDocument, stageWorkspaceDocuments,
+  rememberWorkspace, resolveWorkspaceDocument, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   validateWorkspaceManifest, workspaceStatus
 } from '../src/workspace.mjs';
 import { run } from '../src/util.mjs';
@@ -291,6 +291,41 @@ test('a failed clone leaves no partial repository and can resume when the remote
   const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
+});
+
+test('workspace configuration stays saved when repository materialization fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-save-before-clone-'));
+  const baseDirectory = path.join(root, 'workspaces');
+  const unavailableRemote = path.join(root, 'unavailable.git');
+  const options = {
+    baseDirectory,
+    id: 'payments-platform',
+    name: 'Payments platform',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: unavailableRemote,
+        defaultBranch: 'main',
+        required: true,
+        path: 'repos/platform',
+        jira: { board: 'PAY' },
+        metadata: { appId: 'APP-1', name: 'Payments platform' }
+      }
+    }
+  };
+
+  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform' });
+  assert.equal(saved.created, true);
+  assert.equal(saved.status.healthy, false);
+  assert.equal(saved.status.repositories[0].state, 'missing');
+  assert.match(saved.materializationError, /could not be repaired/);
+  assert.equal((await readWorkspace(saved.workspace.path)).name, 'Payments platform');
+
+  await remoteRepository(root, 'unavailable');
+  const resumed = await saveWorkspaceConfiguration(options, { confirmation: 'payments-platform' });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.status.healthy, true);
+  assert.equal(resumed.materializationError, null);
 });
 
 test('workspace paths are canonicalized and linked manifests are rejected', async () => {

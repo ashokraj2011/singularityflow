@@ -337,6 +337,26 @@ export function createWorkspaceConfiguration(options, settings = {}) {
   }, settings);
 }
 
+export async function saveWorkspaceConfiguration(options, { confirmation } = {}) {
+  const saved = await createWorkspaceConfiguration(options, { confirmation, clone: false });
+  try {
+    const materialized = await repairWorkspace(saved.workspace.path);
+    return {
+      ...saved,
+      status: materialized.status,
+      repair: materialized.repaired,
+      materializationError: null
+    };
+  } catch (error) {
+    return {
+      ...saved,
+      status: await workspaceStatus(saved.workspace.path),
+      repair: [],
+      materializationError: error?.message || String(error)
+    };
+  }
+}
+
 function gitValue(root, args) {
   const result = run('git', args, { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout.trim() : null;

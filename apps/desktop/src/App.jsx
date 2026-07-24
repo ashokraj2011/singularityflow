@@ -28,6 +28,15 @@ import {
   repositoryMetadataFromForm
 } from './portfolio-designer.mjs';
 import {
+  ARTIFACT_SECTION_LIBRARY,
+  addArtifactSection,
+  moveArtifactSection,
+  parseArtifactTemplate,
+  removeArtifactSection,
+  serializeArtifactTemplate,
+  updateArtifactSection
+} from './artifact-builder.mjs';
+import {
   GovernedMedia,
   MediaLightbox,
   PinnedMediaStrip,
@@ -2485,18 +2494,100 @@ function Help() {
 
 function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, createTemplate, deleteTemplate, downloadFile, importTemplate }) {
   const [search, setSearch] = useState('');
-  const [preview, setPreview] = useState(false);
+  const [view, setView] = useState('builder');
   const [modal, setModal] = useState(null);
+  const [artifact, setArtifact] = useState(() => parseArtifactTemplate(editor.content));
+  const [selectedSection, setSelectedSection] = useState(null);
   const files = data.templates.filter((item) => item.name.toLowerCase().includes(search.toLowerCase()));
   const current = data.templates.find((file) => file.path === editor.path) ?? null;
+  const groups = [...new Set(ARTIFACT_SECTION_LIBRARY.map((item) => item.group))];
+  useEffect(() => {
+    const parsed = parseArtifactTemplate(editor.content);
+    setArtifact(parsed);
+    setSelectedSection(parsed.sections[0]?.id ?? null);
+  }, [editor.path]);
   async function submitCreate() { if (!modal.name.trim()) return setModal({ ...modal, error: 'Enter a relative Markdown filename.' }); const result = await createTemplate(modal.name.trim()); if (result) setModal(null); }
   async function submitDelete() { const result = await deleteTemplate(current); if (result) setModal(null); }
-  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Artifact library</span><h2>Templates</h2></div><div className="row"><button className="icon-button" title="Import template" onClick={importTemplate}>⇧</button><button className="icon-button" title="Create template" onClick={() => setModal({ kind: 'create', name: '', error: null })}>＋</button></div></div><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter templates…" /></header>{files.map((file) => <button key={file.path} className={editor.path === file.path ? 'active' : ''} onClick={() => chooseTemplate(file)}><span>MD</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
-    <main className="template-main"><header className="template-toolbar"><div><span className="eyebrow">Template studio</span><h1>{editor.path?.split('/').at(-1)}</h1></div><div className="row"><div className="segmented small"><button className={!preview ? 'active' : ''} onClick={() => setPreview(false)}>Source</button><button className={preview ? 'active' : ''} onClick={() => setPreview(true)}>Preview</button></div><button className="secondary compact" disabled={!current} onClick={() => downloadFile(current.path)}>Download</button><Pill tone={editor.content !== editor.original ? 'warn' : 'good'}>{editor.content !== editor.original ? 'Unsaved' : 'Saved'}</Pill><button className="primary compact" disabled={editor.content === editor.original} onClick={saveEditor}>Save</button></div></header>
-      <div className="template-contract-bar"><span>Templates define the generated artifact structure and may use <code>{'{{work.id}}'}</code>, <code>{'{{phase.label}}'}</code>, and <code>{'{{inputs}}'}</code>.</span><div className="row"><button className="ghost compact" onClick={importTemplate}>Import Markdown</button><button className="ghost compact" disabled={!current} onClick={() => setModal({ kind: 'delete', error: null })}>Delete template</button></div></div>
-      {preview ? <TemplatePreview content={editor.content} /> : <Editor height="calc(100vh - 186px)" language="markdown" theme="vs-dark" value={editor.content} onChange={(content) => setEditor({ ...editor, content: content ?? '' })} options={{ minimap: { enabled: false }, fontSize: 13, lineHeight: 21, wordWrap: 'on', padding: { top: 20 }, scrollBeyondLastLine: false, automaticLayout: true }} />}
+  function applyArtifact(next) {
+    setArtifact(next);
+    setEditor({ ...editor, content: serializeArtifactTemplate(next) });
+  }
+  function switchView(next) {
+    if (next === 'builder') {
+      const parsed = parseArtifactTemplate(editor.content);
+      setArtifact(parsed);
+      setSelectedSection(parsed.sections[0]?.id ?? null);
+    }
+    setView(next);
+  }
+  function insertSection(type, targetIndex = artifact.sections.length) {
+    const next = addArtifactSection(artifact, type, targetIndex);
+    applyArtifact(next);
+    setSelectedSection(next.sections[targetIndex]?.id ?? next.sections.at(-1)?.id ?? null);
+  }
+  function moveSection(sectionId, targetIndex) {
+    applyArtifact(moveArtifactSection(artifact, sectionId, targetIndex));
+  }
+  function dropSection(event, targetIndex) {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/x-singularity-section-type');
+    const sectionId = event.dataTransfer.getData('application/x-singularity-section-id');
+    if (type) insertSection(type, targetIndex);
+    else if (sectionId) moveSection(sectionId, targetIndex);
+  }
+  async function submitRemoteTemplate() {
+    if (!modal.url?.trim()) return setModal({ ...modal, error: 'Enter a public HTTPS Markdown URL.' });
+    if (!modal.fetched) {
+      setModal({ ...modal, fetching: true, error: null });
+      try {
+        const fetched = await window.singularity.previewTemplateUrl(data.repository.root, modal.url.trim());
+        let filename = 'remote-template.md';
+        try {
+          const candidate = new URL(fetched.resolvedUrl).pathname.split('/').filter(Boolean).at(-1);
+          if (candidate) filename = candidate.replace(/[^a-zA-Z0-9._-]/g, '-');
+        } catch { /* The main process already validated the URL. */ }
+        if (!filename.toLowerCase().endsWith('.md')) filename = `${filename}.md`;
+        setModal({ ...modal, fetching: false, fetched, name: modal.name || `imports/${filename}`, error: null });
+      } catch (error) {
+        setModal({ ...modal, fetching: false, error: error?.message || String(error) });
+      }
+      return;
+    }
+    if (modal.destination === 'current' && current) {
+      setEditor({ ...editor, content: modal.fetched.content });
+      const parsed = parseArtifactTemplate(modal.fetched.content);
+      setArtifact(parsed);
+      setSelectedSection(parsed.sections[0]?.id ?? null);
+      setView('builder');
+      setModal(null);
+      return;
+    }
+    if (!modal.name?.trim()) return setModal({ ...modal, error: 'Enter a repository template path.' });
+    const result = await createTemplate(modal.name.trim(), modal.fetched.content);
+    if (result) {
+      setView('builder');
+      setModal(null);
+    }
+  }
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Artifact library</span><h2>Templates</h2></div><div className="row"><button className="icon-button" title="Import template from this computer" onClick={importTemplate}>⇧</button><button className="icon-button" title="Create template" onClick={() => setModal({ kind: 'create', name: '', error: null })}>＋</button></div></div><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter templates…" /></header>{files.map((file) => <button key={file.path} className={editor.path === file.path ? 'active' : ''} onClick={() => chooseTemplate(file)}><span>MD</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
+    <main className="template-main"><header className="template-toolbar"><div><span className="eyebrow">Artifact builder</span><h1>{editor.path?.split('/').at(-1)}</h1></div><div className="row"><div className="segmented small"><button className={view === 'builder' ? 'active' : ''} onClick={() => switchView('builder')}>Builder</button><button className={view === 'source' ? 'active' : ''} onClick={() => switchView('source')}>Source</button><button className={view === 'preview' ? 'active' : ''} onClick={() => switchView('preview')}>Preview</button></div><button className="secondary compact" disabled={!current} onClick={() => downloadFile(current.path)}>Download</button><Pill tone={editor.content !== editor.original ? 'warn' : 'good'}>{editor.content !== editor.original ? 'Unsaved' : 'Saved'}</Pill><button className="primary compact" disabled={editor.content === editor.original} onClick={saveEditor}>Save</button></div></header>
+      <div className="template-contract-bar"><span>Drag reusable sections into the canvas. The builder writes standard Markdown with <code>{'{{work.id}}'}</code>, <code>{'{{phase.label}}'}</code>, and <code>{'{{inputs}}'}</code>.</span><div className="row"><button className="ghost compact" onClick={() => setModal({ kind: 'url', url: '', name: '', destination: 'new', fetched: null, error: null })}>Import from URL</button><button className="ghost compact" onClick={importTemplate}>Import file</button><button className="ghost compact" disabled={!current} onClick={() => setModal({ kind: 'delete', error: null })}>Delete template</button></div></div>
+      {view === 'builder' ? <div className="artifact-builder">
+        <aside className="artifact-section-palette"><header><span className="eyebrow">Section library</span><h2>Drag into artifact</h2><p>Click also adds a section at the end.</p></header>{groups.map((group) => <section key={group}><strong>{group}</strong>{ARTIFACT_SECTION_LIBRARY.filter((item) => item.group === group).map((item) => <button key={item.type} draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = 'copy'; event.dataTransfer.setData('application/x-singularity-section-type', item.type); }} onClick={() => insertSection(item.type)}><span>＋</span><div><b>{item.label}</b><small>{item.description}</small></div></button>)}</section>)}</aside>
+        <section className="artifact-builder-canvas"><header><div><span className="eyebrow">Artifact structure</span><h2>{artifact.sections.length} sections</h2></div><div className="template-token-tray"><code>{'{{work.id}}'}</code><code>{'{{phase.label}}'}</code><code>{'{{inputs}}'}</code></div></header>
+          <article className="artifact-preamble-card"><div><span>DOC</span><strong>Document header</strong><small>Title, managed metadata placeholders, and opening guidance</small></div><textarea value={artifact.preamble} onChange={(event) => applyArtifact({ ...artifact, preamble: event.target.value })} rows="5" placeholder={'# {{work.id}} — {{phase.label}}'} /></article>
+          <div className="artifact-drop-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropSection(event, 0)}><span>Drop a section here</span></div>
+          {artifact.sections.map((section, index) => <React.Fragment key={section.id}><article className={`artifact-section-card ${selectedSection === section.id ? 'selected' : ''}`} draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-singularity-section-id', section.id); }} onClick={() => setSelectedSection(section.id)}>
+            <header><button className="artifact-drag-handle" type="button" aria-label={`Drag ${section.title}`}>⠿</button><span>{String(index + 1).padStart(2, '0')}</span><input value={section.title} aria-label="Section title" onChange={(event) => applyArtifact(updateArtifactSection(artifact, section.id, { title: event.target.value }))} /><Pill>{section.type}</Pill><div><button type="button" title="Move section up" disabled={index === 0} onClick={(event) => { event.stopPropagation(); moveSection(section.id, index - 1); }}>↑</button><button type="button" title="Move section down" disabled={index === artifact.sections.length - 1} onClick={(event) => { event.stopPropagation(); moveSection(section.id, index + 2); }}>↓</button><button type="button" className="danger-text" title="Remove section" onClick={(event) => { event.stopPropagation(); applyArtifact(removeArtifactSection(artifact, section.id)); }}>×</button></div></header>
+            <textarea value={section.body} onChange={(event) => applyArtifact(updateArtifactSection(artifact, section.id, { body: event.target.value }))} rows={Math.max(4, Math.min(10, section.body.split('\n').length + 2))} />
+          </article><div className="artifact-drop-zone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropSection(event, index + 1)}><span>Drop between sections</span></div></React.Fragment>)}
+          {!artifact.sections.length && <div className="artifact-canvas-empty"><span>↙</span><strong>Build the artifact structure</strong><p>Drag sections from the library or click a section to add it.</p></div>}
+        </section>
+        <aside className="artifact-live-preview"><header><div><span className="eyebrow">Live output</span><h2>Markdown preview</h2></div><Pill tone="accent">Live</Pill></header><TemplatePreview content={editor.content} /></aside>
+      </div> : view === 'preview' ? <TemplatePreview content={editor.content} /> : <Editor height="calc(100vh - 186px)" language="markdown" theme="vs-dark" value={editor.content} onChange={(content) => setEditor({ ...editor, content: content ?? '' })} options={{ minimap: { enabled: false }, fontSize: 13, lineHeight: 21, wordWrap: 'on', padding: { top: 20 }, scrollBeyondLastLine: false, automaticLayout: true }} />}
     </main>
     {modal?.kind === 'create' && <DesignerModal title="Create artifact template" detail="Create repository Markdown under the configured templates root. You can assign it to a stage from the Workflow page." submitLabel="Create template" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitCreate}><label><span>Relative template path</span><input autoFocus value={modal.name} placeholder="security/security-review.md" onChange={(event) => setModal({ ...modal, name: event.target.value, error: null })} /></label></DesignerModal>}
+    {modal?.kind === 'url' && <DesignerModal title="Import a template from URL" detail="Singularity fetches non-empty UTF-8 Markdown from a public HTTPS URL, follows at most three HTTPS redirects, and enforces a 1 MiB limit. No credentials or cookies are sent." submitLabel={modal.fetching ? 'Fetching…' : modal.fetched ? 'Use this template' : 'Fetch & preview'} error={modal.error} onCancel={() => setModal(null)} onSubmit={submitRemoteTemplate}><label><span>Public Markdown URL</span><input autoFocus type="url" value={modal.url} disabled={modal.fetching || modal.fetched} placeholder="https://raw.githubusercontent.com/org/templates/main/requirements.md" onChange={(event) => setModal({ ...modal, url: event.target.value, error: null })} /></label>{modal.fetched && <><div className="remote-template-receipt"><span><b>Verified Markdown</b><small>{modal.fetched.size.toLocaleString()} bytes · SHA-256 {modal.fetched.sha256.slice(0, 16)}…</small></span><code>{modal.fetched.resolvedUrl}</code></div><div className="remote-template-preview"><TemplatePreview content={modal.fetched.content} /></div><div className="choice-group remote-template-destination"><span>Destination</span><div><label className={modal.destination === 'new' ? 'checked' : ''}><input type="radio" checked={modal.destination === 'new'} onChange={() => setModal({ ...modal, destination: 'new' })} />Create a new repository template</label>{current && <label className={modal.destination === 'current' ? 'checked' : ''}><input type="radio" checked={modal.destination === 'current'} onChange={() => setModal({ ...modal, destination: 'current' })} />Replace the current editor draft</label>}</div></div>{modal.destination === 'new' && <label><span>Relative template path</span><input value={modal.name} placeholder="imports/requirements.md" onChange={(event) => setModal({ ...modal, name: event.target.value, error: null })} /></label>}</>}</DesignerModal>}
     {modal?.kind === 'delete' && <DesignerModal title={`Delete ${current?.name}?`} detail="Deletion is allowed only when no stage or workflow profile references this template." submitLabel="Delete template" danger error={modal.error} onCancel={() => setModal(null)} onSubmit={submitDelete} />}
   </div>;
 }
@@ -2827,8 +2918,8 @@ export default function App() {
     if (imported) setEditor({ path: imported.snapshot.definitionPath, content: imported.snapshot.definitionText, original: imported.snapshot.definitionText, kind: 'workflow' });
   }
   function chooseTemplate(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'template' }); }
-  async function createTemplate(name) {
-    const content = '# {{work.id}} — {{phase.label}}\n\n## Purpose\n\nDescribe the artifact outcome.\n\n{{inputs}}\n\n## Evidence\n\nAdd traceable evidence here.\n';
+  async function createTemplate(name, suppliedContent = null) {
+    const content = suppliedContent ?? '# {{work.id}} — {{phase.label}}\n\n## Purpose\n\nDescribe the artifact outcome.\n\n{{inputs}}\n\n## Evidence\n\nAdd traceable evidence here.\n';
     const result = await action(() => window.singularity.saveFile(data.repository.root, templateRepositoryPath(data.definition, name), content), 'Artifact template created');
     if (!result) return null;
     const snapshot = await reload();

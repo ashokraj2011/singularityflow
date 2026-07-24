@@ -171,6 +171,14 @@ skip dirty clones and never change a branch. Switching workspace stops the
 previous Copilot backend and discards private planning handles before the new
 lead repository becomes active.
 
+If setup is interrupted, repeat creation with the same Jira key and unchanged
+repository plan or select **Repair**. Missing clones resume and every attempt is
+written to `logs/workspace-materialization.json`. A changed URL, branch, local
+path, metadata set, required flag, or lead repository is refused at the same
+target so stale configuration cannot be mistaken for a successful resume.
+Recent locations use the canonical workspace path; `workspace.json` must be a
+regular local manifest rather than a symlink.
+
 Files placed in `documents/inbox/` are shown as **staged — not governed**.
 On a resumed story branch with an active persona, **Import to work item** copies,
 hashes, commits, and pushes a governed document. Initiative material instead uses

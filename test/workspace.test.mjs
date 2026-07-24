@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -152,6 +152,95 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   entries = await readWorkspaceRegistry(registry);
   assert.deepEqual(entries, []);
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+});
+
+test('reopening an incomplete workspace resumes missing clones and refreshes its materialization journal', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-resume-'));
+  const platform = await remoteRepository(root, 'platform');
+  const mobile = await remoteRepository(root, 'mobile');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' },
+    mobile: { url: mobile, defaultBranch: 'main', required: true, path: 'repos/mobile' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  assert.equal(created.status.healthy, false);
+  const planned = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.deepEqual(planned.operations.map((operation) => operation.status), ['planned', 'planned']);
+
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  assert.equal(resumed.created, false);
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.status.healthy, true);
+  assert.deepEqual(resumed.repair.map((operation) => operation.status), ['cloned', 'cloned']);
+
+  const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
+  assert.ok(journal.completedAt);
+  assert.deepEqual(journal.operations.map((operation) => operation.status), ['complete', 'complete']);
+  assert.ok(journal.operations.every((operation) => operation.completedAt));
+});
+
+test('workspace recovery rejects a different repository materialization plan at the same target', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drift-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'),
+      defaultBranch: 'main',
+      required: true,
+      path: 'repos/platform',
+      metadata: { appId: 'APP-1' }
+    }
+  });
+  await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const changed = structuredClone(input);
+  changed.repositories.platform.url = path.join(root, 'replacement.git');
+  await assert.rejects(
+    () => createWorkspace(changed, { confirmation: 'PAY-100', clone: false }),
+    /different repository materialization plan/
+  );
+});
+
+test('a failed clone leaves no partial repository and can resume when the remote becomes available', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-clone-retry-'));
+  const futureRemote = path.join(root, 'later.git');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: futureRemote, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const preview = previewWorkspace(input);
+  await assert.rejects(
+    () => createWorkspace(input, { confirmation: 'PAY-100' }),
+    /retained for repair/
+  );
+  assert.deepEqual(await readdir(path.join(preview.root, 'repos')), []);
+
+  assert.equal(await remoteRepository(root, 'later'), futureRemote);
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.status.healthy, true);
+});
+
+test('workspace paths are canonicalized and linked manifests are rejected', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-canonical-'));
+  const registry = path.join(root, 'registry.json');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const alias = path.join(root, 'workspace-alias');
+  await symlink(created.workspace.path, alias, 'dir');
+
+  const loaded = await readWorkspace(alias);
+  assert.equal(loaded.path, created.workspace.path);
+  await rememberWorkspace(registry, { ...loaded, path: alias });
+  assert.equal((await readWorkspaceRegistry(registry))[0].path, created.workspace.path);
+  await forgetWorkspace(registry, alias);
+  assert.deepEqual(await readWorkspaceRegistry(registry), []);
+
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const outsideManifest = path.join(root, 'outside-workspace.json');
+  await writeFile(outsideManifest, await readFile(manifestFile));
+  await rm(manifestFile);
+  await symlink(outsideManifest, manifestFile);
+  await assert.rejects(() => readWorkspace(created.workspace.path), /symbolic link/);
 });
 
 test('workspace repository and document roots cannot escape through symlinked directories', async () => {

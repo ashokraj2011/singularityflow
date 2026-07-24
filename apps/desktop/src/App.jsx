@@ -36,6 +36,7 @@ import {
   serializeArtifactTemplate,
   updateArtifactSection
 } from './artifact-builder.mjs';
+import { workspaceLandingPage } from './workspace-routing.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -102,7 +103,8 @@ const businessNavSections = [
 ];
 
 const businessAuxiliaryNavigation = [
-  { id: 'planning', label: 'Planning Copilot', section: 'Epic planning' }
+  { id: 'planning', label: 'Planning Copilot', section: 'Epic planning' },
+  { id: 'workspaces', label: 'Workspace setup', section: 'Project setup' }
 ];
 
 const onboardingRoles = [
@@ -2985,7 +2987,7 @@ export default function App() {
   async function openWorkspace(workspacePath = null) {
     const result = await action(() => workspacePath ? window.singularity.openWorkspace(workspacePath) : window.singularity.chooseWorkspace());
     if (!result) return;
-    acceptOpened(result, 'workspaces');
+    acceptOpened(result, workspaceLandingPage(result, experienceMode));
     await refreshRecentRepositories();
     await refreshRecentWorkspaces();
     if (result.workspaceSetup?.message) setToast({ tone: 'good', text: result.workspaceSetup.message });

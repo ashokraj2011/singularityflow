@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
   discoverJiraConnection, getIssueHierarchy, jiraRequest, listEpicStories,
-  listWorkspaceAnchors, normalizeJiraConnection
+  listWorkspaceAnchors, normalizeJiraConnection, searchIssues
 } from '../src/jira.mjs';
 import { normalizeJiraPolicy } from '../src/initiative-config.mjs';
 import {
@@ -49,12 +49,121 @@ test('Jira request retries throttling and sends Data Center PAT only as Bearer a
       calls += 1;
       assert.equal(url, 'https://jira.example.com/rest/api/2/myself');
       assert.equal(init.headers.Authorization, 'Bearer pat-secret');
+      assert.equal(init.redirect, 'error');
       return calls === 1 ? response({ message: 'slow down' }, 429, { 'retry-after': '0' }) : response({ name: 'developer' });
     }
   });
   assert.equal(result.payload.name, 'developer');
+  assert.deepEqual(Object.keys(result), ['payload']);
+  assert.doesNotMatch(JSON.stringify(result), /pat-secret/);
   assert.equal(calls, 2);
   assert.deepEqual(waits, [0]);
+});
+
+test('Jira request pins credentials to the configured API base and rejects absolute targets', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => jiraRequest('https://attacker.example/collect', {
+      connection: {
+        baseUrl: 'https://jira.example.com',
+        deployment: 'data-center',
+        token: 'pat-secret',
+        authMode: 'pat'
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return response({});
+      }
+    }),
+    /relative Jira API path/
+  );
+  await assert.rejects(
+    () => jiraRequest('//attacker.example/collect', {
+      connection: {
+        baseUrl: 'https://jira.example.com',
+        deployment: 'data-center',
+        token: 'pat-secret',
+        authMode: 'pat'
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return response({});
+      }
+    }),
+    /relative Jira API path/
+  );
+  await assert.rejects(
+    () => jiraRequest('/../collect', {
+      connection: {
+        baseUrl: 'https://office.atlassian.net',
+        cloudId: 'cloud-123',
+        email: 'developer@example.com',
+        token: 'api-secret'
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return response({});
+      }
+    }),
+    /escapes the configured Jira API base/
+  );
+  assert.equal(calls, 0);
+});
+
+test('Jira request aborts a stalled connection check with an explicit timeout', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => jiraRequest('/rest/api/2/myself', {
+      connection: {
+        baseUrl: 'https://jira.example.com',
+        deployment: 'data-center',
+        token: 'pat-secret',
+        authMode: 'pat'
+      },
+      requestTimeoutMs: 10,
+      maxRetries: 0,
+      fetchImpl: async (_url, init) => {
+        calls += 1;
+        return new Promise((_resolve, reject) => {
+          const abort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+          if (init.signal.aborted) abort();
+          else init.signal.addEventListener('abort', abort, { once: true });
+        });
+      }
+    }),
+    (error) => error?.category === 'timeout' && /10 milliseconds/.test(error.message)
+  );
+  assert.equal(calls, 1);
+});
+
+test('Jira request timeout covers a response body that stalls after headers', async () => {
+  const stalled = jiraRequest('/rest/api/2/myself', {
+    connection: {
+      baseUrl: 'https://jira.example.com',
+      deployment: 'data-center',
+      token: 'pat-secret',
+      authMode: 'pat'
+    },
+    requestTimeoutMs: 10,
+    maxRetries: 0,
+    fetchImpl: async (_url, init) => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => new Promise((_resolve, reject) => {
+        const abort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        if (init.signal.aborted) abort();
+        else init.signal.addEventListener('abort', abort, { once: true });
+      })
+    })
+  });
+  await assert.rejects(
+    Promise.race([
+      stalled,
+      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('Jira response body did not time out.')), 100))
+    ]),
+    (error) => error?.category === 'timeout' && /10 milliseconds/.test(error.message)
+  );
 });
 
 test('connection discovery and Epic child browsing use safe Jira endpoints', async () => {
@@ -75,6 +184,76 @@ test('connection discovery and Epic child browsing use safe Jira endpoints', asy
   const search = seen.find((entry) => entry.url.endsWith('/search/jql'));
   assert.match(JSON.parse(search.init.body).jql, /^\(parent = "APP-42" OR "Epic Link" = "APP-42"\)/);
   await assert.rejects(() => listEpicStories('APP-42" OR project = SECRET', { connection, fetchImpl }), /valid Jira Epic key/);
+});
+
+test('Jira connection discovery performs only one bounded retry', async () => {
+  let serverAttempts = 0;
+  const connection = { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' };
+  await assert.rejects(
+    () => discoverJiraConnection({
+      connection,
+      sleep: async () => {},
+      fetchImpl: async (url) => {
+        if (url.endsWith('/serverInfo')) {
+          serverAttempts += 1;
+          throw new Error('network unavailable');
+        }
+        if (url.endsWith('/myself')) return response({ accountId: 'u-1', displayName: 'Developer' });
+        if (url.includes('/project/search')) return response({ values: [] });
+        throw new Error(`unexpected ${url}`);
+      }
+    }),
+    (error) => error?.category === 'network' && /network unavailable/.test(error.message)
+  );
+  assert.equal(serverAttempts, 2);
+});
+
+test('Jira issue search paginates Cloud tokens and Data Center offsets without exceeding the requested limit', async () => {
+  const issues = Array.from({ length: 120 }, (_, index) => ({
+    id: String(index + 1),
+    key: `APP-${index + 1}`,
+    fields: { summary: `Story ${index + 1}` }
+  }));
+  const cloudBodies = [];
+  const cloud = await searchIssues('project = "APP"', {
+    connection: { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' },
+    limit: 120,
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      cloudBodies.push(body);
+      return body.nextPageToken
+        ? response({ issues: issues.slice(100), isLast: true })
+        : response({ issues: issues.slice(0, 100), isLast: false, nextPageToken: 'page-2' });
+    }
+  });
+  assert.equal(cloud.length, 120);
+  assert.equal(cloudBodies.length, 2);
+  assert.equal(cloudBodies[0].maxResults, 100);
+  assert.equal(cloudBodies[1].maxResults, 20);
+  assert.equal(cloudBodies[1].nextPageToken, 'page-2');
+
+  const dataCenterBodies = [];
+  const dataCenter = await searchIssues('project = "APP"', {
+    connection: {
+      baseUrl: 'https://jira.example.com',
+      deployment: 'data-center',
+      token: 'pat-secret',
+      authMode: 'pat'
+    },
+    limit: 120,
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      dataCenterBodies.push(body);
+      const startAt = body.startAt ?? 0;
+      return response({
+        issues: issues.slice(startAt, startAt + body.maxResults),
+        startAt,
+        total: issues.length
+      });
+    }
+  });
+  assert.equal(dataCenter.length, 120);
+  assert.deepEqual(dataCenterBodies.map((body) => [body.startAt, body.maxResults]), [[0, 100], [100, 20]]);
 });
 
 test('workspace anchors use Jira hierarchyLevel and hierarchy traversal uses parent', async () => {

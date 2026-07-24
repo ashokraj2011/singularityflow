@@ -160,6 +160,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Epic-level story progress/);
   assert.match(source, /Epic lifecycle wizard/);
   assert.match(source, /Turn an Epic into delivery-ready Stories/);
+  assert.match(source, /className="epic-start-intro-copy"/);
+  assert.match(source, /aria-label="Epic planning workflow"/);
+  assert.match(source, /<i>1<\/i><small>Sources<\/small>/);
+  assert.match(source, /<i>✓<\/i><small>Complete<\/small>/);
   assert.match(source, /Bring from Jira/);
   assert.match(source, /Describe the work/);
   assert.match(source, /const businessNavSections/);
@@ -313,6 +317,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.epic-progress-list/);
   assert.match(styles, /\.business-stage-intro/);
   assert.match(styles, /\.business-lineage-handoff/);
+  assert.match(styles, /\.epic-start-intro \{ min-height: 128px/);
+  assert.match(styles, /\.epic-start-flow span i/);
   assert.match(styles, /\.artifact-builder/);
   assert.match(styles, /\.artifact-section-palette/);
   assert.match(styles, /\.artifact-builder-canvas/);

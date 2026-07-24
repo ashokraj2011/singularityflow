@@ -2093,11 +2093,17 @@ function EpicStartWizard({ data, action, reload }) {
     : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
-      <span className="ai-orb">S</span>
-      <span className="eyebrow">Start a governed Epic</span>
-      <h2>Turn an Epic into delivery-ready Stories</h2>
-      <p>Start from Jira or describe the work directly. Singularity reserves an auditable identity, creates the shared Epic branch, and pins the selected workflow before planning begins.</p>
-      <div className="epic-start-flow"><span>Sources</span><b>→</b><span>Requirements</span><b>→</b><span>Planning</span><b>→</b><span>Stories</span><b>→</b><span>Complete</span></div>
+      <div className="epic-start-intro-copy">
+        <span className="ai-orb">S</span>
+        <div><span className="eyebrow">Start a governed Epic</span><h2>Turn an Epic into delivery-ready Stories</h2><p>Bring the Epic from Jira or describe it directly; Singularity pins its identity, branch, and workflow before planning.</p></div>
+      </div>
+      <div className="epic-start-flow" aria-label="Epic planning workflow">
+        <span><i>1</i><small>Sources</small></span><b aria-hidden="true" />
+        <span><i>2</i><small>Requirements</small></span><b aria-hidden="true" />
+        <span><i>3</i><small>Planning</small></span><b aria-hidden="true" />
+        <span><i>4</i><small>Stories</small></span><b aria-hidden="true" />
+        <span><i>✓</i><small>Complete</small></span>
+      </div>
     </section>
     <section className="panel epic-start-form">
       <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={source === 'jira' ? 'active' : ''} disabled={!data.portfolio?.jira?.enabled} onClick={() => setSource('jira')}><strong>Bring from Jira</strong><small>Use an existing Epic key and Jira identity</small></button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Reserve a local Singularity Epic ID</small></button></div>

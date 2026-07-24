@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+export const ONBOARDING_SCHEMA_VERSION = 1;
 export const MAX_ONBOARDING_REPOSITORIES = 20;
 export const ONBOARDING_ROLES = new Set([
   'product-owner',
@@ -30,7 +32,7 @@ function normalizedRepositories(values = []) {
     if (repositoryPath === path.parse(repositoryPath).root) throw new Error('Repository paths must identify a specific local directory.');
     unique.set(repositoryPath, {
       path: repositoryPath,
-      name: String(value?.name ?? path.basename(repositoryPath)).trim() || path.basename(repositoryPath)
+      name: String(value?.name ?? path.basename(repositoryPath)).trim().slice(0, 160) || path.basename(repositoryPath)
     });
   }
   if (unique.size > MAX_ONBOARDING_REPOSITORIES) {
@@ -62,7 +64,16 @@ export async function validateOnboardingWorkspace(value) {
   return canonical;
 }
 
-export function normalizeOnboardingProfile(input = {}, { complete = false, jiraConnected = false, touch = false } = {}) {
+export function normalizeOnboardingProfile(input = {}, {
+  complete = false,
+  jiraConnected = false,
+  touch = false,
+  allowDisconnectedCompletion = false
+} = {}) {
+  const schemaVersion = input.schemaVersion ?? ONBOARDING_SCHEMA_VERSION;
+  if (schemaVersion !== ONBOARDING_SCHEMA_VERSION) {
+    throw new Error(`Unsupported onboarding profile version ${schemaVersion}; expected version ${ONBOARDING_SCHEMA_VERSION}.`);
+  }
   const name = String(input.name ?? '').trim().slice(0, 160);
   const role = String(input.role ?? '').trim();
   const workspacePath = input.workspacePath ? path.resolve(String(input.workspacePath).trim()) : null;
@@ -80,13 +91,13 @@ export function normalizeOnboardingProfile(input = {}, { complete = false, jiraC
     if (!role) throw new Error('Choose your role before finishing onboarding.');
     if (!workspacePath) throw new Error('Choose a local workspace before finishing onboarding.');
     if (jiraChoice === 'later') throw new Error('Connect Jira or confirm that Jira is not used before finishing onboarding.');
-    if (jiraChoice === 'disconnected' && input.completed !== true) {
+    if (jiraChoice === 'disconnected' && !allowDisconnectedCompletion) {
       throw new Error('Reconnect Jira or explicitly confirm that Jira is not used before finishing onboarding.');
     }
   }
   const completed = complete === true;
   return {
-    schemaVersion: 1,
+    schemaVersion: ONBOARDING_SCHEMA_VERSION,
     completed,
     name,
     role: role || null,
@@ -115,7 +126,11 @@ export async function readOnboardingProfile(file, { jiraConnected = false } = {}
     };
   }
   try {
-    return normalizeOnboardingProfile(parsed, { complete: parsed?.completed === true, jiraConnected });
+    return normalizeOnboardingProfile(parsed, {
+      complete: parsed?.completed === true,
+      jiraConnected,
+      allowDisconnectedCompletion: parsed?.completed === true
+    });
   } catch (error) {
     return {
       ...normalizeOnboardingProfile({}, { jiraConnected }),
@@ -127,10 +142,56 @@ export async function readOnboardingProfile(file, { jiraConnected = false } = {}
   }
 }
 
+export async function prepareOnboardingProfile(input = {}, {
+  complete = false,
+  jiraConnected = false,
+  validateWorkspace = async (workspacePath) => workspacePath,
+  validateRepository = async (repositoryPath) => repositoryPath
+} = {}) {
+  const draft = normalizeOnboardingProfile(input, { jiraConnected });
+  const notices = [];
+  if (draft.workspacePath) {
+    try {
+      draft.workspacePath = await validateWorkspace(draft.workspacePath);
+    } catch (error) {
+      if (complete) throw error;
+      notices.push({
+        kind: 'workspace',
+        path: draft.workspacePath,
+        message: `The previous workspace is unavailable (${error.message}). Select it again to continue.`
+      });
+      draft.workspacePath = null;
+      draft.step = Math.min(draft.step, 2);
+    }
+  }
+  const repositories = [];
+  for (const repository of draft.repositories) {
+    try {
+      repositories.push({
+        ...repository,
+        path: await validateRepository(repository.path)
+      });
+    } catch (error) {
+      notices.push({
+        kind: 'repository',
+        path: repository.path,
+        message: `${repository.name} was removed from setup because it is unavailable (${error.message}).`
+      });
+    }
+  }
+  return {
+    profile: normalizeOnboardingProfile({
+      ...draft,
+      repositories
+    }, { complete, jiraConnected }),
+    notices
+  };
+}
+
 export async function saveOnboardingProfile(file, input, options = {}) {
   const profile = normalizeOnboardingProfile(input, { ...options, touch: true });
   await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(profile, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   await rename(temporary, file);
   return profile;

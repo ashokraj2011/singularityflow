@@ -74,11 +74,17 @@ test('Electron welcome screen renders persistent repository errors and loading f
 
 test('Electron onboarding fails closed with a recoverable retry screen', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
   assert.match(source, /function OnboardingLoadFailure/);
   assert.match(source, /We stopped before opening your workspace/);
   assert.match(source, /No repository, Jira, or Git state was changed/);
   assert.match(source, /The secure desktop bridge is unavailable/);
   assert.match(source, /setOnboardingAttempt\(\(current\) => current \+ 1\)/);
+  assert.match(source, /disabled=\{working \|\| index > draft\.step\}/);
+  assert.match(source, /result\.notices\?\.length/);
+  assert.doesNotMatch(source, /if \(saved\) setDraft\(\(current\) => \(\{ \.\.\.current, step: nextStep \}\)\)/);
+  assert.match(main, /prepareOnboardingProfile/);
+  assert.match(main, /notices: prepared\.notices/);
   assert.doesNotMatch(source, /setOnboarding\(\{ profile: \{ completed: true \}/);
 });
 

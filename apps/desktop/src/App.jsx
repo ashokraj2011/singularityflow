@@ -172,12 +172,14 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
   const [jiraStatus, setJiraStatus] = useState(jira ?? { connected: false });
   const [working, setWorking] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
   const steps = ['Your name', 'Your role', 'Local workspace', 'Repositories', 'Jira & ready'];
   const roleLabel = onboardingRoles.find(([id]) => id === draft.role)?.[1] ?? 'Not selected';
 
   function update(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
     setError(null);
+    setNotice(null);
   }
 
   async function persist(nextStep = draft.step, complete = false) {
@@ -186,6 +188,7 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     try {
       const result = await window.singularity.saveOnboarding({ ...draft, step: nextStep }, complete);
       setDraft(result.profile);
+      setNotice(result.notices?.length ? result.notices.map((item) => item.message).join(' ') : null);
       if (complete) await onComplete(result);
       return result;
     } catch (saveError) {
@@ -201,14 +204,12 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     if (draft.step === 1 && !draft.role) return setError('Choose the role you want to use for this desktop profile.');
     if (draft.step === 2 && !draft.workspacePath) return setError('Choose a local workspace directory.');
     const nextStep = Math.min(4, draft.step + 1);
-    const saved = await persist(nextStep);
-    if (saved) setDraft((current) => ({ ...current, step: nextStep }));
+    await persist(nextStep);
   }
 
   async function back() {
     const nextStep = Math.max(0, draft.step - 1);
-    const saved = await persist(nextStep);
-    if (saved) setDraft((current) => ({ ...current, step: nextStep }));
+    await persist(nextStep);
   }
 
   async function chooseWorkspace() {
@@ -283,7 +284,7 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
   return <div className="onboarding-shell">
     <aside className="onboarding-rail">
       <div className="brand onboarding-brand"><span>S</span><div><strong>Singularity</strong><small>Desktop setup</small></div></div>
-      <div className="onboarding-progress">{steps.map((label, index) => <button key={label} className={`${index === draft.step ? 'active' : ''} ${index < draft.step ? 'complete' : ''}`} disabled={index > draft.step} onClick={() => index < draft.step && persist(index)}><span>{index < draft.step ? '✓' : index + 1}</span><div><strong>{label}</strong><small>{index === draft.step ? 'Current step' : index < draft.step ? 'Complete' : 'Up next'}</small></div></button>)}</div>
+      <div className="onboarding-progress">{steps.map((label, index) => <button key={label} className={`${index === draft.step ? 'active' : ''} ${index < draft.step ? 'complete' : ''}`} disabled={working || index > draft.step} onClick={() => index < draft.step && persist(index)}><span>{index < draft.step ? '✓' : index + 1}</span><div><strong>{label}</strong><small>{index === draft.step ? 'Current step' : index < draft.step ? 'Complete' : 'Up next'}</small></div></button>)}</div>
       <div className="onboarding-promise"><span>Private by design</span><p>Your profile and workspace location stay on this computer. Only governed repository configuration enters Git.</p></div>
     </aside>
     <main className="onboarding-main">
@@ -317,6 +318,7 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
           </>}
           <div className="onboarding-ready-summary"><div><span>✓</span><strong>{draft.name}</strong><small>{roleLabel}</small></div><div><span>✓</span><strong>Workspace</strong><small>{draft.workspacePath}</small></div><div><span>{draft.repositories.length ? '✓' : '○'}</span><strong>{draft.repositories.length} repositories</strong><small>{draft.repositories.length ? 'Ready for quick access' : 'Optional—add later'}</small></div><div><span>{['connected', 'not-used'].includes(draft.jiraChoice) && !jiraStatus.recovery?.required ? '✓' : '○'}</span><strong>Jira decision</strong><small>{draft.jiraChoice === 'connected' && !jiraStatus.recovery?.required ? 'Securely connected' : draft.jiraChoice === 'not-used' && !jiraStatus.recovery?.required ? 'Not used' : 'Action required'}</small></div></div>
         </div>}
+        {notice && <div className="onboarding-warning" role="status">{notice}</div>}
         {error && <div className="onboarding-error" role="alert">{error}</div>}
       </section>
       <footer className="onboarding-footer"><button className="ghost" disabled={working || draft.step === 0} onClick={back}>Back</button><span>Your setup is saved locally after each step.</span>{draft.step < 4 ? <button className="primary" disabled={working} onClick={next}>{working ? 'Saving…' : draft.step === 3 ? 'Continue to Jira' : 'Continue'}</button> : <button className="primary onboarding-finish" disabled={working || !canFinish} onClick={() => persist(4, true)}>{working ? 'Finishing…' : 'Finish setup & start'}</button>}</footer>
@@ -1970,6 +1972,9 @@ export default function App() {
     await refreshRecentRepositories();
     const firstRepository = result.profile.repositories?.[0];
     if (firstRepository) await openRepository(firstRepository.path);
+    if (result.notices?.length) {
+      setToast({ tone: 'warning', text: result.notices.map((notice) => notice.message).join(' ') });
+    }
   }
   async function forgetRepository(event, repositoryPath) {
     event.stopPropagation();

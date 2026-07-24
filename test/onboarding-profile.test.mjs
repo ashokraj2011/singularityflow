@@ -205,3 +205,24 @@ test('onboarding rejects repository overflow instead of silently dropping select
     /at most 20/
   );
 });
+
+test('onboarding normalizes persisted completion timestamps instead of trusting renderer values', () => {
+  const completed = normalizeOnboardingProfile({
+    name: 'Timestamp User',
+    role: 'developer',
+    workspacePath: '/tmp/workspaces',
+    jiraChoice: 'not-used',
+    completedAt: '2026-07-24T10:30:00+05:30'
+  }, { complete: true });
+  assert.equal(completed.completedAt, '2026-07-24T05:00:00.000Z');
+
+  const repaired = normalizeOnboardingProfile({
+    name: 'Timestamp User',
+    role: 'developer',
+    workspacePath: '/tmp/workspaces',
+    jiraChoice: 'not-used',
+    completedAt: 'not-a-date'
+  }, { complete: true });
+  assert.match(repaired.completedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.notEqual(repaired.completedAt, 'not-a-date');
+});

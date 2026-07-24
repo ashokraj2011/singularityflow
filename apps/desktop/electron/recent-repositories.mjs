@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { atomicPrivateJson, withLocalStoreMutation } from './local-store.mjs';
 
 export const MAX_RECENT_REPOSITORIES = 10;
 
@@ -16,10 +17,7 @@ function normalize(entry) {
 }
 
 async function writeStore(file, repositories) {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify({ schemaVersion: 1, repositories }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await rename(temporary, file);
+  await atomicPrivateJson(file, { schemaVersion: 1, repositories });
 }
 
 export async function readRecentRepositories(file) {
@@ -40,15 +38,19 @@ export async function readRecentRepositories(file) {
 export async function rememberRecentRepository(file, repository) {
   const entry = normalize({ ...repository, openedAt: repository.openedAt ?? new Date().toISOString() });
   if (!entry) throw new Error('A repository path is required.');
-  const current = await readRecentRepositories(file);
-  const repositories = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_REPOSITORIES);
-  await writeStore(file, repositories);
-  return repositories;
+  return withLocalStoreMutation(file, async () => {
+    const current = await readRecentRepositories(file);
+    const repositories = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_REPOSITORIES);
+    await writeStore(file, repositories);
+    return repositories;
+  });
 }
 
 export async function forgetRecentRepository(file, repositoryPath) {
   const resolved = path.resolve(repositoryPath || '');
-  const repositories = (await readRecentRepositories(file)).filter((item) => item.path !== resolved);
-  await writeStore(file, repositories);
-  return repositories;
+  return withLocalStoreMutation(file, async () => {
+    const repositories = (await readRecentRepositories(file)).filter((item) => item.path !== resolved);
+    await writeStore(file, repositories);
+    return repositories;
+  });
 }

@@ -306,6 +306,66 @@ test('desktop Jira credential status and disconnect can target the repository-co
   assert.equal((await store.status()).connection.name, 'project-b');
 });
 
+test('concurrent Jira credential saves preserve every named connection', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-jira-store-concurrent-'));
+  const file = path.join(directory, 'jira.json');
+  const fakeSafeStorage = {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'keychain',
+    encryptString: (value) => Buffer.from(value),
+    decryptString: (value) => value.toString()
+  };
+  const first = new JiraCredentialStore(file, fakeSafeStorage);
+  const second = new JiraCredentialStore(file, fakeSafeStorage);
+
+  await Promise.all([
+    first.save({
+      name: 'project-a',
+      deployment: 'cloud',
+      baseUrl: 'https://a.atlassian.net',
+      auth: { mode: 'user-token', email: 'a@example.com', token: 'a' }
+    }),
+    second.save({
+      name: 'project-b',
+      deployment: 'cloud',
+      baseUrl: 'https://b.atlassian.net',
+      auth: { mode: 'user-token', email: 'b@example.com', token: 'b' }
+    })
+  ]);
+
+  const status = await first.status();
+  assert.deepEqual(new Set(status.connections.map((connection) => connection.name)), new Set(['project-a', 'project-b']));
+  assert.equal((await first.load('project-a')).auth.token, 'a');
+  assert.equal((await first.load('project-b')).auth.token, 'b');
+});
+
+test('Jira credential storage rejects incompatible schemas and unsafe connection identifiers', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-jira-store-schema-'));
+  const file = path.join(directory, 'jira.json');
+  const fakeSafeStorage = {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'keychain',
+    encryptString: (value) => Buffer.from(value),
+    decryptString: (value) => value.toString()
+  };
+  await writeFile(file, JSON.stringify({
+    schemaVersion: 999,
+    sealed: Buffer.from(JSON.stringify({ schemaVersion: 999, active: null, connections: {} })).toString('base64')
+  }));
+  const store = new JiraCredentialStore(file, fakeSafeStorage);
+  const status = await store.safeStatus();
+  assert.equal(status.connected, false);
+  assert.equal(status.recovery.required, true);
+  assert.match(status.recovery.message, /could not be read/i);
+  await assert.rejects(
+    () => new JiraCredentialStore(path.join(directory, 'unsafe.json'), fakeSafeStorage).save({
+      name: '__proto__',
+      auth: { token: 'secret' }
+    }),
+    /safe identifier/
+  );
+});
+
 test('desktop exposes a narrow Jira IPC workspace without renderer credential reads', async () => {
   const main = await readFile(new URL('../apps/desktop/electron/main.mjs', import.meta.url), 'utf8');
   const preload = await readFile(new URL('../apps/desktop/electron/preload.cjs', import.meta.url), 'utf8');

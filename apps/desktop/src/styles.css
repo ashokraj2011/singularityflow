@@ -2660,6 +2660,13 @@ label > span,
 .epic-key-fetch label { display: grid; gap: 6px; }
 .epic-key-fetch label > span { color: #607067; font-size: 9px; font-weight: 680; letter-spacing: .08em; text-transform: uppercase; }
 .epic-key-fetch input { min-height: 42px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; }
+.epic-picker { max-width: 1040px; display: grid; grid-template-columns: minmax(360px,1fr) auto auto; align-items: end; gap: 10px; margin-top: 14px; }
+.epic-picker label { display: grid; gap: 6px; }
+.epic-picker label > span { color: #607067; font-size: 9px; font-weight: 680; letter-spacing: .08em; text-transform: uppercase; }
+.epic-picker select { min-height: 44px; color: #173b29; font-size: 13px; }
+.epic-picker-meta { max-width: 1040px; display: flex; justify-content: flex-end; margin-top: 7px; color: #718078; font-size: 9px; }
+.epic-reference-fallback { max-width: 1040px; margin-top: 11px; color: #52675a; font-size: 11px; }
+.epic-reference-fallback summary { width: fit-content; cursor: pointer; color: #157849; font-weight: 620; }
 .fetched-epic-card { max-width: 880px; display: grid; gap: 7px; margin-top: 14px; border: 1px solid #a9d1b8; border-radius: 13px; padding: 15px 17px; background: #f2faf5; }
 .fetched-epic-card > div { display: flex; align-items: center; gap: 9px; }
 .fetched-epic-card h4 { margin: 0; color: #183d29; font-size: 16px; font-weight: 620; }

@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('singularity', {
   workspaceJiraContext: (repository, workspace) => ipcRenderer.invoke('workspace:jira-context', { repository, workspace }),
   connectWorkspaceJira: (repository, workspace, connection) => ipcRenderer.invoke('workspace:jira-connect', { repository, workspace, connection }),
   disconnectWorkspaceJira: (repository, workspace) => ipcRenderer.invoke('workspace:jira-disconnect', { repository, workspace }),
+  workspaceJiraEpics: (repository, workspace, refresh = false) => ipcRenderer.invoke('workspace:jira-epics', { repository, workspace, refresh }),
   workspaceJiraEpic: (repository, workspace, epicKey) => ipcRenderer.invoke('workspace:jira-epic', { repository, workspace, epicKey }),
   previewWorkspace: (repository, options) => ipcRenderer.invoke('workspace:preview', { repository, ...options }),
   createWorkspace: (repository, options) => ipcRenderer.invoke('workspace:create', { repository, ...options }),

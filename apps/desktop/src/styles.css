@@ -2885,6 +2885,10 @@ label > span,
 .epic-origin-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 18px 20px 4px; }
 .epic-origin-choice button { display: grid; gap: 4px; border: 1px solid #d9e2db; border-radius: 12px; padding: 13px 15px; text-align: left; color: #68766d; background: #fafcfa; cursor: pointer; }
 .epic-origin-choice button.active { border-color: #6eae87; color: #174f31; background: #eff8f2; box-shadow: inset 0 0 0 1px #cee7d7; }
+.epic-origin-choice button.needs-setup { grid-template-columns: minmax(0,1fr) auto; border-color: #d7c58f; color: #4e5f55; background: linear-gradient(135deg,#fffdf7,#f8f5e9); }
+.epic-origin-choice button.needs-setup strong,.epic-origin-choice button.needs-setup small { grid-column: 1; }
+.epic-origin-choice button.needs-setup b { grid-column: 2; grid-row: 1/3; align-self: center; color: #0d7145; font-size: 11px; font-weight: 680; white-space: nowrap; }
+.epic-origin-choice button.needs-setup:hover { border-color: #c5a84f; background: #fff9e9; box-shadow: 0 7px 18px rgba(102,80,20,.08); }
 .epic-defaults-note { grid-column: 1 / -1; margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .epic-start-blocker { display: grid; gap: 3px; margin: 2px 20px 16px; }
 .epic-origin-choice strong { font-size: 13px; font-weight: 620; }
@@ -2896,6 +2900,9 @@ label > span,
 .local-epic-fields input,.local-epic-fields textarea { border: 1px solid #d5ded7; border-radius: 9px; padding: 10px 12px; color: #263d30; background: #fff; font: inherit; font-size: 12px; resize: vertical; }
 .epic-local-id { display: flex; align-items: center; justify-content: space-between; border: 1px solid #d9e5dc; border-radius: 9px; padding: 9px 11px; color: #718077; background: #f5faf7; font-size: 11px; }
 .epic-local-id code { color: #136a3d; font-weight: 700; }
+.jira-setup-overlay { position: fixed; inset: 0; z-index: 40; overflow: auto; background: radial-gradient(circle at 82% -12%,rgba(17,122,77,.08),transparent 34%),#f4f6f2; animation: pageIn .2s ease both; }
+.jira-setup-overlay > .page { width: min(1500px,100%); min-height: 100%; margin: 0 auto; }
+.jira-policy-page .jira-connect { margin-top: 18px; }
 
 .phase-governance { display: grid; grid-template-columns: minmax(280px,1fr) minmax(180px,.4fr) minmax(220px,.5fr) auto; gap: 16px; align-items: end; padding: 20px; border-color: #cfe0d4; background: linear-gradient(135deg,#fff,#f4faf6); }
 .phase-governance h3 { margin: 4px 0 5px; color: #183d28; font-size: 18px; font-weight: 590; }

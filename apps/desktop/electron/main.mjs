@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
@@ -8,6 +8,11 @@ import { forgetRecentRepository, readRecentRepositories, rememberRecentRepositor
 import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
 import { CopilotBackendController } from './copilot-service.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
+import {
+  ONBOARDING_ROLES,
+  readOnboardingProfile,
+  saveOnboardingProfile
+} from './onboarding-profile.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
@@ -27,6 +32,7 @@ const copilotBackend = new CopilotBackendController({
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
 function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
+function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
 
 function cliResourcePath(...segments) {
@@ -188,6 +194,67 @@ async function openRepository(repository, { workspace = null } = {}) {
 }
 
 function registerHandlers() {
+  ipcMain.handle('onboarding:get', async (event) => {
+    assertTrustedSender(event);
+    const jira = await jiraCredentialStore().status();
+    return {
+      profile: await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected }),
+      jira,
+      roles: [...ONBOARDING_ROLES]
+    };
+  });
+  ipcMain.handle('onboarding:choose-workspace', async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Choose your local Singularity workspace'
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('onboarding:choose-repositories', async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'multiSelections'],
+      title: 'Add existing Singularity repositories'
+    });
+    if (result.canceled || !result.filePaths.length) return [];
+    const repositories = [];
+    for (const repository of result.filePaths) {
+      const root = await validateRepositoryDirectory(repository);
+      repositories.push({ path: root, name: path.basename(root) });
+    }
+    return repositories;
+  });
+  ipcMain.handle('onboarding:jira-connect', async (event, { connection: input }) => {
+    assertTrustedSender(event);
+    const { normalizeJiraConnection, discoverJiraConnection } = await importCliModule('jira.mjs');
+    const connection = normalizeJiraConnection({ ...input, name: input?.name || 'corporate-jira' });
+    const discovery = await discoverJiraConnection({ connection });
+    const saved = await jiraCredentialStore().save({
+      ...connection,
+      account: discovery.account,
+      server: discovery.server
+    });
+    jiraCache.clear();
+    return { ...saved, discovery };
+  });
+  ipcMain.handle('onboarding:save', async (event, { profile: input, complete = false }) => {
+    assertTrustedSender(event);
+    if (input?.workspacePath) {
+      const workspace = await stat(path.resolve(input.workspacePath)).catch(() => null);
+      if (!workspace?.isDirectory()) throw new Error('The selected local workspace directory is no longer available.');
+    }
+    for (const repository of input?.repositories ?? []) await validateRepositoryDirectory(repository.path);
+    const jira = await jiraCredentialStore().status();
+    const profile = await saveOnboardingProfile(onboardingProfilePath(), input, {
+      complete,
+      jiraConnected: jira.connected
+    });
+    for (const repository of profile.repositories) {
+      await rememberRecentRepository(recentRepositoriesPath(), repository);
+    }
+    return { profile, jira };
+  });
   ipcMain.handle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;

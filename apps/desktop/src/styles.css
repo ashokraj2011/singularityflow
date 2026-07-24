@@ -886,6 +886,11 @@ button.ghost { color: #096b43; }
 .document-placeholder > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 8px; color: #096b43; background: #e7f3eb; font-size: 12px; font-weight: 800; }
 .document-placeholder h3 { margin: 18px 0 5px; font-size: 21px; }
 .document-placeholder p { margin: 0 0 20px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.native-document-card { max-width: 520px; margin: 88px auto; display: grid; justify-items: center; border: 1px solid var(--line-strong); border-radius: 14px; padding: 34px; text-align: center; background: linear-gradient(145deg,#fff,#f6f8f6); box-shadow: var(--shadow); }
+.native-document-card > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: #2f4b3d; font-size: 11px; font-weight: 800; }
+.native-document-card h3 { margin: 17px 0 6px; font-size: 21px; }
+.native-document-card p { max-width: 430px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.native-document-card code { margin: 16px 0 20px; color: var(--subtle); font-size: 10px; }
 .requirement-inspector { overflow: auto; border-left: 1px solid var(--line); background: #fafbfc; }
 .requirement-inspector section { padding: 18px; border-bottom: 1px solid var(--line); }
 .requirement-inspector dl { margin: 0; }

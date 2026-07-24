@@ -23,6 +23,10 @@ import {
   saveOnboardingProfile,
   validateOnboardingWorkspace
 } from './onboarding-profile.mjs';
+import {
+  firstUsableRepository,
+  inspectWorkspaceSelection
+} from './workspace-selection.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
@@ -143,6 +147,38 @@ async function recentRepositories() {
 
 async function workspaceModule() {
   return importCliModule('workspace.mjs');
+}
+
+async function openExistingWorkspace(workspacePath) {
+  const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
+  const workspace = await readWorkspace(workspacePath);
+  const status = await workspaceStatus(workspace.path);
+  await rememberWorkspace(workspaceRegistryPath(), workspace, status);
+  return openRepository(requireReadyLeadRepository(status), { workspace: status });
+}
+
+async function openWorkspaceSetup(baseDirectory) {
+  const jira = await jiraCredentialStore().safeStatus();
+  const profile = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
+  const repository = await firstUsableRepository(
+    [...(profile.repositories ?? []), ...await recentRepositories()],
+    validateRepositoryDirectory
+  );
+  if (!repository) {
+    throw new Error(
+      `No managed workspace exists under ${baseDirectory}. Open or add one initialized Singularity repository first, `
+      + `then create the Jira-anchored workspace from Project workspaces.`
+    );
+  }
+  const result = await openRepository(repository);
+  return {
+    ...result,
+    workspaceSetup: {
+      baseDirectory,
+      mode: 'create',
+      message: 'No existing workspace was found. Configure the Jira anchor and repositories, then create it here.'
+    }
+  };
 }
 
 async function recentWorkspaces() {
@@ -339,21 +375,25 @@ function registerHandlers() {
   });
   trustedHandle('workspace:choose', async (event) => {
     assertTrustedSender(event);
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity workspace' });
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Open or create a Singularity project workspace',
+      message: 'Choose an existing workspace, or choose the local folder where a new Jira-anchored workspace should be created.'
+    });
     if (result.canceled || !result.filePaths[0]) return null;
-    const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
-    const workspace = await readWorkspace(result.filePaths[0]);
-    const status = await workspaceStatus(workspace.path);
-    await rememberWorkspace(workspaceRegistryPath(), workspace, status);
-    return openRepository(requireReadyLeadRepository(status), { workspace: status });
+    const selection = await inspectWorkspaceSelection(result.filePaths[0]);
+    if (selection.mode === 'open') return openExistingWorkspace(selection.workspaces[0]);
+    if (selection.mode === 'choose-specific') {
+      throw new Error(
+        `${selection.directory} contains ${selection.workspaces.length} managed project workspaces. `
+        + `Choose the specific workspace folder: ${selection.workspaces.map((item) => path.basename(item)).join(', ')}.`
+      );
+    }
+    return openWorkspaceSetup(selection.directory);
   });
   trustedHandle('workspace:open', async (event, { workspace: workspacePath }) => {
     assertTrustedSender(event);
-    const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
-    const workspace = await readWorkspace(workspacePath);
-    const status = await workspaceStatus(workspace.path);
-    await rememberWorkspace(workspaceRegistryPath(), workspace, status);
-    return openRepository(requireReadyLeadRepository(status), { workspace: status });
+    return openExistingWorkspace(workspacePath);
   });
   trustedHandle('workspace:forget', async (event, { workspace }) => {
     assertTrustedSender(event);

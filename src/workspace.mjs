@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
@@ -7,6 +7,7 @@ import { SingularityFlowError, run } from './util.mjs';
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
 export const MAX_RECENT_WORKSPACES = 20;
+const registryMutationTails = new Map();
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -165,9 +166,25 @@ function workspaceDirectories(manifest) {
 
 async function atomicJson(file, value) {
   await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await rename(temporary, file);
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(temporary, file);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+async function withRegistryMutation(file, operation) {
+  const key = path.resolve(file);
+  const previous = registryMutationTails.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  registryMutationTails.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (registryMutationTails.get(key) === current) registryMutationTails.delete(key);
+  }
 }
 
 export async function readWorkspace(workspacePath) {
@@ -605,18 +622,22 @@ export async function rememberWorkspace(file, workspace, status = null) {
     leadRepositoryPath: status?.leadRepositoryPath ?? path.join(normalized.path, normalized.repositories[normalized.leadRepository].path),
     openedAt: nowIso()
   });
-  const current = await readWorkspaceRegistry(file);
-  const workspaces = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_WORKSPACES);
-  await atomicJson(file, { schemaVersion: 1, workspaces });
-  return workspaces;
+  return withRegistryMutation(file, async () => {
+    const current = await readWorkspaceRegistry(file);
+    const workspaces = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_WORKSPACES);
+    await atomicJson(file, { schemaVersion: 1, workspaces });
+    return workspaces;
+  });
 }
 
 export async function forgetWorkspace(file, workspacePath) {
   const resolved = path.resolve(workspacePath);
   const target = await realpath(resolved).catch(() => resolved);
-  const workspaces = (await readWorkspaceRegistry(file)).filter((item) => item.path !== target);
-  await atomicJson(file, { schemaVersion: 1, workspaces });
-  return workspaces;
+  return withRegistryMutation(file, async () => {
+    const workspaces = (await readWorkspaceRegistry(file)).filter((item) => item.path !== target);
+    await atomicJson(file, { schemaVersion: 1, workspaces });
+    return workspaces;
+  });
 }
 
 export async function repairWorkspace(workspacePath) {

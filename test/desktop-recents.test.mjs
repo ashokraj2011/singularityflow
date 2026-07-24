@@ -46,3 +46,22 @@ test('recent repository store safely recovers from malformed local state', async
   const recent = await rememberRecentRepository(store, { path: path.join(root, 'repository'), branch: 'main' });
   assert.equal(recent.length, 1);
 });
+
+test('concurrent recent repository updates preserve every location without temporary-file collisions', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-recents-concurrent-'));
+  const store = path.join(root, 'recent-repositories.json');
+  const repositories = Array.from({ length: 8 }, (_, index) => ({
+    path: path.join(root, `repository-${index}`),
+    name: `Repository ${index}`,
+    openedAt: new Date(Date.UTC(2026, 6, 24, 10, index)).toISOString()
+  }));
+
+  await Promise.all(repositories.map((repository) => rememberRecentRepository(store, repository)));
+
+  const recent = await readRecentRepositories(store);
+  assert.equal(recent.length, repositories.length);
+  assert.deepEqual(
+    new Set(recent.map((repository) => repository.path)),
+    new Set(repositories.map((repository) => repository.path))
+  );
+});

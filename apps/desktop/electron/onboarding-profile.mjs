@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { atomicPrivateJson, withLocalStoreMutation } from './local-store.mjs';
 
 export const ONBOARDING_SCHEMA_VERSION = 1;
 export const MAX_ONBOARDING_REPOSITORIES = 20;
@@ -96,6 +96,11 @@ export function normalizeOnboardingProfile(input = {}, {
     }
   }
   const completed = complete === true;
+  const completedAt = completed
+    ? (!touch && Number.isFinite(Date.parse(input.completedAt))
+        ? new Date(input.completedAt).toISOString()
+        : nowIso())
+    : null;
   return {
     schemaVersion: ONBOARDING_SCHEMA_VERSION,
     completed,
@@ -105,7 +110,7 @@ export function normalizeOnboardingProfile(input = {}, {
     workspacePath,
     repositories,
     jiraChoice,
-    completedAt: completed ? (input.completedAt ?? nowIso()) : null,
+    completedAt,
     updatedAt: !touch && Number.isFinite(Date.parse(input.updatedAt)) ? new Date(input.updatedAt).toISOString() : nowIso()
   };
 }
@@ -190,9 +195,8 @@ export async function prepareOnboardingProfile(input = {}, {
 
 export async function saveOnboardingProfile(file, input, options = {}) {
   const profile = normalizeOnboardingProfile(input, { ...options, touch: true });
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(profile, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await rename(temporary, file);
-  return profile;
+  return withLocalStoreMutation(file, async () => {
+    await atomicPrivateJson(file, profile);
+    return profile;
+  });
 }

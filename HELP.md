@@ -31,6 +31,12 @@ removed with a visible notice; available selections remain intact. Future or
 incompatible local profile formats recover to a reviewable first-run draft
 rather than being interpreted as current settings.
 
+Local onboarding, recent-repository, workspace-registry, and encrypted Jira
+mutations are serialized and use unique atomic replacement files. Rapid or
+overlapping desktop actions cannot overwrite another completed local update.
+An unknown or malformed credential-store schema is never decrypted as if it
+were current; use the visible reset action and reconnect.
+
 ## About and command namespace
 
 **Singularity Flow** is the product under the **Singularity** brand. It is a

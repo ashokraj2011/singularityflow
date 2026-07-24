@@ -154,6 +154,29 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
 });
 
+test('concurrent workspace registry updates preserve every workspace', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-registry-concurrent-'));
+  const registry = path.join(root, 'registry.json');
+  const firstInput = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: path.join(root, 'first.git'), defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const secondInput = structuredClone(firstInput);
+  secondInput.anchor.key = 'PAY-200';
+  secondInput.anchor.title = 'Merchant modernization';
+  const [first, second] = await Promise.all([
+    createWorkspace(firstInput, { confirmation: 'PAY-100', clone: false }),
+    createWorkspace(secondInput, { confirmation: 'PAY-200', clone: false })
+  ]);
+
+  await Promise.all([
+    rememberWorkspace(registry, first.workspace, first.status),
+    rememberWorkspace(registry, second.workspace, second.status)
+  ]);
+
+  const entries = await readWorkspaceRegistry(registry);
+  assert.deepEqual(new Set(entries.map((entry) => entry.anchorKey)), new Set(['PAY-100', 'PAY-200']));
+});
+
 test('reopening an incomplete workspace resumes missing clones and refreshes its materialization journal', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-resume-'));
   const platform = await remoteRepository(root, 'platform');

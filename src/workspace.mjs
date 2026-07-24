@@ -61,7 +61,23 @@ function normalizedSiteId(anchor) {
 
 export function normalizeWorkspaceAnchor(input) {
   const anchor = object(input, 'Workspace anchor');
-  if ((anchor.provider ?? 'jira') !== 'jira') throw new SingularityFlowError('This release supports Jira workspace anchors only.');
+  const provider = anchor.provider ?? 'jira';
+  if (provider === 'workspace') {
+    const key = safeId(anchor.key, 'Workspace ID');
+    return {
+      provider: 'workspace',
+      siteId: 'local',
+      key,
+      issueId: null,
+      issueTypeId: null,
+      issueTypeName: 'Workspace',
+      hierarchyLevel: 1,
+      title: String(anchor.title ?? key).trim() || key,
+      url: null,
+      fetchedAt: anchor.fetchedAt ?? nowIso()
+    };
+  }
+  if (provider !== 'jira') throw new SingularityFlowError(`Unsupported workspace anchor provider '${provider}'.`);
   const key = String(anchor.key ?? '').trim().toUpperCase();
   if (!/^[A-Z][A-Z0-9_-]*-\d+$/.test(key)) throw new SingularityFlowError('A valid Jira Epic or higher-level key is required.');
   const hierarchyLevel = Number(anchor.hierarchyLevel);
@@ -83,6 +99,15 @@ export function normalizeWorkspaceAnchor(input) {
   };
 }
 
+function normalizeRepositoryJira(value = {}, label) {
+  const input = object(value, label);
+  const board = String(input.board ?? input.projectKey ?? '').trim();
+  if (board.length > 128 || /[\u0000-\u001f\u007f]/.test(board)) {
+    throw new SingularityFlowError(`${label}.board must be a printable value up to 128 characters.`);
+  }
+  return { board: board || null };
+}
+
 function normalizeRepository(id, input) {
   const repository = object(input, `Workspace repository '${id}'`);
   const relativePath = safeRelative(repository.path ?? `repos/${id}`, `Workspace repository '${id}' path`);
@@ -101,6 +126,7 @@ function normalizeRepository(id, input) {
     defaultBranch,
     required: repository.required !== false,
     metadata: normalizeRepositoryMetadata(repository.metadata ?? {}, `Workspace repository '${id}' metadata`),
+    jira: normalizeRepositoryJira(repository.jira ?? {}, `Workspace repository '${id}' Jira configuration`),
     path: relativePath,
     role: repository.role === 'lead' ? 'lead' : 'participant'
   };
@@ -125,7 +151,9 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
     repositories[id] = normalized;
   }
   if (!repositories[manifest.leadRepository]) throw new SingularityFlowError(`Lead repository '${manifest.leadRepository}' is not in the workspace registry.`);
-  repositories[manifest.leadRepository].role = 'lead';
+  for (const [id, repository] of Object.entries(repositories)) {
+    repository.role = id === manifest.leadRepository ? 'lead' : 'participant';
+  }
   manifest.repositories = repositories;
   manifest.directories = {
     stagedDocuments: safeUnder(manifest.directories?.stagedDocuments ?? 'documents/inbox', 'documents', 'Staged-document directory'),
@@ -147,7 +175,9 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
 
 export function workspaceDirectoryName(anchor) {
   const normalized = normalizeWorkspaceAnchor(anchor);
-  return `${normalized.key}--${portableName(normalized.title).toLowerCase()}`;
+  const title = portableName(normalized.title).toLowerCase();
+  if (normalized.provider === 'workspace' && title === normalized.key.toLowerCase()) return normalized.key;
+  return `${normalized.key}--${title}`;
 }
 
 function workspaceDirectories(manifest) {
@@ -221,6 +251,7 @@ function workspaceMaterializationPlan(manifest) {
       defaultBranch: repository.defaultBranch,
       required: repository.required,
       metadata: repository.metadata,
+      jira: repository.jira,
       path: repository.path,
       role: repository.role
     }])),
@@ -240,7 +271,9 @@ function validateRepositoryPlan(repositories, leadRepository) {
   }
   const lead = safeId(leadRepository, 'Lead repository ID');
   if (!normalized[lead]) throw new SingularityFlowError(`Lead repository '${lead}' is not configured.`);
-  normalized[lead].role = 'lead';
+  for (const [id, repository] of Object.entries(normalized)) {
+    repository.role = id === lead ? 'lead' : 'participant';
+  }
   return { normalized, lead };
 }
 
@@ -272,6 +305,36 @@ export function previewWorkspace({
       required: repository.required
     }))
   };
+}
+
+export function previewWorkspaceConfiguration({
+  baseDirectory, id, name, repositories, leadRepository
+}) {
+  const workspaceId = safeId(id, 'Workspace ID');
+  const workspaceName = String(name ?? workspaceId).trim();
+  if (!workspaceName) throw new SingularityFlowError('Workspace name is required.');
+  return previewWorkspace({
+    baseDirectory,
+    anchor: {
+      provider: 'workspace',
+      key: workspaceId,
+      title: workspaceName
+    },
+    name: workspaceName,
+    repositories,
+    leadRepository
+  });
+}
+
+export function createWorkspaceConfiguration(options, settings = {}) {
+  const preview = previewWorkspaceConfiguration(options);
+  return createWorkspace({
+    baseDirectory: options.baseDirectory,
+    anchor: preview.manifest.anchor,
+    name: preview.manifest.name,
+    repositories: preview.manifest.repositories,
+    leadRepository: preview.manifest.leadRepository
+  }, settings);
 }
 
 function gitValue(root, args) {
@@ -361,7 +424,8 @@ export async function createWorkspace(options, {
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
-  if (confirmation !== manifest.anchor.key) throw new SingularityFlowError(`Workspace creation requires exact Jira-key confirmation '${manifest.anchor.key}'.`);
+  const confirmationLabel = manifest.anchor.provider === 'jira' ? 'Jira-key' : 'workspace-ID';
+  if (confirmation !== manifest.anchor.key) throw new SingularityFlowError(`Workspace creation requires exact ${confirmationLabel} confirmation '${manifest.anchor.key}'.`);
   const existing = await stat(root).catch(() => null);
   if (existing && !(await stat(path.join(root, WORKSPACE_FILE)).catch(() => null))) {
     throw new SingularityFlowError(`Workspace target already exists and is not managed by Singularity Flow: ${root}`);
@@ -371,7 +435,7 @@ export async function createWorkspace(options, {
     if (current.id !== manifest.id) throw new SingularityFlowError(`Workspace target contains unrelated workspace '${current.id}'.`);
     if (!sameWorkspaceMaterializationPlan(current, manifest)) {
       throw new SingularityFlowError(
-        `Workspace target contains the same Jira anchor but a different repository materialization plan. `
+        `Workspace target contains the same workspace identity but a different repository materialization plan. `
         + `Open the existing workspace as configured, or choose a different workspace location.`
       );
     }

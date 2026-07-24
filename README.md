@@ -22,7 +22,7 @@ The package contains:
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
 - A phase-aware Planning Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode, surfaces Copilot questions as answerable forms, keeps collapsible IDE-style logs, and promotes only a human-reviewed artifact into Git.
-- Jira-anchored local project workspaces with isolated repository clones, document staging, health checks, resumable setup, and Copilot context separation.
+- Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 
 ## Requirements
 
@@ -68,21 +68,24 @@ Initialization also installs `singularity/portfolio.yml`. It is inert until an i
 
 The Electron **Planning Studio** is a governed client for GitHub Copilot CLI's native Plan mode. It combines the selected phase contract, persona, repository world model, approved inputs, remote skills, requirements, and current draft into a hashed local context pack. Copilot can ask structured questions directly in the app and explore alternatives through persistent follow-up turns; only the artifact explicitly reviewed in the right-hand panel can be promoted, committed, and pushed. See [PLANNING-STUDIO.md](PLANNING-STUDIO.md).
 
-The Electron **Project workspaces** view can wrap an existing Jira Epic or
-higher-level Jira item in a disposable local directory containing one isolated
-clone per participating repository, a clearly ungoverned document inbox, and
-local caches. This does not create a new business hierarchy object:
-Jira remains the hierarchy and committed initiative/story branches remain
-authoritative. Switching workspaces stops the prior Copilot backend before
-activating the new lead repository. See [WORKSPACES.md](WORKSPACES.md).
+The Electron **Workspace configuration** view creates a disposable local
+directory containing one isolated clone per participating repository, a clearly
+ungoverned document inbox, and local caches. Each repository records its Jira
+board or project key, App ID, display name, and optional metadata. Exactly one
+repository is the lead: it is opened as the home for Epic-level artifacts.
+Switching workspaces stops the prior Copilot backend before activating the new
+lead repository. Workspace setup does not require Jira or portfolio governance.
+See [WORKSPACES.md](WORKSPACES.md).
 
-Interrupted workspace creation is resumable: selecting the same Jira anchor and
+Interrupted workspace creation is resumable: selecting the same workspace ID and
 exact repository plan retries missing clones and updates the local
 materialization journal. Singularity Flow rejects configuration drift at an
 existing target, canonicalizes recent workspace aliases, and refuses linked
 workspace manifests rather than crossing a local storage boundary.
 
-If an older repository has no portfolio configuration, opening **Initiatives** or **Jira workspace** now presents a guided setup instead of a dead end. It creates and validates `singularity/portfolio.yml` with the starter profiles, approval identity, optional first repository, and optional Jira policy. No Jira credential is written to YAML, and the new file remains an ordinary uncommitted configuration change until **Commit & push** is selected.
+`singularity/portfolio.yml` remains an advanced editable runtime contract for
+teams that use initiative orchestration, but it is not a separate desktop setup
+screen and is not required to create or open a workspace.
 
 Each participating repository can carry application identity and arbitrary scalar key/value metadata. Use **Initiatives → Portfolio designer → Add repository**, or edit the same governed YAML directly:
 

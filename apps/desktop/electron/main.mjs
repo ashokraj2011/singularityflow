@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
@@ -216,6 +216,42 @@ function assertWorkspace(workspace) {
   return requireActiveWorkspace(activeWorkspace, workspace);
 }
 
+async function workspaceRepositoryDefaults(repository) {
+  const requested = path.resolve(repository);
+  const root = await realpath(requested).catch(() => null);
+  const rootInfo = root ? await lstat(root).catch(() => null) : null;
+  if (!rootInfo?.isDirectory()) throw new Error(`Repository folder is not available: ${requested}`);
+  const gitMetadata = await lstat(path.join(root, '.git')).catch(() => null);
+  if (!gitMetadata || gitMetadata.isSymbolicLink() || (!gitMetadata.isDirectory() && !gitMetadata.isFile())) {
+    throw new Error(`The selected folder is not a safe Git repository: ${root}`);
+  }
+  const { run } = await importCliModule('util.mjs');
+  const topLevel = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
+  const canonicalTopLevel = topLevel.status === 0 ? await realpath(topLevel.stdout.trim()).catch(() => null) : null;
+  if (!canonicalTopLevel || canonicalTopLevel !== root) throw new Error(`Select the Git repository root instead of a nested folder: ${root}`);
+  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+  if (!origin) throw new Error(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
+  const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+    cwd: root,
+    allowFailure: true
+  }).stdout.trim();
+  const branch = remoteHead.replace(/^origin\//, '') || 'main';
+  const id = path.basename(root)
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'repository';
+  return {
+    id,
+    localPath: root,
+    url: origin,
+    defaultBranch: branch,
+    required: true,
+    jira: { board: '' },
+    metadata: { name: path.basename(root), appId: '' }
+  };
+}
+
 function planningWorkspaceBoundary(root) {
   if (!activeWorkspace?.workspace?.path || path.resolve(activeWorkspace.leadRepositoryPath) !== path.resolve(root)) return '';
   const repositories = activeWorkspace.repositories
@@ -406,6 +442,19 @@ function registerHandlers() {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Choose a workspace storage directory' });
     return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  trustedHandle('workspace:repository-defaults', async (event, { repository }) => {
+    assertTrustedSender(event);
+    return workspaceRepositoryDefaults(assertRepository(repository));
+  });
+  trustedHandle('workspace:repository-choose', async (event) => {
+    assertTrustedSender(event);
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'multiSelections'],
+      title: 'Add repositories to this workspace'
+    });
+    if (result.canceled || !result.filePaths.length) return [];
+    return Promise.all(result.filePaths.map((repository) => workspaceRepositoryDefaults(repository)));
   });
   trustedHandle('inbox:refresh', async (_event, { repository }) => {
     const root = assertRepository(repository);
@@ -943,6 +992,26 @@ function registerHandlers() {
       hierarchySnapshot: hierarchy
     };
     const created = await workspaceApi.createWorkspace(input, { confirmation });
+    await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
+    return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
+  });
+  trustedHandle('workspace:configuration-preview', async (event, {
+    repository, baseDirectory, id, name, repositories, leadRepository
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const { previewWorkspaceConfiguration } = await workspaceModule();
+    return previewWorkspaceConfiguration({ baseDirectory, id, name, repositories, leadRepository });
+  });
+  trustedHandle('workspace:configuration-create', async (event, {
+    repository, baseDirectory, id, name, repositories, leadRepository, confirmation
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceApi = await workspaceModule();
+    const created = await workspaceApi.createWorkspaceConfiguration({
+      baseDirectory, id, name, repositories, leadRepository
+    }, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
     return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
   });

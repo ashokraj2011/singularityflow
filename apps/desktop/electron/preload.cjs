@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('singularity', {
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
   saveOnboarding: (profile, complete = false) => ipcRenderer.invoke('onboarding:save', { profile, complete }),
+  setExperienceMode: (experienceMode) => ipcRenderer.invoke('onboarding:experience', { experienceMode }),
   chooseOnboardingWorkspace: () => ipcRenderer.invoke('onboarding:choose-workspace'),
   chooseOnboardingRepositories: () => ipcRenderer.invoke('onboarding:choose-repositories'),
   connectOnboardingJira: (connection) => ipcRenderer.invoke('onboarding:jira-connect', { connection }),
@@ -57,6 +58,14 @@ contextBridge.exposeInMainWorld('singularity', {
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
+  openInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:open', { repository, initiativeId }),
+  refreshInitiatives: (repository) => ipcRenderer.invoke('initiative:refresh', { repository }),
+  publishInitiativePhase: (repository, initiativeId, phaseId, persona) => ipcRenderer.invoke('initiative:phase-publish', {
+    repository, initiativeId, phaseId, persona
+  }),
+  approveInitiativePhase: (repository, initiativeId, subject, confirmation, persona, selfApprovalAcknowledged = false) => ipcRenderer.invoke('initiative:phase-approve', {
+    repository, initiativeId, subject, confirmation, persona, selfApprovalAcknowledged
+  }),
   epicSources: (repository, initiativeId) => ipcRenderer.invoke('epic:sources', { repository, initiativeId }),
   saveEpicStorageCredential: (repository, providerId, token) => ipcRenderer.invoke('epic:storage-credential', { repository, providerId, token }),
   connectEpicSharePoint: (repository, initiativeId, providerId) => ipcRenderer.invoke('epic:sharepoint-connect', {
@@ -96,6 +105,10 @@ contextBridge.exposeInMainWorld('singularity', {
   jiraChildren: (repository, epicKey, refresh = false) => ipcRenderer.invoke('jira:children', { repository, epicKey, refresh }),
   startEpicWizard: (repository, epicKey, profile, persona) => ipcRenderer.invoke('epic:start', {
     repository, epicKey, profile, persona
+  }),
+  previewLocalEpicId: (repository) => ipcRenderer.invoke('epic:local-id-preview', { repository }),
+  startLocalEpic: (repository, title, description, goal, profile, persona) => ipcRenderer.invoke('epic:start-local', {
+    repository, title, description, goal, profile, persona
   }),
   previewJiraAdoption: (repository, initiativeId, epicKey, repositoryMap = {}) => ipcRenderer.invoke('jira:adopt-preview', { repository, initiativeId, epicKey, repositoryMap }),
   adoptJiraEpic: (repository, initiativeId, epicKey, repositoryMap = {}, replace = false) => ipcRenderer.invoke('jira:adopt', { repository, initiativeId, epicKey, repositoryMap, replace }),

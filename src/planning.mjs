@@ -19,6 +19,7 @@ import {
 import { injectPersonaPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
 import { initiativeBreakdownDocument, validateInitiativeBreakdown } from './initiative-repositories.mjs';
+import { assignLocalStoryIds } from './local-identity.mjs';
 import {
   commitInitiativeChange,
   loadInitiative,
@@ -581,7 +582,11 @@ export async function promotePlanningArtifact(root, {
     let breakdownPath = null;
     if (targetDefinition.id === 'story-plan' && targetDefinition.kind === 'yaml') {
       const parsed = parsePromotedYaml(content, 'Story plan');
-      const breakdown = validateInitiativeBreakdown(parsed, portfolio);
+      const breakdown = assignLocalStoryIds(
+        validateInitiativeBreakdown(parsed, portfolio),
+        fresh,
+        portfolio
+      );
       breakdown.initiativeId = fresh.initiative.id;
       breakdownPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, 'breakdown.yml', {
         label: `Initiative '${fresh.initiative.id}' breakdown`,

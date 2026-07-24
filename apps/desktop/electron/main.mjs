@@ -393,6 +393,21 @@ function registerHandlers() {
     }
     return { profile, jira, notices: prepared.notices };
   });
+  trustedHandle('onboarding:experience', async (event, { experienceMode }) => {
+    assertTrustedSender(event);
+    if (!['business', 'engineer'].includes(experienceMode)) throw new Error('Experience mode must be business or engineer.');
+    const jira = await jiraCredentialStore().safeStatus();
+    const current = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
+    if (!current.completed) throw new Error('Finish onboarding before switching the desktop experience.');
+    const profile = await saveOnboardingProfile(onboardingProfilePath(), {
+      ...current,
+      experienceMode
+    }, {
+      complete: true,
+      jiraConnected: jira.connected
+    });
+    return { profile, jira, notices: [] };
+  });
   trustedHandle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;
@@ -626,6 +641,100 @@ function registerHandlers() {
     ['desktop', 'initiative-sync', '--initiative', initiativeId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
+  trustedHandle('initiative:open', async (event, { repository, initiativeId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ loadDefinition }, { assertClean, checkout }] = await Promise.all([
+      importCliModule('config.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const definition = await loadDefinition(root);
+    assertClean(root);
+    checkout(root, initiativeId, {
+      base: definition.defaultBaseBranch,
+      fetch: true,
+      existingOnly: true
+    });
+    return snapshot(root, null, initiativeId);
+  });
+  trustedHandle('initiative:refresh', async (event, { repository }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ loadDefinition }, { fetchRemote, hasRemote }] = await Promise.all([
+      importCliModule('config.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const definition = await loadDefinition(root);
+    const remote = definition.git?.remote ?? 'origin';
+    if (hasRemote(root, remote)) fetchRemote(root, remote);
+    return { remote, fetched: hasRemote(root, remote) };
+  });
+  trustedHandle('initiative:phase-publish', async (event, {
+    repository, initiativeId, phaseId, persona = null
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [
+      { publishInitiativePhase },
+      { commitInitiativeChange }
+    ] = await Promise.all([
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona });
+    const publication = await commitInitiativeChange(
+      root,
+      result.portfolio,
+      result.initiative,
+      `[${initiativeId}][initiative:${phaseId}][publish] generation ${result.phase.generation}`
+    );
+    return { ...result, publication };
+  });
+  trustedHandle('initiative:phase-approve', async (event, {
+    repository, initiativeId, subject = 'phase', confirmation, persona = null,
+    selfApprovalAcknowledged = false
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [
+      { approveInitiative, initiativeBundle },
+      { commitInitiativeChange, loadInitiative },
+      { identity }
+    ] = await Promise.all([
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const loaded = await loadInitiative(root, initiativeId);
+    const phaseId = loaded.initiative.currentPhase;
+    if (!phaseId) throw new Error(`Epic ${initiativeId} is already complete.`);
+    const expected = `${phaseId}:${subject}`;
+    if (confirmation !== expected) throw new Error(`Approval requires exact confirmation '${expected}'.`);
+    const actor = identity(root);
+    const actorEmail = actor.email?.toLowerCase();
+    const phase = loaded.initiative.phases[phaseId];
+    const potentialSelfApproval = Object.values(phase.outputs).some(
+      (output) => output.generatedBy?.email?.toLowerCase() === actorEmail
+    );
+    if (potentialSelfApproval && !selfApprovalAcknowledged) {
+      throw new Error('This is a self-approval and is not independent review. Acknowledge the warning before continuing.');
+    }
+    const before = await initiativeBundle(root, loaded.portfolio, loaded.initiative, phaseId);
+    const result = await approveInitiative(root, {
+      initiativeId,
+      phaseId,
+      subject,
+      persona,
+      channel: 'desktop'
+    });
+    const publication = await commitInitiativeChange(
+      root,
+      result.portfolio,
+      result.initiative,
+      `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`
+    );
+    return { ...result, bundleSha256: before.sha256, publication };
+  });
   trustedHandle('epic:sources', async (event, { repository, initiativeId }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -1114,7 +1223,8 @@ function registerHandlers() {
       title: source.title ?? epicKey,
       profile,
       source,
-      persona
+      persona,
+      idAuthority: 'jira'
     });
     if (profile === 'epic-planning') {
       await registerInitiativeEvidence(root, {
@@ -1139,6 +1249,88 @@ function registerHandlers() {
       `[${epicKey}][epic:init] start ${profile}`
     );
     return { initiativeId: epicKey, source, publication };
+  });
+  trustedHandle('epic:local-id-preview', async (event, { repository }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ loadPortfolio }, { nextLocalEpicId }] = await Promise.all([
+      importCliModule('initiative-config.mjs'),
+      importCliModule('local-identity.mjs')
+    ]);
+    const portfolio = await loadPortfolio(root);
+    return nextLocalEpicId(root, portfolio, { fetch: true });
+  });
+  trustedHandle('epic:start-local', async (event, {
+    repository, title, description = '', goal = '', profile = 'epic-planning', persona
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    if (!String(title ?? '').trim()) throw new Error('Describe the Epic with a title before starting.');
+    const [
+      { loadDefinition },
+      { loadPortfolio },
+      { assertClean, identity },
+      { reserveLocalEpicBranch },
+      { commitInitiativeChange, createInitiative, loadInitiative },
+      { registerInitiativeEvidence },
+      { setPersonaSession }
+    ] = await Promise.all([
+      importCliModule('config.mjs'),
+      importCliModule('initiative-config.mjs'),
+      importCliModule('git.mjs'),
+      importCliModule('local-identity.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('session.mjs')
+    ]);
+    const [definition, portfolio] = await Promise.all([loadDefinition(root), loadPortfolio(root)]);
+    if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
+    if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    assertClean(root);
+    const actor = identity(root);
+    const reservation = await reserveLocalEpicBranch(root, portfolio, {
+      base: definition.defaultBaseBranch,
+      actor
+    });
+    const source = {
+      type: 'manual',
+      id: reservation.id,
+      title: String(title).trim(),
+      description: String(description ?? '').trim(),
+      goal: String(goal ?? '').trim()
+    };
+    await setPersonaSession(root, definition, actor, persona, reservation.id);
+    const created = await createInitiative(root, {
+      id: reservation.id,
+      title: source.title,
+      profile,
+      source,
+      persona,
+      idAuthority: 'local'
+    });
+    if (profile === 'epic-planning') {
+      await registerInitiativeEvidence(root, {
+        initiativeId: reservation.id,
+        phaseId: 'epic-intake',
+        checkId: 'epic-identity-verified',
+        assurance: 'machine-verified',
+        verificationMethod: 'git-atomic-branch-reservation',
+        source: {
+          externalId: reservation.id,
+          version: reservation.reservationCommit,
+          observedState: `Local Epic ID ${reservation.id} reserved on its canonical Git branch`
+        },
+        persona
+      });
+    }
+    const started = await loadInitiative(root, reservation.id, created.portfolio);
+    const publication = await commitInitiativeChange(
+      root,
+      started.portfolio,
+      started.initiative,
+      `[${reservation.id}][epic:init] start ${profile}`
+    );
+    return { initiativeId: reservation.id, source, reservation, publication };
   });
   trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap
@@ -1179,14 +1371,28 @@ function registerHandlers() {
   }) => {
     assertTrustedSender(event);
     const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId);
-    const [{ applyJiraWritePlan }, { commitInitiativeChange }, { identity }] = await Promise.all([
+    const [{ applyJiraWritePlan }, { commitInitiativeChange, loadInitiative }, { registerInitiativeEvidence }, { identity }] = await Promise.all([
       importCliModule('jira-initiative.mjs'),
       importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-evidence.mjs'),
       importCliModule('git.mjs')
     ]);
     const actor = identity(root).email?.toLowerCase() ?? identity(root).name;
     const result = await applyJiraWritePlan(root, initiativeId, { planSha256, confirmation, connection, actor });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    await registerInitiativeEvidence(root, {
+      initiativeId,
+      phaseId: 'epic-create',
+      checkId: 'jira-permission-verified',
+      assurance: 'system-verified',
+      verificationMethod: 'jira-permission-preflight-and-apply',
+      source: {
+        externalId: planSha256,
+        version: result.application.appliedAt,
+        observedState: `${result.results.length} reviewed Jira operations applied by an account with required permissions`
+      }
+    });
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
     jiraCache.clear();
     return { plan: result.plan, results: result.results, publication };
   });

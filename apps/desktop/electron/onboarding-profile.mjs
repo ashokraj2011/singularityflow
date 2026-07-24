@@ -17,6 +17,13 @@ export const ONBOARDING_ROLES = new Set([
   'operations',
   'other'
 ]);
+export const EXPERIENCE_MODES = new Set(['business', 'engineer']);
+
+export function defaultExperienceMode(role) {
+  return ['product-owner', 'business-analyst', 'product-designer', 'delivery-manager'].includes(role)
+    ? 'business'
+    : 'engineer';
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -75,6 +82,9 @@ export function normalizeOnboardingProfile(input = {}, {
   }
   const name = String(input.name ?? '').trim().slice(0, 160);
   const role = String(input.role ?? '').trim();
+  const experienceMode = EXPERIENCE_MODES.has(input.experienceMode)
+    ? input.experienceMode
+    : defaultExperienceMode(role);
   const workspacePath = input.workspacePath ? path.resolve(String(input.workspacePath).trim()) : null;
   const repositories = normalizedRepositories(input.repositories ?? []);
   const step = Number.isInteger(input.step) ? Math.max(0, Math.min(4, input.step)) : 0;
@@ -100,6 +110,7 @@ export function normalizeOnboardingProfile(input = {}, {
     completed,
     name,
     role: role || null,
+    experienceMode,
     step: completed ? 4 : step,
     workspacePath,
     repositories,

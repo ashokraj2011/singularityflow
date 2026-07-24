@@ -146,6 +146,42 @@ test('portfolio repository metadata accepts App IDs, names, and scalar organizat
   assert.throws(() => validatePortfolio(unsafe), /metadata key/);
 });
 
+test('Epic identity and repository Jira routing are normalized and pinned', () => {
+  const portfolio = validatePortfolio({
+    version: 1,
+    identity: {
+      configurablePerEpic: true,
+      local: { epicPrefix: 'DEMO-E', storyPrefix: 'DEMO-S', pad: 4 }
+    },
+    jira: {
+      enabled: true,
+      writeMode: 'approved',
+      projectKey: 'LEAD',
+      allowedProjects: ['LEAD', 'MOB']
+    },
+    repositories: {
+      mobile: {
+        url: 'git@github.com:company/mobile.git',
+        jira: { projectKey: 'MOB', boardId: '42' },
+        metadata: { appId: 'APP-1001', name: 'Mobile' }
+      }
+    },
+    approvalAuthorities: {},
+    initiativeProfiles: { epic: { phases: ['define'] } },
+    initiativePhases: { define: {} }
+  });
+  assert.equal(portfolio.identity.authority, 'jira');
+  assert.equal(portfolio.identity.local.pad, 4);
+  assert.equal(portfolio.repositories.mobile.jira.projectKey, 'MOB');
+  const local = resolveInitiativeProfile(portfolio, 'epic', { idAuthority: 'local' });
+  assert.equal(local.identity.authority, 'local');
+  assert.equal(local.repositories.mobile.metadata.appId, 'APP-1001');
+  assert.throws(
+    () => resolveInitiativeProfile({ ...portfolio, identity: { ...portfolio.identity, configurablePerEpic: false } }, 'epic', { idAuthority: 'local' }),
+    /pinned to 'jira'/
+  );
+});
+
 test('initiative world-model views must be declared by the repository workflow', async () => {
   const root = await repository();
   const portfolio = await loadPortfolio(root);

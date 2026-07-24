@@ -92,7 +92,7 @@ test('signing modes distinguish local fallback from required official credential
 
 test('desktop versions match across packages, lock, plugin, and marketplace', async () => {
   const information = await desktopVersionInfo(root);
-  assert.equal(information.version, '0.8.0');
+  assert.equal(information.version, '0.9.0');
   assert.equal(information.electronVersion, '43.1.1');
   assert.doesNotThrow(() => assertReleaseTag('0.8.0', 'v0.8.0'));
   assert.throws(() => assertReleaseTag('0.8.0', 'v0.8.1'), /does not match/);

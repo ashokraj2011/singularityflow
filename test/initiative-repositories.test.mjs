@@ -40,7 +40,7 @@ async function childRemote(base, name) {
   return remote;
 }
 
-async function repository() {
+async function repository({ jira = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-repositories-'));
   const mobile = await childRemote(base, 'mobile');
   const api = await childRemote(base, 'api');
@@ -58,6 +58,22 @@ async function repository() {
     mobile: { url: mobile, defaultBranch: 'main', required: true, metadata: { appId: 'APP-MOBILE', name: 'Mobile application' } },
     api: { url: api, defaultBranch: 'main', required: true, metadata: { appId: 'APP-API', owner: 'Integration' } }
   };
+  if (jira) {
+    portfolio.jira = {
+      enabled: true,
+      writeMode: 'approved',
+      write: true,
+      projectKey: 'PORT',
+      projectAllowlist: ['PORT'],
+      epicIssueType: 'Epic',
+      storyIssueType: 'Story'
+    };
+    portfolio.identity = {
+      authority: 'jira',
+      configurablePerEpic: false,
+      local: portfolio.identity?.local
+    };
+  }
   await writeFile(portfolioFile, YAML.stringify(portfolio));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize lead'], { cwd: root });
@@ -204,11 +220,7 @@ test('materialization rejects a symbolic-link managed-clone cache', async () => 
 });
 
 test('Jira materialization persists separate epic and story Jira IDs into breakdown and seeds', async () => {
-  const { root, api } = await repository();
-  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
-  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
-  portfolio.jira = { write: true, projectKey: 'PORT', epicIssueType: 'Epic', storyIssueType: 'Story' };
-  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  const { root, api } = await repository({ jira: true });
   let created = 100;
   const fetchImpl = async (_url, init) => {
     const payload = init.method === 'POST' && String(init.body).includes('"jql"')

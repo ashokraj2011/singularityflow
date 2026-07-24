@@ -18,6 +18,7 @@ test('onboarding profile requires only a local name and role while keeping integ
     repositories: []
   });
   assert.equal(draft.completed, false);
+  assert.equal(draft.experienceMode, 'engineer');
   assert.equal(draft.step, 0);
   assert.deepEqual(draft.repositories, []);
   const completed = normalizeOnboardingProfile(draft, { complete: true });
@@ -25,6 +26,17 @@ test('onboarding profile requires only a local name and role while keeping integ
   assert.equal(completed.step, 4);
   assert.equal(completed.workspacePath, null);
   assert.equal(completed.jiraChoice, 'later');
+});
+
+test('onboarding derives a role-aware experience and preserves an explicit mode switch', () => {
+  assert.equal(normalizeOnboardingProfile({ role: 'product-owner' }).experienceMode, 'business');
+  assert.equal(normalizeOnboardingProfile({ role: 'business-analyst' }).experienceMode, 'business');
+  assert.equal(normalizeOnboardingProfile({ role: 'developer' }).experienceMode, 'engineer');
+  assert.equal(normalizeOnboardingProfile({
+    name: 'Hands-on Product Owner',
+    role: 'product-owner',
+    experienceMode: 'engineer'
+  }, { complete: true }).experienceMode, 'engineer');
 });
 
 test('onboarding completion validates name and role without forcing advanced setup', () => {

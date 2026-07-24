@@ -159,6 +159,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Advanced governance/);
   assert.match(source, /Cross-repository control plane/);
   assert.match(source, /Set up your Epic workspace/);
+  assert.match(source, /compact=\{\['requirements', 'planning'\]\.includes\(entryTab\)\}/);
+  assert.match(source, /One-time planning setup/);
+  assert.match(source, /\{!compact && <section className="portfolio-setup-intro"/);
+  assert.match(styles, /\.portfolio-setup\.compact/);
+  assert.match(styles, /\.portfolio-setup-compact-head/);
   assert.match(source, /Create & validate governance/);
   assert.match(source, /Set your working perspective/);
   assert.match(source, /Advanced setup/);

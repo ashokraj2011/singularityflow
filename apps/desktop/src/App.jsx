@@ -869,7 +869,7 @@ function ImpactStudio({ data, openPlanning }) {
   </div>;
 }
 
-function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel = null }) {
+function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel = null, compact = false }) {
   const [values, setValues] = useState({
     approvalName: '',
     approvalEmail: '',
@@ -929,9 +929,10 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false, onCancel =
       writeMode: values.jiraWriteMode
     });
   }
-  return <div className="portfolio-setup">
-    <section className="portfolio-setup-intro"><span className="jira-mark">{jiraFirst ? 'J' : 'S'}</span><span className="eyebrow">{jiraFirst ? 'Jira setup' : 'Advanced governance setup'}</span><h1>{jiraFirst ? 'Connect Jira to bring in Epics' : 'Set up your Epic workspace'}</h1><p>{jiraFirst ? <>Define the allowed Jira host and project for this repository. Credentials are entered on the next screen and stay encrypted in the operating-system keychain.</> : <>This creates the governed profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</>}</p><div className="portfolio-setup-steps">{jiraFirst ? <><span><b>1</b>Policy</span><span><b>2</b>Credentials</span><span><b>3</b>Choose Epic</span></> : <><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></>}</div></section>
+  return <div className={`portfolio-setup${compact ? ' compact' : ''}`}>
+    {!compact && <section className="portfolio-setup-intro"><span className="jira-mark">{jiraFirst ? 'J' : 'S'}</span><span className="eyebrow">{jiraFirst ? 'Jira setup' : 'Advanced governance setup'}</span><h1>{jiraFirst ? 'Connect Jira to bring in Epics' : 'Set up your Epic workspace'}</h1><p>{jiraFirst ? <>Define the allowed Jira host and project for this repository. Credentials are entered on the next screen and stay encrypted in the operating-system keychain.</> : <>This creates the governed profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</>}</p><div className="portfolio-setup-steps">{jiraFirst ? <><span><b>1</b>Policy</span><span><b>2</b>Credentials</span><span><b>3</b>Choose Epic</span></> : <><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></>}</div></section>}
     <section className="portfolio-setup-form panel">
+      {compact && <header className="portfolio-setup-compact-head"><div><span className="eyebrow">One-time planning setup</span><h1>Initialize this Epic workspace</h1><p>Add only what you need now. Profiles, approvals, repositories, and Jira policy remain editable in Engineer tools.</p></div><Pill tone="neutral">Repository local</Pill></header>}
       {!jiraFirst && <><header><span className="eyebrow">Approval identity</span><h2>Who owns the initial gates?</h2><p>Leave these blank to use the repository’s configured Git name and email.</p></header>
       <div className="control-grid"><label><span>Display name</span><input value={values.approvalName} placeholder="Use Git user.name" onChange={(event) => set('approvalName', event.target.value)} /></label><label><span>Email</span><input type="email" value={values.approvalEmail} placeholder="Use Git user.email" onChange={(event) => set('approvalEmail', event.target.value)} /></label></div>
       <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Advanced governance.</p></header>
@@ -2319,7 +2320,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
               : null;
     if (nextTab) setTab(nextTab);
   }, [entryTab, selected?.state.initiative.id, selected?.state.currentPhase, selected?.state.status]);
-  if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} /></div>;
+  if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} compact={['requirements', 'planning'].includes(entryTab)} /></div>;
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
   const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
   let portfolioDraft = portfolio;

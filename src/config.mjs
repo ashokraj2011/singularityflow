@@ -4,7 +4,13 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, readJson, snapshot, writeText } from './util.mjs';
+import {
+  secureRepositoryPath,
+  SingularityFlowError,
+  readJson,
+  snapshot,
+  writeText
+} from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
 import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
@@ -191,18 +197,29 @@ export function validateDefinition(definition) {
   return definition;
 }
 
-async function markdownFiles(directory) {
-  if (!existsSync(directory)) return [];
+async function markdownFiles(root, relativeDirectory) {
+  const boundary = await secureRepositoryPath(root, relativeDirectory, {
+    label: 'Prompt dependency directory',
+    type: 'directory'
+  });
+  if (!boundary.exists) return [];
   const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await markdownFiles(absolute));
+  for (const entry of await readdir(boundary.absolute, { withFileTypes: true })) {
+    const absolute = path.join(boundary.absolute, entry.name);
+    const relative = path.join(relativeDirectory, entry.name);
+    if (entry.isSymbolicLink()) throw new SingularityFlowError(`Prompt dependency cannot be a symbolic link: ${relative}`);
+    if (entry.isDirectory()) files.push(...await markdownFiles(root, relative));
     else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) files.push(absolute);
   }
   return files;
 }
 
 export async function worldModelPromptViewReferences(root, definition) {
+  const repository = await secureRepositoryPath(root, '.', {
+    label: 'Repository root',
+    mustExist: true,
+    type: 'directory'
+  });
   const locations = [
     definition.templatesRoot,
     definition.personaPromptsRoot,
@@ -211,15 +228,21 @@ export async function worldModelPromptViewReferences(root, definition) {
     '.claude/agents'
   ];
   const source = definition.worldModel?.promptSource;
-  const promptFiles = source && source !== 'builtin' ? [path.join(root, source)] : [];
-  for (const location of locations) promptFiles.push(...await markdownFiles(path.join(root, location)));
+  const promptFiles = [];
+  if (source && source !== 'builtin') {
+    const prompt = await secureRepositoryPath(root, source, {
+      label: 'World-model prompt',
+      type: 'file'
+    });
+    if (prompt.exists) promptFiles.push(prompt.absolute);
+  }
+  for (const location of locations) promptFiles.push(...await markdownFiles(root, location));
   const references = new Map();
   for (const file of [...new Set(promptFiles)]) {
-    if (!existsSync(file)) continue;
     const content = await readFile(file, 'utf8');
     for (const view of markdownWorldModelViews(content)) {
       const list = references.get(view) ?? [];
-      const relative = path.relative(root, file).replaceAll(path.sep, '/');
+      const relative = path.relative(repository.root, file).replaceAll(path.sep, '/');
       if (!list.includes(relative)) list.push(relative);
       references.set(view, list);
     }
@@ -279,26 +302,45 @@ function legacyDefinition(config, worldModel = {}) {
 }
 
 export async function loadDefinition(root) {
-  const yamlPath = path.join(root, WORKFLOW_PATH);
-  if (existsSync(yamlPath)) {
-    const definition = validateDefinition(YAML.parse(await readFile(yamlPath, 'utf8')));
-    for (const [id, persona] of Object.entries(definition.personas)) if (!existsSync(path.join(root, definition.personaPromptsRoot, persona.prompt))) throw new SingularityFlowError(`Persona prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
+  const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
+    label: 'Workflow configuration',
+    type: 'file'
+  });
+  if (workflow.exists) {
+    const definition = validateDefinition(YAML.parse(await readFile(workflow.absolute, 'utf8')));
+    for (const [id, persona] of Object.entries(definition.personas)) {
+      const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
+        label: `Persona prompt for '${id}'`,
+        type: 'file'
+      });
+      if (!prompt.exists) throw new SingularityFlowError(`Persona prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
+    }
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
       if (isAgentTemplateReference(phase.template)) continue;
-      if (!existsSync(path.join(root, definition.templatesRoot, phase.template))) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
+      const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
+        label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
+        type: 'file'
+      });
+      if (!template.exists) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
     }
     await validateWorldModelPromptViewReferences(root, definition);
     return definition;
   }
-  const legacyPath = path.join(root, 'singularity/config.json');
-  if (!existsSync(legacyPath)) {
+  const legacy = await secureRepositoryPath(root, 'singularity/config.json', {
+    label: 'Legacy workflow configuration',
+    type: 'file'
+  });
+  if (!legacy.exists) {
     if (existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
       throw new SingularityFlowError(`This repository still uses ${LEGACY_CONTROL_ROOT}/. Run singularity-flow migrate-config to move it to ${CONTROL_ROOT}/.`);
     }
     throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
   }
-  const worldPath = path.join(root, 'singularity/worldmodel.json');
-  return legacyDefinition(await readJson(legacyPath), existsSync(worldPath) ? await readJson(worldPath) : {});
+  const world = await secureRepositoryPath(root, 'singularity/worldmodel.json', {
+    label: 'Legacy world-model configuration',
+    type: 'file'
+  });
+  return legacyDefinition(await readJson(legacy.absolute), world.exists ? await readJson(world.absolute) : {});
 }
 
 async function copyIfMissing(source, destination) {
@@ -357,16 +399,24 @@ export function resolveWorkType(definition, workTypeId) {
 }
 
 export async function snapshotResolution(root, definition, resolved) {
-  const definitionSnapshot = await snapshot(path.join(root, WORKFLOW_PATH));
+  const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
+    label: 'Workflow configuration',
+    mustExist: true,
+    type: 'file'
+  });
+  const definitionSnapshot = await snapshot(workflow.absolute);
   const templates = {};
   for (const phase of resolved.phases) {
     if (isAgentTemplateReference(phase.template)) {
       templates[phase.id] = await materializeAgentTemplate(root, phase.template, { phaseId: phase.id });
       continue;
     }
-    const file = path.join(root, definition.templatesRoot, phase.template);
-    if (!existsSync(file)) throw new SingularityFlowError(`Template missing for phase '${phase.id}': ${path.relative(root, file)}`);
-    templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file)).sha256 };
+    const file = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
+      label: `Template for phase '${phase.id}'`,
+      mustExist: true,
+      type: 'file'
+    });
+    templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file.absolute)).sha256 };
   }
   return {
     configSha256: definitionSnapshot.sha256,
@@ -534,10 +584,19 @@ async function refreshMovedRuntimeSnapshots(root, movedFrom) {
 }
 
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
-  const file = variables.templateSnapshot?.source === 'agent'
+  const relative = variables.templateSnapshot?.source === 'agent'
     ? path.join(root, variables.templateSnapshot.path)
     : path.join(root, definition.templatesRoot, resolvedPhase.template);
-  let text = await readFile(file, 'utf8');
+  const file = await secureRepositoryPath(root, relative, {
+    label: `Artifact template for phase '${resolvedPhase.id}'`,
+    mustExist: true,
+    type: 'file'
+  });
+  const current = await snapshot(file.absolute);
+  if (variables.templateSnapshot?.sha256 && current.sha256 !== variables.templateSnapshot.sha256) {
+    throw new SingularityFlowError(`Artifact template for phase '${resolvedPhase.id}' changed after this work item was created. Restore ${file.relative} to ${variables.templateSnapshot.sha256} or start a new work item.`);
+  }
+  let text = await readFile(file.absolute, 'utf8');
   const replacements = {
     '{{work.id}}': variables.id,
     '{{work.title}}': variables.title,
@@ -553,5 +612,10 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
 export async function personaPrompt(root, definition, personaId) {
   const persona = definition.personas[personaId];
   if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
-  return readFile(path.join(root, definition.personaPromptsRoot, persona.prompt), 'utf8');
+  const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
+    label: `Persona prompt for '${personaId}'`,
+    mustExist: true,
+    type: 'file'
+  });
+  return readFile(prompt.absolute, 'utf8');
 }

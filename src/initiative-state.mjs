@@ -10,7 +10,7 @@ import {
 import { loadDefinition } from './config.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
-  SingularityFlowError, exists, nowIso, posix, readJson, run, snapshot, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, exists, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
@@ -273,7 +273,16 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
     const target = path.join(initiativeDir(root, portfolio, id), output.path);
     if (!(await exists(target))) {
       const templateRecord = initiative.resolution.templates[outputKey(phaseId, output.id)];
-      let text = await readFile(path.join(root, templateRecord.path), 'utf8');
+      const template = await secureRepositoryPath(root, templateRecord.path, {
+        label: `Initiative template for '${phaseId}/${output.id}'`,
+        mustExist: true,
+        type: 'file'
+      });
+      const currentTemplate = await snapshot(template.absolute);
+      if (currentTemplate.sha256 !== templateRecord.sha256) {
+        throw new SingularityFlowError(`Initiative template for '${phaseId}/${output.id}' changed after ${initiative.initiative.id} was created. Restore ${template.relative} to ${templateRecord.sha256} or start a new initiative.`);
+      }
+      let text = await readFile(template.absolute, 'utf8');
       const replacements = {
         '{{initiative.id}}': initiative.initiative.id,
         '{{initiative.title}}': initiative.initiative.title,

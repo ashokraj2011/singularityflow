@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
@@ -11,7 +12,8 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 test('Electron repository validation explains invalid and uninitialized selections', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-electron-repository-'));
   await assert.rejects(() => validateRepositoryDirectory(root), /not a Git repository/);
-  await mkdir(path.join(root, '.git'));
+  const initialized = spawnSync('git', ['init', '-b', 'main'], { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
   await assert.rejects(() => validateRepositoryDirectory(root), /not initialized with Singularity Flow/);
   await mkdir(path.join(root, '.singularity'));
   await writeFile(path.join(root, '.singularity', 'workflow.yml'), 'version: 1\n');
@@ -21,7 +23,30 @@ test('Electron repository validation explains invalid and uninitialized selectio
   );
   await mkdir(path.join(root, 'singularity'));
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'version: 1\n');
-  assert.equal(await validateRepositoryDirectory(root), root);
+  assert.equal(await validateRepositoryDirectory(root), await realpath(root));
+});
+
+test('Electron repository validation canonicalizes aliases and rejects fake Git or symlinked control paths', async () => {
+  const fake = await mkdtemp(path.join(os.tmpdir(), 'sflow-electron-fake-git-'));
+  await mkdir(path.join(fake, '.git'));
+  await mkdir(path.join(fake, 'singularity'));
+  await writeFile(path.join(fake, 'singularity', 'workflow.yml'), 'version: 1\n');
+  await assert.rejects(() => validateRepositoryDirectory(fake), /not a valid Git working tree/);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-electron-canonical-'));
+  assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: root }).status, 0);
+  const external = await mkdtemp(path.join(os.tmpdir(), 'sflow-electron-external-'));
+  await writeFile(path.join(external, 'workflow.yml'), 'version: 1\n');
+  await symlink(external, path.join(root, 'singularity'), 'dir');
+  await assert.rejects(() => validateRepositoryDirectory(root), /control directory cannot be a symbolic link/);
+
+  const safe = await mkdtemp(path.join(os.tmpdir(), 'sflow-electron-safe-'));
+  assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: safe }).status, 0);
+  await mkdir(path.join(safe, 'singularity'));
+  await writeFile(path.join(safe, 'singularity', 'workflow.yml'), 'version: 1\n');
+  const alias = `${safe}-alias`;
+  await symlink(safe, alias, 'dir');
+  assert.equal(await validateRepositoryDirectory(alias), await realpath(safe));
 });
 
 test('Electron CLI runner returns JSON and bounds a stuck child process', async () => {

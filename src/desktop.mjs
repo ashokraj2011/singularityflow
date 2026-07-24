@@ -16,7 +16,16 @@ import { documentCatalog } from './documents.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
 import { loadWorkflow } from './state.mjs';
-import { exists, posix, readJson, repoRelative, run, SingularityFlowError, writeText } from './util.mjs';
+import {
+  exists,
+  posix,
+  readJson,
+  repoRelative,
+  run,
+  secureRepositoryPath,
+  SingularityFlowError,
+  writeText
+} from './util.mjs';
 import { AGENT_LOCK_PATH, agentStatus, discoverAgents } from './agents.mjs';
 import { structuredWorldModelViewReferences, worldModelViewCatalog } from './world-model-views.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
@@ -43,19 +52,27 @@ const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
 const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
 
 async function textFiles(root, relativeRoot, { extensions = null } = {}) {
-  const absoluteRoot = path.join(root, relativeRoot);
-  if (!(await exists(absoluteRoot))) return [];
+  const boundary = await secureRepositoryPath(root, relativeRoot, {
+    label: `Desktop content directory '${relativeRoot}'`,
+    type: 'directory'
+  });
+  if (!boundary.exists) return [];
+  const absoluteRoot = boundary.absolute;
+  const canonicalRoot = boundary.root;
   const output = [];
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new SingularityFlowError(`Desktop content cannot include a symbolic link: ${posix(path.relative(canonicalRoot, absolute))}`);
+      }
       if (entry.isDirectory()) await visit(absolute);
       else if (entry.isFile()) {
         if (extensions && !extensions.includes(path.extname(entry.name).toLowerCase())) continue;
         const content = await readFile(absolute);
         if (content.length > TEXT_FILE_LIMIT) continue;
         output.push({
-          path: posix(path.relative(root, absolute)),
+          path: posix(path.relative(canonicalRoot, absolute)),
           name: posix(path.relative(absoluteRoot, absolute)),
           content: content.toString('utf8'),
           bytes: content.length
@@ -71,8 +88,11 @@ async function worldModelPrompt(root, definition) {
   const configured = definition.worldModel?.promptSource ?? DEFAULT_WORLD_MODEL_PROMPT;
   const builtin = configured === 'builtin';
   const relative = builtin ? DEFAULT_WORLD_MODEL_PROMPT : posix(configured);
-  const absolute = path.join(root, relative);
-  if (!builtin && await exists(absolute)) return { path: relative, name: path.posix.basename(relative), content: await readFile(absolute, 'utf8'), missing: false, builtin };
+  const prompt = await secureRepositoryPath(root, relative, {
+    label: 'World-model builder prompt',
+    type: 'file'
+  });
+  if (!builtin && prompt.exists) return { path: relative, name: path.posix.basename(relative), content: await readFile(prompt.absolute, 'utf8'), missing: false, builtin };
   const fallback = path.join(packageRoot, 'templates/worldmodel-builder.md');
   return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin };
 }
@@ -80,9 +100,12 @@ async function worldModelPrompt(root, definition) {
 async function planningPrompt(root, definition) {
   const configured = normalizePlanning(definition.planning ?? {});
   const relative = configured.promptSource;
-  const absolute = path.join(root, relative);
-  if (await exists(absolute)) {
-    return { path: relative, name: path.posix.basename(relative), content: await readFile(absolute, 'utf8'), missing: false, builtin: false };
+  const prompt = await secureRepositoryPath(root, relative, {
+    label: 'Copilot planning prompt',
+    type: 'file'
+  });
+  if (prompt.exists) {
+    return { path: relative, name: path.posix.basename(relative), content: await readFile(prompt.absolute, 'utf8'), missing: false, builtin: false };
   }
   const fallback = path.join(packageRoot, 'templates/copilot-planning.md');
   return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin: true };
@@ -181,7 +204,11 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   }
   const agents = await discoverAgents(root);
   const telemetry = await copilotTelemetryStatus(root);
-  const lockExists = await exists(path.join(root, AGENT_LOCK_PATH));
+  const agentLock = await secureRepositoryPath(root, AGENT_LOCK_PATH, {
+    label: 'Remote-agent lock file',
+    type: 'file'
+  });
+  const lockExists = agentLock.exists;
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const builderPrompt = await worldModelPrompt(root, definition);
   const plannerPrompt = await planningPrompt(root, definition);
@@ -224,7 +251,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     },
     agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
     agentStatus: await agentStatus(root),
-    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') : '# No remote agents are trusted yet.\n' },
+    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
     workItems: items,
     initiatives,
     selectedInitiativeId,
@@ -355,18 +382,21 @@ export async function saveDesktopFile(root, requestedPath, content) {
     try { validatePortfolio(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because portfolio validation failed: ${error.message}`); }
   }
-  const absolute = path.join(root, relative);
-  const existed = await exists(absolute);
-  const previous = existed ? await readFile(absolute, 'utf8') : null;
-  await writeText(absolute, content);
+  const target = await secureRepositoryPath(root, relative, {
+    label: 'Desktop configuration target',
+    type: 'file'
+  });
+  const existed = target.exists;
+  const previous = existed ? await readFile(target.absolute, 'utf8') : null;
+  await writeText(target.absolute, content);
   try {
     const updatedDefinition = await loadDefinition(root);
     const updatedPortfolio = await loadPortfolio(root, { required: false });
     if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
     await discoverAgents(root);
   } catch (error) {
-    if (existed) await writeText(absolute, previous);
-    else await unlink(absolute);
+    if (existed) await writeText(target.absolute, previous);
+    else await unlink(target.absolute);
     throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`);
   }
   return { path: relative, changed: changedFiles(root).includes(relative) };
@@ -409,9 +439,12 @@ export async function deleteDesktopFile(root, requestedPath) {
     for (const [personaId, persona] of Object.entries(definition.personas)) if (persona.prompt === prompt) references.push(`persona ${personaId}`);
   }
   if (references.length) throw new SingularityFlowError(`File '${relative}' is still referenced by ${references.join(', ')}. Select a replacement before deleting it.`);
-  const absolute = path.join(root, relative);
-  if (!(await exists(absolute))) throw new SingularityFlowError(`Configuration file does not exist: ${relative}`);
-  await unlink(absolute);
+  const target = await secureRepositoryPath(root, relative, {
+    label: 'Desktop configuration file',
+    mustExist: true,
+    type: 'file'
+  });
+  await unlink(target.absolute);
   return { path: relative, deleted: true, changed: changedFiles(root).includes(relative) };
 }
 
@@ -420,9 +453,12 @@ export async function readDesktopFile(root, requestedPath) {
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
   if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, work-item, or initiative file: ${relative}`);
-  const absolute = path.join(root, relative);
-  if (!(await exists(absolute))) throw new SingularityFlowError(`File does not exist: ${relative}`);
-  const content = await readFile(absolute);
+  const target = await secureRepositoryPath(root, relative, {
+    label: 'Desktop export file',
+    mustExist: true,
+    type: 'file'
+  });
+  const content = await readFile(target.absolute);
   if (content.length > TEXT_FILE_LIMIT) throw new SingularityFlowError(`File exceeds the ${TEXT_FILE_LIMIT}-byte desktop export limit: ${relative}`);
   return { path: relative, name: path.posix.basename(relative), content: content.toString('utf8'), contentBase64: content.toString('base64'), bytes: content.length };
 }

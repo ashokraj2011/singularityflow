@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export class SingularityFlowError extends Error {
@@ -183,6 +183,46 @@ export function repoRelative(root, candidate) {
   const relative = path.relative(root, absolute);
   if (relative.startsWith('..') || path.isAbsolute(relative)) throw new SingularityFlowError(`Path is outside the repository: ${candidate}`);
   return posix(relative || '.');
+}
+
+async function lstatOrNull(target) {
+  try {
+    return await lstat(target);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  }
+}
+
+export async function secureRepositoryPath(root, candidate, {
+  label = 'Repository path',
+  mustExist = false,
+  type = null
+} = {}) {
+  const relative = repoRelative(root, candidate);
+  const canonicalRoot = await realpath(path.resolve(root));
+  const absolute = path.resolve(canonicalRoot, relative);
+  const entry = await lstatOrNull(absolute);
+  if (entry?.isSymbolicLink()) throw new SingularityFlowError(`${label} cannot be a symbolic link: ${relative}`);
+
+  let probe = entry ? absolute : path.dirname(absolute);
+  let probeEntry = entry;
+  while (!probeEntry) {
+    probeEntry = await lstatOrNull(probe);
+    if (probeEntry) break;
+    const parent = path.dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  const canonicalProbe = await realpath(probe);
+  const probeRelative = path.relative(canonicalRoot, canonicalProbe);
+  if (probeRelative.startsWith('..') || path.isAbsolute(probeRelative)) {
+    throw new SingularityFlowError(`${label} resolves outside the repository: ${relative}`);
+  }
+  if (mustExist && !entry) throw new SingularityFlowError(`${label} does not exist: ${relative}`);
+  if (entry && type === 'file' && !entry.isFile()) throw new SingularityFlowError(`${label} must be a regular file: ${relative}`);
+  if (entry && type === 'directory' && !entry.isDirectory()) throw new SingularityFlowError(`${label} must be a directory: ${relative}`);
+  return { root: canonicalRoot, relative, absolute, exists: Boolean(entry), entry };
 }
 
 export function truncate(value, max = 2000) {

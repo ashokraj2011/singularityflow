@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -43,6 +43,15 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
   assert.equal(enterprise.phases.find((phase) => phase.id === 'delivery').checklist.find((check) => check.id === 'monitoring-healthy').freshness.validFor, '24h');
   assert.ok(enterprise.phases.every((phase) => phase.bundleApproval.allowSelfApproval));
   assert.doesNotMatch(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /brokerage/i);
+});
+
+test('portfolio loading rejects a symlinked governance file', async () => {
+  const root = await repository();
+  const portfolio = path.join(root, 'singularity/portfolio.yml');
+  const original = `${portfolio}.original`;
+  await rename(portfolio, original);
+  await symlink(original, portfolio);
+  await assert.rejects(() => loadPortfolio(root), /portfolio configuration cannot be a symbolic link/i);
 });
 
 test('portfolio validation rejects bad references, assurance, conditions, and empty profiles', () => {
@@ -128,6 +137,23 @@ test('initiative creation snapshots the profile and prepares phase-specific outp
   const loaded = (await loadInitiative(root, 'INIT-100')).initiative;
   assert.equal(initiativeProgress(loaded).percentage, 0);
   assert.equal(loaded.phases.define.outputs['business-case'].status, 'draft');
+});
+
+test('initiative preparation enforces its immutable template snapshot', async () => {
+  const root = await repository();
+  run('git', ['switch', '-c', 'INIT-PIN'], { cwd: root });
+  const { initiative } = await createInitiative(root, {
+    id: 'INIT-PIN',
+    title: 'Pinned initiative',
+    profile: 'initiative-lite',
+    persona: 'product-owner'
+  });
+  const template = initiative.resolution.templates['define/business-case'];
+  await writeFile(path.join(root, template.path), '# changed after initiative start\n');
+  await assert.rejects(
+    () => prepareInitiativePhase(root, 'INIT-PIN', 'define', { persona: 'product-owner' }),
+    /changed after INIT-PIN was created/
+  );
 });
 
 test('initiative start requires configured local authority membership', async () => {

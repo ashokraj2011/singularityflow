@@ -30,6 +30,7 @@ import {
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
 } from './workspace-epic.mjs';
@@ -1334,17 +1335,23 @@ function registerHandlers() {
     const routing = workspaceJiraRouting(manifest, credentials);
     if (!routing.connected) throw new Error('Connect Jira for this operating-system account before listing Epics.');
     const connection = await jiraCredentialStore().load(credentials.selected);
-    const groups = await Promise.all(routing.projectKeys.map(async (projectKey) => {
-      const key = jiraCacheKey(connection, 'workspace-epics', projectKey);
-      const cached = !refresh && jiraCacheRead(key, 5);
-      if (cached) return cached;
-      const anchors = await listWorkspaceAnchors(projectKey, { connection, limit: 500 });
-      return jiraCacheWrite(key, anchors.filter((issue) => Number(issue.hierarchyLevel) === 1));
+    const projectResults = await Promise.all(routing.projectKeys.map(async (projectKey) => {
+      const repositoryIds = Object.entries(manifest.repositories)
+        .filter(([, value]) => String(value?.jira?.board ?? '').trim().toUpperCase() === projectKey)
+        .map(([repositoryId]) => repositoryId);
+      try {
+        const key = jiraCacheKey(connection, 'workspace-epics', projectKey);
+        const cached = !refresh && jiraCacheRead(key, 5);
+        if (cached) return { projectKey, repositoryIds, epics: cached };
+        const anchors = await listWorkspaceAnchors(projectKey, { connection, limit: 500 });
+        const epics = anchors.filter((issue) => Number(issue.hierarchyLevel) === 1);
+        jiraCacheWrite(key, epics);
+        return { projectKey, repositoryIds, epics };
+      } catch (error) {
+        return { projectKey, repositoryIds, error };
+      }
     }));
-    return groups
-      .flat()
-      .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
-        || String(left.key).localeCompare(String(right.key)));
+    return summarizeWorkspaceEpicProjects(projectResults);
   });
   trustedHandle('workspace:jira-epic', async (event, { repository, workspace, epicKey }) => {
     assertTrustedSender(event);

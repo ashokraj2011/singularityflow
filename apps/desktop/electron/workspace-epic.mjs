@@ -60,6 +60,35 @@ export function assertWorkspaceEpicIssue(routing, issue) {
   return issue;
 }
 
+export function summarizeWorkspaceEpicProjects(results) {
+  const epics = new Map();
+  const warnings = [];
+  for (const result of results ?? []) {
+    const projectKeyValue = projectKey(result?.projectKey) ?? String(result?.projectKey ?? 'unknown');
+    const repositoryIds = Array.isArray(result?.repositoryIds)
+      ? result.repositoryIds.map((value) => String(value)).filter(Boolean)
+      : [];
+    if (result?.error) {
+      warnings.push({
+        projectKey: projectKeyValue,
+        repositoryIds,
+        message: String(result.error?.message ?? result.error)
+      });
+      continue;
+    }
+    for (const epic of result?.epics ?? []) {
+      const key = String(epic?.key ?? '').trim().toUpperCase();
+      if (key && !epics.has(key)) epics.set(key, epic);
+    }
+  }
+  return {
+    epics: [...epics.values()]
+      .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+        || String(left.key).localeCompare(String(right.key))),
+    warnings
+  };
+}
+
 export function workspacePortfolioConfiguration(workspace, credentials = {}) {
   const manifest = object(workspace, 'Workspace');
   const routing = workspaceJiraRouting(manifest, credentials);

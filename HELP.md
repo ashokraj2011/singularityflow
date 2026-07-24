@@ -126,6 +126,19 @@ The configured default branch is only the starting baseline for a new initiative
 
 Use `singularity-flow initiative materialize --dry-run` before creating story branches. The real operation requires exact initiative-ID confirmation. Story seeds recommend a work type and pin approved initiative inputs/contracts without bypassing the contributor’s interactive work-type and persona selection.
 
+`singularity-flow initiative sync` reads each child workflow from its exact
+fetched commit. Invalid JSON, unsupported state, or a Work ID/branch mismatch
+marks only that story stale and blocked; other repositories continue
+synchronizing. Initiative-lite Build and enterprise Construction require every
+blocking story to reach verification. Initiative-lite Release and enterprise
+Delivery require conformance.
+
+Initiative phase approval is valid only for the exact current bundle hash.
+Dependency invalidation rewinds the lifecycle to the earliest affected phase
+and resets affected later phases without deleting artifacts or unrelated
+approvals. Reports combine initiative and child telemetry and label cost exact
+only when every observed source supplies provider cost.
+
 ## Copilot Planning Studio
 
 Open **Planning Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.

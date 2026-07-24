@@ -5,8 +5,11 @@ import {
   interfaceContractStatus
 } from './initiative-contracts.mjs';
 import {
-  initiativeMilestoneReadiness, loadInitiativeBreakdown
+  loadInitiativeBreakdown
 } from './initiative-repositories.mjs';
+import {
+  initiativeMilestoneReadiness
+} from './initiative-milestones.mjs';
 import {
   loadInitiative
 } from './initiative-state.mjs';
@@ -23,6 +26,29 @@ function humanDuration(value) {
   if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
   if (value < 86_400_000) return `${(value / 3_600_000).toFixed(1)}h`;
   return `${(value / 86_400_000).toFixed(1)}d`;
+}
+
+function observedTelemetry(value) {
+  if (!value || typeof value !== 'object') return false;
+  const records = (Number(value.exactRecords) || 0) + (Number(value.unavailableRecords) || 0);
+  return records > 0
+    || (Number.isFinite(value.totalTokens) && value.totalTokens > 0)
+    || (value.models ?? []).length > 0
+    || Number.isFinite(value.providerCost);
+}
+
+function aggregateTelemetry(initiative, children) {
+  const sources = [initiative.telemetry, ...children.map((story) => story.telemetry)].filter(observedTelemetry);
+  const totalTokens = sources.reduce((sum, item) => sum + (Number.isFinite(item.totalTokens) ? item.totalTokens : 0), 0);
+  const hasExactTokens = sources.some((item) => (Number(item.exactRecords) || 0) > 0 || (Number.isFinite(item.totalTokens) && item.totalTokens > 0));
+  const providerCosts = sources.map((item) => item.providerCost).filter(Number.isFinite);
+  const pricedSources = sources.filter((item) => Number.isFinite(item.providerCost)).length;
+  return {
+    totalTokens: hasExactTokens ? totalTokens : null,
+    models: [...new Set(sources.flatMap((item) => item.models ?? []))],
+    providerCost: providerCosts.length ? providerCosts.reduce((sum, value) => sum + value, 0) : null,
+    costStatus: !providerCosts.length ? 'unavailable' : pricedSources === sources.length ? 'exact' : 'partial'
+  };
 }
 
 export async function deriveInitiativeReport(root, initiativeId, { now = nowIso() } = {}) {
@@ -96,10 +122,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       stories
     };
   });
-  const childTelemetry = children.map((story) => story.telemetry).filter(Boolean);
-  const totalTokens = (initiative.telemetry?.totalTokens ?? 0) + childTelemetry.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
-  const providerCosts = [initiative.telemetry?.providerCost, ...childTelemetry.map((item) => item.providerCost)].filter((value) => Number.isFinite(value));
-  const costComplete = childTelemetry.length > 0 && childTelemetry.every((item) => Number.isFinite(item.providerCost));
+  const telemetry = aggregateTelemetry(initiative, children);
   const selfApprovals = approvals.filter((entry) => entry.record.selfApproval).map((entry) => ({
     phase: entry.record.phase,
     subject: `${entry.record.subject.type}/${entry.record.subject.id}`,
@@ -137,12 +160,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       construction: initiativeMilestoneReadiness(initiative, 'construction', children),
       delivery: initiativeMilestoneReadiness(initiative, 'delivery', children)
     },
-    telemetry: {
-      totalTokens: totalTokens || null,
-      models: [...new Set(childTelemetry.flatMap((item) => item.models ?? []))],
-      providerCost: providerCosts.length ? providerCosts.reduce((sum, value) => sum + value, 0) : null,
-      costStatus: providerCosts.length ? (costComplete ? 'exact' : 'partial') : 'unavailable'
-    }
+    telemetry
   };
 }
 

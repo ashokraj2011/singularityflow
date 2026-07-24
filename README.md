@@ -628,6 +628,16 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 
 An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.
 
+Initiative repository synchronization reads child workflow state from the exact
+fetched commit. Malformed, unsupported, or identity-mismatched child state is
+isolated as stale and blocked instead of aborting every repository. Both
+profiles enforce the same delivery semantics: Build/Construction requires
+blocking stories through verification, and Release/Delivery requires
+conformance. Phase approval remains bound to the exact current bundle hash;
+dependency invalidation rewinds to the earliest affected phase while preserving
+unrelated approved work. Initiative reports combine initiative and child
+model/token/cost data without upgrading partial coverage to exact.
+
 ## Migration
 
 From a repository using the former `.singularity/` folder, `.sdlc/` folder, or legacy JSON configuration:

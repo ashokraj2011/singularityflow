@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -14,8 +14,10 @@ import {
   readInitiativeRecords,
   registerInitiativeEvidence
 } from '../src/initiative-evidence.mjs';
-import { createInitiative, loadInitiative, prepareInitiativePhase } from '../src/initiative-state.mjs';
-import { run } from '../src/util.mjs';
+import {
+  createInitiative, loadInitiative, prepareInitiativePhase, saveInitiative
+} from '../src/initiative-state.mjs';
+import { run, snapshot } from '../src/util.mjs';
 
 async function repository({ freshness = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-evidence-'));
@@ -89,6 +91,9 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
   assert.equal(phaseApproval.next, 'plan');
   assert.equal(phaseApproval.initiative.phases.define.status, 'approved');
   assert.equal(phaseApproval.initiative.phases.plan.status, 'in_progress');
+  gate = await evaluateInitiativePhase(root, phaseApproval.portfolio, phaseApproval.initiative, 'define');
+  assert.equal(gate.ready, true);
+  assert.match(gate.passes.join('\n'), /phase bundle approval: define@/);
 
   const evidence = await readInitiativeRecords(root, loaded.portfolio, 'INIT-EVIDENCE', 'evidence');
   const approvals = await readInitiativeRecords(root, loaded.portfolio, 'INIT-EVIDENCE', 'approvals');
@@ -104,6 +109,100 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
     () => publishInitiativePhase(root, 'INIT-EVIDENCE', 'plan'),
     /input 'define\/scope-and-outcomes'.*changed after approval/
   );
+});
+
+test('an approved phase without an approval for its exact bundle fails governance', async () => {
+  const root = await repository();
+  await publishDefine(root);
+  await approveInitiative(root, {
+    initiativeId: 'INIT-EVIDENCE',
+    phaseId: 'define',
+    subject: 'business-case',
+    persona: 'product-owner'
+  });
+  const loaded = await loadInitiative(root, 'INIT-EVIDENCE');
+  loaded.initiative.phases.define.status = 'approved';
+  loaded.initiative.phases.define.approvedAt = new Date().toISOString();
+  loaded.initiative.phases.plan.status = 'in_progress';
+  loaded.initiative.currentPhase = 'plan';
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+
+  const gate = await evaluateInitiativePhase(root, loaded.portfolio, loaded.initiative, 'define');
+  assert.equal(gate.ready, false);
+  assert.match(gate.errors.join('\n'), /phase define has 0\/1 approvals for exact bundle/);
+});
+
+test('phase approval blocks when an initiative-lite child has not reached its required milestone', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'INIT-EVIDENCE');
+  loaded.initiative.phases.define.status = 'approved';
+  loaded.initiative.phases.plan.status = 'approved';
+  loaded.initiative.phases.build.status = 'in_progress';
+  loaded.initiative.currentPhase = 'build';
+  for (const output of Object.values(loaded.initiative.phases.plan.outputs)) {
+    const absolute = path.join(root, 'singularity/initiatives/INIT-EVIDENCE', output.path);
+    await mkdir(path.dirname(absolute), { recursive: true });
+    await writeFile(absolute, `# ${output.label}\n`);
+    const current = await snapshot(absolute);
+    Object.assign(output, { status: 'approved', generation: 1, sha256: current.sha256, bytes: current.size });
+  }
+  loaded.initiative.childStories = {
+    'API-1': {
+      id: 'API-1',
+      repository: 'api',
+      blocking: true,
+      status: 'in_progress',
+      currentPhase: 'implementation',
+      stale: false,
+      milestones: { verification: false, conformance: false }
+    }
+  };
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  await prepareInitiativePhase(root, 'INIT-EVIDENCE', 'build');
+  await publishInitiativePhase(root, 'INIT-EVIDENCE', 'build');
+  for (const checkId of ['blocking-stories-complete', 'tests-passing']) {
+    await registerInitiativeEvidence(root, {
+      initiativeId: 'INIT-EVIDENCE',
+      phaseId: 'build',
+      checkId,
+      assurance: 'machine-verified',
+      source: { observedState: 'passed' }
+    });
+  }
+
+  await assert.rejects(() => approveInitiative(root, {
+    initiativeId: 'INIT-EVIDENCE',
+    phaseId: 'build',
+    subject: 'phase'
+  }), /build has 1 blocking stories below verification/);
+});
+
+test('phase bundles pin required milestones without churning on later child progress', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'INIT-EVIDENCE');
+  loaded.initiative.childStories = {
+    'API-1': {
+      id: 'API-1',
+      repository: 'api',
+      blocking: true,
+      status: 'in_progress',
+      currentPhase: 'verification',
+      observedCommit: 'a'.repeat(40),
+      stale: false,
+      milestones: { verification: true, conformance: false }
+    }
+  };
+  const original = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'build');
+  loaded.initiative.childStories['API-1'].status = 'complete';
+  loaded.initiative.childStories['API-1'].currentPhase = null;
+  loaded.initiative.childStories['API-1'].observedCommit = 'b'.repeat(40);
+  loaded.initiative.childStories['API-1'].milestones.conformance = true;
+  const advanced = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'build');
+  assert.equal(advanced.sha256, original.sha256);
+
+  loaded.initiative.childStories['API-1'].milestones.verification = false;
+  const regressed = await initiativeBundle(root, loaded.portfolio, loaded.initiative, 'build');
+  assert.notEqual(regressed.sha256, original.sha256);
 });
 
 test('presence-only evidence does not satisfy a human-approved Must check', async () => {

@@ -148,6 +148,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Git identity/);
   assert.match(source, /GitHub login/);
   assert.match(preload, /epicSources:/);
+  assert.match(preload, /connectEpicSharePoint:/);
   assert.match(preload, /epicReview:/);
   assert.match(preload, /runEpicChecks:/);
   assert.match(preload, /decideEpicReview:/);
@@ -156,6 +157,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:checks/);
   assert.match(main, /epic:decision/);
   assert.match(main, /StorageCredentialStore/);
+  assert.match(main, /authorizeSharePoint/);
+  assert.match(source, /Sign in with Microsoft/);
   assert.match(source, /Approve exact packet/);
   assert.match(source, /Self-approval warning/);
   assert.match(source, /Story Work ID/);

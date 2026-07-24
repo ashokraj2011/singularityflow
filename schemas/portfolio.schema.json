@@ -91,6 +91,11 @@
               "clientId": { "type": "string" },
               "siteId": { "type": "string" },
               "driveId": { "type": "string" },
+              "scopes": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
               "bucket": { "type": "string" },
               "region": { "type": "string" },
               "prefix": { "type": "string" },

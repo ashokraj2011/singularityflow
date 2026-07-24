@@ -1451,9 +1451,18 @@ function EpicSourcesView({ data, selected, action, reload }) {
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [token, setToken] = useState('');
+  const [credentials, setCredentials] = useState([]);
   const [verification, setVerification] = useState(null);
   const sources = selected.sources?.sources ?? [];
   const provider = selected.state.resolution.storage?.providers?.[providerId];
+  const credential = credentials.find((entry) => entry.providerId === providerId);
+  useEffect(() => {
+    let active = true;
+    window.singularity.epicSources(data.repository.root, selected.state.initiative.id)
+      .then((result) => { if (active) setCredentials(result.credentials ?? []); })
+      .catch(() => { if (active) setCredentials([]); });
+    return () => { active = false; };
+  }, [data.repository.root, selected.state.initiative.id]);
   async function upload() {
     const result = await action(
       () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId),
@@ -1484,11 +1493,33 @@ function EpicSourcesView({ data, selected, action, reload }) {
       () => window.singularity.saveEpicStorageCredential(data.repository.root, providerId, token),
       `Credential for ${providerId} stored with operating-system encryption`
     );
-    if (result) setToken('');
+    if (result) {
+      setToken('');
+      const status = await window.singularity.epicSources(data.repository.root, selected.state.initiative.id);
+      setCredentials(status.credentials ?? []);
+    }
+  }
+  async function connectSharePoint() {
+    const result = await action(
+      () => window.singularity.connectEpicSharePoint(data.repository.root, selected.state.initiative.id, providerId),
+      `Microsoft SharePoint connected through delegated OAuth PKCE`
+    );
+    if (result) {
+      const status = await window.singularity.epicSources(data.repository.root, selected.state.initiative.id);
+      setCredentials(status.credentials ?? []);
+    }
+  }
+  async function disconnectStorage() {
+    const result = await action(
+      () => window.singularity.disconnectEpicStorage(data.repository.root, providerId),
+      `${providerId} disconnected from this operating-system account`
+    );
+    if (result) setCredentials((current) => current.filter((entry) => entry.providerId !== providerId));
   }
   return <div className="epic-workspace-view">
     <section className="panel epic-source-hero"><div><span className="eyebrow">Immutable source lineage</span><h2>Requirements begin with pinned evidence</h2><p>Files stay in approved shared storage. Git records the provider version, SHA-256, size, MIME type, and uploader—not the file bytes.</p></div><div className="source-provider-controls"><label><span>Storage provider</span><select value={providerId} onChange={(event) => setProviderId(event.target.value)}>{providers.map(([id, item]) => <option value={id} key={id}>{id} · {item.type}</option>)}</select></label><button className="primary" onClick={upload} disabled={!providerId || provider?.type === 'https-reference'}>＋ Add source files</button><button className="secondary" onClick={verify} disabled={!sources.length}>Verify all hashes</button></div></section>
-    {provider && ['artifactory', 'sharepoint'].includes(provider.type) && <section className="panel storage-credential-card"><div><span className="eyebrow">OS-protected credential</span><h3>{providerId}</h3><p>The renderer never receives a saved token. It is decrypted only in Electron’s main process for this provider.</p></div><input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder={provider.type === 'sharepoint' ? 'Delegated Microsoft Graph access token' : 'Artifactory access token'} /><button className="secondary" disabled={!token.trim()} onClick={saveCredential}>Save securely</button></section>}
+    {provider?.type === 'artifactory' && <section className="panel storage-credential-card"><div><span className="eyebrow">OS-protected credential</span><h3>{providerId}</h3><p>The renderer never receives a saved token. It is decrypted only in Electron’s main process for this provider.</p></div><input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Artifactory access token" /><div className="row"><button className="secondary" disabled={!token.trim()} onClick={saveCredential}>Save securely</button>{credential?.connected && <button className="ghost" onClick={disconnectStorage}>Disconnect</button>}</div></section>}
+    {provider?.type === 'sharepoint' && <section className="panel storage-credential-card"><div><span className="eyebrow">Microsoft delegated identity</span><h3>{providerId}</h3><p>Sign-in opens in your system browser using OAuth 2.0 PKCE. Access and refresh tokens remain OS-encrypted in Electron’s main process.</p></div><div className="sharepoint-connection-state"><Pill tone={credential?.connected ? 'good' : 'warn'}>{credential?.connected ? 'connected' : 'sign-in required'}</Pill><span>{credential?.expiresAt ? `Access token refreshes after ${new Date(credential.expiresAt).toLocaleString()}` : 'Your administrator supplies the public-client ID in portfolio.yml.'}</span></div><div className="row"><button className="primary" onClick={connectSharePoint}>{credential?.connected ? 'Sign in again' : 'Sign in with Microsoft'}</button>{credential?.connected && <button className="ghost" onClick={disconnectStorage}>Disconnect</button>}</div></section>}
     {provider?.type === 'https-reference' && <section className="panel epic-source-url"><label><span>HTTPS source URL</span><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://approved.example/specification.pdf" /></label><label><span>Label</span><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Customer journey specification" /></label><button className="primary" disabled={!url.trim()} onClick={addUrl}>Pin URL version</button></section>}
     {verification && <div className={`notice ${verification.valid ? 'good' : 'warn'}`}>{verification.valid ? 'All source bytes match their committed hashes.' : 'One or more sources are unavailable or changed. Blocking planning gates will not pass.'}</div>}
     <section className="panel epic-source-list"><header className="panel-heading"><div><span className="eyebrow">Source catalog</span><h2>Pinned source versions · {sources.length}</h2></div><Pill tone={sources.length ? 'good' : 'warn'}>{sources.length ? 'pinned' : 'source gap'}</Pill></header>

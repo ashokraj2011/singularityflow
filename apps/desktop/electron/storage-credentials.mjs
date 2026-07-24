@@ -22,7 +22,15 @@ function normalize(value) {
     schemaVersion: VERSION,
     providers: Object.fromEntries(Object.entries(value.providers).map(([id, record]) => [
       safeId(id),
-      { token: String(record?.token ?? ''), updatedAt: record?.updatedAt ?? null }
+      {
+        token: String(record?.token ?? ''),
+        refreshToken: record?.refreshToken ? String(record.refreshToken) : null,
+        tokenType: record?.tokenType ? String(record.tokenType) : null,
+        expiresAt: record?.expiresAt ? String(record.expiresAt) : null,
+        scope: record?.scope ? String(record.scope) : null,
+        authMode: record?.authMode ? String(record.authMode) : 'manual-token',
+        updatedAt: record?.updatedAt ?? null
+      }
     ]))
   };
 }
@@ -56,9 +64,42 @@ export class StorageCredentialStore {
     if (!String(token ?? '').trim()) throw new Error('Storage credential token is required.');
     return withLocalStoreMutation(this.file, async () => {
       const store = await this.#read();
-      store.providers[id] = { token: String(token), updatedAt: new Date().toISOString() };
+      store.providers[id] = {
+        token: String(token),
+        refreshToken: null,
+        tokenType: null,
+        expiresAt: null,
+        scope: null,
+        authMode: 'manual-token',
+        updatedAt: new Date().toISOString()
+      };
       await this.#write(store);
       return { providerId: id, connected: true, updatedAt: store.providers[id].updatedAt };
+    });
+  }
+
+  async saveOAuth(providerId, credential) {
+    const id = safeId(providerId);
+    if (!String(credential?.token ?? '').trim()) throw new Error('OAuth access token is required.');
+    return withLocalStoreMutation(this.file, async () => {
+      const store = await this.#read();
+      store.providers[id] = {
+        token: String(credential.token),
+        refreshToken: credential.refreshToken ? String(credential.refreshToken) : null,
+        tokenType: String(credential.tokenType ?? 'Bearer'),
+        expiresAt: credential.expiresAt ? String(credential.expiresAt) : null,
+        scope: credential.scope ? String(credential.scope) : null,
+        authMode: 'oauth-pkce',
+        updatedAt: new Date().toISOString()
+      };
+      await this.#write(store);
+      return {
+        providerId: id,
+        connected: true,
+        authMode: 'oauth-pkce',
+        expiresAt: store.providers[id].expiresAt,
+        updatedAt: store.providers[id].updatedAt
+      };
     });
   }
 
@@ -74,6 +115,8 @@ export class StorageCredentialStore {
     return Object.entries(store.providers).map(([providerId, record]) => ({
       providerId,
       connected: Boolean(record.token),
+      authMode: record.authMode,
+      expiresAt: record.expiresAt,
       updatedAt: record.updatedAt
     }));
   }

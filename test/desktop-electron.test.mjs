@@ -295,6 +295,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.onboarding-failure/);
   assert.match(styles, /\.copilot-service-control/);
   assert.match(styles, /\.copilot-service-log/);
+  assert.match(styles, /\.copilot-service-trigger\.stopped \{/);
+  assert.match(styles, /\.copilot-service-trigger\.stopped \.copilot-service-orb/);
+  assert.match(styles, /\.copilot-service-trigger\.stopped > i/);
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);
   assert.match(styles, /\.requirement-layout/);

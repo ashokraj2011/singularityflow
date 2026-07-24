@@ -1902,6 +1902,31 @@ body {
   box-shadow: none;
 }
 
+.copilot-service-trigger.stopped {
+  border-color: #d7d8d5;
+  color: #555b57;
+  background: #f6f7f5;
+}
+
+.copilot-service-trigger.stopped:hover {
+  border-color: #b9bdb9;
+  background: #f1f2f0;
+}
+
+.copilot-service-trigger.stopped .copilot-service-orb {
+  color: #fff;
+  background: linear-gradient(145deg,#7b827d,#5f6762);
+}
+
+.copilot-service-trigger.stopped small {
+  color: #94651b;
+}
+
+.copilot-service-trigger.stopped > i {
+  background: #d49a37;
+  box-shadow: 0 0 0 4px rgba(212,154,55,.14);
+}
+
 .view {
   background: #f7f8f6;
 }

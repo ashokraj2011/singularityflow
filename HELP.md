@@ -177,7 +177,10 @@ the exact Jira and Git operations, and then:
 Artifact-template edits remain ordinary repository changes until **Commit
 templates** validates, commits, and pushes them. Other roles default to the
 Engineer experience, and the user can switch at any time without changing
-repository state. The Engineer navigation does not duplicate Requirements,
+repository state. Business mode places the journey in a compact horizontal bar
+and gives the Epic workspace the full window width. Use **Engineer tools** in
+that bar to open the full collapsible navigation for downstream delivery and
+configuration. The Engineer navigation does not duplicate Requirements,
 Planning, or Artifact templates; those Epic-level responsibilities remain in
 the Business experience.
 

@@ -281,6 +281,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /sidebar-collapsed/);
   assert.match(source, /sidebar-edge-toggle/);
   assert.match(source, /aria-controls="primary-navigation"/);
+  assert.match(source, /function BusinessNavigation/);
+  assert.match(source, /className="business-navigation"/);
+  assert.match(source, /aria-label="Epic planning navigation"/);
+  assert.match(source, /experienceMode === 'business' \? 'business-shell'/);
+  assert.match(source, /experienceMode === 'engineer' && <aside className="sidebar"/);
+  assert.match(source, /Engineer tools/);
   assert.match(source, /event\.metaKey \|\| event\.ctrlKey/);
   assert.match(source, /event\.key\.toLowerCase\(\) !== 'b'/);
   assert.match(source, /className="page-stage"/);
@@ -339,6 +345,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /--evergreen-950: #092d20/);
   assert.match(styles, /\.sidebar-edge-toggle/);
   assert.match(styles, /\.shell\.sidebar-collapsed \{ grid-template-columns: 72px/);
+  assert.match(styles, /\.shell\.business-shell \{ grid-template-columns: minmax\(0,1fr\)/);
+  assert.match(styles, /\.business-navigation/);
+  assert.match(styles, /\.business-project-switcher/);
+  assert.match(styles, /\.business-shell \.topbar-title \{ display: none/);
   assert.match(styles, /Operational enterprise workspace/);
   assert.match(styles, /\.topbar-title/);
   assert.match(source, /className="topbar-title"/);

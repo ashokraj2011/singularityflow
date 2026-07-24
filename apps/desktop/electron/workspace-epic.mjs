@@ -24,7 +24,7 @@ export function workspaceJiraRouting(workspace, credentials = {}) {
   };
 }
 
-export function assertWorkspaceEpicKey(routing, value) {
+export function jiraIssueKeyFromReference(value) {
   const raw = String(value ?? '').trim();
   let reference = raw;
   if (/^https:\/\//i.test(raw)) {
@@ -41,6 +41,11 @@ export function assertWorkspaceEpicKey(routing, value) {
   if (!/^(?:[A-Z][A-Z0-9_]*-\d+|\d+)$/.test(key)) {
     throw new Error('Enter a Jira Epic key such as KAN-8, paste its Jira browse URL, or enter its numeric issue ID.');
   }
+  return key;
+}
+
+export function assertWorkspaceEpicKey(routing, value) {
+  const key = jiraIssueKeyFromReference(value);
   if (key.includes('-')) {
     const issueProject = key.slice(0, key.lastIndexOf('-'));
     if (!routing.projectKeys.includes(issueProject)) {

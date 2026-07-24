@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('singularity', {
   connectWorkspaceJira: (repository, workspace, connection) => ipcRenderer.invoke('workspace:jira-connect', { repository, workspace, connection }),
   disconnectWorkspaceJira: (repository, workspace) => ipcRenderer.invoke('workspace:jira-disconnect', { repository, workspace }),
   workspaceJiraEpics: (repository, workspace, refresh = false) => ipcRenderer.invoke('workspace:jira-epics', { repository, workspace, refresh }),
+  correctWorkspaceJiraRoute: (repository, workspace, currentProjectKey, epicReference) => ipcRenderer.invoke('workspace:jira-route-correct', {
+    repository, workspace, currentProjectKey, epicReference
+  }),
   workspaceJiraEpic: (repository, workspace, epicKey) => ipcRenderer.invoke('workspace:jira-epic', { repository, workspace, epicKey }),
   previewWorkspace: (repository, options) => ipcRenderer.invoke('workspace:preview', { repository, ...options }),
   createWorkspace: (repository, options) => ipcRenderer.invoke('workspace:create', { repository, ...options }),
@@ -44,6 +47,7 @@ contextBridge.exposeInMainWorld('singularity', {
   attachInboxItem: (repository, workId) => ipcRenderer.invoke('inbox:attach', { repository, workId }),
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
+  generateWorldModel: (repository, local = true) => ipcRenderer.invoke('worldmodel:generate', { repository, local }),
   deleteTemplate: (repository, filePath) => ipcRenderer.invoke('configuration:delete-template', { repository, filePath }),
   deleteFile: (repository, filePath) => ipcRenderer.invoke('configuration:delete-file', { repository, filePath }),
   previewTemplateUrl: (repository, url) => ipcRenderer.invoke('configuration:template-url-preview', { repository, url }),

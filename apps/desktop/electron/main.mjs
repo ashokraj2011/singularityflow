@@ -30,6 +30,7 @@ import {
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  jiraIssueKeyFromReference,
   summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
@@ -603,6 +604,14 @@ function registerHandlers() {
       input: JSON.stringify(workspacePortfolioConfiguration(manifest, credentials)),
       timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
     });
+    return snapshot(root);
+  });
+  trustedHandle('worldmodel:generate', async (event, { repository, local = true }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    // Generation runs the world-model builder (Copilot) in an isolated worktree; allow up to 15
+    // minutes. --local commits into the working tree without pushing to the remote default branch.
+    await invokeCli(root, ['wm', 'build', ...(local ? ['--local'] : [])], { json: false, timeoutMs: 15 * 60 * 1000 });
     return snapshot(root);
   });
   trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
@@ -1352,6 +1361,52 @@ function registerHandlers() {
       }
     }));
     return summarizeWorkspaceEpicProjects(projectResults);
+  });
+  trustedHandle('workspace:jira-route-correct', async (event, {
+    repository, workspace, currentProjectKey, epicReference
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const workspaceApi = await workspaceModule();
+    const { getIssue } = await importCliModule('jira.mjs');
+    const manifest = await workspaceApi.readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before correcting Jira routing.');
+    const existingProject = String(currentProjectKey ?? '').trim().toUpperCase();
+    if (!routing.projectKeys.includes(existingProject)) {
+      throw new Error(`Workspace Jira project '${existingProject}' is no longer configured. Refresh before trying again.`);
+    }
+    const issueKey = jiraIssueKeyFromReference(epicReference);
+    if (!issueKey.includes('-')) throw new Error('Use an Epic key or Jira browse URL so the replacement project can be identified.');
+    const replacementProject = issueKey.slice(0, issueKey.lastIndexOf('-'));
+    if (replacementProject === existingProject) throw new Error(`Workspace already routes this repository to ${replacementProject}.`);
+    const affectedRepositories = Object.entries(manifest.repositories)
+      .filter(([, value]) => String(value?.jira?.board ?? '').trim().toUpperCase() === existingProject)
+      .map(([repositoryId]) => repositoryId);
+    if (!affectedRepositories.length) throw new Error(`No workspace repository is routed to ${existingProject}.`);
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    const issue = await getIssue(issueKey, { connection });
+    if (String(issue.issueType ?? '').toLowerCase() !== 'epic' && Number(issue.hierarchyLevel) !== 1) {
+      throw new Error(`Jira ${issue.key} is a ${issue.issueType ?? 'work item'}, not an Epic.`);
+    }
+    const repositories = Object.fromEntries(Object.entries(manifest.repositories).map(([repositoryId, value]) => [
+      repositoryId,
+      affectedRepositories.includes(repositoryId)
+        ? { ...value, jira: { ...value.jira, board: replacementProject } }
+        : value
+    ]));
+    const updated = await workspaceApi.updateWorkspaceConfiguration(workspaceRoot, {
+      name: manifest.name,
+      repositories,
+      leadRepository: manifest.leadRepository
+    }, { confirmation: manifest.anchor.key });
+    await workspaceApi.rememberWorkspace(workspaceRegistryPath(), updated.workspace, updated.status);
+    jiraCache.clear();
+    return openWorkspaceStatus(updated.status, {
+      message: `Jira routing updated from ${existingProject} to ${replacementProject} for ${affectedRepositories.join(', ')}.`
+    });
   });
   trustedHandle('workspace:jira-epic', async (event, { repository, workspace, epicKey }) => {
     assertTrustedSender(event);

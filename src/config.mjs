@@ -348,6 +348,32 @@ export async function loadDefinition(root) {
   return legacyDefinition(await readJson(legacy.absolute), world.exists ? await readJson(world.absolute) : {});
 }
 
+// Ensure the repository's workflow.yml declares at least `requiredViews` under worldModel.views,
+// generating or extending the block in place. Used during onboarding/portfolio-bootstrap so a repo
+// created without a worldModel block does not fail initiative validation. Comments and existing
+// structure are preserved via YAML.parseDocument. Returns the sorted declared views, or null when
+// nothing changed (already covered, or no workflow.yml on disk).
+export async function ensureRepositoryWorldModelViews(root, requiredViews = []) {
+  const file = await secureRepositoryPath(root, WORKFLOW_PATH, { label: 'Workflow configuration', type: 'file' });
+  if (!file.exists) return null;
+  const text = await readFile(file.absolute, 'utf8');
+  const doc = YAML.parseDocument(text);
+  const definition = doc.toJSON() ?? {};
+  // A declared worldModel.views must cover every view the repo's own phases/personas/overrides
+  // reference (validateDefinition enforces this), plus the views the initiative portfolio needs.
+  const referenced = [...structuredWorldModelViewReferences(definition)].map(([view]) => view);
+  const wanted = [...new Set([...requiredViews.map(String), ...referenced].filter(Boolean))];
+  if (!wanted.length) return null;
+  const declared = (doc.getIn(['worldModel', 'views'])?.toJSON?.() ?? doc.getIn(['worldModel', 'views']) ?? []);
+  const declaredSet = new Set(Array.isArray(declared) ? declared.map(String) : []);
+  const missing = wanted.filter((view) => !declaredSet.has(view));
+  if (!missing.length) return [...declaredSet].sort();
+  const merged = [...new Set([...declaredSet, ...wanted])].sort();
+  doc.setIn(['worldModel', 'views'], merged);
+  await writeFile(file.absolute, doc.toString());
+  return merged;
+}
+
 async function copyIfMissing(source, destination) {
   if (existsSync(destination)) return false;
   await mkdir(path.dirname(destination), { recursive: true });

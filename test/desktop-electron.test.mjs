@@ -9,6 +9,7 @@ import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/e
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  jiraIssueKeyFromReference,
   summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
@@ -131,6 +132,7 @@ test('workspace Epic intake scopes Jira and derives portfolio configuration from
   assert.equal(assertWorkspaceEpicKey(routing, 'kan-8'), 'KAN-8');
   assert.equal(assertWorkspaceEpicKey(routing, 'https://company.atlassian.net/browse/KAN-8'), 'KAN-8');
   assert.equal(assertWorkspaceEpicKey(routing, '10042'), '10042');
+  assert.equal(jiraIssueKeyFromReference('https://company.atlassian.net/browse/MOB-42'), 'MOB-42');
   assert.equal(assertWorkspaceEpicIssue(routing, { key: 'KAN-8' }).key, 'KAN-8');
   assert.throws(() => assertWorkspaceEpicIssue(routing, { key: 'OTHER-2' }), /outside this workspace/);
   assert.throws(() => assertWorkspaceEpicKey(routing, 'OTHER-2'), /outside this workspace/);
@@ -248,6 +250,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Fetch selected Epic/);
   assert.match(source, /Enter an Epic key, URL, or numeric Jira ID instead/);
   assert.match(source, /Some configured Jira projects could not be loaded/);
+  assert.match(source, /correctWorkspaceJiraRoute/);
+  assert.match(source, /disabled=\{!connected \|\| !selectedEpicKey\}/);
   assert.match(source, /Generate the formatted requirements artifact/);
   assert.match(source, /function EpicRequirementsView/);
   assert.match(styles, /\.requirements-output-map/);
@@ -582,6 +586,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /bootstrapWorkspacePortfolio/);
   assert.match(preload, /workspaceJiraContext/);
   assert.match(preload, /workspaceJiraEpics/);
+  assert.match(preload, /correctWorkspaceJiraRoute/);
   assert.match(preload, /workspaceJiraEpic/);
   assert.match(preload, /connectWorkspaceJira/);
   assert.match(preload, /updateWorkspaceConfiguration/);
@@ -599,6 +604,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /configuration:bootstrap-workspace-portfolio/);
   assert.match(main, /workspace:jira-context/);
   assert.match(main, /workspace:jira-epics/);
+  assert.match(main, /workspace:jira-route-correct/);
   assert.match(main, /workspace:jira-epic/);
   assert.match(main, /workspace:jira-connect/);
   assert.match(main, /workspace:configuration-update/);

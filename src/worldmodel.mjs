@@ -133,7 +133,7 @@ async function installWorldModel(staging, target) {
   }
 }
 
-async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository') {
+async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false } = {}) {
   add(root, [config.outputDir]);
   const staged = run('git', ['diff', '--cached', '--quiet', '--', config.outputDir], { cwd: root, allowFailure: true }).status !== 0;
   let commit = worldModelCommit(root, config.outputDir);
@@ -141,7 +141,9 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
     run('git', ['commit', '--only', '-m', `[world-model][source:${sourceHash.replace(/^sha256:/, '').slice(0, 12)}] ${phase}`, '--', config.outputDir], { cwd: root, stdio: 'inherit' });
     commit = head(root);
   }
-  if ((config.definition?.git?.publish ?? 'required') === 'off') return { commit, pushed: false, changed: staged };
+  // --local (or git.publish: off): commit to the current branch but do not push. The commit rides
+  // the first work-item branch forked from this branch and is pushed with it, never on origin/main.
+  if (local || (config.definition?.git?.publish ?? 'required') === 'off') return { commit, pushed: false, changed: staged };
   const remote = config.definition?.git?.remote ?? 'origin';
   const result = pushBranch(root, remote, branch(root));
   if (result.status !== 0) {
@@ -201,8 +203,9 @@ async function build(root, config, options) {
     validated.manifest.analysis_depth = optionString(options, 'depth', phase ? config.phases[phase].depth : 'standard');
     await writeJson(path.join(staging, 'manifest.json'), validated.manifest);
     await installWorldModel(staging, path.join(root, config.outputDir));
-    const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository');
-    console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : ''}.`);
+    const local = optionBoolean(options, 'local');
+    const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
+    console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
   } finally {
     run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
     await rm(temporary, { recursive: true, force: true });

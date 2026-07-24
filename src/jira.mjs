@@ -3,6 +3,11 @@ import { SingularityFlowError } from './util.mjs';
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
 const JIRA_AUTH_MODES = new Set(['user-token', 'service-account', 'pat']);
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const MAX_REQUEST_TIMEOUT_MS = 120_000;
+const MAX_REQUEST_RETRIES = 5;
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 15_000;
+const MAX_SEARCH_RESULTS = 500;
 
 function jiraFailure(message, { status = null, category = 'request', retryAfter = null } = {}) {
   const error = new SingularityFlowError(message);
@@ -303,6 +308,34 @@ function authorizationHeader(connection) {
   return `Basic ${Buffer.from(`${connection.auth.email}:${connection.auth.token}`).toString('base64')}`;
 }
 
+function jiraApiTarget(apiPath, connection) {
+  const relative = String(apiPath ?? '');
+  if (
+    !relative.startsWith('/')
+    || relative.startsWith('//')
+    || relative.includes('\\')
+    || /[\u0000-\u001F\u007F]/.test(relative)
+  ) {
+    throw new SingularityFlowError('Jira requests require a relative Jira API path beginning with one forward slash.');
+  }
+  const base = new URL(connection.apiBaseUrl);
+  const target = new URL(`${connection.apiBaseUrl}${relative}`);
+  const basePath = base.pathname.replace(/\/+$/, '');
+  if (
+    target.origin !== base.origin
+    || (basePath && target.pathname !== basePath && !target.pathname.startsWith(`${basePath}/`))
+  ) {
+    throw new SingularityFlowError('Jira request path escapes the configured Jira API base.');
+  }
+  return target.href;
+}
+
+function boundedInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minimum, Math.min(Math.trunc(parsed), maximum));
+}
+
 function retryDelay(response, attempt) {
   const header = response.headers?.get?.('retry-after');
   const seconds = Number(header);
@@ -317,17 +350,26 @@ export async function jiraRequest(apiPath, {
   connection,
   fetchImpl = globalThis.fetch,
   sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
-  maxRetries = 3
+  maxRetries = 3,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS
 } = {}) {
   const resolved = resolveConnection({ connection, env });
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node.js runtime does not provide fetch().');
-  const target = /^https:\/\//.test(apiPath) ? apiPath : `${resolved.apiBaseUrl}${apiPath}`;
+  const target = jiraApiTarget(apiPath, resolved);
+  const retries = boundedInteger(maxRetries, 3, 0, MAX_REQUEST_RETRIES);
+  const timeoutMs = boundedInteger(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 1, MAX_REQUEST_TIMEOUT_MS);
   let attempt = 0;
   while (true) {
     let response;
+    let text = null;
+    let requestError = null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       response = await fetchImpl(target, {
         method,
+        redirect: 'error',
+        signal: controller.signal,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
@@ -335,20 +377,33 @@ export async function jiraRequest(apiPath, {
         },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
+      if (!RETRYABLE_STATUS.has(response.status) || attempt >= retries) {
+        text = await response.text();
+      }
     } catch (error) {
-      if (attempt < maxRetries) {
+      requestError = error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (requestError) {
+      const timedOut = controller.signal.aborted;
+      if (attempt < retries) {
         await sleep(Math.min(500 * (2 ** attempt), 8_000));
         attempt += 1;
         continue;
       }
-      throw jiraFailure(`Jira is unreachable: ${error.message}`, { category: 'network' });
+      if (timedOut) {
+        throw jiraFailure(`Jira request timed out after ${timeoutMs} milliseconds. Check the Jira URL, VPN, proxy, and firewall, then try again.`, {
+          category: 'timeout'
+        });
+      }
+      throw jiraFailure(`Jira is unreachable: ${requestError.message}`, { category: 'network' });
     }
-    if (RETRYABLE_STATUS.has(response.status) && attempt < maxRetries) {
+    if (RETRYABLE_STATUS.has(response.status) && attempt < retries) {
       await sleep(retryDelay(response, attempt));
       attempt += 1;
       continue;
     }
-    const text = await response.text();
     let payload = null;
     if (text) {
       try { payload = JSON.parse(text); } catch { payload = text; }
@@ -368,7 +423,7 @@ export async function jiraRequest(apiPath, {
         retryAfter: response.headers?.get?.('retry-after') ?? null
       });
     }
-    return { payload, connection: resolved, credentials: { baseUrl: resolved.baseUrl, email: resolved.auth.email, apiToken: resolved.auth.token } };
+    return { payload };
   }
 }
 
@@ -475,13 +530,47 @@ export async function searchIssues(jql, {
   if (!String(jql ?? '').trim()) throw new SingularityFlowError('Jira search requires JQL.');
   const resolved = resolveConnection({ connection, env });
   const searchPath = resolved.deployment === 'cloud' ? 'search/jql' : 'search';
-  const { payload } = await jiraRequest(restPath(resolved, searchPath), {
-    method: 'POST',
-    body: { jql: String(jql), fields, maxResults: Math.max(1, Math.min(Number(limit) || 50, 100)) },
-    connection: resolved,
-    fetchImpl
-  });
-  return (payload?.issues ?? []).map((issue) => normalizeIssue(issue, { baseUrl: resolved.baseUrl }));
+  const requested = boundedInteger(limit, 50, 1, MAX_SEARCH_RESULTS);
+  const issues = [];
+  const seenCloudTokens = new Set();
+  let nextPageToken = null;
+  let startAt = 0;
+  while (issues.length < requested) {
+    const maxResults = Math.min(100, requested - issues.length);
+    const body = resolved.deployment === 'cloud'
+      ? {
+          jql: String(jql),
+          fields,
+          maxResults,
+          ...(nextPageToken ? { nextPageToken } : {})
+        }
+      : { jql: String(jql), fields, maxResults, startAt };
+    const { payload } = await jiraRequest(restPath(resolved, searchPath), {
+      method: 'POST',
+      body,
+      connection: resolved,
+      fetchImpl
+    });
+    const page = Array.isArray(payload?.issues) ? payload.issues : [];
+    issues.push(...page.slice(0, requested - issues.length));
+    if (resolved.deployment === 'cloud') {
+      if (payload?.isLast === true || !page.length) break;
+      const token = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
+      if (!token) break;
+      if (seenCloudTokens.has(token)) {
+        throw jiraFailure('Jira Cloud returned a repeated pagination token.', { category: 'response' });
+      }
+      seenCloudTokens.add(token);
+      nextPageToken = token;
+      continue;
+    }
+    const pageStart = Number.isFinite(Number(payload?.startAt)) ? Number(payload.startAt) : startAt;
+    const nextStart = pageStart + page.length;
+    const total = Number(payload?.total);
+    if (!page.length || (Number.isFinite(total) && nextStart >= total) || (!Number.isFinite(total) && page.length < maxResults)) break;
+    startAt = nextStart;
+  }
+  return issues.map((issue) => normalizeIssue(issue, { baseUrl: resolved.baseUrl }));
 }
 
 export function adfParagraph(text) {
@@ -626,10 +715,16 @@ export async function listIssueTypes(projectKey, options = {}) {
 
 export async function discoverJiraConnection(options = {}) {
   const resolved = resolveConnection(options);
+  const discoveryOptions = {
+    ...options,
+    connection: resolved,
+    maxRetries: options.maxRetries ?? 1,
+    requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS
+  };
   const [server, account, projects] = await Promise.all([
-    getServerInfo({ ...options, connection: resolved }),
-    getCurrentUser({ ...options, connection: resolved }),
-    listProjects({ ...options, connection: resolved, limit: 25 })
+    getServerInfo(discoveryOptions),
+    getCurrentUser(discoveryOptions),
+    listProjects({ ...discoveryOptions, limit: 25 })
   ]);
   return {
     connected: true,
@@ -742,7 +837,8 @@ export async function getIssueHierarchy(anchorKey, {
     if (current.depth >= maxDepth || descendants.length >= maxIssues) continue;
     const children = await listIssueChildren(current.issue.key, {
       ...options,
-      includeLegacyEpicLink: Number(current.issue.hierarchyLevel) === 1
+      includeLegacyEpicLink: Number(current.issue.hierarchyLevel) === 1,
+      limit: Math.min(MAX_SEARCH_RESULTS, maxIssues - descendants.length)
     });
     for (const child of children) {
       if (visited.has(child.key)) throw new SingularityFlowError(`Jira hierarchy cycle detected at ${child.key}.`);

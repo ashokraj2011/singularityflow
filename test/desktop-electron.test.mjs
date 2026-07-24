@@ -154,7 +154,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Additional metadata/);
   assert.match(source, /Add a participating repository/);
   assert.match(source, /Add to YAML draft/);
-  assert.match(source, /No credentials are stored in YAML/);
+  assert.match(source, /No credentials are stored in Git/);
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Epic-level story progress/);
@@ -169,6 +169,16 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /activeStep: 2/);
   assert.match(source, /!entryTab && <nav className="epic-lifecycle-wizard"/);
   assert.match(source, /Bring from Jira/);
+  assert.match(source, /Set up Jira →/);
+  assert.match(source, /Connect Jira to bring in Epics/);
+  assert.match(source, /Save Jira policy & continue/);
+  assert.match(source, /function JiraPolicySetup/);
+  assert.match(source, /Save policy & enter credentials/);
+  assert.match(source, /Initialize governed Jira access/);
+  assert.match(source, /Configure governed Jira access/);
+  assert.match(source, /singularity:setup-jira/);
+  assert.match(source, /className="jira-setup-overlay"/);
+  assert.doesNotMatch(source, /disabled=\{!data\.portfolio\?\.jira\?\.enabled\}/);
   assert.match(source, /Describe the work/);
   assert.match(source, /const businessNavSections/);
   assert.match(source, /\['epics', 'Epics'\]/);
@@ -326,6 +336,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.epic-start-intro \{ min-height: 128px/);
   assert.match(styles, /\.epic-start-flow span i/);
   assert.match(styles, /\.epic-start-flow span\.active i/);
+  assert.match(styles, /\.epic-origin-choice button\.needs-setup/);
+  assert.match(styles, /\.jira-setup-overlay/);
   assert.match(styles, /\.artifact-builder/);
   assert.match(styles, /\.artifact-section-palette/);
   assert.match(styles, /\.artifact-builder-canvas/);

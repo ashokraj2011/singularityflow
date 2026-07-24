@@ -52,6 +52,38 @@ class FakeBridge {
   }
 }
 
+class DelayedStartBridge extends FakeBridge {
+  async start({ model }) {
+    this.model = model;
+    return new Promise((resolve) => {
+      this.finishStart = () => {
+        this.emit({
+          type: 'ready',
+          sessionId: 'acp-session-delayed',
+          version: '1.0.73',
+          modes: { currentModeId: 'plan' }
+        });
+        resolve({ sessionId: 'acp-session-delayed', version: '1.0.73', mode: 'plan' });
+      };
+    });
+  }
+}
+
+class HoldingBridge extends FakeBridge {
+  async prompt(text) {
+    this.running = true;
+    this.prompts.push(text);
+    this.emit({ type: 'turn-started', text });
+    return new Promise((resolve) => {
+      this.finishPrompt = () => {
+        this.running = false;
+        this.emit({ type: 'turn-complete', stopReason: 'end_turn' });
+        resolve({ stopReason: 'end_turn' });
+      };
+    });
+  }
+}
+
 test('Copilot backend starts once, routes planning events, releases context, and stops explicitly', async () => {
   const repository = path.join(os.tmpdir(), 'sflow-copilot-service');
   const events = [];
@@ -145,4 +177,110 @@ test('stopping the Copilot backend notifies an attached planning UI and prefligh
   });
   assert.equal(unavailable.status(repository).preflight.ready, false);
   await assert.rejects(() => unavailable.start(repository), /ACP support/);
+});
+
+test('concurrent Copilot starts share one initialization and do not expose a half-started backend', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-concurrent-start');
+  const bridges = [];
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      const bridge = new DelayedStartBridge(options);
+      bridges.push(bridge);
+      return bridge;
+    }
+  });
+  const first = controller.start(repository);
+  let secondResolved = false;
+  const second = controller.start(repository).then((value) => {
+    secondResolved = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(bridges.length, 1);
+  assert.equal(secondResolved, false);
+  bridges[0].finishStart();
+  const [firstStatus, secondStatus] = await Promise.all([first, second]);
+  assert.equal(firstStatus.state, 'ready');
+  assert.equal(secondStatus.state, 'ready');
+  assert.equal(firstStatus.sessionId, secondStatus.sessionId);
+});
+
+test('planning prompts fail visibly instead of being accepted while a turn is still running', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-busy-prompt');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      bridge = new HoldingBridge(options);
+      return bridge;
+    }
+  });
+  await controller.beginPlanning(repository, 'planning-busy', { prompt: 'Initial plan.' });
+  assert.equal(bridge.running, true);
+  assert.throws(() => controller.prompt(repository, 'planning-busy', 'Overlapping follow-up.'), /still finishing/);
+  assert.throws(() => controller.prompt(repository, 'planning-busy', '   '), /cannot be empty/);
+  bridge.finishPrompt();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(bridge.prompts, ['Initial plan.']);
+});
+
+test('a backend stop failure leaves an actionable error state instead of remaining stuck on stopping', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-stop-failure');
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      const bridge = new FakeBridge(options);
+      bridge.stop = async () => { throw new Error('process would not stop'); };
+      return bridge;
+    }
+  });
+  await controller.start(repository);
+  await assert.rejects(() => controller.stop(repository), /process would not stop/);
+  const status = controller.status(repository);
+  assert.equal(status.state, 'error');
+  assert.equal(status.running, false);
+  assert.equal(status.canStop, true);
+  assert.match(status.lastEvent.message, /could not be stopped cleanly/i);
+});
+
+test('release keeps the planning context attached when the active turn cannot be cancelled', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-release-failure');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      bridge = new HoldingBridge(options);
+      bridge.cancelCurrentTurn = async () => ({ cancelled: false });
+      return bridge;
+    }
+  });
+  await controller.beginPlanning(repository, 'planning-cancel-failure', { prompt: 'Long-running plan.' });
+  await assert.rejects(
+    () => controller.releasePlanning(repository, 'planning-cancel-failure'),
+    /could not be cancelled/
+  );
+  assert.equal(controller.status(repository).activePlanningSessionId, 'planning-cancel-failure');
+  assert.equal(bridge.running, true);
+  bridge.finishPrompt();
+});
+
+test('stopping during startup cannot be overwritten when delayed initialization completes', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-stop-during-start');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      bridge = new DelayedStartBridge(options);
+      return bridge;
+    }
+  });
+  const starting = controller.start(repository);
+  await new Promise((resolve) => setImmediate(resolve));
+  const stopped = await controller.stop(repository);
+  assert.equal(stopped.state, 'stopped');
+  bridge.finishStart();
+  const completedStart = await starting;
+  assert.equal(completedStart.state, 'stopped');
+  assert.equal(controller.status(repository).state, 'stopped');
 });

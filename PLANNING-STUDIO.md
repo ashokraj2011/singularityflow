@@ -22,6 +22,8 @@ The app is an Agent Client Protocol (ACP) client. Its main process owns one repo
 
 Releasing or promoting a planning context does not tear down the backend, so the next governed turn avoids another process launch. Stopping the backend is explicit and cancels any attached turn. Starting a planning turn automatically starts the backend if it is stopped.
 
+Backend lifecycle actions are serialized. Concurrent Start requests share the same initialization, Stop during startup cannot later spring back to Ready, and an overlapping or empty follow-up is rejected visibly instead of being reported as accepted. A planning context is released only after its active turn ends or cancellation succeeds. If shutdown cannot complete, the control shows an error and offers **Retry stop**; process, connection, session, and pending-question cleanup still run independently so one cleanup failure cannot skip the remaining steps.
+
 When Copilot needs a decision, Planning Studio renders its ACP form elicitation as an inline **Question from Copilot** card. The card supports text, number, boolean, single-select, and multi-select answers. Answering resumes the same Copilot turn; skipping is explicit. If a Copilot version asks an ordinary prose question instead of using elicitation, Planning Studio detects the question at the end of the turn and offers the same answer flow as a follow-up. Tool activity, diagnostics, reasoning-status events, and lifecycle messages remain available in a collapsed **Copilot logs** console at the bottom, similar to an IDE output panel.
 
 The ACP conversation is transient local state. It is not the workflow database. Singularity Flow remains Git-native.

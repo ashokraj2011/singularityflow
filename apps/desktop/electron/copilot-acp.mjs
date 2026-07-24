@@ -204,6 +204,8 @@ export class CopilotPlanningBridge {
     this.process.stderr.on('data', (text) => this.emit({ type: 'diagnostic', text: String(text) }));
     this.process.on('exit', (code, signal) => {
       this.closed = true;
+      this.running = false;
+      this.cancelPendingQuestions();
       this.emit({ type: 'process-exit', code, signal });
     });
     const processError = new Promise((_, reject) => this.process.once('error', reject));
@@ -292,14 +294,23 @@ export class CopilotPlanningBridge {
   }
 
   async stop() {
+    const warnings = [];
     this.cancelPendingQuestions();
     if (this.session) {
-      await this.cancelCurrentTurn();
-      this.session.dispose();
+      try { await this.cancelCurrentTurn(); } catch (error) { warnings.push(`turn cancellation failed: ${error.message}`); }
+      try { this.session.dispose(); } catch (error) { warnings.push(`session disposal failed: ${error.message}`); }
     }
-    this.connection?.close();
-    if (this.process && !this.process.killed) this.process.kill();
+    try { this.connection?.close(); } catch (error) { warnings.push(`ACP connection close failed: ${error.message}`); }
+    try {
+      if (this.process && !this.process.killed) this.process.kill();
+    } catch (error) {
+      warnings.push(`Copilot process termination failed: ${error.message}`);
+    }
     this.closed = true;
-    return { stopped: true };
+    this.running = false;
+    this.session = null;
+    this.connection = null;
+    for (const warning of warnings) this.emit({ type: 'diagnostic', text: `Copilot cleanup warning: ${warning}` });
+    return { stopped: true, warnings };
   }
 }

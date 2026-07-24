@@ -14,6 +14,8 @@ export const INITIATIVE_OUTPUT_KINDS = new Set(['markdown', 'yaml', 'binary-bund
 export const JIRA_WRITE_MODES = new Set(['off', 'preview', 'approved']);
 export const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
 export const JIRA_WRITE_OPERATIONS = new Set(['create-epic', 'create-story', 'update-owned-fields', 'add-comment']);
+export const STORAGE_PROVIDER_TYPES = new Set(['jira-attachment', 'artifactory', 'sharepoint', 's3', 'https-reference']);
+export const BRANCH_COMPLETION_POLICIES = new Set(['pr', 'direct', 'either']);
 const DEFAULT_JIRA_FIELDS = ['summary', 'description', 'parent', 'labels', 'components'];
 const FORBIDDEN_JIRA_FIELDS = new Set(['status', 'assignee', 'sprint', 'priority', 'resolution']);
 
@@ -53,6 +55,43 @@ function hostname(value, label) {
   if (parsed.protocol !== 'https:') throw new SingularityFlowError(`${label} must use HTTPS.`);
   if (parsed.username || parsed.password) throw new SingularityFlowError(`${label} must not contain credentials.`);
   return parsed.hostname.toLowerCase();
+}
+
+function normalizeStorage(value = {}) {
+  object(value, 'storage');
+  const providers = object(value.providers ?? {}, 'storage.providers');
+  const normalized = {};
+  for (const [id, raw] of Object.entries(providers)) {
+    safeId(id, 'Storage provider ID');
+    object(raw, `Storage provider '${id}'`);
+    const type = raw.type;
+    if (!STORAGE_PROVIDER_TYPES.has(type)) throw new SingularityFlowError(`Storage provider '${id}' has unsupported type '${type}'.`);
+    if (raw.maxBytes != null && (!Number.isInteger(raw.maxBytes) || raw.maxBytes < 1)) throw new SingularityFlowError(`Storage provider '${id}' maxBytes must be a positive integer.`);
+    const allowedMimeTypes = [...(raw.allowedMimeTypes ?? [])].map(String);
+    unique(allowedMimeTypes, `Storage provider '${id}' allowedMimeTypes`);
+    const provider = { ...structuredClone(raw), type, maxBytes: raw.maxBytes ?? null, allowedMimeTypes };
+    if (type === 'artifactory') {
+      if (!raw.baseUrl || !raw.repository) throw new SingularityFlowError(`Artifactory provider '${id}' requires baseUrl and repository.`);
+      provider.baseUrl = new URL(raw.baseUrl).toString().replace(/\/$/, '');
+      if (!provider.baseUrl.startsWith('https://')) throw new SingularityFlowError(`Artifactory provider '${id}' must use HTTPS.`);
+      provider.repository = safeId(raw.repository, `Artifactory provider '${id}' repository`);
+    }
+    if (type === 'sharepoint') {
+      for (const field of ['tenantId', 'clientId', 'siteId', 'driveId']) if (!raw[field]) throw new SingularityFlowError(`SharePoint provider '${id}' requires ${field}.`);
+    }
+    if (type === 's3') {
+      if (!raw.bucket) throw new SingularityFlowError(`S3 provider '${id}' requires bucket.`);
+      provider.prefix = String(raw.prefix ?? 'singularity-flow').replace(/^\/+|\/+$/g, '');
+    }
+    normalized[id] = provider;
+  }
+  const defaultProvider = value.defaultProvider ?? Object.keys(normalized)[0] ?? null;
+  if (defaultProvider && !normalized[defaultProvider]) throw new SingularityFlowError(`storage.defaultProvider references unknown provider '${defaultProvider}'.`);
+  const maxBytes = value.maxBytes ?? 100 * 1024 * 1024;
+  if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new SingularityFlowError('storage.maxBytes must be a positive integer.');
+  const allowedMimeTypes = [...(value.allowedMimeTypes ?? [])].map(String);
+  unique(allowedMimeTypes, 'storage.allowedMimeTypes');
+  return { defaultProvider, maxBytes, allowedMimeTypes, providers: normalized };
 }
 
 export function normalizeJiraPolicy(value = {}) {
@@ -227,12 +266,17 @@ export function validatePortfolio(value) {
   portfolio.initiativeProfiles = object(portfolio.initiativeProfiles ?? {}, 'initiativeProfiles');
   portfolio.initiativePhases = object(portfolio.initiativePhases ?? {}, 'initiativePhases');
   portfolio.jira = normalizeJiraPolicy(portfolio.jira ?? {});
+  portfolio.storage = normalizeStorage(portfolio.storage ?? {});
 
   for (const [id, repository] of Object.entries(portfolio.repositories)) {
     safeId(id, 'Repository ID'); object(repository, `Repository '${id}'`);
     if (typeof repository.url !== 'string' || !repository.url.trim()) throw new SingularityFlowError(`Repository '${id}' requires url.`);
     repository.defaultBranch ??= 'main';
     if (typeof repository.defaultBranch !== 'string' || !repository.defaultBranch.trim()) throw new SingularityFlowError(`Repository '${id}' defaultBranch is invalid.`);
+    repository.branchCompletionPolicy ??= 'pr';
+    if (!BRANCH_COMPLETION_POLICIES.has(repository.branchCompletionPolicy)) throw new SingularityFlowError(`Repository '${id}' branchCompletionPolicy must be pr, direct, or either.`);
+    repository.requiredChecks = [...(repository.requiredChecks ?? [])].map(String);
+    unique(repository.requiredChecks, `Repository '${id}' requiredChecks`);
     repository.required = repository.required !== false;
     repository.metadata = normalizeRepositoryMetadata(repository.metadata ?? {}, `Repository '${id}' metadata`);
   }
@@ -263,6 +307,8 @@ export function validatePortfolio(value) {
       if (!portfolio.initiativePhases[phaseId]) throw new SingularityFlowError(`Initiative profile '${id}' references unknown phase '${phaseId}'.`);
     });
     profile.label ??= id.replaceAll('-', ' ');
+    profile.lifecycleMode ??= id === 'epic-planning' ? 'planning-only' : 'full-delivery';
+    if (!['planning-only', 'full-delivery'].includes(profile.lifecycleMode)) throw new SingularityFlowError(`Initiative profile '${id}' lifecycleMode must be planning-only or full-delivery.`);
 
     const position = new Map(profile.phases.map((phaseId, index) => [phaseId, index]));
     for (const phaseId of profile.phases) {
@@ -320,10 +366,12 @@ export function resolveInitiativeProfile(portfolio, profileId) {
   return {
     id: profileId,
     label: profile.label,
+    lifecycleMode: profile.lifecycleMode,
     phases: profile.phases.map((id, order) => ({ ...structuredClone(portfolio.initiativePhases[id]), order })),
     repositories: structuredClone(portfolio.repositories),
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
-    jira: structuredClone(portfolio.jira)
+    jira: structuredClone(portfolio.jira),
+    storage: structuredClone(portfolio.storage)
   };
 }
 
@@ -352,17 +400,21 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     repositories: resolved.repositories,
     approvalAuthorities: resolved.approvalAuthorities,
     jira: resolved.jira,
+    storage: resolved.storage,
+    lifecycleMode: resolved.lifecycleMode,
     templates
   });
   return {
     profile: resolved.id,
     profileLabel: resolved.label,
+    lifecycleMode: resolved.lifecycleMode,
     portfolioSha256: portfolioSnapshot.sha256,
     resolutionSha256: createHash('sha256').update(canonical).digest('hex'),
     templates,
     phases: structuredClone(resolved.phases),
     repositories: structuredClone(resolved.repositories),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities),
-    jira: structuredClone(resolved.jira)
+    jira: structuredClone(resolved.jira),
+    storage: structuredClone(resolved.storage)
   };
 }

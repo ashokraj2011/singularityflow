@@ -46,6 +46,38 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
   assert.doesNotMatch(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /brokerage/i);
 });
 
+test('starter portfolio resolves Epic planning and pins storage and repository delivery policy', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  value.repositories.mobile = {
+    url: 'git@github.com:company/mobile.git',
+    branchCompletionPolicy: 'either',
+    requiredChecks: ['build', 'security']
+  };
+  value.storage = {
+    defaultProvider: 'corporate-artifacts',
+    maxBytes: 1048576,
+    providers: {
+      'corporate-artifacts': {
+        type: 'artifactory',
+        baseUrl: 'https://artifacts.example.com',
+        repository: 'product-inputs'
+      }
+    }
+  };
+  await writeFile(file, YAML.stringify(value));
+  const portfolio = await loadPortfolio(root);
+  const epic = resolveInitiativeProfile(portfolio, 'epic-planning');
+  assert.equal(epic.lifecycleMode, 'planning-only');
+  assert.deepEqual(epic.phases.map((phase) => phase.id), [
+    'epic-intake', 'epic-requirements', 'epic-plan', 'epic-create'
+  ]);
+  assert.equal(epic.repositories.mobile.branchCompletionPolicy, 'either');
+  assert.deepEqual(epic.repositories.mobile.requiredChecks, ['build', 'security']);
+  assert.equal(epic.storage.providers['corporate-artifacts'].type, 'artifactory');
+});
+
 test('portfolio loading rejects a symlinked governance file', async () => {
   const root = await repository();
   const portfolio = path.join(root, 'singularity/portfolio.yml');

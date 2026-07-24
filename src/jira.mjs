@@ -985,6 +985,104 @@ export async function addComment(key, body, options = {}) {
   return { id: payload?.id ?? null, createdAt: payload?.created ?? null };
 }
 
+export async function uploadJiraAttachment(key, {
+  filename,
+  bytes,
+  mimeType = 'application/octet-stream'
+} = {}, {
+  env = process.env,
+  connection,
+  fetchImpl = globalThis.fetch,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES
+} = {}) {
+  const issueKey = validateIssueKey(key);
+  if (!filename || !Buffer.isBuffer(bytes)) throw new SingularityFlowError('Jira attachment upload requires filename and Buffer bytes.');
+  const resolved = resolveConnection({ connection, env });
+  const controller = new AbortController();
+  const timeoutMs = boundedInteger(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 1, MAX_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: mimeType }), String(filename));
+  let response;
+  try {
+    response = await fetchImpl(jiraApiTarget(restPath(resolved, `issue/${encodeURIComponent(issueKey)}/attachments`), resolved), {
+      method: 'POST',
+      redirect: 'error',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        Authorization: authorizationHeader(resolved),
+        'X-Atlassian-Token': 'no-check'
+      },
+      body: form
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw jiraFailure(`Jira attachment upload timed out after ${timeoutMs} milliseconds.`, { category: 'timeout' });
+    throw jiraFailure(`Jira attachment upload failed: ${error.message}`, { category: 'network' });
+  } finally {
+    clearTimeout(timeout);
+  }
+  const text = await readBoundedResponseText(response, boundedInteger(maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES, 1, MAX_RESPONSE_BYTES));
+  let payload;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+  if (!response.ok || !Array.isArray(payload) || !payload[0]?.id) {
+    throw jiraFailure(`Jira attachment upload failed (${response.status}): ${text || 'invalid response'}`, {
+      status: response.status,
+      category: response.status === 401 ? 'authentication' : response.status === 403 ? 'authorization' : 'request'
+    });
+  }
+  const item = payload[0];
+  return {
+    id: String(item.id),
+    filename: item.filename ?? String(filename),
+    size: item.size ?? bytes.length,
+    mimeType: item.mimeType ?? mimeType,
+    url: item.content ?? null,
+    createdAt: item.created ?? null
+  };
+}
+
+export async function downloadJiraAttachment(url, {
+  env = process.env,
+  connection,
+  fetchImpl = globalThis.fetch,
+  maxBytes = 100 * 1024 * 1024,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS
+} = {}) {
+  const resolved = resolveConnection({ connection, env });
+  let target;
+  try { target = new URL(String(url)); } catch { throw new SingularityFlowError('Jira attachment URL is invalid.'); }
+  const configured = new URL(resolved.baseUrl);
+  if (target.protocol !== 'https:' || target.origin !== configured.origin) throw new SingularityFlowError('Jira attachment URL must remain on the configured Jira HTTPS origin.');
+  const controller = new AbortController();
+  const timeoutMs = boundedInteger(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 1, MAX_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(target, {
+      redirect: 'error',
+      signal: controller.signal,
+      headers: { Authorization: authorizationHeader(resolved) }
+    });
+  } catch (error) {
+    if (controller.signal.aborted) throw jiraFailure(`Jira attachment download timed out after ${timeoutMs} milliseconds.`, { category: 'timeout' });
+    throw jiraFailure(`Jira attachment download failed: ${error.message}`, { category: 'network' });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) throw jiraFailure(`Jira attachment download failed (${response.status}).`, { status: response.status });
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw new SingularityFlowError(`Jira attachment exceeds the configured ${maxBytes} bytes limit.`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > maxBytes) throw new SingularityFlowError(`Jira attachment exceeds the configured ${maxBytes} bytes limit.`);
+  return {
+    bytes,
+    mimeType: response.headers?.get?.('content-type')?.split(';')[0] ?? 'application/octet-stream',
+    version: response.headers?.get?.('etag') ?? null
+  };
+}
+
 function line(label, value) {
   if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return null;
   return `- ${label}: ${Array.isArray(value) ? value.join(', ') : value}`;

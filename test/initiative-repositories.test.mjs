@@ -101,6 +101,53 @@ test('breakdown validation enforces repositories, unique stories, and an acyclic
   assert.throws(() => validateInitiativeBreakdown(unknown, portfolio), /unknown repository/);
 });
 
+test('version-2 Story identity freezes the first Jira key while preserving aliases after re-keying', async () => {
+  const { root } = await repository();
+  const { portfolio } = await loadInitiative(root, 'INIT-MULTI');
+  const created = validateInitiativeBreakdown({
+    version: 2,
+    initiativeId: 'INIT-MULTI',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      stories: [{
+        planId: 'STORY-001',
+        jiraIssueId: '10042',
+        jiraKey: 'MOB-123',
+        repository: 'mobile',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001']
+      }]
+    }]
+  }, portfolio);
+  assert.equal(created.stories[0].workId, 'MOB-123');
+  assert.equal(created.stories[0].planId, 'STORY-001');
+  assert.equal(created.stories[0].jiraIssueId, '10042');
+
+  const rekeyed = validateInitiativeBreakdown({
+    version: 2,
+    initiativeId: 'INIT-MULTI',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      stories: [{
+        planId: 'STORY-001',
+        workId: 'MOB-123',
+        jiraIssueId: '10042',
+        jiraKey: 'PLAT-999',
+        initialJiraKey: 'MOB-123',
+        jiraAliases: ['MOB-123', 'PLAT-999'],
+        repository: 'mobile',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001']
+      }]
+    }]
+  }, portfolio);
+  assert.equal(rekeyed.stories[0].workId, 'MOB-123');
+  assert.equal(rekeyed.stories[0].jiraKey, 'PLAT-999');
+  assert.deepEqual(rekeyed.stories[0].jiraAliases, ['MOB-123', 'PLAT-999']);
+});
+
 test('initiative breakdown loading rejects a symbolic-link replacement', async () => {
   const { root } = await repository();
   const { portfolio } = await loadInitiative(root, 'INIT-MULTI');

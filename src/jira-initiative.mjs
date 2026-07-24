@@ -131,7 +131,11 @@ function descriptionWithAcceptance(item) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('elaboration') ? 'elaboration' : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+  return initiative.phaseOrder.includes('epic-plan')
+    ? 'epic-plan'
+    : initiative.phaseOrder.includes('elaboration')
+      ? 'elaboration'
+      : initiative.phaseOrder.includes('plan') ? 'plan' : null;
 }
 
 export function buildJiraBreakdownDraft(epic, stories, portfolio, {
@@ -482,6 +486,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
       action: operation.action,
       subject: operation.subject,
       jiraKey: result.key,
+      jiraIssueId: result.id ?? null,
       jiraUpdatedAt: result.updatedAt ?? null,
       appliedAt: nowIso(),
       actor
@@ -490,9 +495,19 @@ export async function applyJiraWritePlan(root, initiativeId, {
     results.push(receipt);
   }
   for (const epic of breakdown.epics) {
-    epic.jiraKey = results.find((receipt) => receipt.subject.type === 'epic' && receipt.subject.id === epic.id)?.jiraKey ?? epic.jiraKey;
+    const epicReceipt = results.find((receipt) => receipt.subject.type === 'epic' && receipt.subject.id === epic.id);
+    epic.jiraKey = epicReceipt?.jiraKey ?? epic.jiraKey;
+    epic.jiraIssueId = epicReceipt?.jiraIssueId ?? epic.jiraIssueId;
     for (const story of epic.stories) {
-      story.jiraKey = results.find((receipt) => receipt.subject.type === 'story' && receipt.subject.id === story.id)?.jiraKey ?? story.jiraKey;
+      const storyReceipt = results.find((receipt) => receipt.subject.type === 'story' && receipt.subject.id === story.id);
+      story.jiraKey = storyReceipt?.jiraKey ?? story.jiraKey;
+      story.jiraIssueId = storyReceipt?.jiraIssueId ?? story.jiraIssueId;
+      story.initialJiraKey ??= story.jiraKey ?? null;
+      story.jiraAliases = [...new Set([...(story.jiraAliases ?? []), story.jiraKey].filter(Boolean))];
+      story.workId = breakdown.version === 2
+        ? (story.workId && story.workId !== story.id ? story.workId : (story.jiraKey ?? story.workId ?? story.id))
+        : story.id;
+      story.epicKey = epic.jiraKey ?? story.epicKey ?? null;
     }
   }
   const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
@@ -524,4 +539,126 @@ export async function applyJiraWritePlan(root, initiativeId, {
   });
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative, plan, application, results };
+}
+
+export async function observeJiraDrift(root, initiativeId, {
+  connection,
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const policy = initiative.resolution?.jira ?? portfolio.jira;
+  if (!policy?.enabled) throw new SingularityFlowError('Jira was not enabled in this initiative’s immutable configuration snapshot.');
+  const resolvedConnection = governedConnection(policy, { connection, env });
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const observations = [];
+  for (const epic of breakdown.epics) {
+    if (epic.jiraKey) {
+      const issue = assertIssueRecordPolicy(await getIssue(epic.jiraKey, { connection: resolvedConnection, fetchImpl }), policy, `Jira Epic '${epic.id}'`);
+      const expected = expectedFields(epic, { initiativeId });
+      observations.push({
+        type: 'epic',
+        planId: epic.id,
+        jiraIssueId: issue.id,
+        initialJiraKey: epic.jiraKey,
+        currentJiraKey: issue.key,
+        expected,
+        observed: { title: issue.title, description: issue.description, labels: issue.labels, parent: issue.parent, updatedAt: issue.updatedAt },
+        restoreFields: allowedUpdateFields(policy, fieldDiff(issue, expected))
+      });
+    }
+    for (const story of epic.stories) {
+      if (!story.jiraKey) continue;
+      const issue = assertIssueRecordPolicy(await getIssue(story.jiraKey, { connection: resolvedConnection, fetchImpl }), policy, `Jira Story '${story.id}'`);
+      const expected = expectedFields(story, { parentKey: epic.jiraKey, initiativeId });
+      observations.push({
+        type: 'story',
+        planId: story.id,
+        workId: story.workId ?? story.id,
+        jiraIssueId: issue.id,
+        initialJiraKey: story.jiraKey,
+        currentJiraKey: issue.key,
+        expected,
+        observed: { title: issue.title, description: issue.description, labels: issue.labels, parent: issue.parent, updatedAt: issue.updatedAt },
+        restoreFields: allowedUpdateFields(policy, fieldDiff(issue, expected))
+      });
+    }
+  }
+  const base = {
+    schemaVersion: 1,
+    initiativeId,
+    source: 'jira',
+    observedAt: nowIso(),
+    observations: observations.map((entry) => ({ ...entry, drifted: Object.keys(entry.restoreFields).length > 0 }))
+  };
+  const observationSha256 = hash(base);
+  const record = { ...base, observationSha256 };
+  const target = await jiraPath(root, portfolio, initiativeId, path.join('drift', `${observationSha256}.json`), {
+    label: `Initiative '${initiativeId}' Jira drift observation`,
+    type: 'file'
+  });
+  await writeJson(target.absolute, record);
+  initiative.jiraDrift = {
+    observationSha256,
+    observedAt: base.observedAt,
+    drifted: base.observations.filter((entry) => entry.drifted).length,
+    path: target.relative
+  };
+  initiative.history.push({
+    at: base.observedAt,
+    actor: null,
+    event: 'jira_drift_observed',
+    phase: initiative.currentPhase,
+    detail: `${initiative.jiraDrift.drifted}/${observations.length} issues drifted`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, record };
+}
+
+export async function adoptJiraDrift(root, initiativeId, {
+  observationSha256,
+  actor = null
+} = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const selected = observationSha256 ?? initiative.jiraDrift?.observationSha256;
+  if (!selected) throw new SingularityFlowError('No Jira drift observation is available to adopt.');
+  const target = await jiraPath(root, portfolio, initiativeId, path.join('drift', `${selected}.json`), {
+    label: `Initiative '${initiativeId}' Jira drift observation`,
+    mustExist: true,
+    type: 'file'
+  });
+  const record = JSON.parse(await readFile(target.absolute, 'utf8'));
+  const { observationSha256: provided, ...base } = record;
+  if (provided !== selected || hash(base) !== provided) throw new SingularityFlowError('Jira drift observation hash is invalid.');
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  for (const observation of record.observations.filter((entry) => entry.drifted)) {
+    const item = observation.type === 'epic'
+      ? breakdown.epics.find((entry) => entry.id === observation.planId)
+      : breakdown.stories.find((entry) => entry.id === observation.planId);
+    if (!item) continue;
+    item.title = observation.observed.title;
+    item.description = observation.observed.description;
+    item.jiraKey = observation.currentJiraKey;
+    item.jiraIssueId = observation.jiraIssueId ?? item.jiraIssueId;
+    if (observation.type === 'story') {
+      item.workId ??= observation.workId ?? item.id;
+      item.jiraAliases = [...new Set([...(item.jiraAliases ?? []), observation.currentJiraKey].filter(Boolean))];
+    }
+  }
+  const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
+    label: `Initiative '${initiativeId}' breakdown`,
+    mustExist: true,
+    type: 'file'
+  });
+  await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
+  initiative.jiraDrift = { ...initiative.jiraDrift, adoptedAt: nowIso(), adoptedBy: actor, drifted: 0 };
+  initiative.history.push({
+    at: initiative.jiraDrift.adoptedAt,
+    actor,
+    event: 'jira_drift_adopted',
+    phase: initiative.currentPhase,
+    detail: selected.slice(0, 12)
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, breakdown, observation: record };
 }

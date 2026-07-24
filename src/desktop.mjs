@@ -45,6 +45,7 @@ import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
+import { listEpicSources } from './epic-sources.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -168,6 +169,9 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
       });
     }
   }
+  const sources = initiative.resolution.profile === 'epic-planning'
+    ? (await listEpicSources(root, initiativeId)).manifest
+    : { version: 1, initiativeId, sources: [] };
   return {
     state: initiative,
     progress: initiativeProgress(initiative),
@@ -177,6 +181,8 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     phaseGate,
     contracts: await interfaceContractStatus(root, initiativeId),
     nextActions: await initiativeNextActions(root, initiativeId),
+    sources,
+    jiraDrift: initiative.jiraDrift ?? null,
     documents
   };
 }
@@ -214,6 +220,15 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   const builderPrompt = await worldModelPrompt(root, definition);
   const plannerPrompt = await planningPrompt(root, definition);
+  let github = null;
+  try {
+    const status = run('gh', ['auth', 'status', '--json', 'hosts'], { cwd: root, allowFailure: true });
+    if (status.status === 0) {
+      const hosts = JSON.parse(status.stdout).hosts ?? {};
+      const account = Object.values(hosts).flat().find((entry) => entry.active) ?? Object.values(hosts).flat()[0];
+      github = account?.login ?? null;
+    }
+  } catch { /* Identity disclosure stays unavailable when gh is absent or signed out. */ }
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
@@ -221,6 +236,15 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   return {
     schemaVersion: 1,
     repository: { root, branch: currentBranch, controlRoot: 'singularity', changes, ...changeScope },
+    identities: {
+      git: identity(root),
+      github,
+      assurance: {
+        git: 'configured-local',
+        github: github ? 'gh-authenticated' : 'unavailable',
+        jira: 'desktop-secure-session'
+      }
+    },
     telemetry,
     definition,
     definitionPath: WORKFLOW_PATH,

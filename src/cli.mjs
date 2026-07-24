@@ -41,6 +41,8 @@ import {
   syncPublication,
   validateId,
   validateWorkflow,
+  workflowBranchAllowed,
+  workflowPublicationBranch,
   workflowPath,
   workDir
 } from './state.mjs';
@@ -100,7 +102,8 @@ import {
   initiativeBreakdownReview, materializeInitiative, syncInitiativeRepositories
 } from './initiative-repositories.mjs';
 import {
-  adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan, previewJiraAdoption
+  adoptJiraDrift, adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan,
+  observeJiraDrift, previewJiraAdoption
 } from './jira-initiative.mjs';
 import { interfaceContractStatus, registerInterfaceContract } from './initiative-contracts.mjs';
 import {
@@ -109,6 +112,13 @@ import {
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact } from './planning.mjs';
+import { listEpicSources, registerEpicSource, verifyEpicSources } from './epic-sources.mjs';
+import {
+  attachStoryBranch, createStoryBranch, createStoryReviewPacket, promoteStoryBranch, storyBranchStatus
+} from './story-lineage.mjs';
+import { runAndRecordStoryChecks } from './github-evidence.mjs';
+import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
+import { verifyEpicTraceability } from './epic-traceability.mjs';
 import {
   createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
@@ -250,6 +260,20 @@ Usage:
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
+  singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
+  singularity-flow epic sources [list|add|verify|materialize] [--epic EPIC-KEY]
+    [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
+  singularity-flow epic generate [intake|requirements|plan]
+  singularity-flow epic submit [intake|requirements|plan]
+  singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256]
+  singularity-flow epic status|sync|next|report [EPIC-KEY]
+  singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
+  singularity-flow epic checks <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
+  singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
+  singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
+  singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
+  singularity-flow story submit
+  singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
   singularity-flow workspace list [--json]
@@ -369,7 +393,7 @@ async function startCommand(positionals, options) {
         ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
         : await promptManualStory(id))
     : null;
-  const source = sourceMode === 'jira' ? await getIssue(id) : manual.source;
+  let source = sourceMode === 'jira' ? await getIssue(id) : manual.source;
   const supportingDocuments = [
     ...(manual?.documents ?? []),
     ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
@@ -381,6 +405,24 @@ async function startCommand(positionals, options) {
 
   const base = optionString(options, 'base', config.defaultBaseBranch);
   checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
+  const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
+  if (existsSync(seedFile)) {
+    const seed = YAML.parse(await readFile(seedFile, 'utf8'));
+    if (seed?.story?.workId !== id && seed?.story?.id !== id) {
+      throw new SingularityFlowError(`Story seed ${posix(path.relative(root, seedFile))} does not belong to Work ID '${id}'.`);
+    }
+    source = {
+      ...source,
+      type: source.type ?? 'jira',
+      key: seed.story.jiraKey ?? source.key ?? id,
+      id: seed.story.jiraIssueId ?? source.id ?? null,
+      epicId: seed.initiative?.id ?? seed.story.epicId ?? null,
+      planId: seed.story.planId ?? null,
+      branchCompletionPolicy: seed.story.branchCompletionPolicy ?? 'pr',
+      requiredChecks: seed.story.requiredChecks ?? [],
+      seed: posix(path.relative(root, seedFile))
+    };
+  }
   const workflow = await createWorkflow(root, config, {
     id,
     title: optionString(options, 'title', source.title || id),
@@ -471,12 +513,12 @@ async function personaCommand(positionals) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, positionals[1]);
-  if (branch(root) !== workflow.workItem.branch) {
-    throw new SingularityFlowError(`Work item '${workflow.workItem.id}' is not the current branch. Run singularity-flow resume ${workflow.workItem.id} --fetch first.`);
+  if (!workflowBranchAllowed(workflow, branch(root))) {
+    throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
   console.log(`Active persona: ${config.personas[session.persona].label} (${session.persona})`);
-  console.log(`Session scope: ${workflow.workItem.id} on branch ${workflow.workItem.branch}`);
+  console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
 }
 
@@ -925,10 +967,12 @@ async function submitCommand(options) {
     phaseId: optionString(options, 'phase'),
     runChecks: !optionBoolean(options, 'skip-checks')
   });
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, phase.artifacts.map((item) => item.path));
+  const reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
+  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, [...phase.artifacts.map((item) => item.path), reviewPacket.path]);
   console.log(`\nSubmitted ${phase.id} phase for approval.`);
   console.log(`Commit: ${publication.sha.slice(0, 8)} — request approval (${workflow.workItem.id})`);
-  console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflow.workItem.branch}` : 'disabled by git.publish: off'}`);
+  console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
+  console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
   printPhaseReview(await phaseReview(root, config, workflow, phase));
   console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
   console.log('Next in Copilot: /sflow-approve');
@@ -979,9 +1023,10 @@ async function decisionWorkflow(positionals, options, action) {
   const receiptToken = optionString(options, 'selection-receipt');
   if (receiptToken) assertClean(root);
   let config = await loadConfig(root);
-  const workId = requestedId ?? branch(root);
-  if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
-  config = await loadConfig(root); const workflow = await loadWorkflow(root, config, workId);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) checkout(root, requestedId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, requestedId);
+  const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
   const phase = await assertPhaseSequence(root, workflow, action, {
@@ -1028,7 +1073,7 @@ async function approveCommand(positionals, options) {
   });
   const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
   console.log(publication.pushed
-    ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflow.workItem.branch}.`
+    ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
@@ -1548,7 +1593,7 @@ async function initiativeCommand(positionals, options) {
       workId: initiativeId,
       choiceSets
     }) : null;
-    const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile']);
+    const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile'] ?? optionString(options, 'profile'));
     const selectedPersona = await selectPersona(root, config, actionActor(root), initiativeId, { selection: receipt?.answers.persona ?? null });
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const source = optionBoolean(options, 'jira')
@@ -1562,12 +1607,28 @@ async function initiativeCommand(positionals, options) {
       source,
       persona: selectedPersona.persona
     });
-    const publication = await commitInitiativeChange(root, created.portfolio, created.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
-    const progress = initiativeProgress(created.initiative);
+    if (profile === 'epic-planning' && source.type === 'jira') {
+      await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId: 'epic-intake',
+        checkId: 'epic-identity-verified',
+        assurance: 'system-verified',
+        verificationMethod: 'jira-issue-read',
+        source: {
+          externalId: source.id ?? source.key ?? initiativeId,
+          version: source.updatedAt ?? null,
+          observedState: `${source.key ?? initiativeId}: ${source.title ?? initiativeId}`
+        },
+        persona: selectedPersona.persona
+      });
+    }
+    const started = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
+    const progress = initiativeProgress(started.initiative);
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
-    console.log(`Next: singularity-flow initiative phase ${created.initiative.currentPhase}`);
+      console.log(`Next: singularity-flow initiative phase ${started.initiative.currentPhase}`);
     return;
   }
   if (subcommand === 'resume') {
@@ -1608,8 +1669,34 @@ async function initiativeCommand(positionals, options) {
       const context = await verifyInitiativeContext(root, portfolio, initiative, phaseId);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       if (!context.valid) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${context.errors.join('\n- ')}`);
+      let traceability = null;
+      if (initiative.resolution.profile === 'epic-planning' && ['epic-requirements', 'epic-plan'].includes(phaseId)) {
+        traceability = await verifyEpicTraceability(root, portfolio, initiative);
+        if (traceability.errors.length) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
+      }
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      if (traceability) {
+        const checks = phaseId === 'epic-requirements'
+          ? ['requirements-traceable']
+          : ['stories-traceable', 'repositories-resolved', 'dependencies-acyclic'];
+        for (const checkId of checks) {
+          await registerInitiativeEvidence(root, {
+            initiativeId,
+            phaseId,
+            checkId,
+            assurance: 'machine-verified',
+            verificationMethod: 'singularity-epic-traceability',
+            source: {
+              externalId: result.initiative.resolution.resolutionSha256,
+              version: String(result.phase.generation),
+              observedState: traceability.passes.join('; ')
+            },
+            persona: session?.persona ?? null
+          });
+        }
+      }
+      const publishState = await loadInitiative(root, initiativeId);
+      const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     } else {
       const context = await composeInitiativeContext(root, initiativeId, phaseId, { persona: session?.persona ?? null });
@@ -2127,6 +2214,286 @@ async function workspaceCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown workspace subcommand '${subcommand}'.`);
 }
 
+function epicPhaseName(value) {
+  const aliases = {
+    intake: 'epic-intake',
+    requirements: 'epic-requirements',
+    plan: 'epic-plan',
+    create: 'epic-create',
+    'create-stories': 'epic-create'
+  };
+  return value ? (aliases[value] ?? value) : null;
+}
+
+async function epicCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'start') {
+    return initiativeCommand(['initiative', 'start', requirePositional(positionals, 2, 'Jira Epic key')], {
+      ...options,
+      profile: optionString(options, 'profile', 'epic-planning'),
+      jira: options.jira ?? true
+    });
+  }
+  if (subcommand === 'sources') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const action = positionals[2] ?? 'list';
+    if (action === 'add') {
+      const result = await registerEpicSource(root, {
+        initiativeId,
+        providerId: optionString(options, 'provider'),
+        filePath: optionString(options, 'file'),
+        url: optionString(options, 'url'),
+        label: optionString(options, 'label'),
+        mimeType: optionString(options, 'mime', 'application/octet-stream')
+      });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
+      const output = { record: result.record, recordSha256: result.recordSha256, publication };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
+      console.log(`Registered ${result.record.sourceId}: ${result.record.name}`);
+      console.log(`Provider: ${result.record.provider} · ${result.record.bytes} bytes · ${result.record.sha256}`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    if (action === 'verify' || action === 'materialize') {
+      const result = await verifyEpicSources(root, initiativeId, { materialize: action === 'materialize' });
+      let publication = null;
+      if (action === 'materialize' && result.valid) {
+        await registerInitiativeEvidence(root, {
+          initiativeId,
+          phaseId: 'epic-intake',
+          checkId: 'sources-pinned',
+          assurance: 'machine-verified',
+          verificationMethod: 'provider-download-sha256',
+          source: {
+            externalId: result.results.map((entry) => `${entry.sourceId}@${entry.expectedSha256}`).join(','),
+            version: result.results.map((entry) => entry.version ?? 'unavailable').join(','),
+            observedState: `${result.results.length} source version(s) downloaded and hash-verified`
+          }
+        });
+        const verifiedState = await loadInitiative(root, initiativeId);
+        publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
+      }
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(table(result.results, [
+        { key: 'sourceId', label: 'SOURCE' },
+        { key: 'status', label: 'STATUS' },
+        { key: 'version', label: 'VERSION' },
+        { key: 'cachePath', label: 'LOCAL CACHE' }
+      ]));
+      if (publication) console.log(`Verification evidence committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+      if (!result.valid) process.exitCode = 2;
+      return;
+    }
+    if (action !== 'list') throw new SingularityFlowError(`Unknown Epic sources action '${action}'.`);
+    const result = await listEpicSources(root, initiativeId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result.manifest, null, 2));
+    return console.log(table(result.manifest.sources, [
+      { key: 'sourceId', label: 'SOURCE' },
+      { key: 'name', label: 'NAME' },
+      { key: 'provider', label: 'PROVIDER' },
+      { key: 'bytes', label: 'BYTES' },
+      { key: 'status', label: 'STATUS' }
+    ]));
+  }
+  if (subcommand === 'generate') {
+    const phase = epicPhaseName(positionals[2]);
+    return initiativeCommand(['initiative', 'phase', ...(phase ? [phase] : [])], options);
+  }
+  if (subcommand === 'submit') {
+    const phase = epicPhaseName(positionals[2]);
+    return initiativeCommand(['initiative', 'phase', 'publish', ...(phase ? [phase] : [])], options);
+  }
+  if (subcommand === 'create-stories') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const planSha256 = optionString(options, 'plan');
+    if (!planSha256) {
+      const result = await createJiraWritePlan(root, initiativeId);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
+      console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
+      console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
+      return;
+    }
+    if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Epic Story creation cancelled.');
+    const applied = await applyJiraWritePlan(root, initiativeId, {
+      planSha256,
+      confirmation: initiativeId,
+      actor: identity(root).email?.toLowerCase() ?? identity(root).name
+    });
+    await registerInitiativeEvidence(root, {
+      initiativeId,
+      phaseId: 'epic-create',
+      checkId: 'jira-permission-verified',
+      assurance: 'system-verified',
+      verificationMethod: 'jira-permission-preflight-and-apply',
+      source: {
+        externalId: planSha256,
+        version: applied.application.appliedAt,
+        observedState: `${applied.results.length} reviewed Jira operations applied by an account with required permissions`
+      }
+    });
+    const appliedState = await loadInitiative(root, initiativeId);
+    const applicationPublication = await commitInitiativeChange(root, appliedState.portfolio, appliedState.initiative, `[${initiativeId}][epic:jira-apply] ${planSha256.slice(0, 12)}`);
+    const materialized = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
+    if (!materialized.failures.length) {
+      await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId: 'epic-create',
+        checkId: 'stories-materialized',
+        assurance: 'machine-verified',
+        verificationMethod: 'jira-and-git-receipt-integrity',
+        source: {
+          externalId: planSha256,
+          version: materialized.attempt.completedAt,
+          observedState: `${materialized.attempt.stories.length} canonical Story branches and governed seeds published`
+        }
+      });
+    }
+    const fresh = await loadInitiative(root, initiativeId);
+    const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+    const result = { plan: planSha256, applied: applied.results, materialization: materialized.attempt, publications: { application: applicationPublication, branches: branchPublication } };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Created or attached ${applied.results.filter((entry) => entry.subject.type === 'story').length} Jira Stories.`);
+    console.log(`Canonical branches ready: ${materialized.attempt.stories.filter((entry) => entry.status !== 'failed').length}/${materialized.attempt.stories.length}.`);
+    materialized.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
+    return;
+  }
+  if (subcommand === 'review') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const story = positionals[2];
+    if (!story) {
+      const inbox = await listEpicReviewInbox(root, initiativeId);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(inbox, null, 2));
+      if (!inbox.length) return console.log(`Epic ${initiativeId} has no submitted Story review packets.`);
+      return console.log(table(inbox, [
+        { key: 'workId', label: 'STORY' },
+        { key: 'repository', label: 'REPOSITORY' },
+        { key: 'branch', label: 'SUBMITTED BRANCH' },
+        { key: 'phase', label: 'PHASE' },
+        { key: 'submittedAt', label: 'SUBMITTED' }
+      ]));
+    }
+    const result = await epicReviewStory(root, initiativeId, story, {
+      packetSha256: optionString(options, 'packet')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.story.workId ?? result.story.id} review packet ${result.packet.packetSha256}`);
+    console.log(`Lineage: ${initiativeId} → ${result.story.planId ?? result.story.id} → ${result.story.jiraKey ?? 'not created'} → ${result.submittedBranch}`);
+    console.log(`Exact source commit: ${result.packet.sourceCommit}`);
+    process.stdout.write(`\n${result.review.markdown}`);
+    return;
+  }
+  if (subcommand === 'checks') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const story = requirePositional(positionals, 2, 'Story key');
+    const result = await epicCheckStory(root, initiativeId, story, {
+      packetSha256: optionString(options, 'packet')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Recorded checks for ${story} packet ${result.packet.packetSha256.slice(0, 12)}.`);
+    console.log(`Ready: ${result.checks.evidence.ready ? 'yes' : 'no'} · evidence ${result.checks.evidence.evidenceSha256.slice(0, 12)}`);
+    console.log(`Story commit ${result.checks.publication.sha.slice(0, 8)}; Epic commit ${result.publication.sha.slice(0, 8)}.`);
+    return;
+  }
+  if (subcommand === 'drift') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const action = positionals[2] ?? 'observe';
+    if (action === 'observe') {
+      const result = await observeJiraDrift(root, initiativeId);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-drift] observe`);
+      const output = { record: result.record, publication };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
+      console.log(`Jira drift: ${result.record.observations.filter((entry) => entry.drifted).length}/${result.record.observations.length} issue(s).`);
+      console.log(`Observation ${result.record.observationSha256}; commit ${publication.sha.slice(0, 8)}.`);
+      return;
+    }
+    if (action === 'adopt') {
+      const result = await adoptJiraDrift(root, initiativeId, {
+        observationSha256: optionString(options, 'observation'),
+        actor: identity(root).email?.toLowerCase() ?? identity(root).name
+      });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ observation: result.observation, publication }, null, 2));
+      console.log(`Adopted Jira observations into a new governed Git generation. Commit ${publication.sha.slice(0, 8)}.`);
+      return;
+    }
+    if (action === 'restore-plan') {
+      const result = await createJiraWritePlan(root, initiativeId);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
+      console.log(`Created reviewed Jira restore plan ${result.plan.sha256}. No Jira fields were changed.`);
+      return;
+    }
+    throw new SingularityFlowError(`Unknown Epic drift action '${action}'.`);
+  }
+  const mappings = {
+    status: 'status',
+    sync: 'sync',
+    report: 'report',
+    resume: 'resume',
+    next: 'next'
+  };
+  const mapped = mappings[subcommand];
+  if (!mapped) throw new SingularityFlowError(`Unknown Epic subcommand '${subcommand}'.`);
+  return initiativeCommand(['initiative', mapped, ...positionals.slice(2)], options);
+}
+
+async function storyCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  if (subcommand === 'branch') {
+    const action = positionals[2] ?? 'status';
+    if (action === 'create') {
+      const result = await createStoryBranch(root, config, {
+        parentStoryId: optionString(options, 'parent'),
+        branchName: requirePositional(positionals, 3, 'child branch name')
+      });
+      console.log(`Created and registered child branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
+      return;
+    }
+    if (action === 'attach') {
+      const result = await attachStoryBranch(root, config, { parentStoryId: optionString(options, 'parent') });
+      console.log(`${result.created ? 'Registered' : 'Using'} ${result.canonical ? 'canonical' : 'child'} branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
+      return;
+    }
+    if (action === 'promote') {
+      const workflow = await loadWorkflow(root, config, optionString(options, 'parent'));
+      const result = await promoteStoryBranch(root, config, workflow, { mode: optionString(options, 'mode') });
+      if (result.requiresPullRequest) console.log(`Open a pull request from ${result.branch} to ${result.canonicalBranch}. Epic progress advances only after merge.`);
+      else console.log(`Promoted ${result.branch} to ${result.canonicalBranch} at ${result.commit.slice(0, 8)}.`);
+      return;
+    }
+    if (action !== 'status') throw new SingularityFlowError(`Unknown Story branch action '${action}'.`);
+    const status = await storyBranchStatus(root, config, optionString(options, 'parent'));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+    console.log(`Story: ${status.workId} · Epic: ${status.epicId ?? 'unlinked'}`);
+    console.log(`Current: ${status.currentBranch} (${status.kind}) · Canonical: ${status.canonicalBranch}`);
+    return;
+  }
+  if (subcommand === 'submit') return submitCommand(options);
+  if (subcommand === 'checks') {
+    const workflow = await loadWorkflow(root, config, optionString(options, 'parent'));
+    const result = await runAndRecordStoryChecks(root, config, workflow, {
+      packetSha256: optionString(options, 'packet'),
+      requiredChecks: optionStrings(options, 'required-check')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
+    console.log(`GitHub Actions: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
+    result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
+    console.log(`Evidence committed ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' and pushed' : ''}.`);
+    return;
+  }
+  if (subcommand === 'status') return statusCommand([positionals[0], positionals[2]], options);
+  throw new SingularityFlowError(`Unknown Story subcommand '${subcommand}'.`);
+}
+
 export async function main(argv) {
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
@@ -2179,6 +2546,8 @@ export async function main(argv) {
     case 'plugin': return pluginCommand(positionals, options);
     case 'desktop': return desktopCommand(positionals, options);
     case 'initiative': return initiativeCommand(positionals, options);
+    case 'epic': return epicCommand(positionals, options);
+    case 'story': return storyCommand(positionals, options);
     case 'workspace': return workspaceCommand(positionals, options);
     case 'hook': return hookCommand(positionals);
     default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);

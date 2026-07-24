@@ -1,0 +1,19 @@
+version: 2
+initiativeId: "{{workId}}"
+epics:
+  - planId: EPIC-001
+    jiraKey: "{{workId}}"
+    title: ""
+    description: ""
+    acceptanceCriteria: []
+    stories:
+      - planId: STORY-001
+        title: ""
+        description: ""
+        requirements: [REQ-001]
+        acceptanceCriteria: [AC-001]
+        repository: ""
+        blocking: true
+        suggestedWorkType: feature
+        dependsOn: []
+        consumesContracts: []

@@ -41,6 +41,26 @@ export function pendingPublicationPath(root, config, id) { return path.join(work
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
+export function workflowBranchNames(workflow) {
+  return [...new Set([
+    workflow.workItem.branch,
+    workflow.lineage?.canonicalBranch,
+    ...(workflow.lineage?.childBranches ?? []).map((entry) => entry.name)
+  ].filter(Boolean))];
+}
+
+export function workflowBranchAllowed(workflow, branchName) {
+  return workflowBranchNames(workflow).includes(branchName);
+}
+
+export function workflowPublicationBranch(root, workflow) {
+  const current = branch(root);
+  if (!workflowBranchAllowed(workflow, current)) {
+    throw new SingularityFlowError(`Branch '${current}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+  }
+  return current;
+}
+
 function markdownValue(value) {
   if (value == null || value === '') return '';
   if (Array.isArray(value)) return value.map((item) => `- ${typeof item === 'string' ? item : JSON.stringify(item)}`).join('\n');
@@ -203,6 +223,19 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   const workflow = {
     schemaVersion: 2,
     workItem: { id, title: title || id, workType: selectedType, workTypeLabel: resolution.label, branch: branch(root), baseBranch, createdAt, createdBy: actor, source: { type: source.type, key: source.key ?? null, url: source.url ?? null } },
+    lineage: {
+      schemaVersion: 1,
+      canonicalBranch: branch(root),
+      parentStoryId: id,
+      epicId: source.epicId ?? source.parent?.key ?? null,
+      planId: source.planId ?? null,
+      jiraIssueId: source.id ?? null,
+      initialJiraKey: source.key ?? (source.type === 'jira' ? id : null),
+      currentJiraKey: source.key ?? (source.type === 'jira' ? id : null),
+      branchCompletionPolicy: source.branchCompletionPolicy ?? 'pr',
+      requiredChecks: structuredClone(source.requiredChecks ?? []),
+      childBranches: []
+    },
     resolution: {
       ...snapshotState,
       workType: selectedType,
@@ -261,6 +294,18 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
+  workflow.lineage ??= {
+    schemaVersion: 1,
+    canonicalBranch: workflow.workItem.branch,
+    parentStoryId: workflow.workItem.id,
+    epicId: workflow.workItem.source?.epicId ?? workflow.workItem.source?.parent?.key ?? null,
+    planId: workflow.workItem.source?.planId ?? null,
+    jiraIssueId: workflow.workItem.source?.id ?? null,
+    initialJiraKey: workflow.workItem.source?.key ?? null,
+    currentJiraKey: workflow.workItem.source?.key ?? null,
+    childBranches: []
+  };
+  workflow.lineage.childBranches ??= [];
   workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
   workflow.telemetry ??= { schemaVersion: 1, mode: 'legacy' };
   workflow.documents ??= { count: 0, updatedAt: null };
@@ -286,11 +331,21 @@ function upgradeWorkflow(workflow) {
 }
 
 export async function loadWorkflow(root, config, id = undefined) {
-  const resolved = id ?? branch(root);
-  const file = workflowPath(root, config, resolved);
+  let resolved = id ?? branch(root);
+  let file = workflowPath(root, config, resolved);
+  if (id == null && !(await exists(file))) {
+    const session = await loadSession(root, { required: false });
+    if (session?.workId) {
+      resolved = session.workId;
+      file = workflowPath(root, config, resolved);
+    }
+  }
   if (!(await exists(file))) throw new SingularityFlowError(`No workflow found for ${resolved}. Expected ${posix(path.relative(root, file))}.`);
   const workflow = upgradeWorkflow(await readJson(file));
   invariant(workflow.workItem?.id === resolved, `Workflow ID does not match ${resolved}.`);
+  if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
+    throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+  }
   return workflow;
 }
 
@@ -614,7 +669,8 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     requestedPhase: phase.id,
     reason: `Generation commit is missing for generation ${phase.generation}.`
   });
-  phase.publicationCommit = phase.generationCommit && (config.git?.publish === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', workflow.workItem.branch)) ? phase.generationCommit : null;
+  const publicationBranch = workflowPublicationBranch(root, workflow);
+  phase.publicationCommit = phase.generationCommit && (config.git?.publish === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', publicationBranch)) ? phase.generationCommit : null;
   if (config.git?.publish === 'required' && !phase.publicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generationCommit ? `Generation commit ${phase.generationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
@@ -643,7 +699,22 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
   if (!allowed.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot approve phase '${phase.id}'. Choose one of: ${allowed.join(', ')}.`);
   const actor = session.actor; const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
   if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
-  const decision = { decision: 'approved', phase: phase.id, at: nowIso(), actor, persona: session.persona, channel, generation: phase.generation, selfApproval: actorKey(phase.generatedBy ?? {}) === key };
+  const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  );
+  const decision = {
+    decision: 'approved',
+    phase: phase.id,
+    at: nowIso(),
+    actor,
+    persona: session.persona,
+    channel,
+    generation: phase.generation,
+    reviewPacketSha256: packet?.packetSha256 ?? null,
+    selfApproval: actorKey(phase.generatedBy ?? {}) === key
+  };
   phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
@@ -685,7 +756,23 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     await updateArtifactMetadata(root, config, workflow, affected);
   }
   workflow.currentPhase = targetId; workflow.status = 'in_progress';
-  const decision = { decision: 'rejected', phase: phase.id, target: targetId, reason: reason.trim(), at: timestamp, actor: session.actor, persona: session.persona, channel };
+  const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  );
+  const decision = {
+    decision: 'rejected',
+    phase: phase.id,
+    target: targetId,
+    reason: reason.trim(),
+    at: timestamp,
+    actor: session.actor,
+    persona: session.persona,
+    channel,
+    generation: phase.generation,
+    reviewPacketSha256: packet?.packetSha256 ?? null
+  };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
   workflow.history.push({ at: timestamp, actor: key, persona: session.persona, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
   await saveWorkflow(root, config, workflow); return workflow.phases[targetId];
@@ -697,9 +784,10 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
   add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths])]);
   const sha = commit(root, message); const mode = config.git?.publish ?? 'required';
   if (mode === 'off') return { sha, pushed: false };
-  const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, workflow.workItem.branch);
+  const targetBranch = workflowPublicationBranch(root, workflow);
+  const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, targetBranch);
   if (result.status !== 0) {
-    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: workflow.workItem.branch, remote, commit: sha, createdAt: nowIso(), error: (result.stderr || result.stdout).trim() });
+    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error: (result.stderr || result.stdout).trim() });
     throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
   }
   if (await exists(pending)) await unlink(pending);
@@ -707,13 +795,13 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
 }
 
 export async function syncPublication(root, config, workflow) {
-  const pending = pendingPublicationPath(root, config, workflow.workItem.id); const record = (await exists(pending)) ? await readJson(pending) : { remote: config.git?.remote ?? 'origin', branch: workflow.workItem.branch };
+  const pending = pendingPublicationPath(root, config, workflow.workItem.id); const record = (await exists(pending)) ? await readJson(pending) : { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
   if (await exists(pending)) await unlink(pending); return { pushed: head(root), remote: record.remote, branch: record.branch };
 }
 
 export async function validateWorkflow(root, config, workflow, { strict = false } = {}) {
-  const errors = [], warnings = []; if (branch(root) !== workflow.workItem.branch) errors.push(`Current branch ${branch(root)} does not match ${workflow.workItem.branch}.`);
+  const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
   if (workflow.schemaVersion === 2 && workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
   const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
   if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');

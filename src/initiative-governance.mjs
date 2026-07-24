@@ -3,6 +3,8 @@ import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { evaluateInitiativePhase, readInitiativeRecords } from './initiative-evidence.mjs';
 import { loadInitiative } from './initiative-state.mjs';
 import { verifyInitiativeContext } from './initiative-context.mjs';
+import { verifyEpicSources } from './epic-sources.mjs';
+import { verifyEpicTraceability } from './epic-traceability.mjs';
 import { run } from './util.mjs';
 
 export async function runInitiativeGate(root, initiativeId, { terminal = false } = {}) {
@@ -11,6 +13,17 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   if (branch(root) !== initiative.initiative.branch) errors.push(`current branch ${branch(root)} does not match initiative branch ${initiative.initiative.branch}`);
   if (initiative.resolution.profile !== initiative.initiative.profile) errors.push('initiative profile differs from immutable resolution');
   if (!initiative.resolution.portfolioSha256 || !initiative.resolution.resolutionSha256) errors.push('initiative immutable configuration hashes are missing');
+  if (initiative.resolution.profile === 'epic-planning') {
+    const sources = await verifyEpicSources(root, initiativeId, { materialize: true });
+    for (const source of sources.results) {
+      if (source.status !== 'verified') errors.push(`Epic source ${source.sourceId} is ${source.status}${source.error ? `: ${source.error}` : ''}`);
+      else passes.push(`Epic source ${source.sourceId}@${source.expectedSha256.slice(0, 12)}`);
+    }
+    const traceability = await verifyEpicTraceability(root, portfolio, initiative);
+    errors.push(...traceability.errors.map((message) => `Epic traceability: ${message}`));
+    warnings.push(...traceability.warnings.map((message) => `Epic traceability: ${message}`));
+    passes.push(...traceability.passes);
+  }
   for (const category of ['evidence', 'approvals', 'invalidations']) {
     try {
       const records = await readInitiativeRecords(root, portfolio, initiativeId, category);

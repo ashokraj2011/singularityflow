@@ -82,8 +82,22 @@ export function quoteJql(value) {
 }
 
 function validateProjectKey(value) {
-  const key = String(value ?? '').trim();
+  const key = String(value ?? '').trim().toUpperCase();
   if (!/^[A-Za-z][A-Za-z0-9_-]{0,31}$/.test(key)) throw new SingularityFlowError(`Invalid Jira project key: ${value ?? ''}`);
+  return key;
+}
+
+export function assertJiraProjectPolicy(value, policy = {}, label = 'Jira project') {
+  const key = validateProjectKey(value);
+  if (policy.allowedProjects?.length && !policy.allowedProjects.includes(key)) {
+    throw new SingularityFlowError(`${label} ${key} is outside the configured allowedProjects.`);
+  }
+  return key;
+}
+
+export function assertJiraIssuePolicy(value, policy = {}, label = 'Jira issue') {
+  const key = validateIssueKey(value, `${label} key`);
+  assertJiraProjectPolicy(key.slice(0, key.lastIndexOf('-')), policy, `${label} project`);
   return key;
 }
 
@@ -257,8 +271,27 @@ export function normalizeIssue(issue, {
   };
 }
 
-function resolveConnection({ connection, env = process.env } = {}) {
+export function resolveJiraConnection({ connection, env = process.env } = {}) {
   return connection ? normalizeJiraConnection(connection) : jiraConnectionFromEnv(env);
+}
+
+export function assertJiraConnectionPolicy(connection, policy = {}) {
+  const resolved = normalizeJiraConnection(connection);
+  const hostname = new URL(resolved.baseUrl).hostname.toLowerCase();
+  if (policy.allowedHosts?.length && !policy.allowedHosts.includes(hostname)) {
+    throw new SingularityFlowError(`Jira host ${hostname} is outside the Jira allowlist.`);
+  }
+  if (policy.deployment && resolved.deployment !== policy.deployment) {
+    throw new SingularityFlowError(`Repository policy requires Jira ${policy.deployment}.`);
+  }
+  if (policy.authentication?.permitted?.length && !policy.authentication.permitted.includes(resolved.auth.mode)) {
+    throw new SingularityFlowError(`Jira authentication mode ${resolved.auth.mode} is not permitted by repository policy.`);
+  }
+  return resolved;
+}
+
+function resolveConnection(options = {}) {
+  return resolveJiraConnection(options);
 }
 
 function restPath(connection, suffix) {

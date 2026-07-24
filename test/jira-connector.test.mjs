@@ -4,11 +4,14 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
   discoverJiraConnection, getIssueHierarchy, jiraRequest, listEpicStories,
   listWorkspaceAnchors, normalizeJiraConnection
 } from '../src/jira.mjs';
 import { normalizeJiraPolicy } from '../src/initiative-config.mjs';
-import { buildJiraBreakdownDraft } from '../src/jira-initiative.mjs';
+import {
+  assertJiraWriteOperationPolicy, buildJiraBreakdownDraft, previewJiraAdoption
+} from '../src/jira-initiative.mjs';
 import { applyJiraWritePlan, createJiraWritePlan } from '../src/jira-initiative.mjs';
 import { JiraCredentialStore } from '../apps/desktop/electron/jira-credentials.mjs';
 import { initializeDefinition } from '../src/config.mjs';
@@ -125,6 +128,74 @@ test('portfolio Jira policy blocks unsafe fields and normalizes legacy write con
   assert.throws(() => normalizeJiraPolicy({ deployment: 'data-center', authentication: { permitted: ['user-token'] } }), /not supported/);
 });
 
+test('Jira runtime policy validates every reused connection, project, and issue key', () => {
+  const policy = normalizeJiraPolicy({
+    enabled: true,
+    deployment: 'cloud',
+    allowedHosts: ['office.atlassian.net'],
+    allowedProjects: ['APP'],
+    authentication: { permitted: ['user-token'] }
+  });
+  const connection = {
+    name: 'corporate-jira',
+    deployment: 'cloud',
+    baseUrl: 'https://office.atlassian.net',
+    email: 'developer@example.com',
+    token: 'token',
+    authMode: 'user-token'
+  };
+  assert.equal(assertJiraConnectionPolicy(connection, policy).baseUrl, 'https://office.atlassian.net');
+  assert.equal(assertJiraProjectPolicy('app', policy), 'APP');
+  assert.equal(assertJiraIssuePolicy('app-42', policy), 'APP-42');
+  assert.throws(() => assertJiraConnectionPolicy({ ...connection, baseUrl: 'https://other.atlassian.net' }, policy), /outside the Jira allowlist/);
+  assert.throws(() => assertJiraConnectionPolicy({ ...connection, deployment: 'data-center', authMode: 'pat' }, policy), /requires Jira cloud/);
+  assert.throws(() => assertJiraProjectPolicy('OTHER', policy), /outside the configured allowedProjects/);
+  assert.throws(() => assertJiraIssuePolicy('OTHER-42', policy), /outside the configured allowedProjects/);
+});
+
+test('Jira write operations are independently constrained by the pinned policy', () => {
+  const policy = normalizeJiraPolicy({
+    enabled: true,
+    allowedProjects: ['APP'],
+    writeMode: 'approved',
+    write: {
+      operations: ['create-epic', 'create-story', 'update-owned-fields', 'add-comment'],
+      allowedFields: ['summary', 'description', 'labels']
+    }
+  });
+  assert.doesNotThrow(() => assertJiraWriteOperationPolicy({
+    id: 'update-story-STORY-001',
+    action: 'update-owned-fields',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
+    fields: { summary: 'Governed title' }
+  }, policy));
+  assert.throws(() => assertJiraWriteOperationPolicy({
+    id: '../escape',
+    action: 'update-owned-fields',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
+    fields: { summary: 'Unsafe path' }
+  }, policy), /safe ID/);
+  assert.throws(() => assertJiraWriteOperationPolicy({
+    id: 'update-story-STORY-001',
+    action: 'update-owned-fields',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
+    fields: { status: 'Done' }
+  }, policy), /outside allowedFields/);
+  assert.throws(() => assertJiraWriteOperationPolicy({
+    id: 'comment-story-STORY-001',
+    action: 'add-comment',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
+    body: 'Unexpected action'
+  }, policy), /not implemented/);
+  assert.throws(() => assertJiraWriteOperationPolicy({
+    id: 'create-story-STORY-001',
+    action: 'create-story',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: null },
+    parent: { epicId: 'EPIC-001', jiraKey: 'APP-10' },
+    issue: { projectKey: 'APP', issueType: 'Story', summary: 'Story', fields: { assignee: 'admin' } }
+  }, policy), /unsupported create fields/);
+});
+
 test('Jira Epic adoption keeps separate Singularity and Jira IDs and requires repository mapping', () => {
   const portfolio = { repositories: { mobile: {}, api: {} } };
   const epic = { key: 'APP-10', title: 'Mobile onboarding', description: 'Epic' };
@@ -201,6 +272,40 @@ test('desktop Jira credential status reports recoverable corruption and reset re
   assert.equal((await store.safeStatus()).connected, false);
 });
 
+test('desktop Jira credential status and disconnect can target the repository-configured connection instead of the global active one', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-jira-store-selected-'));
+  const file = path.join(directory, 'jira.json');
+  const fakeSafeStorage = {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'keychain',
+    encryptString: (value) => Buffer.from(value),
+    decryptString: (value) => value.toString()
+  };
+  const store = new JiraCredentialStore(file, fakeSafeStorage);
+  await store.save({
+    name: 'project-a',
+    deployment: 'cloud',
+    baseUrl: 'https://a.atlassian.net',
+    auth: { mode: 'user-token', email: 'a@example.com', token: 'a' }
+  });
+  await store.save({
+    name: 'project-b',
+    deployment: 'cloud',
+    baseUrl: 'https://b.atlassian.net',
+    auth: { mode: 'user-token', email: 'b@example.com', token: 'b' }
+  });
+  const selected = await store.status('project-a');
+  assert.equal(selected.active, 'project-b');
+  assert.equal(selected.selected, 'project-a');
+  assert.equal(selected.connection.name, 'project-a');
+  const disconnected = await store.disconnect('project-a');
+  assert.equal(disconnected.connected, false);
+  assert.equal(disconnected.selected, 'project-a');
+  assert.equal(disconnected.connection, null);
+  assert.equal(disconnected.active, 'project-b');
+  assert.equal((await store.status()).connection.name, 'project-b');
+});
+
 test('desktop exposes a narrow Jira IPC workspace without renderer credential reads', async () => {
   const main = await readFile(new URL('../apps/desktop/electron/main.mjs', import.meta.url), 'utf8');
   const preload = await readFile(new URL('../apps/desktop/electron/preload.cjs', import.meta.url), 'utf8');
@@ -210,11 +315,69 @@ test('desktop exposes a narrow Jira IPC workspace without renderer credential re
   assert.match(main, /trustedHandle\('jira:connect'/);
   assert.match(main, /trustedHandle\('jira:write-plan'/);
   assert.match(main, /trustedHandle\('jira:apply'/);
+  assert.match(main, /governedJiraConnection/);
+  assert.equal((main.match(/jiraCredentialStore\(\)\.load\(policy\.connection\)/g) ?? []).length, 1);
+  assert.match(main, /Repository policy requires Jira connection name/);
   assert.match(preload, /connectJira/);
   assert.doesNotMatch(preload, /loadJiraCredential|readJiraToken|getJiraToken/);
   assert.match(app, /function JiraWorkspace/);
   assert.match(app, /Test connection & save securely/);
   assert.match(app, /Generate & commit plan/);
+});
+
+test('initiative Jira adoption and write planning reject issue keys outside the immutable project allowlist before network access', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-jira-policy-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Lead\n');
+  await initializeDefinition(root);
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Owner', email: 'owner@example.com' }];
+  portfolio.repositories = { mobile: { url: 'https://git.example.com/mobile.git', defaultBranch: 'main', required: true } };
+  portfolio.jira = {
+    enabled: true,
+    connection: 'corporate-jira',
+    deployment: 'cloud',
+    allowedHosts: ['office.atlassian.net'],
+    allowedProjects: ['APP'],
+    writeMode: 'preview',
+    projectKey: 'APP'
+  };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  run('git', ['switch', '-c', 'INIT-POLICY'], { cwd: root });
+  const created = await createInitiative(root, { id: 'INIT-POLICY', profile: 'initiative-lite' });
+  const connection = {
+    baseUrl: 'https://office.atlassian.net',
+    deployment: 'cloud',
+    email: 'owner@example.com',
+    token: 'token'
+  };
+  const noNetwork = async () => {
+    throw new Error('policy rejection must happen before Jira is called');
+  };
+  await assert.rejects(
+    () => previewJiraAdoption(root, 'INIT-POLICY', 'OTHER-1', { connection, fetchImpl: noNetwork }),
+    /outside the configured allowedProjects/
+  );
+
+  await writeFile(path.join(initiativeDir(root, created.portfolio, 'INIT-POLICY'), 'breakdown.yml'), YAML.stringify({
+    version: 1,
+    initiativeId: 'INIT-POLICY',
+    epics: [{
+      id: 'EPIC-001',
+      jiraKey: 'OTHER-1',
+      title: 'External project',
+      stories: [{ id: 'STORY-001', title: 'Mobile work', repository: 'mobile' }]
+    }]
+  }));
+  await assert.rejects(
+    () => createJiraWritePlan(root, 'INIT-POLICY', { connection, fetchImpl: noNetwork }),
+    /outside the configured allowedProjects/
+  );
 });
 
 test('governed Jira write plan creates Epic then child story and persists receipts', async () => {
@@ -288,4 +451,16 @@ test('governed Jira write plan creates Epic then child story and persists receip
   const receipt = JSON.parse(await readFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'context/jira/receipts/create-story-STORY-001.json'), 'utf8'));
   assert.equal(receipt.planSha256, planned.plan.sha256);
   assert.equal(receipt.actor, 'owner@example.com');
+  receipt.planSha256 = 'tampered';
+  await writeFile(
+    path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'context/jira/receipts/create-story-STORY-001.json'),
+    JSON.stringify(receipt, null, 2)
+  );
+  await assert.rejects(() => applyJiraWritePlan(root, 'INIT-JIRA', {
+    planSha256: planned.plan.sha256,
+    confirmation: 'INIT-JIRA',
+    connection,
+    fetchImpl,
+    actor: 'owner@example.com'
+  }), /does not match the reviewed write plan/);
 });

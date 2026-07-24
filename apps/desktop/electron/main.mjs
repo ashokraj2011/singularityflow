@@ -80,11 +80,42 @@ async function jiraPolicy(repository) {
   return { root, portfolio, policy: portfolio.jira };
 }
 
-function assertJiraConnectionPolicy(connection, policy) {
-  const hostname = new URL(connection.baseUrl).hostname.toLowerCase();
-  if (policy.allowedHosts?.length && !policy.allowedHosts.includes(hostname)) throw new Error(`Jira host ${hostname} is outside the repository allowlist.`);
-  if (connection.deployment !== policy.deployment) throw new Error(`Repository policy requires Jira ${policy.deployment}.`);
-  if (!policy.authentication?.permitted?.includes(connection.auth.mode)) throw new Error(`Authentication mode ${connection.auth.mode} is not permitted by repository policy.`);
+async function governedPolicyConnection(policy, { projectKey = null, issueKey = null } = {}) {
+  const {
+    assertJiraConnectionPolicy,
+    assertJiraIssuePolicy,
+    assertJiraProjectPolicy
+  } = await importCliModule('jira.mjs');
+  const connection = assertJiraConnectionPolicy(
+    await jiraCredentialStore().load(policy.connection),
+    policy
+  );
+  if (projectKey) assertJiraProjectPolicy(projectKey, policy);
+  if (issueKey) assertJiraIssuePolicy(issueKey, policy);
+  return connection;
+}
+
+async function governedJiraConnection(repository, constraints = {}) {
+  const scoped = await jiraPolicy(repository);
+  return {
+    ...scoped,
+    connection: await governedPolicyConnection(scoped.policy, constraints)
+  };
+}
+
+async function governedInitiativeJiraConnection(repository, initiativeId, constraints = {}) {
+  const root = assertRepository(repository);
+  const { loadInitiative } = await importCliModule('initiative-state.mjs');
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const policy = initiative.resolution?.jira ?? portfolio.jira;
+  if (!policy?.enabled) throw new Error('Jira is disabled in the initiative configuration snapshot.');
+  return {
+    root,
+    portfolio,
+    initiative,
+    policy,
+    connection: await governedPolicyConnection(policy, constraints)
+  };
 }
 
 function jiraCacheRead(key, minutes) {
@@ -95,6 +126,10 @@ function jiraCacheRead(key, minutes) {
 function jiraCacheWrite(key, value) {
   jiraCache.set(key, { at: Date.now(), value });
   return value;
+}
+
+function jiraCacheKey(connection, operation, ...parts) {
+  return JSON.stringify([operation, connection.name, connection.baseUrl, ...parts]);
 }
 
 async function recentRepositories() {
@@ -493,13 +528,27 @@ function registerHandlers() {
   trustedHandle('jira:status', async (event, { repository }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
-    return { policy, credentials: await jiraCredentialStore().safeStatus() };
+    const credentials = await jiraCredentialStore().safeStatus(policy.connection);
+    if (!credentials.connected) return { policy, credentials };
+    try {
+      await governedPolicyConnection(policy);
+      return { policy, credentials };
+    } catch (error) {
+      return { policy, credentials: { ...credentials, connected: false, policyError: error.message }, error: error.message };
+    }
   });
   trustedHandle('jira:connect', async (event, { repository, connection: input }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
-    const { normalizeJiraConnection, discoverJiraConnection } = await importCliModule('jira.mjs');
-    const connection = normalizeJiraConnection(input);
+    const {
+      assertJiraConnectionPolicy,
+      normalizeJiraConnection,
+      discoverJiraConnection
+    } = await importCliModule('jira.mjs');
+    if (input?.name && input.name !== policy.connection) {
+      throw new Error(`Repository policy requires Jira connection name '${policy.connection}'.`);
+    }
+    const connection = normalizeJiraConnection({ ...input, name: policy.connection });
     assertJiraConnectionPolicy(connection, policy);
     const discovery = await discoverJiraConnection({ connection });
     const saved = await jiraCredentialStore().save({
@@ -510,11 +559,11 @@ function registerHandlers() {
     jiraCache.clear();
     return { ...saved, discovery };
   });
-  trustedHandle('jira:disconnect', async (event, { repository, name }) => {
+  trustedHandle('jira:disconnect', async (event, { repository }) => {
     assertTrustedSender(event);
-    await jiraPolicy(repository);
+    const { policy } = await jiraPolicy(repository);
     jiraCache.clear();
-    return jiraCredentialStore().disconnect(name);
+    return jiraCredentialStore().disconnect(policy.connection);
   });
   trustedHandle('jira:reset-credentials', async (event, { repository = null } = {}) => {
     assertTrustedSender(event);
@@ -524,10 +573,8 @@ function registerHandlers() {
   });
   trustedHandle('jira:projects', async (event, { repository, query, refresh = false }) => {
     assertTrustedSender(event);
-    const { policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
-    assertJiraConnectionPolicy(connection, policy);
-    const key = `projects:${connection.name}:${query ?? ''}`;
+    const { policy, connection } = await governedJiraConnection(repository);
+    const key = jiraCacheKey(connection, 'projects', query ?? '');
     const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
     if (cached) return cached;
     const { listProjects } = await importCliModule('jira.mjs');
@@ -537,11 +584,9 @@ function registerHandlers() {
   });
   trustedHandle('jira:epics', async (event, { repository, projectKey, refresh = false }) => {
     assertTrustedSender(event);
-    const { policy } = await jiraPolicy(repository);
+    const { policy, connection } = await governedJiraConnection(repository, { projectKey });
     if (!policy.read.epics) throw new Error('Jira Epic browsing is disabled by repository policy.');
-    if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new Error(`Project ${projectKey} is outside the repository allowlist.`);
-    const connection = await jiraCredentialStore().load(policy.connection);
-    const key = `epics:${connection.name}:${projectKey}`;
+    const key = jiraCacheKey(connection, 'epics', projectKey);
     const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
     if (cached) return cached;
     const { listEpics } = await importCliModule('jira.mjs');
@@ -549,10 +594,8 @@ function registerHandlers() {
   });
   trustedHandle('jira:workspace-anchors', async (event, { repository, projectKey, refresh = false }) => {
     assertTrustedSender(event);
-    const { policy } = await jiraPolicy(repository);
-    if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new Error(`Project ${projectKey} is outside the repository allowlist.`);
-    const connection = await jiraCredentialStore().load(policy.connection);
-    const key = `workspace-anchors:${connection.name}:${projectKey}`;
+    const { policy, connection } = await governedJiraConnection(repository, { projectKey });
+    const key = jiraCacheKey(connection, 'workspace-anchors', projectKey);
     const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
     if (cached) return cached;
     const { listWorkspaceAnchors } = await importCliModule('jira.mjs');
@@ -560,9 +603,8 @@ function registerHandlers() {
   });
   trustedHandle('jira:hierarchy', async (event, { repository, anchorKey, refresh = false }) => {
     assertTrustedSender(event);
-    const { policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
-    const key = `hierarchy:${connection.name}:${anchorKey}`;
+    const { policy, connection } = await governedJiraConnection(repository, { issueKey: anchorKey });
+    const key = jiraCacheKey(connection, 'hierarchy', anchorKey);
     const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
     if (cached) return cached;
     const { getIssueHierarchy } = await importCliModule('jira.mjs');
@@ -572,8 +614,7 @@ function registerHandlers() {
     repository, baseDirectory, anchorKey, leadRepository, repositoryIds
   }) => {
     assertTrustedSender(event);
-    const { root, portfolio, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, portfolio, connection } = await governedJiraConnection(repository, { issueKey: anchorKey });
     const [{ getIssueHierarchy }, { previewWorkspace }, { run }] = await Promise.all([
       importCliModule('jira.mjs'),
       workspaceModule(),
@@ -616,8 +657,7 @@ function registerHandlers() {
     repository, baseDirectory, anchorKey, leadRepository, repositoryIds, confirmation
   }) => {
     assertTrustedSender(event);
-    const { root, portfolio, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, portfolio, connection } = await governedJiraConnection(repository, { issueKey: anchorKey });
     const [{ getIssueHierarchy }, workspaceApi, { run }] = await Promise.all([
       importCliModule('jira.mjs'),
       workspaceModule(),
@@ -704,10 +744,9 @@ function registerHandlers() {
   });
   trustedHandle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
     assertTrustedSender(event);
-    const { policy } = await jiraPolicy(repository);
+    const { policy, connection } = await governedJiraConnection(repository, { issueKey: epicKey });
     if (!policy.read.stories) throw new Error('Jira story browsing is disabled by repository policy.');
-    const connection = await jiraCredentialStore().load(policy.connection);
-    const key = `children:${connection.name}:${epicKey}`;
+    const key = jiraCacheKey(connection, 'children', epicKey);
     const cached = !refresh && jiraCacheRead(key, policy.read.cacheMinutes);
     if (cached) return cached;
     const { listEpicStories } = await importCliModule('jira.mjs');
@@ -717,8 +756,7 @@ function registerHandlers() {
     repository, initiativeId, epicKey, repositoryMap
   }) => {
     assertTrustedSender(event);
-    const { root, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId, { issueKey: epicKey });
     const { previewJiraAdoption } = await importCliModule('jira-initiative.mjs');
     return previewJiraAdoption(root, initiativeId, epicKey, { repositoryMap, connection });
   });
@@ -726,8 +764,7 @@ function registerHandlers() {
     repository, initiativeId, epicKey, repositoryMap, replace = false
   }) => {
     assertTrustedSender(event);
-    const { root, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId, { issueKey: epicKey });
     const [{ adoptJiraEpic }, { commitInitiativeChange }, { identity }] = await Promise.all([
       importCliModule('jira-initiative.mjs'),
       importCliModule('initiative-state.mjs'),
@@ -740,8 +777,7 @@ function registerHandlers() {
   });
   trustedHandle('jira:write-plan', async (event, { repository, initiativeId }) => {
     assertTrustedSender(event);
-    const { root, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId);
     const [{ createJiraWritePlan }, { commitInitiativeChange }] = await Promise.all([
       importCliModule('jira-initiative.mjs'),
       importCliModule('initiative-state.mjs')
@@ -754,8 +790,7 @@ function registerHandlers() {
     repository, initiativeId, planSha256, confirmation
   }) => {
     assertTrustedSender(event);
-    const { root, policy } = await jiraPolicy(repository);
-    const connection = await jiraCredentialStore().load(policy.connection);
+    const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId);
     const [{ applyJiraWritePlan }, { commitInitiativeChange }, { identity }] = await Promise.all([
       importCliModule('jira-initiative.mjs'),
       importCliModule('initiative-state.mjs'),

@@ -8,6 +8,8 @@ const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const MAX_REQUEST_RETRIES = 5;
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 15_000;
 const MAX_SEARCH_RESULTS = 500;
+const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 function jiraFailure(message, { status = null, category = 'request', retryAfter = null } = {}) {
   const error = new SingularityFlowError(message);
@@ -343,6 +345,38 @@ function retryDelay(response, attempt) {
   return Math.min(500 * (2 ** attempt), 8_000);
 }
 
+function responseSizeFailure(maxBytes) {
+  return jiraFailure(`Jira response exceeds the configured ${maxBytes} bytes limit. Narrow the query or ask the Jira administrator to inspect the endpoint.`, {
+    category: 'response-size'
+  });
+}
+
+async function readBoundedResponseText(response, maxBytes) {
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw responseSizeFailure(maxBytes);
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parts = [];
+    let bytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value?.byteLength ?? 0;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw responseSizeFailure(maxBytes);
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join('');
+  }
+  const text = await response.text();
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw responseSizeFailure(maxBytes);
+  return text;
+}
+
 export async function jiraRequest(apiPath, {
   method = 'GET',
   body,
@@ -351,13 +385,15 @@ export async function jiraRequest(apiPath, {
   fetchImpl = globalThis.fetch,
   sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   maxRetries = 3,
-  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES
 } = {}) {
   const resolved = resolveConnection({ connection, env });
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node.js runtime does not provide fetch().');
   const target = jiraApiTarget(apiPath, resolved);
   const retries = boundedInteger(maxRetries, 3, 0, MAX_REQUEST_RETRIES);
   const timeoutMs = boundedInteger(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 1, MAX_REQUEST_TIMEOUT_MS);
+  const responseLimit = boundedInteger(maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES, 1, MAX_RESPONSE_BYTES);
   let attempt = 0;
   while (true) {
     let response;
@@ -378,7 +414,7 @@ export async function jiraRequest(apiPath, {
         body: body === undefined ? undefined : JSON.stringify(body)
       });
       if (!RETRYABLE_STATUS.has(response.status) || attempt >= retries) {
-        text = await response.text();
+        text = await readBoundedResponseText(response, responseLimit);
       }
     } catch (error) {
       requestError = error;
@@ -387,6 +423,7 @@ export async function jiraRequest(apiPath, {
     }
     if (requestError) {
       const timedOut = controller.signal.aborted;
+      if (!timedOut && requestError?.category) throw requestError;
       if (attempt < retries) {
         await sleep(Math.min(500 * (2 ** attempt), 8_000));
         attempt += 1;
@@ -406,7 +443,16 @@ export async function jiraRequest(apiPath, {
     }
     let payload = null;
     if (text) {
-      try { payload = JSON.parse(text); } catch { payload = text; }
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        if (response.ok) {
+          throw jiraFailure('Jira returned a non-JSON success response. Check whether a proxy, SSO gateway, or incorrect base URL intercepted the API request.', {
+            category: 'response'
+          });
+        }
+        payload = text;
+      }
     }
     if (!response.ok) {
       const detail = typeof payload === 'string'
@@ -451,9 +497,16 @@ export async function getIssue(key, {
   extraFields = envFields(env)
 } = {}) {
   const resolved = resolveConnection({ connection, env });
+  const requestedKey = validateIssueKey(key);
   const fields = [...new Set([...STANDARD_FIELDS, acceptanceField, storyPointsField, sprintField, ...extraFields].filter(Boolean))];
   const query = new URLSearchParams({ fields: fields.join(','), expand: 'names' });
-  const { payload } = await jiraRequest(`${restPath(resolved, `issue/${encodeURIComponent(key)}`)}?${query}`, { connection: resolved, fetchImpl });
+  const { payload } = await jiraRequest(`${restPath(resolved, `issue/${encodeURIComponent(requestedKey)}`)}?${query}`, { connection: resolved, fetchImpl });
+  const returnedKey = String(payload?.key ?? '').trim().toUpperCase();
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || returnedKey !== requestedKey) {
+    throw jiraFailure(`Jira returned ${returnedKey || 'an invalid payload'} for requested issue ${requestedKey}.`, {
+      category: 'response'
+    });
+  }
   return normalizeIssue(payload, { baseUrl: resolved.baseUrl, acceptanceField, storyPointsField, sprintField, extraFields });
 }
 
@@ -532,6 +585,7 @@ export async function searchIssues(jql, {
   const searchPath = resolved.deployment === 'cloud' ? 'search/jql' : 'search';
   const requested = boundedInteger(limit, 50, 1, MAX_SEARCH_RESULTS);
   const issues = [];
+  const seenIssues = new Set();
   const seenCloudTokens = new Set();
   let nextPageToken = null;
   let startAt = 0;
@@ -551,8 +605,22 @@ export async function searchIssues(jql, {
       connection: resolved,
       fetchImpl
     });
-    const page = Array.isArray(payload?.issues) ? payload.issues : [];
-    issues.push(...page.slice(0, requested - issues.length));
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.issues)) {
+      throw jiraFailure('Jira search response does not contain an issues array.', { category: 'response' });
+    }
+    const page = payload.issues;
+    const accepted = page.slice(0, requested - issues.length);
+    for (const issue of accepted) {
+      const identity = String(issue?.key ?? issue?.id ?? '').trim();
+      if (!identity) throw jiraFailure('Jira returned an issue without a key or ID.', { category: 'response' });
+      if (seenIssues.has(identity)) {
+        throw jiraFailure(`Jira returned duplicate issue ${identity} across paginated results. Refresh after Jira ordering stabilizes.`, {
+          category: 'response'
+        });
+      }
+      seenIssues.add(identity);
+      issues.push(issue);
+    }
     if (resolved.deployment === 'cloud') {
       if (payload?.isLast === true || !page.length) break;
       const token = payload?.nextPageToken == null ? '' : String(payload.nextPageToken);
@@ -564,9 +632,15 @@ export async function searchIssues(jql, {
       nextPageToken = token;
       continue;
     }
-    const pageStart = Number.isFinite(Number(payload?.startAt)) ? Number(payload.startAt) : startAt;
+    const providedStart = payload.startAt == null ? Number.NaN : Number(payload.startAt);
+    if (Number.isFinite(providedStart) && providedStart !== startAt) {
+      throw jiraFailure(`Jira Data Center pagination did not advance to requested offset ${startAt}; it returned ${providedStart}.`, {
+        category: 'response'
+      });
+    }
+    const pageStart = Number.isFinite(providedStart) ? providedStart : startAt;
     const nextStart = pageStart + page.length;
-    const total = Number(payload?.total);
+    const total = payload.total == null ? Number.NaN : Number(payload.total);
     if (!page.length || (Number.isFinite(total) && nextStart >= total) || (!Number.isFinite(total) && page.length < maxResults)) break;
     startAt = nextStart;
   }
@@ -631,9 +705,14 @@ export async function findOrCreateIssue({
 export async function getCurrentUser(options = {}) {
   const resolved = resolveConnection(options);
   const { payload } = await jiraRequest(restPath(resolved, 'myself'), { ...options, connection: resolved });
+  const accountId = payload?.accountId ?? payload?.key ?? payload?.name ?? null;
+  const displayName = payload?.displayName ?? payload?.name ?? null;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || (!accountId && !displayName)) {
+    throw jiraFailure('Jira current-user response does not contain a current-user identity.', { category: 'response' });
+  }
   return {
-    accountId: payload?.accountId ?? payload?.key ?? payload?.name ?? null,
-    displayName: payload?.displayName ?? payload?.name ?? null,
+    accountId,
+    displayName,
     email: payload?.emailAddress ?? null,
     active: payload?.active !== false,
     locale: payload?.locale ?? null,

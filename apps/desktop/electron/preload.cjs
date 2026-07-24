@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('singularity', {
   chooseOnboardingWorkspace: () => ipcRenderer.invoke('onboarding:choose-workspace'),
   chooseOnboardingRepositories: () => ipcRenderer.invoke('onboarding:choose-repositories'),
   connectOnboardingJira: (connection) => ipcRenderer.invoke('onboarding:jira-connect', { connection }),
+  resetJiraCredentials: (repository = null) => ipcRenderer.invoke('jira:reset-credentials', { repository }),
   chooseRepository: () => ipcRenderer.invoke('repository:choose'),
   recentRepositories: () => ipcRenderer.invoke('repository:recent'),
   openRepository: (repository) => ipcRenderer.invoke('repository:open', { repository }),

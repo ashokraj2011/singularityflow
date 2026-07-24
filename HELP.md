@@ -22,7 +22,7 @@ The desktop app opens a resumable five-step wizard the first time an operating-s
 4. Add existing initialized Singularity repositories, or skip this optional step.
 5. Connect Jira Cloud/Data Center, choose **We do not use Jira**, and review the ready summary.
 
-Each step is saved locally and can be resumed after restarting the app. The profile is kept in Electron application data rather than Git. Jira tokens and PATs never enter the onboarding file: they are validated in Electron's main process and encrypted using the operating-system credential store. Selecting repositories does not clone, commit, push, or modify them. After setup, the first selected repository opens automatically; if none was selected, the welcome screen provides repository and workspace actions.
+Each step is saved locally and can be resumed after restarting the app. The workspace selection is resolved to a real, writable directory before it is saved. The profile is kept in Electron application data rather than Git. Jira tokens and PATs never enter the onboarding file: they are validated in Electron's main process and encrypted using the operating-system credential store. If that encrypted store becomes unreadable, the wizard and Jira workspace show an explicit reset action instead of trapping the user on a failed loading screen. Finishing a new setup always requires either a verified Jira connection or an explicit **We do not use Jira** decision. Selecting repositories does not clone, commit, push, or modify them. After setup, the first selected repository opens automatically; if none was selected, the welcome screen provides repository and workspace actions.
 
 ## About and command namespace
 

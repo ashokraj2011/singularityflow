@@ -77,6 +77,30 @@ export class JiraCredentialStore {
     };
   }
 
+  async safeStatus() {
+    try {
+      return await this.status();
+    } catch {
+      return {
+        connected: false,
+        active: null,
+        connection: null,
+        connections: [],
+        recovery: {
+          required: true,
+          message: 'The encrypted Jira credential store could not be read. Reset it, then reconnect Jira.'
+        }
+      };
+    }
+  }
+
+  async reset() {
+    await unlink(this.file).catch((error) => {
+      if (error?.code !== 'ENOENT') throw error;
+    });
+    return { connected: false, active: null, connection: null, connections: [] };
+  }
+
   async disconnect(name = null) {
     const store = await this.#read();
     const selected = name ?? store.active;

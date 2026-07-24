@@ -1,6 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+export const MAX_ONBOARDING_REPOSITORIES = 20;
 export const ONBOARDING_ROLES = new Set([
   'product-owner',
   'business-analyst',
@@ -31,7 +33,33 @@ function normalizedRepositories(values = []) {
       name: String(value?.name ?? path.basename(repositoryPath)).trim() || path.basename(repositoryPath)
     });
   }
-  return [...unique.values()].slice(0, 20);
+  if (unique.size > MAX_ONBOARDING_REPOSITORIES) {
+    throw new Error(`Onboarding supports at most ${MAX_ONBOARDING_REPOSITORIES} repository locations.`);
+  }
+  return [...unique.values()];
+}
+
+export async function validateOnboardingWorkspace(value) {
+  const requested = path.resolve(String(value ?? '').trim());
+  if (!String(value ?? '').trim() || requested === path.parse(requested).root) {
+    throw new Error('Choose a specific local workspace directory.');
+  }
+  let canonical;
+  try {
+    canonical = await realpath(requested);
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error('The selected local workspace directory is no longer available.');
+    throw error;
+  }
+  if (canonical === path.parse(canonical).root) throw new Error('Choose a specific local workspace directory.');
+  const metadata = await lstat(canonical);
+  if (!metadata.isDirectory()) throw new Error('The selected local workspace must be a directory.');
+  try {
+    await access(canonical, constants.W_OK | constants.X_OK);
+  } catch {
+    throw new Error('The selected local workspace must be writable and searchable by this user.');
+  }
+  return canonical;
 }
 
 export function normalizeOnboardingProfile(input = {}, { complete = false, jiraConnected = false, touch = false } = {}) {
@@ -52,6 +80,9 @@ export function normalizeOnboardingProfile(input = {}, { complete = false, jiraC
     if (!role) throw new Error('Choose your role before finishing onboarding.');
     if (!workspacePath) throw new Error('Choose a local workspace before finishing onboarding.');
     if (jiraChoice === 'later') throw new Error('Connect Jira or confirm that Jira is not used before finishing onboarding.');
+    if (jiraChoice === 'disconnected' && input.completed !== true) {
+      throw new Error('Reconnect Jira or explicitly confirm that Jira is not used before finishing onboarding.');
+    }
   }
   const completed = complete === true;
   return {

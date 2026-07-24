@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
@@ -17,7 +17,8 @@ import { JiraCredentialStore } from './jira-credentials.mjs';
 import {
   ONBOARDING_ROLES,
   readOnboardingProfile,
-  saveOnboardingProfile
+  saveOnboardingProfile,
+  validateOnboardingWorkspace
 } from './onboarding-profile.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -217,7 +218,7 @@ async function openRepository(repository, { workspace = null } = {}) {
 function registerHandlers() {
   trustedHandle('onboarding:get', async (event) => {
     assertTrustedSender(event);
-    const jira = await jiraCredentialStore().status();
+    const jira = await jiraCredentialStore().safeStatus();
     return {
       profile: await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected }),
       jira,
@@ -261,13 +262,14 @@ function registerHandlers() {
   });
   trustedHandle('onboarding:save', async (event, { profile: input, complete = false }) => {
     assertTrustedSender(event);
-    if (input?.workspacePath) {
-      const workspace = await stat(path.resolve(input.workspacePath)).catch(() => null);
-      if (!workspace?.isDirectory()) throw new Error('The selected local workspace directory is no longer available.');
-    }
-    for (const repository of input?.repositories ?? []) await validateRepositoryDirectory(repository.path);
-    const jira = await jiraCredentialStore().status();
-    const profile = await saveOnboardingProfile(onboardingProfilePath(), input, {
+    const normalizedInput = structuredClone(input ?? {});
+    if (normalizedInput.workspacePath) normalizedInput.workspacePath = await validateOnboardingWorkspace(normalizedInput.workspacePath);
+    normalizedInput.repositories = await Promise.all((normalizedInput.repositories ?? []).map(async (repository) => ({
+      ...repository,
+      path: await validateRepositoryDirectory(repository.path)
+    })));
+    const jira = await jiraCredentialStore().safeStatus();
+    const profile = await saveOnboardingProfile(onboardingProfilePath(), normalizedInput, {
       complete,
       jiraConnected: jira.connected
     });
@@ -491,7 +493,7 @@ function registerHandlers() {
   trustedHandle('jira:status', async (event, { repository }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
-    return { policy, credentials: await jiraCredentialStore().status() };
+    return { policy, credentials: await jiraCredentialStore().safeStatus() };
   });
   trustedHandle('jira:connect', async (event, { repository, connection: input }) => {
     assertTrustedSender(event);
@@ -513,6 +515,12 @@ function registerHandlers() {
     await jiraPolicy(repository);
     jiraCache.clear();
     return jiraCredentialStore().disconnect(name);
+  });
+  trustedHandle('jira:reset-credentials', async (event, { repository = null } = {}) => {
+    assertTrustedSender(event);
+    if (repository) await jiraPolicy(repository);
+    jiraCache.clear();
+    return jiraCredentialStore().reset();
   });
   trustedHandle('jira:projects', async (event, { repository, query, refresh = false }) => {
     assertTrustedSender(event);

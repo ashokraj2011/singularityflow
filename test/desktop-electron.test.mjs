@@ -65,14 +65,18 @@ else process.stdout.write(JSON.stringify({ opened: process.cwd() }));
   );
 });
 
-test('Electron welcome screen renders persistent repository errors and loading feedback', async () => {
+test('Electron welcome screen opens the workspace boundary and preserves loading feedback', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
-  assert.match(source, /Opening repository…/);
+  assert.match(source, /Opening workspace…/);
+  assert.match(source, /Open project workspace/);
+  assert.match(source, /workspace carries every repository and its Jira routing/);
   assert.match(source, /Opening the selected project context/);
   assert.match(source, /Open or create workspace/);
   assert.match(source, /Workspace configuration/);
   assert.match(source, /\{ id: 'workspaces', label: 'Workspace setup', section: 'Project setup' \}/);
   assert.match(source, /acceptOpened\(result, workspaceLandingPage\(result, experienceMode\)\)/);
+  assert.match(source, /if \(result\.profile\.workspacePath\) await openWorkspace\(result\.profile\.workspacePath\)/);
+  assert.doesNotMatch(source, /firstRepository/);
   assert.match(source, /defaultBaseDirectory=\{data\.workspaceSetup\?\.baseDirectory/);
   assert.match(source, /if \(!data\).*<Toast toast=\{toast\}/s);
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
@@ -158,7 +162,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Set your working perspective/);
   assert.match(source, /Advanced setup/);
   assert.match(source, /Local workspace/);
-  assert.match(source, /Git & GitHub/);
+  assert.match(source, /Workspace repositories/);
+  assert.match(source, /Lead and participating repositories/);
   assert.match(source, /Jira connection/);
   assert.match(source, /Continue to Flow/);
   assert.match(source, /Local setup recovered/);
@@ -253,7 +258,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Interface contracts/);
   assert.match(source, /Branches stay isolated/);
   assert.match(source, /never merges them into a default branch automatically/);
-  assert.match(source, /singularity\/<\/small>/);
+  assert.match(source, /No workspace selected/);
+  assert.match(source, /lead repository/);
   assert.match(source, /Pending approvals/);
   assert.match(source, /Fetch remote inbox/);
   assert.match(source, /Model usage & cost/);
@@ -268,7 +274,6 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Waiting for Copilot export/);
   assert.match(source, /pending export/);
   assert.match(source, /No estimate shown/);
-  assert.match(source, /Recent repositories/);
   assert.match(source, /Recent workspaces/);
   assert.match(source, /Workspace configuration/);
   assert.match(source, /Jira project key/);
@@ -283,9 +288,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Staged — not governed/);
   assert.match(source, /not separate setup steps/);
   assert.match(source, /Save workspace/);
-  assert.match(source, /Saved locations/);
-  assert.match(source, /Open another repository/);
-  assert.match(source, /Remove .* from recent repositories/);
+  assert.match(source, /Isolated project contexts/);
+  assert.doesNotMatch(source, /<RecentRepositories/);
+  assert.doesNotMatch(source, /Open another repository/);
+  assert.doesNotMatch(source, />Open repository</);
   assert.match(source, /Start with your/);
   assert.match(source, /label: 'Delivery'/);
   assert.match(source, /label: 'Decisions'/);
@@ -324,7 +330,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /function BusinessNavigation/);
   assert.match(source, /function WorkspaceSelector/);
   assert.match(source, /aria-label="Select current workspace"/);
-  assert.match(source, /Repository only — choose a workspace/);
+  assert.match(source, /No workspace selected — choose one/);
+  assert.match(source, /load its repositories, Jira routing, and complete project context/);
   assert.match(source, /Open or create workspace…/);
   assert.match(source, /className="business-navigation"/);
   assert.match(source, /aria-label="Epic planning navigation"/);

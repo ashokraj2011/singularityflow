@@ -1922,6 +1922,10 @@ function EpicReviewView({ data, selected, action, reload }) {
 }
 
 function EpicStartWizard({ data, action, reload }) {
+  const initiativeProfiles = data.portfolio?.initiativeProfiles ?? {
+    'epic-planning': { label: 'Epic planning' }
+  };
+  const personas = data.definition?.personas ?? {};
   const [source, setSource] = useState(data.portfolio?.jira?.enabled ? 'jira' : 'local');
   const [status, setStatus] = useState(null);
   const [projects, setProjects] = useState([]);
@@ -1932,10 +1936,12 @@ function EpicStartWizard({ data, action, reload }) {
   const [localTitle, setLocalTitle] = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localGoal, setLocalGoal] = useState('');
-  const [profile, setProfile] = useState('epic-planning');
+  const [profile, setProfile] = useState(
+    initiativeProfiles['epic-planning'] ? 'epic-planning' : Object.keys(initiativeProfiles)[0] ?? ''
+  );
   const [persona, setPersona] = useState(
-    preferredPersonaForRole(data.desktopProfile?.role, data.definition.personas)
-      ?? Object.keys(data.definition.personas)[0]
+    preferredPersonaForRole(data.desktopProfile?.role, personas)
+      ?? Object.keys(personas)[0]
       ?? ''
   );
   useEffect(() => {
@@ -1949,6 +1955,10 @@ function EpicStartWizard({ data, action, reload }) {
   useEffect(() => {
     let active = true;
     if (source !== 'local') return undefined;
+    if (!data.portfolio) {
+      setLocalPreview({ id: 'Reserved when started' });
+      return undefined;
+    }
     window.singularity.previewLocalEpicId(data.repository.root)
       .then((result) => { if (active) setLocalPreview(result); })
       .catch((error) => { if (active) setLocalPreview({ error: error.message }); });
@@ -1972,6 +1982,18 @@ function EpicStartWizard({ data, action, reload }) {
     if (result) setEpics(result);
   }
   async function start() {
+    if (!data.portfolio) {
+      const initialized = await action(
+        () => window.singularity.bootstrapPortfolio(data.repository.root, { jira: { enabled: false } }),
+        'Epic planning initialized from the repository defaults'
+      );
+      if (!initialized) return;
+      const published = await action(
+        () => window.singularity.publish(data.repository.root, 'Initialize governed Epic planning'),
+        'Epic planning configuration committed and pushed'
+      );
+      if (!published) return;
+    }
     if (source === 'local') {
       const result = await action(
         () => window.singularity.startLocalEpic(data.repository.root, localTitle, localDescription, localGoal, profile, persona),
@@ -1987,9 +2009,11 @@ function EpicStartWizard({ data, action, reload }) {
     if (result) await reload(null, epicKey);
   }
   const connected = status?.credentials?.connected;
+  const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
+  const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
   const canStart = source === 'jira'
     ? connected && epicKey && profile && persona
-    : localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && !localPreview?.error;
+    : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <span className="ai-orb">S</span>
@@ -2004,7 +2028,8 @@ function EpicStartWizard({ data, action, reload }) {
         <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Connection</span><h3>Use your Jira identity</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}.` : 'Connect Jira from Workspace configuration, or use a local Epic.'}</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'ready' : 'setup required'}</Pill></div>
         <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Choose an Epic</h3><div className="epic-start-controls"><select value={projectKey} disabled={!connected || !projects.length} onChange={(event) => chooseProject(event.target.value)}><option value="">Project…</option>{projects.map((project) => <option value={project.key} key={project.key}>{project.key} — {project.name}</option>)}</select><select value={epicKey} disabled={!epics.length} onChange={(event) => setEpicKey(event.target.value)}><option value="">Epic…</option>{epics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title}</option>)}</select><button className="secondary" disabled={!connected} onClick={loadProjects}>{projects.length ? 'Refresh Jira' : 'Load Jira Epics'}</button></div></div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
-      <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(data.portfolio.initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div></div></div>
+      <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div>{!data.portfolio && <p className="epic-defaults-note">The governed Epic defaults will be created when you start. No separate portfolio setup is required.</p>}</div></div>
+      {source === 'local' && !localStartReady && <div className="notice warn epic-start-blocker"><strong>Local Epic creation starts from a clean {defaultBranch} branch.</strong><span>{data.repository.changes.length ? `Commit or set aside the ${data.repository.changes.length} current working-tree change(s), then switch to ${defaultBranch}.` : `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.`}</span></div>}
       <footer><div><strong>The Epic branch is the shared control plane.</strong><span>No default branch is merged automatically. Jira publication remains a reviewed, explicit action.</span></div><button className="primary" disabled={!canStart} onClick={start}>Start Epic workflow</button></footer>
     </section>
   </div>;

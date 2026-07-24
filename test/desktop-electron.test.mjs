@@ -74,6 +74,20 @@ test('Electron welcome screen renders persistent repository errors and loading f
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
 
+test('Electron Epic start remains usable without an existing portfolio and renderer failures stay recoverable', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const entrypoint = await readFile(path.join(packageRoot, 'apps/desktop/src/main.jsx'), 'utf8');
+  assert.match(source, /data\.portfolio\?\.initiativeProfiles \?\? \{/);
+  assert.match(source, /Epic planning initialized from the repository defaults/);
+  assert.match(source, /Initialize governed Epic planning/);
+  assert.match(source, /No separate portfolio setup is required/);
+  assert.match(source, /Local Epic creation starts from a clean/);
+  assert.doesNotMatch(source, /Object\.entries\(data\.portfolio\.initiativeProfiles\)/);
+  assert.match(entrypoint, /class DesktopErrorBoundary extends React\.Component/);
+  assert.match(entrypoint, /This screen could not finish loading/);
+  assert.match(entrypoint, /window\.location\.reload\(\)/);
+});
+
 test('Electron onboarding fails closed with a recoverable retry screen', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');

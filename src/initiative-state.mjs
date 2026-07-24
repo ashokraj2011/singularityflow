@@ -10,7 +10,7 @@ import {
 import { loadDefinition } from './config.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, exists, nowIso, posix, readJson, run, snapshot, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
@@ -36,7 +36,66 @@ export function initiativePendingPublicationPath(root, portfolio, id) {
   return path.join(initiativeDir(root, portfolio, id), 'publication-pending.json');
 }
 
+export async function secureInitiativePath(root, portfolio, id, relative = '', options = {}) {
+  const initiativeId = validateInitiativeId(id);
+  if (typeof relative !== 'string' || path.isAbsolute(relative)) {
+    throw new SingularityFlowError(`Initiative '${initiativeId}' path must remain inside the initiative directory.`);
+  }
+  const base = initiativeRelative(portfolio, initiativeId);
+  const candidate = path.join(base, relative);
+  const within = path.relative(base, candidate);
+  if (within.startsWith('..') || path.isAbsolute(within)) {
+    throw new SingularityFlowError(`Initiative '${initiativeId}' path must remain inside the initiative directory: ${relative}`);
+  }
+  return secureRepositoryPath(root, candidate, {
+    label: options.label ?? `Initiative '${initiativeId}' path`,
+    mustExist: options.mustExist ?? false,
+    type: options.type ?? null
+  });
+}
+
 function outputKey(phaseId, outputId) { return `${phaseId}/${outputId}`; }
+
+function validateInitiativeRuntimeState(initiative, expectedId = initiative?.initiative?.id) {
+  if (initiative?.schemaVersion !== 1 || initiative?.initiative?.id !== expectedId) {
+    throw new SingularityFlowError(`Invalid initiative state for ${expectedId}.`);
+  }
+  if (!Array.isArray(initiative.resolution?.phases) || !Array.isArray(initiative.phaseOrder)) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' has no valid immutable phase resolution.`);
+  }
+  const resolvedIds = initiative.resolution.phases.map((phase) => phase.id);
+  if (JSON.stringify(initiative.phaseOrder) !== JSON.stringify(resolvedIds)) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' phase order differs from its immutable resolution.`);
+  }
+  if (initiative.resolution.profile !== initiative.initiative.profile) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' profile differs from its immutable resolution.`);
+  }
+  if (initiative.initiative.branch !== expectedId) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' branch identity is invalid.`);
+  }
+  if (initiative.currentPhase !== null && !resolvedIds.includes(initiative.currentPhase)) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' current phase '${initiative.currentPhase}' is not in its immutable resolution.`);
+  }
+  for (const definition of initiative.resolution.phases) {
+    const phase = initiative.phases?.[definition.id];
+    if (!phase || phase.id !== definition.id) {
+      throw new SingularityFlowError(`Initiative '${expectedId}' phase '${definition.id}' state is missing or invalid.`);
+    }
+    const expectedOutputs = definition.outputs.map((output) => output.id).sort();
+    const actualOutputs = Object.keys(phase.outputs ?? {}).sort();
+    if (JSON.stringify(actualOutputs) !== JSON.stringify(expectedOutputs)) {
+      throw new SingularityFlowError(`Initiative '${expectedId}' output state for '${definition.id}' differs from its immutable resolution.`);
+    }
+    for (const outputDefinition of definition.outputs) {
+      const output = phase.outputs[outputDefinition.id];
+      const expectedPath = posix(path.join('artifacts', definition.id, outputDefinition.path));
+      if (output.path !== expectedPath || output.kind !== outputDefinition.kind || output.required !== outputDefinition.required) {
+        throw new SingularityFlowError(`Initiative '${expectedId}' output '${definition.id}/${outputDefinition.id}' differs from its immutable resolution.`);
+      }
+    }
+  }
+  return initiative;
+}
 
 function referencedAuthorities(resolved) {
   const authorities = new Set();
@@ -110,9 +169,21 @@ function statusMarkdown(initiative) {
 }
 
 export async function saveInitiative(root, portfolio, initiative) {
-  const directory = initiativeDir(root, portfolio, initiative.initiative.id);
-  await writeJson(path.join(directory, 'state.json'), initiative);
-  await writeText(path.join(directory, 'STATUS.md'), statusMarkdown(initiative));
+  validateInitiativeRuntimeState(initiative);
+  const id = initiative.initiative.id;
+  const directory = await secureInitiativePath(root, portfolio, id, '', {
+    label: `Initiative '${id}' directory`,
+    mustExist: true,
+    type: 'directory'
+  });
+  const state = await secureInitiativePath(root, portfolio, id, 'state.json', {
+    label: `Initiative '${id}' state`
+  });
+  const status = await secureInitiativePath(root, portfolio, id, 'STATUS.md', {
+    label: `Initiative '${id}' status`
+  });
+  await writeJson(state.absolute, initiative);
+  await writeText(status.absolute, statusMarkdown(initiative));
 }
 
 export async function createInitiative(root, {
@@ -127,8 +198,17 @@ export async function createInitiative(root, {
   const definition = await loadDefinition(root);
   validatePortfolioWorldModelViews(portfolio, definition);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match initiative ID ${id}.`);
-  const stateFile = initiativeStatePath(root, portfolio, id);
-  if (await exists(stateFile)) throw new SingularityFlowError(`${id} already exists. Use singularity-flow initiative resume ${id}.`);
+  const stateFile = await secureInitiativePath(root, portfolio, id, 'state.json', {
+    label: `Initiative '${id}' state`
+  });
+  if (stateFile.exists) throw new SingularityFlowError(`${id} already exists. Use singularity-flow initiative resume ${id}.`);
+  const directory = await secureInitiativePath(root, portfolio, id, '', {
+    label: `Initiative '${id}' directory`,
+    type: 'directory'
+  });
+  if (directory.exists && (await readdir(directory.absolute)).length) {
+    throw new SingularityFlowError(`Initiative directory ${directory.relative} already contains files but has no valid state. Inspect or recover it before starting ${id}; existing data will not be overwritten.`);
+  }
   const resolved = resolveInitiativeProfile(portfolio, profile);
   assertAuthorityMembership(resolved);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
@@ -173,9 +253,20 @@ export async function createInitiative(root, {
       detail: `Created ${resolved.id} initiative`
     }]
   };
-  const directory = initiativeDir(root, portfolio, id);
-  await mkdir(directory, { recursive: true });
-  await writeText(path.join(directory, 'definition.yml'), YAML.stringify({
+  await mkdir(directory.absolute, { recursive: true });
+  const definitionPath = await secureInitiativePath(root, portfolio, id, 'definition.yml', {
+    label: `Initiative '${id}' definition`
+  });
+  const breakdownPath = await secureInitiativePath(root, portfolio, id, 'breakdown.yml', {
+    label: `Initiative '${id}' breakdown`
+  });
+  const repositoriesPath = await secureInitiativePath(root, portfolio, id, 'repositories.lock.yml', {
+    label: `Initiative '${id}' repository lock`
+  });
+  const readmePath = await secureInitiativePath(root, portfolio, id, 'README.md', {
+    label: `Initiative '${id}' README`
+  });
+  await writeText(definitionPath.absolute, YAML.stringify({
     version: 1,
     initiative: initiative.initiative,
     resolution: {
@@ -184,8 +275,8 @@ export async function createInitiative(root, {
       resolutionSha256: resolution.resolutionSha256
     }
   }));
-  await writeText(path.join(directory, 'breakdown.yml'), YAML.stringify({ version: 1, initiativeId: id, epics: [] }));
-  await writeText(path.join(directory, 'repositories.lock.yml'), YAML.stringify({
+  await writeText(breakdownPath.absolute, YAML.stringify({ version: 1, initiativeId: id, epics: [] }));
+  await writeText(repositoriesPath.absolute, YAML.stringify({
     version: 1,
     initiativeId: id,
     repositories: Object.fromEntries(Object.entries(resolution.repositories).map(([repositoryId, repository]) => [repositoryId, {
@@ -197,17 +288,19 @@ export async function createInitiative(root, {
       observedAt: null
     }]))
   }));
-  await writeText(path.join(directory, 'README.md'), `# ${id} — ${initiative.initiative.title}\n\nDurable initiative orchestration state for branch \`${id}\`.\n\n- [state.json](./state.json) — immutable profile resolution and lifecycle state\n- [STATUS.md](./STATUS.md) — human-readable progress\n- [breakdown.yml](./breakdown.yml) — Epic and repository-story plan\n- [repositories.lock.yml](./repositories.lock.yml) — observed repository heads\n- [artifacts/](./artifacts/) — governed phase outputs\n- [evidence/records/](./evidence/records/) — append-only evidence\n- [approvals/records/](./approvals/records/) — append-only decisions\n- [invalidations/records/](./invalidations/records/) — dependency-cone invalidations\n- [contracts/](./contracts/) — versioned cross-repository contracts\n`);
+  await writeText(readmePath.absolute, `# ${id} — ${initiative.initiative.title}\n\nDurable initiative orchestration state for branch \`${id}\`.\n\n- [state.json](./state.json) — immutable profile resolution and lifecycle state\n- [STATUS.md](./STATUS.md) — human-readable progress\n- [breakdown.yml](./breakdown.yml) — Epic and repository-story plan\n- [repositories.lock.yml](./repositories.lock.yml) — observed repository heads\n- [artifacts/](./artifacts/) — governed phase outputs\n- [evidence/records/](./evidence/records/) — append-only evidence\n- [approvals/records/](./approvals/records/) — append-only decisions\n- [invalidations/records/](./invalidations/records/) — dependency-cone invalidations\n- [contracts/](./contracts/) — versioned cross-repository contracts\n`);
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative };
 }
 
 export async function loadInitiative(root, id = branch(root), portfolio = null) {
   const definition = portfolio ?? await loadPortfolio(root);
-  const file = initiativeStatePath(root, definition, id);
-  if (!(await exists(file))) throw new SingularityFlowError(`No initiative found for ${id}. Expected ${posix(path.relative(root, file))}.`);
-  const initiative = await readJson(file);
-  if (initiative.schemaVersion !== 1 || initiative.initiative?.id !== id) throw new SingularityFlowError(`Invalid initiative state for ${id}.`);
+  const file = await secureInitiativePath(root, definition, id, 'state.json', {
+    label: `Initiative '${id}' state`
+  });
+  if (!file.exists) throw new SingularityFlowError(`No initiative found for ${id}. Expected ${file.relative}.`);
+  if (!file.entry.isFile()) throw new SingularityFlowError(`Initiative '${id}' state must be a regular file: ${file.relative}`);
+  const initiative = validateInitiativeRuntimeState(await readJson(file.absolute), id);
   return { portfolio: definition, initiative };
 }
 
@@ -249,8 +342,12 @@ export async function verifyInitiativePhaseInputs(root, portfolio, initiative, p
       const producerOutput = producerPhase?.outputs?.[producerOutputId];
       if (producerPhase?.status !== 'approved') throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' requires approved phase '${producerPhaseId}', which is ${producerPhase?.status ?? 'missing'}.`);
       if (!producerOutput?.sha256 || !['published', 'approved'].includes(producerOutput.status)) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' has no approved published artifact hash.`);
-      const absolute = path.join(initiativeDir(root, portfolio, initiative.initiative.id), producerOutput.path);
-      const current = await snapshot(absolute);
+      const source = await secureInitiativePath(root, portfolio, initiative.initiative.id, producerOutput.path, {
+        label: `Initiative input '${reference}'`,
+        mustExist: true,
+        type: 'file'
+      });
+      const current = await snapshot(source.absolute);
       if (!current.exists || current.sha256 !== producerOutput.sha256) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' changed after approval.`);
       verified.push({ consumer: `${phaseId}/${output.id}`, producer: reference, sha256: current.sha256, bytes: current.size });
     }
@@ -270,9 +367,34 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
   const prepared = [];
   for (const definition of phaseDefinition.outputs) {
     const output = phase.outputs[definition.id];
-    const target = path.join(initiativeDir(root, portfolio, id), output.path);
-    if (!(await exists(target))) {
+    let target = await secureInitiativePath(root, portfolio, id, output.path, {
+      label: `Initiative output '${phaseId}/${output.id}'`,
+      type: 'file'
+    });
+    if (!target.exists && !definition.template) {
+      await mkdir(path.dirname(target.absolute), { recursive: true });
+      Object.assign(output, {
+        status: 'awaiting_upload',
+        generation: phase.generation + 1,
+        sha256: null,
+        bytes: 0,
+        generatedBy: null,
+        generatedPersona: null
+      });
+      prepared.push({
+        id: output.id,
+        path: target.relative,
+        sha256: null,
+        bytes: 0,
+        awaitingUpload: true
+      });
+      continue;
+    }
+    if (!target.exists) {
       const templateRecord = initiative.resolution.templates[outputKey(phaseId, output.id)];
+      if (!templateRecord) {
+        throw new SingularityFlowError(`Initiative output '${phaseId}/${output.id}' has no immutable template snapshot.`);
+      }
       const template = await secureRepositoryPath(root, templateRecord.path, {
         label: `Initiative template for '${phaseId}/${output.id}'`,
         mustExist: true,
@@ -294,9 +416,14 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
         '{{metadata}}': metadata(initiative, phase, output, definition)
       };
       for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
-      await writeText(target, text);
+      await writeText(target.absolute, text);
+      target = await secureInitiativePath(root, portfolio, id, output.path, {
+        label: `Initiative output '${phaseId}/${output.id}'`,
+        mustExist: true,
+        type: 'file'
+      });
     }
-    const current = await snapshot(target);
+    const current = await snapshot(target.absolute);
     Object.assign(output, {
       status: 'draft',
       generation: phase.generation + 1,
@@ -305,7 +432,13 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       generatedBy: actor,
       generatedPersona: persona
     });
-    prepared.push({ id: output.id, path: posix(path.relative(root, target)), sha256: current.sha256, bytes: current.size });
+    prepared.push({
+      id: output.id,
+      path: target.relative,
+      sha256: current.sha256,
+      bytes: current.size,
+      awaitingUpload: false
+    });
   }
   initiative.history.push({ at: nowIso(), actor: actorKey(actor), persona, event: 'initiative_phase_prepared', phase: phase.id, detail: `${prepared.length} outputs` });
   await saveInitiative(root, portfolio, initiative);
@@ -315,13 +448,21 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
 export async function listInitiatives(root, portfolio = null) {
   const definition = portfolio ?? await loadPortfolio(root, { required: false });
   if (!definition) return [];
-  const base = path.join(root, definition.initiativeRoot);
-  if (!(await exists(base))) return [];
+  const base = await secureRepositoryPath(root, definition.initiativeRoot, {
+    label: 'Initiative root',
+    type: 'directory'
+  });
+  if (!base.exists) return [];
   const results = [];
-  for (const entry of await readdir(base, { withFileTypes: true })) {
+  for (const entry of await readdir(base.absolute, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     try {
-      const state = await readJson(path.join(base, entry.name, 'state.json'));
+      const statePath = await secureInitiativePath(root, definition, entry.name, 'state.json', {
+        label: `Initiative '${entry.name}' state`,
+        mustExist: true,
+        type: 'file'
+      });
+      const state = await readJson(statePath.absolute);
       results.push({
         id: state.initiative?.id ?? entry.name,
         title: state.initiative?.title ?? entry.name,
@@ -369,8 +510,10 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
   appendOnly = false
 } = {}) {
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
-  const pending = initiativePendingPublicationPath(root, portfolio, initiative.initiative.id);
-  if (await exists(pending)) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
+  const pending = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'publication-pending.json', {
+    label: `Initiative '${initiative.initiative.id}' pending publication`
+  });
+  if (pending.exists) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
   add(root, [...new Set([initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths])]);
   const sha = commit(root, message);
   const mode = portfolio.git?.publish ?? 'required';
@@ -386,7 +529,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
     }
   }
   if (pushed.status !== 0) {
-    await writeJson(pending, {
+    await writeJson(pending.absolute, {
       schemaVersion: 1,
       initiativeId: initiative.initiative.id,
       branch: initiative.initiative.branch,
@@ -402,11 +545,14 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative) {
-  const pending = initiativePendingPublicationPath(root, portfolio, initiative.initiative.id);
-  if (!(await exists(pending))) return { pending: false, pushed: null };
-  const record = await readJson(pending);
+  const pending = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'publication-pending.json', {
+    label: `Initiative '${initiative.initiative.id}' pending publication`
+  });
+  if (!pending.exists) return { pending: false, pushed: null };
+  if (!pending.entry.isFile()) throw new SingularityFlowError(`Initiative publication record must be a regular file: ${pending.relative}`);
+  const record = await readJson(pending.absolute);
   const result = pushBranch(root, record.remote, record.branch);
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
-  await unlink(pending);
+  await unlink(pending.absolute);
   return { pending: false, pushed: head(root), remote: record.remote, branch: record.branch };
 }

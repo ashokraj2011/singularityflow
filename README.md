@@ -602,6 +602,7 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow initiative jira-adopt <EPIC>` | Preview or adopt a Jira Epic and its children into a Git initiative with repository mappings. |
 | `singularity-flow initiative jira-plan` | Create, commit, and push a hash-pinned outbound Jira change plan. |
 | `singularity-flow initiative jira-apply --plan <SHA>` | Apply one approved, unchanged plan and commit/push per-operation receipts. |
+| `singularity-flow initiative phase [PHASE]` | Compose the governed prompt and prepare text outputs; report exact upload paths for template-less binary bundles. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
@@ -611,6 +612,8 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow sync` | Retry a pending publication without rewriting the commit. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow migrate-config` | Convert legacy JSON configuration and work-item state without rewriting history. |
+
+An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.
 
 ## Migration
 

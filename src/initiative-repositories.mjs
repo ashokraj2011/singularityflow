@@ -5,13 +5,13 @@ import YAML from 'yaml';
 import { gitDir, head, identity } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
-  initiativeDir, loadInitiative, saveInitiative
+  loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
 import {
-  SingularityFlowError, ensureDir, exists, nowIso, posix, run, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, writeJson, writeText
 } from './util.mjs';
 
 function safeId(value, label) {
@@ -133,9 +133,13 @@ export function initiativeBreakdownDocument(breakdown) {
 }
 
 export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
-  const file = path.join(initiativeDir(root, portfolio, initiativeId), 'breakdown.yml');
+  const file = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
+    label: `Initiative '${initiativeId}' breakdown`,
+    mustExist: true,
+    type: 'file'
+  });
   let parsed;
-  try { parsed = YAML.parse(await readFile(file, 'utf8')); }
+  try { parsed = YAML.parse(await readFile(file.absolute, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to parse initiative breakdown: ${error.message}`); }
   const breakdown = validateInitiativeBreakdown(parsed, portfolio);
   if (breakdown.initiativeId && breakdown.initiativeId !== initiativeId) throw new SingularityFlowError(`Breakdown initiativeId '${breakdown.initiativeId}' does not match '${initiativeId}'.`);
@@ -177,6 +181,29 @@ export async function initiativeBreakdownReview(root, initiativeId, { probe = fa
 
 function cacheRoot(root, initiativeId) {
   return path.join(gitDir(root), 'singularity-flow', 'initiatives', initiativeId, 'repositories');
+}
+
+async function managedClonePath(root, initiativeId, repositoryId) {
+  const base = cacheRoot(root, initiativeId);
+  await ensureDir(base);
+  const target = await secureRepositoryPath(base, repositoryId, {
+    label: `Managed clone for '${repositoryId}'`,
+    type: 'directory'
+  });
+  return target.absolute;
+}
+
+async function validateManagedClone(target, repositoryId) {
+  const gitMetadata = await secureRepositoryPath(target, '.git', {
+    label: `Managed clone Git metadata for '${repositoryId}'`,
+    mustExist: true,
+    type: 'directory'
+  });
+  const discovered = run('git', ['rev-parse', '--show-toplevel'], { cwd: target, allowFailure: true });
+  if (discovered.status !== 0 || path.resolve(discovered.stdout.trim()) !== path.resolve(target)) {
+    throw new SingularityFlowError(`Managed clone for '${repositoryId}' is not an independent Git repository.`);
+  }
+  return gitMetadata;
 }
 
 function configureCloneIdentity(clone, actor) {
@@ -238,12 +265,12 @@ function storySeed(root, initiative, story) {
 
 async function materializeStory(root, portfolio, initiative, story, actor) {
   const repository = portfolio.repositories[story.repository];
-  const target = path.join(cacheRoot(root, initiative.initiative.id), story.repository);
-  await ensureDir(path.dirname(target));
+  const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
     const cloned = run('git', ['clone', repository.url, target], { cwd: root, allowFailure: true });
     if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone ${story.repository}: ${(cloned.stderr || cloned.stdout).trim()}`);
   }
+  await validateManagedClone(target, story.repository);
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
   configureCloneIdentity(target, actor);
   run('git', ['fetch', '--prune', 'origin'], { cwd: target });
@@ -258,10 +285,13 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
   const relativeSeed = posix(path.join('singularity', 'seeds', `${story.id}.yml`));
-  const seedPath = path.join(target, relativeSeed);
+  let seedPath = await secureRepositoryPath(target, relativeSeed, {
+    label: `Story '${story.id}' seed`,
+    type: 'file'
+  });
   const seed = storySeed(root, initiative, story);
-  if (await exists(seedPath)) {
-    const current = YAML.parse(await readFile(seedPath, 'utf8'));
+  if (seedPath.exists) {
+    const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
     if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== story.id) throw new SingularityFlowError(`Existing branch '${story.id}' contains an unrelated Singularity Flow seed.`);
     const refreshed = {
       ...current,
@@ -272,7 +302,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
       contracts: seed.contracts
     };
     if (YAML.stringify(current) !== YAML.stringify(refreshed)) {
-      await writeText(seedPath, YAML.stringify(refreshed));
+      await writeText(seedPath.absolute, YAML.stringify(refreshed));
       run('git', ['add', '--', relativeSeed], { cwd: target });
       run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${story.id}][seed] Refresh initiative linkage`], { cwd: target });
       const pushed = run('git', ['push', 'origin', `HEAD:${story.id}`], { cwd: target, allowFailure: true });
@@ -281,7 +311,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     }
     return { status: 'attached', branch: story.id, commit: remoteHead, seed: relativeSeed };
   }
-  await writeText(seedPath, YAML.stringify(seed));
+  await writeText(seedPath.absolute, YAML.stringify(seed));
   run('git', ['add', '--', relativeSeed], { cwd: target });
   run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${story.id}][seed] Link initiative`], { cwd: target });
   const pushed = run('git', ['push', '-u', 'origin', `HEAD:${story.id}`], { cwd: target, allowFailure: true });
@@ -350,13 +380,18 @@ export async function materializeInitiative(root, initiativeId, {
     }
   }
   breakdown.stories = breakdown.epics.flatMap((epic) => epic.stories);
-  await writeText(
-    path.join(initiativeDir(root, portfolio, initiativeId), 'breakdown.yml'),
-    YAML.stringify(initiativeBreakdownDocument(breakdown))
-  );
+  const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
+    label: `Initiative '${initiativeId}' breakdown`,
+    mustExist: true,
+    type: 'file'
+  });
+  await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
   const attempt = { at: nowIso(), actor, status: 'in_progress', jira, stories: [] };
   initiative.materialization.attempts.push(attempt);
-  const journalPath = path.join(initiativeDir(root, portfolio, initiativeId), 'context', 'materialization-journal.json');
+  const journalPath = await secureInitiativePath(root, portfolio, initiativeId, path.join('context', 'materialization-journal.json'), {
+    label: `Initiative '${initiativeId}' materialization journal`,
+    type: 'file'
+  });
   for (const story of breakdown.stories) {
     let receipt;
     try {
@@ -378,7 +413,7 @@ export async function materializeInitiative(root, initiativeId, {
       receipt = { status: 'failed', branch: story.id, error: error.message };
     }
     attempt.stories.push({ storyId: story.id, repository: story.repository, ...receipt });
-    await writeJson(journalPath, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
+    await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
     await saveInitiative(root, portfolio, initiative);
   }
   const failures = attempt.stories.filter((story) => story.status === 'failed');
@@ -392,7 +427,7 @@ export async function materializeInitiative(root, initiativeId, {
     phase: requiredPhase,
     detail: `${attempt.stories.length - failures.length}/${attempt.stories.length} story branches ready`
   });
-  await writeJson(journalPath, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
+  await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
   await saveInitiative(root, portfolio, initiative);
   return { dryRun: false, review, attempt, failures };
 }
@@ -406,20 +441,29 @@ function milestoneReached(workflow, phaseId) {
 export async function syncInitiativeRepositories(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
-  const lockPath = path.join(initiativeDir(root, portfolio, initiativeId), 'repositories.lock.yml');
-  const lock = YAML.parse(await readFile(lockPath, 'utf8'));
+  const lockPath = await secureInitiativePath(root, portfolio, initiativeId, 'repositories.lock.yml', {
+    label: `Initiative '${initiativeId}' repository lock`,
+    mustExist: true,
+    type: 'file'
+  });
+  const lock = YAML.parse(await readFile(lockPath.absolute, 'utf8'));
   const regressions = [];
   const results = [];
   for (const story of breakdown.stories) {
     const repository = portfolio.repositories[story.repository];
-    const cache = path.join(cacheRoot(root, initiativeId), story.repository);
-    await ensureDir(path.dirname(cache));
+    const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
       const cloned = run('git', ['clone', repository.url, cache], { cwd: root, allowFailure: true });
       if (cloned.status !== 0) {
         results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (cloned.stderr || cloned.stdout).trim() });
         continue;
       }
+    }
+    try {
+      await validateManagedClone(cache, story.repository);
+    } catch (error) {
+      results.push({ storyId: story.id, repository: story.repository, status: 'invalid-cache', error: error.message });
+      continue;
     }
     const fetched = run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true });
     if (fetched.status !== 0) {
@@ -493,7 +537,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
         && !dependencyState?.milestones?.[camelMilestone];
     });
   }
-  await writeText(lockPath, YAML.stringify(lock));
+  await writeText(lockPath.absolute, YAML.stringify(lock));
   initiative.history.push({ at: nowIso(), actor: identity(root).email?.toLowerCase() ?? identity(root).name, event: 'initiative_repositories_synchronized', phase: initiative.currentPhase, detail: `${results.filter((item) => item.status === 'synchronized').length}/${results.length} stories synchronized` });
   await saveInitiative(root, portfolio, initiative);
   const invalidations = [];

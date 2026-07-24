@@ -10,14 +10,14 @@ import {
 } from './grounding.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
-  initiativeDir,
   loadInitiative,
+  secureInitiativePath,
   verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
 import { loadSession } from './session.mjs';
 import {
+  secureRepositoryPath,
   SingularityFlowError,
-  exists,
   nowIso,
   posix,
   run,
@@ -63,13 +63,23 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
   for (const reference of references) {
     const [producerPhase, producerOutput] = reference.split('/');
     const record = initiative.phases[producerPhase].outputs[producerOutput];
-    const absolute = path.join(initiativeDir(root, portfolio, initiative.initiative.id), record.path);
-    const content = await readFile(absolute, 'utf8');
+    const source = await secureInitiativePath(root, portfolio, initiative.initiative.id, record.path, {
+      label: `Initiative prompt input '${reference}'`,
+      mustExist: true,
+      type: 'file'
+    });
+    const sourceSnapshot = await snapshot(source.absolute);
+    const embedded = record.kind !== 'binary-bundle';
+    const content = embedded
+      ? await readFile(source.absolute, 'utf8')
+      : `[Binary bundle is not embedded in the prompt. Review the governed file at ${source.relative}.]`;
     sections.push({
       reference,
-      path: posix(path.relative(root, absolute)),
+      path: source.relative,
       sha256: record.sha256,
-      bytes: Buffer.byteLength(content),
+      bytes: sourceSnapshot.size,
+      kind: record.kind,
+      embedded,
       content
     });
   }
@@ -161,15 +171,28 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     throw new SingularityFlowError(`Initiative prompt composition requires a selected session persona for ${initiativeId}. Resume the initiative and choose one.`);
   }
   const generation = initiative.phases[phaseId].generation + 1;
-  const itemDirectory = initiativeDir(root, portfolio, initiativeId);
-  if (!dryRun && await exists(path.join(itemDirectory, recordRelative(phaseId, generation)))) {
+  const itemDirectory = await secureInitiativePath(root, portfolio, initiativeId, '', {
+    label: `Initiative '${initiativeId}' directory`,
+    mustExist: true,
+    type: 'directory'
+  });
+  const existingRecord = await secureInitiativePath(root, portfolio, initiativeId, recordRelative(phaseId, generation), {
+    label: `Initiative prompt record for '${phaseId}'`,
+    type: 'file'
+  });
+  if (!dryRun && existingRecord.exists) {
     const verification = await verifyInitiativeContext(root, portfolio, initiative, phaseId, generation);
     if (verification.valid && !verification.warnings.length && verification.record?.persona === selectedPersona) {
+      const prompt = await secureRepositoryPath(root, verification.record.promptPath, {
+        label: `Governed initiative prompt for '${phaseId}'`,
+        mustExist: true,
+        type: 'file'
+      });
       return {
         portfolio,
         initiative,
         phase,
-        rendered: await readFile(path.join(root, verification.record.promptPath), 'utf8'),
+        rendered: await readFile(prompt.absolute, 'utf8'),
         record: verification.record,
         warnings: verification.record.warnings ?? [],
         dryRun,
@@ -177,10 +200,13 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       };
     }
   }
-  const personaPath = path.join(root, definition.personaPromptsRoot, definition.personas[selectedPersona].prompt);
-  if (!(await exists(personaPath))) throw new SingularityFlowError(`Persona prompt is missing: ${posix(path.relative(root, personaPath))}`);
-  const personaText = await readFile(personaPath, 'utf8');
-  const personaSnapshot = await snapshot(personaPath);
+  const personaPath = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, definition.personas[selectedPersona].prompt), {
+    label: `Persona prompt for '${selectedPersona}'`,
+    mustExist: true,
+    type: 'file'
+  });
+  const personaText = await readFile(personaPath.absolute, 'utf8');
+  const personaSnapshot = await snapshot(personaPath.absolute);
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
   const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode);
@@ -193,7 +219,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     pseudoWorkflow,
     { id: phaseId, generation: initiative.phases[phaseId].generation },
     session?.workId === initiativeId ? session : { persona: selectedPersona },
-    { record: !dryRun, itemDirectory }
+    { record: !dryRun, itemDirectory: itemDirectory.absolute }
   );
   const inputText = inputs.map((input) => [
     `## Approved initiative input: ${input.reference}`,
@@ -209,7 +235,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     '',
     `## Selected persona: ${definition.personas[selectedPersona].label}`,
     '',
-    `<!-- path=${posix(path.relative(root, personaPath))} sha256=${personaSnapshot.sha256} -->`,
+    `<!-- path=${personaPath.relative} sha256=${personaSnapshot.sha256} -->`,
     '',
     personaText.trim(),
     grounding.text,
@@ -226,7 +252,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     persona: selectedPersona,
     phaseResolutionSha256: initiative.resolution.resolutionSha256,
     personaPrompt: {
-      path: posix(path.relative(root, personaPath)),
+      path: personaPath.relative,
       sha256: personaSnapshot.sha256,
       bytes: personaSnapshot.size
     },
@@ -240,47 +266,72 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     renderedSha256,
     renderedBytes: Buffer.byteLength(rendered),
     promptPath: posix(path.join(
-      path.relative(root, itemDirectory),
+      itemDirectory.relative,
       promptRelative(initiative, phaseId, generation)
     )),
     warnings: [...grounding.warnings, ...remote.warnings],
     recordedAt: nowIso()
   };
   if (!dryRun) {
-    await writeText(path.join(itemDirectory, promptRelative(initiative, phaseId, generation)), rendered);
-    await writeJson(path.join(itemDirectory, recordRelative(phaseId, generation)), record);
+    const promptTarget = await secureInitiativePath(root, portfolio, initiativeId, promptRelative(initiative, phaseId, generation), {
+      label: `Governed initiative prompt for '${phaseId}'`
+    });
+    const recordTarget = await secureInitiativePath(root, portfolio, initiativeId, recordRelative(phaseId, generation), {
+      label: `Initiative prompt record for '${phaseId}'`
+    });
+    await writeText(promptTarget.absolute, rendered);
+    await writeJson(recordTarget.absolute, record);
   }
   return { portfolio, initiative, phase, rendered, record, warnings: record.warnings, dryRun };
 }
 
 export async function verifyInitiativeContext(root, portfolio, initiative, phaseId, generation = null) {
   const targetGeneration = generation ?? initiative.phases[phaseId].generation + 1;
-  const itemDirectory = initiativeDir(root, portfolio, initiative.initiative.id);
   const relative = recordRelative(phaseId, targetGeneration);
-  const absolute = path.join(itemDirectory, relative);
+  const itemDirectory = await secureInitiativePath(root, portfolio, initiative.initiative.id, '', {
+    label: `Initiative '${initiative.initiative.id}' directory`,
+    mustExist: true,
+    type: 'directory'
+  });
+  const recordTarget = await secureInitiativePath(root, portfolio, initiative.initiative.id, relative, {
+    label: `Initiative prompt record for '${phaseId}'`,
+    type: 'file'
+  });
   const mode = initiative.resolution.worldModelGrounding ?? 'off';
   const errors = [];
   const warnings = [];
-  if (!(await exists(absolute))) {
+  if (!recordTarget.exists) {
     const message = `governed Copilot prompt is missing for ${phaseId} generation ${targetGeneration}; run singularity-flow initiative context ${phaseId}`;
     (mode === 'enforce' ? errors : warnings).push(message);
     return { valid: !errors.length, mode, errors, warnings, path: relative, record: null };
   }
-  const record = JSON.parse(await readFile(absolute, 'utf8'));
+  const record = JSON.parse(await readFile(recordTarget.absolute, 'utf8'));
   const expectedPrompt = posix(path.join(
-    path.relative(root, itemDirectory),
+    itemDirectory.relative,
     promptRelative(initiative, phaseId, targetGeneration)
   ));
   if (record.promptPath !== expectedPrompt) errors.push(`initiative prompt path mismatch: ${record.promptPath ?? 'missing'}`);
-  const prompt = await snapshot(path.join(root, record.promptPath ?? ''));
+  const promptTarget = await secureRepositoryPath(root, record.promptPath ?? '', {
+    label: `Governed initiative prompt for '${phaseId}'`,
+    type: 'file'
+  });
+  const prompt = await snapshot(promptTarget.absolute);
   if (record.initiativeId !== initiative.initiative.id || record.phase !== phaseId || record.generation !== targetGeneration) errors.push(`initiative prompt identity mismatch: ${relative}`);
   if (!prompt.exists || prompt.sha256 !== record.renderedSha256) errors.push(`initiative prompt content changed after composition: ${record.promptPath ?? relative}`);
   for (const input of record.inputs ?? []) {
-    const current = await snapshot(path.join(root, input.path));
+    const target = await secureRepositoryPath(root, input.path, {
+      label: `Initiative prompt input '${input.reference}'`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== input.sha256) errors.push(`initiative prompt input changed: ${input.reference}`);
   }
   for (const file of record.worldModelFiles ?? []) {
-    const current = await snapshot(path.join(root, file.path));
+    const target = await secureRepositoryPath(root, file.path, {
+      label: `Initiative world-model context '${file.path}'`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== file.sha256) errors.push(`initiative world-model context changed: ${file.path}`);
     if (record.worldModel?.commit) {
       const committed = run('git', ['show', `${record.worldModel.commit}:${file.path}`], { cwd: root, allowFailure: true });

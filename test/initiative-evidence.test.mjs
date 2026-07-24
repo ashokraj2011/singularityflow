@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -154,4 +154,19 @@ test('unauthorized local Git email cannot create human-approved evidence or appr
     phaseId: 'define',
     subject: 'business-case'
   }), /not authorized/);
+});
+
+test('initiative evidence rejects a repository path that is a symbolic link', async () => {
+  const root = await repository();
+  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-evidence-outside-')), 'evidence.md');
+  await writeFile(outside, '# Outside evidence\n');
+  const linked = path.join(root, 'linked-evidence.md');
+  await symlink(outside, linked);
+  await assert.rejects(() => registerInitiativeEvidence(root, {
+    initiativeId: 'INIT-EVIDENCE',
+    phaseId: 'define',
+    checkId: 'business-case-approved',
+    assurance: 'human-approved',
+    source: { path: 'linked-evidence.md' }
+  }), /evidence source cannot be a symbolic link/i);
 });

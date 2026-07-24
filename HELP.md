@@ -105,6 +105,8 @@ Start and approval use Copilot selectable options and one-time receipts when per
 
 `/sflow-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected persona prompt → required repository world-model views → active-agent remote skill Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, publication is blocked when the prompt, world model, or an approved input is missing or changed.
 
+For `kind: binary-bundle` outputs without a template, phase preparation prints the exact target as `awaiting upload`. Place the binary evidence at that path and run the phase command again to register its size and SHA-256 before publishing. Required missing bundles block publication with their expected paths. Downstream prompts include binary provenance, never decoded binary bytes.
+
 Every generation, evidence record, approval, rejection, materialization, synchronization, and transition is committed and pushed to the exact initiative branch. Append-only evidence may replay after a concurrent append; approvals and lifecycle transitions always recompute against the new branch head.
 
 The configured default branch is only the starting baseline for a new initiative or story branch. `initiative start` does not merge into `main`, and story materialization does not merge into a participating repository's default branch. Singularity Flow never automatically merges completed work; normal pull requests and repository policies remain in control.

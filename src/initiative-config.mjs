@@ -204,6 +204,7 @@ function normalizePhase(phase, id) {
   const outputs = array(phase.outputs ?? [], `Initiative phase '${id}' outputs`).map((output, index) => normalizeOutput(output, id, index));
   const checklist = array(phase.checklist ?? [], `Initiative phase '${id}' checklist`).map((check, index) => normalizeCheck(check, id, index));
   unique(outputs.map((output) => output.id), `Initiative phase '${id}' output IDs`);
+  unique(outputs.map((output) => output.path), `Initiative phase '${id}' output paths`);
   unique(checklist.map((check) => check.id), `Initiative phase '${id}' checklist IDs`);
   return {
     id,

@@ -67,7 +67,8 @@ else process.stdout.write(JSON.stringify({ opened: process.cwd() }));
 test('Electron welcome screen renders persistent repository errors and loading feedback', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   assert.match(source, /Opening repository…/);
-  assert.match(source, /Validating the repository and loading workflow state/);
+  assert.match(source, /Finding an existing workspace or preparing workspace creation/);
+  assert.match(source, /Open or create a project workspace/);
   assert.match(source, /if \(!data\).*<Toast toast=\{toast\}/s);
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
@@ -297,6 +298,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /repository:open/);
   assert.match(main, /repository:forget/);
   assert.match(main, /workspace:create/);
+  assert.match(main, /inspectWorkspaceSelection/);
+  assert.match(main, /openWorkspaceSetup/);
+  assert.match(main, /Choose the specific workspace folder/);
   assert.match(main, /workspace:documents-stage/);
   assert.match(main, /workspace:documents-promote/);
   assert.match(main, /staged-not-governed are excluded/);
@@ -328,6 +332,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /initiative:materialize/);
   assert.match(main, /\['documents', 'preview'/);
   assert.match(main, /Only HTTPS document links can be opened/);
+  assert.match(source, /openDocument=\{openRequirementWorkspace\}/);
+  assert.match(source, /Open in default app/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => document\.path \? downloadFile\(document\.path\) : openWorkspace\(\)\}/);
   assert.doesNotMatch(main, /figma\.com\/embed/);
   assert.doesNotMatch(main, /<webview>/);
 });

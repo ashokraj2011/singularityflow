@@ -1321,6 +1321,31 @@ function registerHandlers() {
       ? jiraCredentialStore().disconnect(credentials.selected)
       : credentials;
   });
+  trustedHandle('workspace:jira-epics', async (event, { repository, workspace, refresh = false }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const [{ readWorkspace }, { listWorkspaceAnchors }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('jira.mjs')
+    ]);
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before listing Epics.');
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    const groups = await Promise.all(routing.projectKeys.map(async (projectKey) => {
+      const key = jiraCacheKey(connection, 'workspace-epics', projectKey);
+      const cached = !refresh && jiraCacheRead(key, 5);
+      if (cached) return cached;
+      const anchors = await listWorkspaceAnchors(projectKey, { connection, limit: 500 });
+      return jiraCacheWrite(key, anchors.filter((issue) => Number(issue.hierarchyLevel) === 1));
+    }));
+    return groups
+      .flat()
+      .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+        || String(left.key).localeCompare(String(right.key)));
+  });
   trustedHandle('workspace:jira-epic', async (event, { repository, workspace, epicKey }) => {
     assertTrustedSender(event);
     assertRepository(repository);

@@ -211,9 +211,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Set up your Epic workspace/);
   assert.doesNotMatch(source, /if \(!portfolio\) return <div className="page"><PortfolioSetup/);
   assert.match(source, /workspaceJiraContext/);
+  assert.match(source, /workspaceJiraEpics/);
   assert.match(source, /workspaceJiraEpic/);
   assert.match(source, /bootstrapWorkspacePortfolio/);
-  assert.match(source, /Fetch the Epic by ID/);
+  assert.match(source, /Select an Epic from Jira/);
+  assert.match(source, /Fetch selected Epic/);
+  assert.match(source, /Enter an Epic key, URL, or numeric Jira ID instead/);
   assert.match(source, /Generate the formatted requirements artifact/);
   assert.match(source, /function EpicRequirementsView/);
   assert.match(styles, /\.requirements-output-map/);
@@ -547,6 +550,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /bootstrapPortfolio/);
   assert.match(preload, /bootstrapWorkspacePortfolio/);
   assert.match(preload, /workspaceJiraContext/);
+  assert.match(preload, /workspaceJiraEpics/);
   assert.match(preload, /workspaceJiraEpic/);
   assert.match(preload, /connectWorkspaceJira/);
   assert.match(preload, /updateWorkspaceConfiguration/);
@@ -563,6 +567,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /configuration:bootstrap-portfolio/);
   assert.match(main, /configuration:bootstrap-workspace-portfolio/);
   assert.match(main, /workspace:jira-context/);
+  assert.match(main, /workspace:jira-epics/);
   assert.match(main, /workspace:jira-epic/);
   assert.match(main, /workspace:jira-connect/);
   assert.match(main, /workspace:configuration-update/);

@@ -8,6 +8,11 @@ import { forgetRecentRepository, readRecentRepositories, rememberRecentRepositor
 import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
 import { CopilotBackendController } from './copilot-service.mjs';
 import { isTrustedRendererUrl, safeExternalUrl } from './desktop-security.mjs';
+import {
+  requireActiveRepository,
+  requireActiveWorkspace,
+  requireReadyLeadRepository
+} from './desktop-scope.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
 import {
   ONBOARDING_ROLES,
@@ -127,9 +132,11 @@ function invokeCli(repository, args, { input = null, json = true, timeoutMs = un
 }
 
 function assertRepository(repository) {
-  const resolved = path.resolve(repository || '');
-  if (!activeRepository || resolved !== activeRepository) throw new Error('Repository is not open in Singularity Flow.');
-  return resolved;
+  return requireActiveRepository(activeRepository, repository);
+}
+
+function assertWorkspace(workspace) {
+  return requireActiveWorkspace(activeWorkspace, workspace);
 }
 
 function planningWorkspaceBoundary(root) {
@@ -280,7 +287,7 @@ function registerHandlers() {
     await forgetRecentRepository(recentRepositoriesPath(), repository);
     return recentRepositories();
   });
-  trustedHandle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(path.resolve(repository), workId, initiativeId));
+  trustedHandle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(assertRepository(repository), workId, initiativeId));
   trustedHandle('workspace:recent', async (event) => {
     assertTrustedSender(event);
     return recentWorkspaces();
@@ -293,7 +300,7 @@ function registerHandlers() {
     const workspace = await readWorkspace(result.filePaths[0]);
     const status = await workspaceStatus(workspace.path);
     await rememberWorkspace(workspaceRegistryPath(), workspace, status);
-    return openRepository(status.leadRepositoryPath, { workspace: status });
+    return openRepository(requireReadyLeadRepository(status), { workspace: status });
   });
   trustedHandle('workspace:open', async (event, { workspace: workspacePath }) => {
     assertTrustedSender(event);
@@ -301,7 +308,7 @@ function registerHandlers() {
     const workspace = await readWorkspace(workspacePath);
     const status = await workspaceStatus(workspace.path);
     await rememberWorkspace(workspaceRegistryPath(), workspace, status);
-    return openRepository(status.leadRepositoryPath, { workspace: status });
+    return openRepository(requireReadyLeadRepository(status), { workspace: status });
   });
   trustedHandle('workspace:forget', async (event, { workspace }) => {
     assertTrustedSender(event);
@@ -642,35 +649,37 @@ function registerHandlers() {
     };
     const created = await workspaceApi.createWorkspace(input, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
-    return openRepository(created.status.leadRepositoryPath, { workspace: created.status });
+    return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
   });
   trustedHandle('workspace:status', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { workspaceStatus } = await workspaceModule();
-    return workspaceStatus(workspace);
+    return workspaceStatus(assertWorkspace(workspace));
   });
   trustedHandle('workspace:sync', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { fetchWorkspace } = await workspaceModule();
-    return fetchWorkspace(workspace);
+    return fetchWorkspace(assertWorkspace(workspace));
   });
   trustedHandle('workspace:repair', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { repairWorkspace } = await workspaceModule();
-    return repairWorkspace(workspace);
+    return repairWorkspace(assertWorkspace(workspace));
   });
   trustedHandle('workspace:documents-stage', async (event, { workspace }) => {
     assertTrustedSender(event);
+    const workspaceRoot = assertWorkspace(workspace);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Stage workspace documents (not governed)' });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
     const { stageWorkspaceDocuments } = await workspaceModule();
-    return stageWorkspaceDocuments(workspace, result.filePaths);
+    return stageWorkspaceDocuments(workspaceRoot, result.filePaths);
   });
   trustedHandle('workspace:documents-promote', async (event, {
     repository, workspace, documentPath, workId
   }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
     const [{ resolveWorkspaceDocument }, { branch }] = await Promise.all([
       workspaceModule(),
       importCliModule('git.mjs')
@@ -678,7 +687,7 @@ function registerHandlers() {
     if (!workId || branch(root) !== workId) {
       throw new Error(`Check out or resume work item ${workId || '(none)'} before importing a staged document.`);
     }
-    const document = await resolveWorkspaceDocument(workspace, documentPath);
+    const document = await resolveWorkspaceDocument(workspaceRoot, documentPath);
     const publication = await invokeCli(root, ['documents', 'upload', document.absolutePath], {
       json: false,
       timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS

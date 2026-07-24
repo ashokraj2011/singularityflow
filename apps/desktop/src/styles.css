@@ -2995,10 +2995,145 @@ label > span,
 .remote-template-preview .markdown-preview h2 { margin-top: 18px; font-size: 15px; }
 .remote-template-destination { margin: 0; }
 
+/* Singularity endorsed-product identity: Flow is the product, Singularity is the brand. */
+.flow-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #172a20;
+}
+
+.flow-brand .flow-brand-mark {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 11px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 74% 20%,rgba(255,204,79,.36),transparent 26%),
+    linear-gradient(145deg,#0a4832 0%,#18794e 58%,#1b8d5b 100%);
+  box-shadow: 0 7px 18px rgba(7,77,47,.15), inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+.flow-brand .flow-brand-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 7px 4px;
+  border: 1px solid rgba(255,255,255,.34);
+  border-radius: 50%;
+  transform: rotate(-28deg);
+}
+
+.flow-brand .flow-brand-mark b {
+  position: relative;
+  z-index: 1;
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1;
+  letter-spacing: -.08em;
+}
+
+.flow-brand .flow-brand-mark i {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffd05b;
+  box-shadow: 0 0 0 2px rgba(255,208,91,.13), 0 0 8px rgba(255,208,91,.7);
+  animation: flowOrbitPulse 3.6s ease-in-out infinite;
+}
+
+.flow-brand .flow-brand-copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 0;
+  line-height: 1;
+}
+
+.flow-brand .flow-brand-parent {
+  overflow: visible;
+  max-width: none;
+  color: #68756d;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 730;
+  line-height: 1.15;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.flow-brand .flow-brand-product {
+  color: #17251d;
+  font-size: 18px;
+  font-weight: 610;
+  line-height: 1.05;
+  letter-spacing: -.045em;
+}
+
+.flow-brand .flow-brand-context {
+  overflow: hidden;
+  max-width: 142px;
+  margin-top: 3px;
+  color: #7d8981;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 510;
+  line-height: 1.1;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-brand.inverse .flow-brand-mark {
+  color: #075c3b;
+  background:
+    radial-gradient(circle at 74% 20%,rgba(255,203,72,.48),transparent 25%),
+    linear-gradient(145deg,#fff,#eaf5ed);
+  box-shadow: 0 8px 24px rgba(0,0,0,.16), inset 0 0 0 1px rgba(255,255,255,.68);
+}
+
+.flow-brand.inverse .flow-brand-mark::before { border-color: rgba(7,92,59,.28); }
+.flow-brand.inverse .flow-brand-parent { color: rgba(255,255,255,.62); }
+.flow-brand.inverse .flow-brand-product { color: #fff; }
+.flow-brand.inverse .flow-brand-context { color: rgba(255,255,255,.66); }
+
+.flow-brand-onboarding {
+  min-height: 58px;
+  border: 0;
+  padding: 0 6px;
+  background: transparent;
+}
+
+.flow-brand-welcome { min-height: 72px; }
+.flow-brand-business { min-width: 164px; }
+.flow-brand-business .flow-brand-mark { width: 32px; height: 32px; border-radius: 9px; }
+.flow-brand-business .flow-brand-mark b { font-size: 13px; }
+.flow-brand-business .flow-brand-product { font-size: 16px; }
+.flow-brand-business .flow-brand-context { max-width: 108px; }
+.flow-brand-sidebar { min-height: 72px; }
+
+@keyframes flowOrbitPulse {
+  0%,100% { opacity: .72; transform: scale(.82); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
+
 @media (max-width: 1220px) {
   .business-navigation { gap: 9px; padding-inline: 12px; }
   .business-brand { min-width: 36px; }
-  .business-brand > div { display: none; }
+  .business-brand > div,
+  .flow-brand-business .flow-brand-copy { display: none; }
   .business-navigation > nav button { padding-inline: 8px; }
   .business-navigation > nav button span { display: none; }
   .business-navigation > nav button.active::after { right: 8px; left: 8px; }
@@ -3027,6 +3162,13 @@ label > span,
   .phase-governance { grid-template-columns: 1fr 1fr; }
   .stage-primary-action { grid-column: 2; }
 }
+
+.sidebar-collapsed .flow-brand-sidebar {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.sidebar-collapsed .flow-brand-sidebar .flow-brand-copy { display: none; }
 
 @media (max-width: 1440px) {
   .artifact-builder { grid-template-columns: 205px minmax(390px,1fr); }

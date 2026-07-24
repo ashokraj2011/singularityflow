@@ -7,6 +7,7 @@ import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDir
 import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
 import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
 import { CopilotBackendController } from './copilot-service.mjs';
+import { isTrustedRendererUrl, safeExternalUrl } from './desktop-security.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
 import {
   ONBOARDING_ROLES,
@@ -40,16 +41,29 @@ function cliResourcePath(...segments) {
   return path.join(root, ...segments);
 }
 
+function rendererEntryUrl() {
+  return app.isPackaged
+    ? pathToFileURL(path.join(here, '../dist/index.html'))
+    : new URL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173');
+}
+
 async function importCliModule(name) {
   return import(pathToFileURL(cliResourcePath('src', name)).href);
 }
 
 function assertTrustedSender(event) {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Untrusted desktop request.');
-  const senderUrl = event.sender.getURL();
-  if (app.isPackaged ? !senderUrl.startsWith('file:') : !/^http:\/\/(127\.0\.0\.1|localhost):5173/.test(senderUrl)) {
+  const expected = rendererEntryUrl();
+  if (!isTrustedRendererUrl(event.sender.getURL(), expected.href, { packaged: app.isPackaged })) {
     throw new Error('Untrusted desktop origin.');
   }
+}
+
+function trustedHandle(channel, listener) {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedSender(event);
+    return listener(event, ...args);
+  });
 }
 
 async function jiraPolicy(repository) {
@@ -194,7 +208,7 @@ async function openRepository(repository, { workspace = null } = {}) {
 }
 
 function registerHandlers() {
-  ipcMain.handle('onboarding:get', async (event) => {
+  trustedHandle('onboarding:get', async (event) => {
     assertTrustedSender(event);
     const jira = await jiraCredentialStore().status();
     return {
@@ -203,7 +217,7 @@ function registerHandlers() {
       roles: [...ONBOARDING_ROLES]
     };
   });
-  ipcMain.handle('onboarding:choose-workspace', async (event) => {
+  trustedHandle('onboarding:choose-workspace', async (event) => {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory'],
@@ -211,7 +225,7 @@ function registerHandlers() {
     });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle('onboarding:choose-repositories', async (event) => {
+  trustedHandle('onboarding:choose-repositories', async (event) => {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'multiSelections'],
@@ -225,7 +239,7 @@ function registerHandlers() {
     }
     return repositories;
   });
-  ipcMain.handle('onboarding:jira-connect', async (event, { connection: input }) => {
+  trustedHandle('onboarding:jira-connect', async (event, { connection: input }) => {
     assertTrustedSender(event);
     const { normalizeJiraConnection, discoverJiraConnection } = await importCliModule('jira.mjs');
     const connection = normalizeJiraConnection({ ...input, name: input?.name || 'corporate-jira' });
@@ -238,7 +252,7 @@ function registerHandlers() {
     jiraCache.clear();
     return { ...saved, discovery };
   });
-  ipcMain.handle('onboarding:save', async (event, { profile: input, complete = false }) => {
+  trustedHandle('onboarding:save', async (event, { profile: input, complete = false }) => {
     assertTrustedSender(event);
     if (input?.workspacePath) {
       const workspace = await stat(path.resolve(input.workspacePath)).catch(() => null);
@@ -255,23 +269,23 @@ function registerHandlers() {
     }
     return { profile, jira };
   });
-  ipcMain.handle('repository:choose', async () => {
+  trustedHandle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;
     return openRepository(result.filePaths[0]);
   });
-  ipcMain.handle('repository:recent', () => recentRepositories());
-  ipcMain.handle('repository:open', (_event, { repository }) => openRepository(repository));
-  ipcMain.handle('repository:forget', async (_event, { repository }) => {
+  trustedHandle('repository:recent', () => recentRepositories());
+  trustedHandle('repository:open', (_event, { repository }) => openRepository(repository));
+  trustedHandle('repository:forget', async (_event, { repository }) => {
     await forgetRecentRepository(recentRepositoriesPath(), repository);
     return recentRepositories();
   });
-  ipcMain.handle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(path.resolve(repository), workId, initiativeId));
-  ipcMain.handle('workspace:recent', async (event) => {
+  trustedHandle('repository:snapshot', (_event, { repository, workId, initiativeId }) => snapshot(path.resolve(repository), workId, initiativeId));
+  trustedHandle('workspace:recent', async (event) => {
     assertTrustedSender(event);
     return recentWorkspaces();
   });
-  ipcMain.handle('workspace:choose', async (event) => {
+  trustedHandle('workspace:choose', async (event) => {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity workspace' });
     if (result.canceled || !result.filePaths[0]) return null;
@@ -281,7 +295,7 @@ function registerHandlers() {
     await rememberWorkspace(workspaceRegistryPath(), workspace, status);
     return openRepository(status.leadRepositoryPath, { workspace: status });
   });
-  ipcMain.handle('workspace:open', async (event, { workspace: workspacePath }) => {
+  trustedHandle('workspace:open', async (event, { workspace: workspacePath }) => {
     assertTrustedSender(event);
     const { readWorkspace, rememberWorkspace, workspaceStatus } = await workspaceModule();
     const workspace = await readWorkspace(workspacePath);
@@ -289,40 +303,40 @@ function registerHandlers() {
     await rememberWorkspace(workspaceRegistryPath(), workspace, status);
     return openRepository(status.leadRepositoryPath, { workspace: status });
   });
-  ipcMain.handle('workspace:forget', async (event, { workspace }) => {
+  trustedHandle('workspace:forget', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { forgetWorkspace } = await workspaceModule();
     await forgetWorkspace(workspaceRegistryPath(), workspace);
     if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
     return recentWorkspaces();
   });
-  ipcMain.handle('workspace:choose-base', async (event) => {
+  trustedHandle('workspace:choose-base', async (event) => {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Choose a workspace storage directory' });
     return result.canceled ? null : result.filePaths[0] ?? null;
   });
-  ipcMain.handle('inbox:refresh', async (_event, { repository }) => {
+  trustedHandle('inbox:refresh', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const approvalInbox = await invokeCli(root, ['inbox', '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
     return { ...await snapshot(root), approvalInbox };
   });
-  ipcMain.handle('inbox:attach', async (_event, { repository, workId }) => {
+  trustedHandle('inbox:attach', async (_event, { repository, workId }) => {
     const root = assertRepository(repository);
     await invokeCli(root, ['session', 'attach', workId, '--json'], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
     return snapshot(root, workId);
   });
-  ipcMain.handle('configuration:validate', (_event, { repository }) => invokeCli(assertRepository(repository), ['desktop', 'validate', '--json']));
-  ipcMain.handle('configuration:save', (_event, { repository, filePath, content }) => invokeCli(assertRepository(repository), ['desktop', 'save', filePath], { input: content }));
-  ipcMain.handle('configuration:delete-template', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-template', filePath, '--json']));
-  ipcMain.handle('configuration:delete-file', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-file', filePath, '--json']));
-  ipcMain.handle('configuration:download', async (_event, { repository, filePath }) => {
+  trustedHandle('configuration:validate', (_event, { repository }) => invokeCli(assertRepository(repository), ['desktop', 'validate', '--json']));
+  trustedHandle('configuration:save', (_event, { repository, filePath, content }) => invokeCli(assertRepository(repository), ['desktop', 'save', filePath], { input: content }));
+  trustedHandle('configuration:delete-template', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-template', filePath, '--json']));
+  trustedHandle('configuration:delete-file', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-file', filePath, '--json']));
+  trustedHandle('configuration:download', async (_event, { repository, filePath }) => {
     const source = await invokeCli(assertRepository(repository), ['desktop', 'read', filePath, '--json']);
     const result = await dialog.showSaveDialog({ title: 'Download Singularity Flow file', defaultPath: source.name });
     if (result.canceled || !result.filePath) return { canceled: true };
     await writeFile(result.filePath, Buffer.from(source.contentBase64, 'base64'));
     return { path: result.filePath, bytes: source.bytes };
   });
-  ipcMain.handle('configuration:import', async (_event, { repository, targetDirectory, targetPath, kind }) => {
+  trustedHandle('configuration:import', async (_event, { repository, targetDirectory, targetPath, kind }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Import YAML or Markdown', filters: [{ name: 'Singularity Flow files', extensions: ['md', 'yml', 'yaml'] }] });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -344,7 +358,7 @@ function registerHandlers() {
     const saved = await invokeCli(root, ['desktop', 'save', relative], { input: await readFile(sourcePath, 'utf8') });
     return { ...saved, sourcePath };
   });
-  ipcMain.handle('configuration:export-bundle', async (_event, { repository }) => {
+  trustedHandle('configuration:export-bundle', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'], title: 'Choose where to export Singularity Flow configuration' });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -359,8 +373,8 @@ function registerHandlers() {
     }
     return { path: output, files: bundle.files.length, worldModelRepositoryOwned: true };
   });
-  ipcMain.handle('configuration:publish', (_event, { repository, message }) => invokeCli(assertRepository(repository), ['desktop', 'publish', '--message', message || 'Configure Singularity Flow workflow', '--json']));
-  ipcMain.handle('configuration:bootstrap-portfolio', async (event, { repository, configuration }) => {
+  trustedHandle('configuration:publish', (_event, { repository, message }) => invokeCli(assertRepository(repository), ['desktop', 'publish', '--message', message || 'Configure Singularity Flow workflow', '--json']));
+  trustedHandle('configuration:bootstrap-portfolio', async (event, { repository, configuration }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     await invokeCli(root, ['desktop', 'portfolio-bootstrap', '--json'], {
@@ -369,29 +383,29 @@ function registerHandlers() {
     });
     return snapshot(root);
   });
-  ipcMain.handle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
-  ipcMain.handle('planning:preflight', (event, { repository }) => {
+  trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
+  trustedHandle('planning:preflight', (event, { repository }) => {
     assertTrustedSender(event);
     assertRepository(repository);
     return copilotPlanningPreflight();
   });
-  ipcMain.handle('copilot-service:status', (event, { repository }) => {
+  trustedHandle('copilot-service:status', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.status(assertRepository(repository));
   });
-  ipcMain.handle('copilot-service:start', (event, { repository, model }) => {
+  trustedHandle('copilot-service:start', (event, { repository, model }) => {
     assertTrustedSender(event);
     return copilotBackend.start(assertRepository(repository), { model: model?.trim() || null });
   });
-  ipcMain.handle('copilot-service:stop', (event, { repository }) => {
+  trustedHandle('copilot-service:stop', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.stop(assertRepository(repository));
   });
-  ipcMain.handle('copilot-service:logs', (event, { repository }) => {
+  trustedHandle('copilot-service:logs', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.logs(assertRepository(repository));
   });
-  ipcMain.handle('planning:context', async (event, {
+  trustedHandle('planning:context', async (event, {
     repository, scope, id, phase, persona, target, objective
   }) => {
     assertTrustedSender(event);
@@ -413,7 +427,7 @@ function registerHandlers() {
     });
     return result;
   });
-  ipcMain.handle('planning:start', async (event, { repository, planningSessionId, model }) => {
+  trustedHandle('planning:start', async (event, { repository, planningSessionId, model }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
@@ -423,21 +437,21 @@ function registerHandlers() {
       prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
     });
   });
-  ipcMain.handle('planning:prompt', (event, { repository, planningSessionId, text }) => {
+  trustedHandle('planning:prompt', (event, { repository, planningSessionId, text }) => {
     assertTrustedSender(event);
     return copilotBackend.prompt(assertRepository(repository), planningSessionId, text);
   });
-  ipcMain.handle('planning:answer', (event, {
+  trustedHandle('planning:answer', (event, {
     repository, planningSessionId, questionId, content, action
   }) => {
     assertTrustedSender(event);
     return copilotBackend.answer(assertRepository(repository), planningSessionId, questionId, { content, action });
   });
-  ipcMain.handle('planning:stop', async (event, { repository, planningSessionId }) => {
+  trustedHandle('planning:stop', async (event, { repository, planningSessionId }) => {
     assertTrustedSender(event);
     return copilotBackend.releasePlanning(assertRepository(repository), planningSessionId);
   });
-  ipcMain.handle('planning:promote', async (event, { repository, planningSessionId, persona, content }) => {
+  trustedHandle('planning:promote', async (event, { repository, planningSessionId, persona, content }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
@@ -452,27 +466,27 @@ function registerHandlers() {
     planningPacks.delete(planningSessionId);
     return result;
   });
-  ipcMain.handle('initiative:materialize-preview', (_event, { repository, initiativeId }) => invokeCli(
+  trustedHandle('initiative:materialize-preview', (_event, { repository, initiativeId }) => invokeCli(
     assertRepository(repository),
     ['desktop', 'initiative-materialize-preview', '--initiative', initiativeId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
-  ipcMain.handle('initiative:materialize', (_event, { repository, initiativeId, confirmation }) => invokeCli(
+  trustedHandle('initiative:materialize', (_event, { repository, initiativeId, confirmation }) => invokeCli(
     assertRepository(repository),
     ['desktop', 'initiative-materialize', '--initiative', initiativeId, '--confirm', confirmation, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
-  ipcMain.handle('initiative:sync', (_event, { repository, initiativeId }) => invokeCli(
+  trustedHandle('initiative:sync', (_event, { repository, initiativeId }) => invokeCli(
     assertRepository(repository),
     ['desktop', 'initiative-sync', '--initiative', initiativeId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
-  ipcMain.handle('jira:status', async (event, { repository }) => {
+  trustedHandle('jira:status', async (event, { repository }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     return { policy, credentials: await jiraCredentialStore().status() };
   });
-  ipcMain.handle('jira:connect', async (event, { repository, connection: input }) => {
+  trustedHandle('jira:connect', async (event, { repository, connection: input }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     const { normalizeJiraConnection, discoverJiraConnection } = await importCliModule('jira.mjs');
@@ -487,13 +501,13 @@ function registerHandlers() {
     jiraCache.clear();
     return { ...saved, discovery };
   });
-  ipcMain.handle('jira:disconnect', async (event, { repository, name }) => {
+  trustedHandle('jira:disconnect', async (event, { repository, name }) => {
     assertTrustedSender(event);
     await jiraPolicy(repository);
     jiraCache.clear();
     return jiraCredentialStore().disconnect(name);
   });
-  ipcMain.handle('jira:projects', async (event, { repository, query, refresh = false }) => {
+  trustedHandle('jira:projects', async (event, { repository, query, refresh = false }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     const connection = await jiraCredentialStore().load(policy.connection);
@@ -506,7 +520,7 @@ function registerHandlers() {
     const allowed = policy.allowedProjects?.length ? projects.filter((project) => policy.allowedProjects.includes(project.key)) : projects;
     return jiraCacheWrite(key, allowed);
   });
-  ipcMain.handle('jira:epics', async (event, { repository, projectKey, refresh = false }) => {
+  trustedHandle('jira:epics', async (event, { repository, projectKey, refresh = false }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     if (!policy.read.epics) throw new Error('Jira Epic browsing is disabled by repository policy.');
@@ -518,7 +532,7 @@ function registerHandlers() {
     const { listEpics } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await listEpics(projectKey, { connection, issueType: policy.epicIssueType, limit: 100 }));
   });
-  ipcMain.handle('jira:workspace-anchors', async (event, { repository, projectKey, refresh = false }) => {
+  trustedHandle('jira:workspace-anchors', async (event, { repository, projectKey, refresh = false }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new Error(`Project ${projectKey} is outside the repository allowlist.`);
@@ -529,7 +543,7 @@ function registerHandlers() {
     const { listWorkspaceAnchors } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await listWorkspaceAnchors(projectKey, { connection, limit: 100 }));
   });
-  ipcMain.handle('jira:hierarchy', async (event, { repository, anchorKey, refresh = false }) => {
+  trustedHandle('jira:hierarchy', async (event, { repository, anchorKey, refresh = false }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     const connection = await jiraCredentialStore().load(policy.connection);
@@ -539,7 +553,7 @@ function registerHandlers() {
     const { getIssueHierarchy } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await getIssueHierarchy(anchorKey, { connection }));
   });
-  ipcMain.handle('workspace:preview', async (event, {
+  trustedHandle('workspace:preview', async (event, {
     repository, baseDirectory, anchorKey, leadRepository, repositoryIds
   }) => {
     assertTrustedSender(event);
@@ -583,7 +597,7 @@ function registerHandlers() {
       hierarchySnapshot: hierarchy
     });
   });
-  ipcMain.handle('workspace:create', async (event, {
+  trustedHandle('workspace:create', async (event, {
     repository, baseDirectory, anchorKey, leadRepository, repositoryIds, confirmation
   }) => {
     assertTrustedSender(event);
@@ -630,29 +644,29 @@ function registerHandlers() {
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
     return openRepository(created.status.leadRepositoryPath, { workspace: created.status });
   });
-  ipcMain.handle('workspace:status', async (event, { workspace }) => {
+  trustedHandle('workspace:status', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { workspaceStatus } = await workspaceModule();
     return workspaceStatus(workspace);
   });
-  ipcMain.handle('workspace:sync', async (event, { workspace }) => {
+  trustedHandle('workspace:sync', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { fetchWorkspace } = await workspaceModule();
     return fetchWorkspace(workspace);
   });
-  ipcMain.handle('workspace:repair', async (event, { workspace }) => {
+  trustedHandle('workspace:repair', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { repairWorkspace } = await workspaceModule();
     return repairWorkspace(workspace);
   });
-  ipcMain.handle('workspace:documents-stage', async (event, { workspace }) => {
+  trustedHandle('workspace:documents-stage', async (event, { workspace }) => {
     assertTrustedSender(event);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Stage workspace documents (not governed)' });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
     const { stageWorkspaceDocuments } = await workspaceModule();
     return stageWorkspaceDocuments(workspace, result.filePaths);
   });
-  ipcMain.handle('workspace:documents-promote', async (event, {
+  trustedHandle('workspace:documents-promote', async (event, {
     repository, workspace, documentPath, workId
   }) => {
     assertTrustedSender(event);
@@ -671,7 +685,7 @@ function registerHandlers() {
     });
     return { publication, document, snapshot: await snapshot(root, workId) };
   });
-  ipcMain.handle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
+  trustedHandle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     if (!policy.read.stories) throw new Error('Jira story browsing is disabled by repository policy.');
@@ -682,7 +696,7 @@ function registerHandlers() {
     const { listEpicStories } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await listEpicStories(epicKey, { connection, limit: 100 }));
   });
-  ipcMain.handle('jira:adopt-preview', async (event, {
+  trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap
   }) => {
     assertTrustedSender(event);
@@ -691,7 +705,7 @@ function registerHandlers() {
     const { previewJiraAdoption } = await importCliModule('jira-initiative.mjs');
     return previewJiraAdoption(root, initiativeId, epicKey, { repositoryMap, connection });
   });
-  ipcMain.handle('jira:adopt', async (event, {
+  trustedHandle('jira:adopt', async (event, {
     repository, initiativeId, epicKey, repositoryMap, replace = false
   }) => {
     assertTrustedSender(event);
@@ -707,7 +721,7 @@ function registerHandlers() {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     return { sourceSha256: result.sourceSha256, unresolved: result.unresolved, breakdown: result.breakdown, publication };
   });
-  ipcMain.handle('jira:write-plan', async (event, { repository, initiativeId }) => {
+  trustedHandle('jira:write-plan', async (event, { repository, initiativeId }) => {
     assertTrustedSender(event);
     const { root, policy } = await jiraPolicy(repository);
     const connection = await jiraCredentialStore().load(policy.connection);
@@ -719,7 +733,7 @@ function registerHandlers() {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
     return { plan: result.plan, publication };
   });
-  ipcMain.handle('jira:apply', async (event, {
+  trustedHandle('jira:apply', async (event, {
     repository, initiativeId, planSha256, confirmation
   }) => {
     assertTrustedSender(event);
@@ -736,7 +750,7 @@ function registerHandlers() {
     jiraCache.clear();
     return { plan: result.plan, results: result.results, publication };
   });
-  ipcMain.handle('jira:open', async (event, { repository, url }) => {
+  trustedHandle('jira:open', async (event, { repository, url }) => {
     assertTrustedSender(event);
     const { policy } = await jiraPolicy(repository);
     const parsed = new URL(url);
@@ -745,25 +759,25 @@ function registerHandlers() {
     await shell.openExternal(parsed.href);
     return { opened: parsed.href };
   });
-  ipcMain.handle('documents:upload', async (_event, { repository }) => {
+  trustedHandle('documents:upload', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'], title: 'Add supporting documents' });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
     return invokeCli(root, ['documents', 'upload', ...result.filePaths], { json: false });
   });
-  ipcMain.handle('documents:upload-directory', async (_event, { repository }) => {
+  trustedHandle('documents:upload-directory', async (_event, { repository }) => {
     const root = assertRepository(repository);
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Add a design or evidence package' });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     return invokeCli(root, ['documents', 'upload', result.filePaths[0]], { json: false, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
   });
-  ipcMain.handle('documents:add-url', (_event, { repository, url, label }) => invokeCli(assertRepository(repository), ['documents', 'upload', '--url', url, ...(label ? ['--label', label] : [])], { json: false }));
-  ipcMain.handle('documents:preview', (_event, { repository, workId, reference }) => invokeCli(
+  trustedHandle('documents:add-url', (_event, { repository, url, label }) => invokeCli(assertRepository(repository), ['documents', 'upload', '--url', url, ...(label ? ['--label', label] : [])], { json: false }));
+  trustedHandle('documents:preview', (_event, { repository, workId, reference }) => invokeCli(
     assertRepository(repository),
     ['documents', 'preview', reference, '--work-id', workId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
-  ipcMain.handle('documents:open', async (_event, { repository, workId, record }) => {
+  trustedHandle('documents:open', async (_event, { repository, workId, record }) => {
     const root = assertRepository(repository);
     const resolved = await invokeCli(root, ['documents', 'view', record.id, '--work-id', workId, '--json']);
     if (resolved.record.url) {
@@ -794,7 +808,8 @@ async function createWindow() {
   mainWindow = window;
   window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    const external = safeExternalUrl(url);
+    if (external) void shell.openExternal(external);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => {

@@ -47,6 +47,16 @@ test('Electron welcome screen renders persistent repository errors and loading f
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
 
+test('Electron onboarding fails closed with a recoverable retry screen', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  assert.match(source, /function OnboardingLoadFailure/);
+  assert.match(source, /We stopped before opening your workspace/);
+  assert.match(source, /No repository, Jira, or Git state was changed/);
+  assert.match(source, /The secure desktop bridge is unavailable/);
+  assert.match(source, /setOnboardingAttempt\(\(current\) => current \+ 1\)/);
+  assert.doesNotMatch(source, /setOnboarding\(\{ profile: \{ completed: true \}/);
+});
+
 test('Electron desktop exposes guided workflow and portable repository configuration controls', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
@@ -88,6 +98,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Add repositories now—or later/);
   assert.match(source, /Connect Jira, then you’re ready/);
   assert.match(source, /Finish setup & start/);
+  assert.match(source, /Local setup recovered/);
   assert.match(source, /Application ID/);
   assert.match(source, /Additional metadata/);
   assert.match(source, /Add a participating repository/);
@@ -172,6 +183,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.onboarding-shell/);
   assert.match(styles, /\.onboarding-progress/);
   assert.match(styles, /\.onboarding-ready-summary/);
+  assert.match(styles, /\.onboarding-recovery/);
+  assert.match(styles, /\.onboarding-failure/);
   assert.match(styles, /\.copilot-service-control/);
   assert.match(styles, /\.copilot-service-log/);
   assert.match(styles, /\.repository-menu/);
@@ -213,6 +226,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /onboarding:get/);
   assert.match(main, /onboarding:save/);
   assert.match(main, /onboarding:jira-connect/);
+  assert.match(main, /function trustedHandle/);
+  assert.equal((main.match(/\bipcMain\.handle\(/g) ?? []).length, 1);
+  assert.match(main, /safeExternalUrl/);
   assert.match(main, /repository:open/);
   assert.match(main, /repository:forget/);
   assert.match(main, /workspace:create/);

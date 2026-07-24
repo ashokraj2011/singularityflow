@@ -69,13 +69,30 @@ export function normalizeOnboardingProfile(input = {}, { complete = false, jiraC
 }
 
 export async function readOnboardingProfile(file, { jiraConnected = false } = {}) {
+  let parsed;
   try {
-    const parsed = JSON.parse(await readFile(file, 'utf8'));
-    const completed = parsed?.completed === true;
-    return normalizeOnboardingProfile(parsed, { complete: completed, jiraConnected });
+    parsed = JSON.parse(await readFile(file, 'utf8'));
   } catch (error) {
-    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
-    return normalizeOnboardingProfile({}, { jiraConnected });
+    if (error?.code === 'ENOENT') return normalizeOnboardingProfile({}, { jiraConnected });
+    if (!(error instanceof SyntaxError)) throw error;
+    return {
+      ...normalizeOnboardingProfile({}, { jiraConnected }),
+      recovery: {
+        reason: 'invalid-json',
+        message: 'The previous local setup file was not valid JSON. Review and save the recovered setup to replace it.'
+      }
+    };
+  }
+  try {
+    return normalizeOnboardingProfile(parsed, { complete: parsed?.completed === true, jiraConnected });
+  } catch (error) {
+    return {
+      ...normalizeOnboardingProfile({}, { jiraConnected }),
+      recovery: {
+        reason: 'invalid-profile',
+        message: `The previous local setup was incompatible: ${error.message}`
+      }
+    };
   }
 }
 

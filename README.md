@@ -76,6 +76,12 @@ Jira remains the hierarchy and committed initiative/story branches remain
 authoritative. Switching workspaces stops the prior Copilot backend before
 activating the new lead repository. See [WORKSPACES.md](WORKSPACES.md).
 
+Interrupted workspace creation is resumable: selecting the same Jira anchor and
+exact repository plan retries missing clones and updates the local
+materialization journal. Singularity Flow rejects configuration drift at an
+existing target, canonicalizes recent workspace aliases, and refuses linked
+workspace manifests rather than crossing a local storage boundary.
+
 If an older repository has no portfolio configuration, opening **Initiatives** or **Jira workspace** now presents a guided setup instead of a dead end. It creates and validates `singularity/portfolio.yml` with the starter profiles, approval identity, optional first repository, and optional Jira policy. No Jira credential is written to YAML, and the new file remains an ordinary uncommitted configuration change until **Commit & push** is selected.
 
 Each participating repository can carry application identity and arbitrary scalar key/value metadata. Use **Initiatives → Portfolio designer → Add repository**, or edit the same governed YAML directly:

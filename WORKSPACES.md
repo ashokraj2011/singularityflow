@@ -63,10 +63,20 @@ and freshness cannot be bypassed.
 - Each workspace receives independent normal clones even when another
   workspace uses the same repository.
 - Creation requires exact Jira-key confirmation and keeps a resumable journal.
+  Repeating creation with the same Jira key and exact repository plan resumes
+  every missing clone and records each attempt. Interrupted clone staging is
+  removed safely before the error is returned.
+- A changed repository URL, branch, path, metadata set, required flag, or lead
+  repository is treated as a different materialization plan. Singularity Flow
+  refuses to reuse the existing directory; open its current plan or choose a
+  different workspace location.
 - Existing unrelated directories are never overwritten.
 - Fetch skips dirty clones and never changes their branch or working tree.
 - Repair clones only missing repositories. Remote mismatches require deliberate
-  manual correction.
+  manual correction. `logs/workspace-materialization.json` reports running,
+  completed, and failed recovery attempts.
+- Workspace aliases are resolved to one canonical location in the recent list.
+  The managed `workspace.json` must be a regular file and cannot be a symlink.
 - Forgetting a workspace removes only the recent-location entry; it never
   deletes repositories or documents.
 - Opening another workspace or repository stops the previous Copilot backend

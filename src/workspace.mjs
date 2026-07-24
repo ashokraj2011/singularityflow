@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { SingularityFlowError, run } from './util.mjs';
@@ -171,12 +171,48 @@ async function atomicJson(file, value) {
 }
 
 export async function readWorkspace(workspacePath) {
-  const root = path.resolve(workspacePath);
-  const file = path.basename(root) === WORKSPACE_FILE ? root : path.join(root, WORKSPACE_FILE);
+  const requested = path.resolve(workspacePath);
+  const requestedFile = path.basename(requested) === WORKSPACE_FILE ? requested : path.join(requested, WORKSPACE_FILE);
+  const fileInfo = await lstat(requestedFile).catch(() => null);
+  if (!fileInfo) throw new SingularityFlowError(`Unable to read ${requestedFile}: file does not exist.`);
+  if (fileInfo.isSymbolicLink()) throw new SingularityFlowError(`Workspace manifest cannot be a symbolic link: ${requestedFile}`);
+  if (!fileInfo.isFile()) throw new SingularityFlowError(`Workspace manifest must be a regular file: ${requestedFile}`);
+  const file = await realpath(requestedFile);
   let parsed;
   try { parsed = JSON.parse(await readFile(file, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to read ${file}: ${error.message}`); }
   return validateWorkspaceManifest(parsed, { workspaceRoot: path.dirname(file) });
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]));
+}
+
+function workspaceMaterializationPlan(manifest) {
+  return stableValue({
+    id: manifest.id,
+    anchor: {
+      provider: manifest.anchor.provider,
+      siteId: manifest.anchor.siteId,
+      key: manifest.anchor.key
+    },
+    leadRepository: manifest.leadRepository,
+    repositories: Object.fromEntries(Object.entries(manifest.repositories).map(([id, repository]) => [id, {
+      url: repository.url,
+      defaultBranch: repository.defaultBranch,
+      required: repository.required,
+      metadata: repository.metadata,
+      path: repository.path,
+      role: repository.role
+    }])),
+    directories: manifest.directories
+  });
+}
+
+function sameWorkspaceMaterializationPlan(left, right) {
+  return JSON.stringify(workspaceMaterializationPlan(left)) === JSON.stringify(workspaceMaterializationPlan(right));
 }
 
 function validateRepositoryPlan(repositories, leadRepository) {
@@ -227,7 +263,79 @@ function gitValue(root, args) {
 }
 
 async function writeJournal(root, journal, logsDirectory = 'logs') {
-  await atomicJson(path.join(root, logsDirectory, 'workspace-materialization.json'), journal);
+  const file = path.join(root, logsDirectory, 'workspace-materialization.json');
+  await assertInside(root, file);
+  await atomicJson(file, journal);
+}
+
+function materializationOperation(root, repository) {
+  return {
+    action: 'clone',
+    repository: repository.id,
+    url: repository.url,
+    target: path.join(root, repository.path),
+    branch: repository.defaultBranch,
+    required: repository.required
+  };
+}
+
+async function cloneIntoWorkspace(root, operation) {
+  await assertInside(root, operation.target);
+  const existing = await lstat(operation.target).catch(() => null);
+  if (existing) return { status: 1, error: `Clone target became occupied before materialization: ${operation.target}` };
+  const parent = path.dirname(operation.target);
+  await mkdir(parent, { recursive: true });
+  const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
+  const staging = path.join(stagingRoot, 'repository');
+  await assertInside(root, staging);
+  const result = run('git', ['clone', '--branch', operation.branch, '--single-branch', '--', operation.url, staging], {
+    cwd: root,
+    allowFailure: true
+  });
+  if (result.status !== 0) {
+    await rm(stagingRoot, { recursive: true, force: true });
+    return { status: result.status, error: (result.stderr || result.stdout).trim() };
+  }
+  try {
+    await rename(staging, operation.target);
+    await rm(stagingRoot, { recursive: true, force: true });
+    return { status: 0, error: null };
+  } catch (error) {
+    await rm(stagingRoot, { recursive: true, force: true });
+    return { status: 1, error: `Clone completed but could not claim its workspace target: ${error.message}` };
+  }
+}
+
+async function readRepairJournal(workspace, repositories) {
+  const file = path.join(workspace.path, workspace.directories.logs, 'workspace-materialization.json');
+  await assertInside(workspace.path, file);
+  let previous = null;
+  try { previous = JSON.parse(await readFile(file, 'utf8')); } catch {}
+  const previousOperations = new Map(
+    Array.isArray(previous?.operations)
+      ? previous.operations.filter((operation) => operation?.repository).map((operation) => [operation.repository, operation])
+      : []
+  );
+  return {
+    version: 1,
+    workspaceId: workspace.id,
+    anchorKey: workspace.anchor.key,
+    startedAt: previous?.workspaceId === workspace.id && Number.isFinite(Date.parse(previous.startedAt))
+      ? new Date(previous.startedAt).toISOString()
+      : nowIso(),
+    completedAt: null,
+    recoveredAt: previous?.workspaceId === workspace.id ? previous.recoveredAt ?? null : nowIso(),
+    operations: repositories.map((repository) => ({
+      ...materializationOperation(workspace.path, repository),
+      ...(previousOperations.get(repository.id) ?? {}),
+      ...materializationOperation(workspace.path, repository),
+      status: repository.state === 'ready' ? 'complete' : 'pending',
+      error: repository.state === 'ready' ? null : previousOperations.get(repository.id)?.error ?? null,
+      completedAt: repository.state === 'ready'
+        ? previousOperations.get(repository.id)?.completedAt ?? nowIso()
+        : previousOperations.get(repository.id)?.completedAt ?? null
+    }))
+  };
 }
 
 export async function createWorkspace(options, {
@@ -244,7 +352,23 @@ export async function createWorkspace(options, {
   if (existing) {
     const current = await readWorkspace(root);
     if (current.id !== manifest.id) throw new SingularityFlowError(`Workspace target contains unrelated workspace '${current.id}'.`);
-    return { created: false, resumed: true, workspace: current, status: await workspaceStatus(root) };
+    if (!sameWorkspaceMaterializationPlan(current, manifest)) {
+      throw new SingularityFlowError(
+        `Workspace target contains the same Jira anchor but a different repository materialization plan. `
+        + `Open the existing workspace as configured, or choose a different workspace location.`
+      );
+    }
+    if (clone) {
+      const repaired = await repairWorkspace(current.path);
+      return {
+        created: false,
+        resumed: true,
+        workspace: repaired.status.workspace,
+        status: repaired.status,
+        repair: repaired.repaired
+      };
+    }
+    return { created: false, resumed: true, workspace: current, status: await workspaceStatus(current.path), repair: [] };
   }
   await mkdir(path.dirname(root), { recursive: true });
   await mkdir(root, { recursive: false });
@@ -270,22 +394,23 @@ export async function createWorkspace(options, {
   await writeJournal(root, journal, manifest.directories.logs);
   if (clone) {
     for (const operation of journal.operations) {
-      const result = run('git', ['clone', '--branch', operation.branch, '--single-branch', '--', operation.url, operation.target], {
-        cwd: root,
-        allowFailure: true
-      });
+      operation.status = 'running';
+      operation.startedAt = nowIso();
+      await writeJournal(root, journal, manifest.directories.logs);
+      const result = await cloneIntoWorkspace(root, operation);
       operation.status = result.status === 0 ? 'complete' : 'failed';
-      operation.error = result.status === 0 ? null : (result.stderr || result.stdout).trim();
+      operation.error = result.error;
       operation.completedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
       if (result.status !== 0 && operation.required) {
         throw new SingularityFlowError(`Workspace retained for repair after ${operation.repository} clone failed: ${operation.error}`);
       }
     }
+    journal.completedAt = nowIso();
+    await writeJournal(root, journal, manifest.directories.logs);
   }
-  journal.completedAt = nowIso();
-  await writeJournal(root, journal, manifest.directories.logs);
-  return { created: true, resumed: false, workspace: manifest, status: await workspaceStatus(root) };
+  const finalStatus = await workspaceStatus(root);
+  return { created: true, resumed: false, workspace: finalStatus.workspace, status: finalStatus };
 }
 
 async function repositoryStatus(root, repository) {
@@ -305,8 +430,9 @@ async function repositoryStatus(root, repository) {
     };
   }
   const directory = await lstat(absolute).catch(() => null);
+  if (!directory) return { ...repository, absolutePath: absolute, state: 'missing', dirty: null, branch: null, remote: null };
   if (directory?.isSymbolicLink()) return { ...repository, absolutePath: absolute, state: 'invalid-symlink', dirty: null, branch: null, remote: null };
-  if (!directory?.isDirectory()) return { ...repository, absolutePath: absolute, state: 'missing', dirty: null, branch: null, remote: null };
+  if (!directory.isDirectory()) return { ...repository, absolutePath: absolute, state: 'invalid', dirty: null, branch: null, remote: null };
   const git = await stat(path.join(absolute, '.git')).catch(() => null);
   if (!git) return { ...repository, absolutePath: absolute, state: 'invalid', dirty: null, branch: null, remote: null };
   const dirty = Boolean(gitValue(absolute, ['status', '--porcelain=v1', '--untracked-files=all']));
@@ -451,6 +577,14 @@ export async function readWorkspaceRegistry(file) {
   for (const value of values) {
     const entry = normalizeRegistryEntry(value);
     if (!entry) continue;
+    const originalPath = entry.path;
+    entry.path = await realpath(originalPath).catch(() => originalPath);
+    if (entry.leadRepositoryPath && entry.path !== originalPath) {
+      const relativeLead = path.relative(originalPath, entry.leadRepositoryPath);
+      if (relativeLead !== '..' && !relativeLead.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeLead)) {
+        entry.leadRepositoryPath = path.join(entry.path, relativeLead);
+      }
+    }
     const current = unique.get(entry.path);
     if (!current || entry.openedAt > current.openedAt) unique.set(entry.path, entry);
   }
@@ -458,7 +592,9 @@ export async function readWorkspaceRegistry(file) {
 }
 
 export async function rememberWorkspace(file, workspace, status = null) {
-  const normalized = validateWorkspaceManifest(workspace, { workspaceRoot: workspace.path });
+  const resolvedPath = path.resolve(workspace.path);
+  const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
+  const normalized = validateWorkspaceManifest(workspace, { workspaceRoot: canonicalPath });
   const entry = normalizeRegistryEntry({
     id: normalized.id,
     path: normalized.path,
@@ -476,7 +612,8 @@ export async function rememberWorkspace(file, workspace, status = null) {
 }
 
 export async function forgetWorkspace(file, workspacePath) {
-  const target = path.resolve(workspacePath);
+  const resolved = path.resolve(workspacePath);
+  const target = await realpath(resolved).catch(() => resolved);
   const workspaces = (await readWorkspaceRegistry(file)).filter((item) => item.path !== target);
   await atomicJson(file, { schemaVersion: 1, workspaces });
   return workspaces;
@@ -484,19 +621,44 @@ export async function forgetWorkspace(file, workspacePath) {
 
 export async function repairWorkspace(workspacePath) {
   const status = await workspaceStatus(workspacePath);
+  const journal = await readRepairJournal(status.workspace, status.repositories);
   const repaired = [];
-  for (const repository of status.repositories) {
+  for (let index = 0; index < status.repositories.length; index += 1) {
+    const repository = status.repositories[index];
+    const operation = journal.operations[index];
     if (repository.state === 'ready') continue;
-    if (repository.state !== 'missing') throw new SingularityFlowError(`Repository '${repository.id}' requires manual repair because its existing directory is ${repository.state}.`);
-    const result = run('git', ['clone', '--branch', repository.defaultBranch, '--single-branch', '--', repository.url, repository.absolutePath], {
-      cwd: status.workspace.path,
-      allowFailure: true
-    });
+    if (repository.state !== 'missing') {
+      operation.status = 'failed';
+      operation.error = `Existing repository directory is ${repository.state}.`;
+      operation.completedAt = nowIso();
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+      throw new SingularityFlowError(`Repository '${repository.id}' requires manual repair because its existing directory is ${repository.state}.`);
+    }
+    operation.status = 'running';
+    operation.error = null;
+    operation.startedAt = nowIso();
+    operation.completedAt = null;
+    await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+    const result = await cloneIntoWorkspace(status.workspace.path, operation);
     if (result.status !== 0) {
-      if (repository.required) throw new SingularityFlowError(`Required repository '${repository.id}' could not be repaired: ${(result.stderr || result.stdout).trim()}`);
-      repaired.push({ repository: repository.id, status: 'failed', error: (result.stderr || result.stdout).trim() });
-    } else repaired.push({ repository: repository.id, status: 'cloned' });
+      operation.status = 'failed';
+      operation.error = result.error;
+      operation.completedAt = nowIso();
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+      if (repository.required) throw new SingularityFlowError(`Required repository '${repository.id}' could not be repaired: ${result.error}`);
+      repaired.push({ repository: repository.id, status: 'failed', error: result.error });
+    } else {
+      operation.status = 'complete';
+      operation.error = null;
+      operation.completedAt = nowIso();
+      repaired.push({ repository: repository.id, status: 'cloned' });
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+    }
   }
+  journal.completedAt = journal.operations.every((operation) => operation.status === 'complete' || !operation.required)
+    ? nowIso()
+    : null;
+  await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
   return { repaired, status: await workspaceStatus(workspacePath) };
 }
 

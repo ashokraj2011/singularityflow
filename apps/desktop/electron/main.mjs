@@ -538,6 +538,10 @@ function registerHandlers() {
     assertTrustedSender(event);
     return copilotBackend.start(assertRepository(repository), { model: model?.trim() || null });
   });
+  trustedHandle('copilot-service:model', (event, { repository, model }) => {
+    assertTrustedSender(event);
+    return copilotBackend.setModel(assertRepository(repository), model?.trim() || null);
+  });
   trustedHandle('copilot-service:stop', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.stop(assertRepository(repository));

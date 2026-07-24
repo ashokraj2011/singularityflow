@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import {
   CopilotPlanningBridge,
   copilotPlanningPreflight,
+  modelConfiguration,
   normalizePlanningUpdate
 } from '../apps/desktop/electron/copilot-acp.mjs';
 import {
@@ -265,6 +266,39 @@ test('Copilot preflight detects ACP and native Plan mode without launching a ses
   assert.equal(result.ready, true);
   assert.equal(result.version, '1.0.73');
   assert.equal(calls.length, 2);
+});
+
+test('ACP model configuration exposes the selected model and grouped choices', () => {
+  const configured = modelConfiguration([
+    {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: 'claude-sonnet',
+      options: [
+        { value: 'auto', name: 'Automatic' },
+        {
+          group: 'recommended',
+          name: 'Recommended',
+          options: [
+            { value: 'claude-sonnet', name: 'Claude Sonnet' },
+            { value: 'gpt-5', name: 'GPT-5' }
+          ]
+        }
+      ]
+    }
+  ]);
+  assert.equal(configured.current, 'claude-sonnet');
+  assert.equal(configured.configId, 'model');
+  assert.equal(configured.switchSupported, true);
+  assert.deepEqual(configured.available.map((entry) => entry.value), ['auto', 'claude-sonnet', 'gpt-5']);
+  assert.deepEqual(modelConfiguration([], 'requested-model'), {
+    configId: null,
+    current: 'requested-model',
+    available: [],
+    switchSupported: false
+  });
 });
 
 test('ACP form elicitation pauses for an inline answer and cancels unsupported modes', async () => {

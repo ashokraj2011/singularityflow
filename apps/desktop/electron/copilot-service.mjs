@@ -7,6 +7,66 @@ function publicEvent(event) {
   return safe;
 }
 
+const TOKEN_FIELDS = ['totalTokens', 'inputTokens', 'outputTokens', 'thoughtTokens', 'cachedReadTokens', 'cachedWriteTokens'];
+
+function tokenValue(value) {
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function reportedModel(event) {
+  return event?.model
+    ?? event?.meta?.model
+    ?? event?.meta?.responseModel
+    ?? event?.meta?.['gen_ai.response.model']
+    ?? event?.usage?._meta?.model
+    ?? null;
+}
+
+function usageModel(event, service) {
+  return reportedModel(event)
+    ?? service.model
+    ?? service.requestedModel
+    ?? 'Copilot auto';
+}
+
+function emptyUsage() {
+  return {
+    turns: 0,
+    exactTurns: 0,
+    unavailableTurns: 0,
+    totals: Object.fromEntries(TOKEN_FIELDS.map((field) => [field, 0])),
+    seen: Object.fromEntries(TOKEN_FIELDS.map((field) => [field, false])),
+    lastCumulative: null,
+    byModel: new Map()
+  };
+}
+
+function serializedUsage(usage) {
+  const values = Object.fromEntries(TOKEN_FIELDS.map((field) => [
+    field,
+    usage.seen[field] ? usage.totals[field] : null
+  ]));
+  return {
+    status: usage.exactTurns
+      ? usage.unavailableTurns ? 'partial' : 'exact'
+      : 'unavailable',
+    turns: usage.turns,
+    exactTurns: usage.exactTurns,
+    unavailableTurns: usage.unavailableTurns,
+    ...values,
+    byModel: [...usage.byModel.values()]
+      .map((entry) => ({
+        model: entry.model,
+        turns: entry.turns,
+        ...Object.fromEntries(TOKEN_FIELDS.map((field) => [
+          field,
+          entry.seen[field] ? entry.totals[field] : null
+        ]))
+      }))
+      .sort((left, right) => (right.totalTokens ?? 0) - (left.totalTokens ?? 0) || left.model.localeCompare(right.model))
+  };
+}
+
 export class CopilotBackendController {
   constructor({
     bridgeFactory,
@@ -39,8 +99,18 @@ export class CopilotBackendController {
       service.version = event.version ?? service.version;
       service.mode = event.modes?.currentModeId ?? 'plan';
       service.sessionId = event.sessionId ?? service.sessionId;
+      service.connectedAt ??= normalized.at;
+      service.model = event.model ?? service.model ?? service.requestedModel;
+      service.availableModels = event.models ?? service.availableModels;
+      service.modelSwitchSupported = event.modelSwitchSupported ?? service.modelSwitchSupported;
+    }
+    if (['model-changed', 'config_option_update'].includes(event.type)) {
+      service.model = event.model ?? service.model;
+      service.availableModels = event.models ?? service.availableModels;
+      service.modelSwitchSupported = event.modelSwitchSupported ?? service.modelSwitchSupported;
     }
     if (event.type === 'turn-started' && !service.stopRequested) service.state = 'busy';
+    if (event.type === 'turn-complete') this.#recordUsage(service, event);
     if (event.type === 'turn-complete' || event.type === 'error') service.state = 'ready';
     if (event.type === 'process-exit') {
       service.state = 'stopped';
@@ -53,19 +123,70 @@ export class CopilotBackendController {
     }
   }
 
+  #recordUsage(service, event) {
+    const usage = service.usage;
+    usage.turns += 1;
+    const snapshot = Object.fromEntries(TOKEN_FIELDS.map((field) => [field, tokenValue(event.usage?.[field])]));
+    if (!TOKEN_FIELDS.some((field) => snapshot[field] !== null)) {
+      usage.unavailableTurns += 1;
+      return;
+    }
+    usage.exactTurns += 1;
+    const previous = usage.lastCumulative;
+    const reset = previous && snapshot.totalTokens !== null && previous.totalTokens !== null
+      && snapshot.totalTokens < previous.totalTokens;
+    const delta = {};
+    for (const field of TOKEN_FIELDS) {
+      if (snapshot[field] === null) {
+        delta[field] = null;
+        continue;
+      }
+      const prior = reset ? null : previous?.[field];
+      delta[field] = prior === null || prior === undefined
+        ? snapshot[field]
+        : Math.max(0, snapshot[field] - prior);
+      usage.totals[field] += delta[field];
+      usage.seen[field] = true;
+    }
+    usage.lastCumulative = snapshot;
+    const resolvedModel = reportedModel(event);
+    if (resolvedModel) service.model = resolvedModel;
+    const model = usageModel(event, service);
+    const aggregate = usage.byModel.get(model) ?? {
+      model,
+      turns: 0,
+      totals: Object.fromEntries(TOKEN_FIELDS.map((field) => [field, 0])),
+      seen: Object.fromEntries(TOKEN_FIELDS.map((field) => [field, false]))
+    };
+    aggregate.turns += 1;
+    for (const field of TOKEN_FIELDS) {
+      if (delta[field] === null) continue;
+      aggregate.totals[field] += delta[field];
+      aggregate.seen[field] = true;
+    }
+    usage.byModel.set(model, aggregate);
+  }
+
   #statusValue(service) {
     if (!service) return {
-      state: 'stopped', running: false, startedAt: null, stoppedAt: null,
+      state: 'stopped', running: false, startedAt: null, connectedAt: null, stoppedAt: null,
       version: null, mode: null, processId: null, activePlanningSessionId: null,
-      lastEvent: null, canStop: false
+      model: null, requestedModel: null, availableModels: [], modelSwitchSupported: false,
+      usage: serializedUsage(emptyUsage()), lastEvent: null, canStop: false
     };
     return {
       state: service.state,
       running: ['starting', 'ready', 'busy', 'stopping'].includes(service.state),
       startedAt: service.startedAt,
+      connectedAt: service.connectedAt ?? null,
       stoppedAt: service.stoppedAt ?? null,
       version: service.version ?? null,
       mode: service.mode ?? null,
+      model: service.model ?? service.requestedModel ?? null,
+      requestedModel: service.requestedModel ?? null,
+      availableModels: service.availableModels ?? [],
+      modelSwitchSupported: Boolean(service.modelSwitchSupported),
+      usage: serializedUsage(service.usage ?? emptyUsage()),
       processId: service.bridge?.process?.pid ?? null,
       activePlanningSessionId: service.activePlanningSessionId ?? null,
       lastEvent: service.lastEvent ?? null,
@@ -87,7 +208,10 @@ export class CopilotBackendController {
     const key = this.#key(repository);
     const current = this.services.get(key);
     if (current?.startPromise) return current.startPromise;
-    if (current && ['ready', 'busy'].includes(current.state)) return this.status(key);
+    if (current && ['ready', 'busy'].includes(current.state)) {
+      if (model && model !== current.model) return this.setModel(key, model);
+      return this.status(key);
+    }
     if (current?.state === 'stopping') throw new Error('Copilot backend is still stopping. Wait for it to finish before starting again.');
     if (current?.state === 'error' && current.bridge) {
       throw new Error('The previous Copilot backend did not stop cleanly. Retry Stop or restart Singularity Desktop before starting another backend.');
@@ -98,9 +222,15 @@ export class CopilotBackendController {
       repository: key,
       state: 'starting',
       startedAt: this.now(),
+      connectedAt: null,
       stoppedAt: null,
       version: check.version,
       mode: 'plan',
+      requestedModel: model,
+      model: model,
+      availableModels: [],
+      modelSwitchSupported: false,
+      usage: emptyUsage(),
       sessionId: null,
       activePlanningSessionId: null,
       lastEvent: null,
@@ -124,6 +254,10 @@ export class CopilotBackendController {
         service.version = result.version ?? service.version;
         service.mode = result.mode ?? 'plan';
         service.sessionId = result.sessionId ?? service.sessionId;
+        service.connectedAt ??= this.now();
+        service.model = result.model ?? service.model;
+        service.availableModels = result.models ?? service.availableModels;
+        service.modelSwitchSupported = result.modelSwitchSupported ?? service.modelSwitchSupported;
         return this.status(key);
       } catch (error) {
         if (service.stopRequested) return this.status(key);
@@ -143,6 +277,23 @@ export class CopilotBackendController {
     } finally {
       service.startPromise = null;
     }
+  }
+
+  async setModel(repository, model) {
+    const key = this.#key(repository);
+    const service = this.services.get(key);
+    if (!service?.bridge || !['ready', 'busy'].includes(service.state)) {
+      throw new Error('Start the Copilot backend before changing its active model.');
+    }
+    if (service.state === 'busy' || service.activePlanningSessionId) {
+      throw new Error('Finish or release the active planning turn before changing the Copilot model.');
+    }
+    const result = await service.bridge.setModel(model);
+    service.model = result.model ?? model;
+    service.requestedModel = model;
+    service.availableModels = result.models ?? service.availableModels;
+    service.modelSwitchSupported = result.modelSwitchSupported ?? service.modelSwitchSupported;
+    return this.status(key);
   }
 
   async beginPlanning(repository, planningSessionId, { prompt, model = null } = {}) {

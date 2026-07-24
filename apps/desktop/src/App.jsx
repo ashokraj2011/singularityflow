@@ -367,7 +367,8 @@ function CopilotServiceControl({ repository, notify }) {
   const [logs, setLogs] = useState([]);
   const [model, setModel] = useState('');
   const [open, setOpen] = useState(false);
-  const [working, setWorking] = useState(false);
+  const [operation, setOperation] = useState(null);
+  const [clock, setClock] = useState(Date.now());
   const controlRef = useRef(null);
 
   useEffect(() => {
@@ -379,6 +380,7 @@ function CopilotServiceControl({ repository, notify }) {
       if (!active) return;
       setStatus(nextStatus);
       setLogs(nextLogs);
+      setModel(nextStatus.model ?? '');
     }).catch((error) => {
       if (active) setStatus({ state: 'error', running: false, preflight: { ready: false, message: error.message } });
     });
@@ -386,6 +388,9 @@ function CopilotServiceControl({ repository, notify }) {
       if (!active || event.repository !== repository) return;
       setStatus((current) => ({ ...current, ...event.service }));
       setLogs((current) => [...current.slice(-299), event]);
+      if (['ready', 'model-changed', 'config_option_update'].includes(event.type)) {
+        setModel(event.service?.model ?? '');
+      }
     });
     return () => { active = false; unsubscribe?.(); };
   }, [repository]);
@@ -399,21 +404,43 @@ function CopilotServiceControl({ repository, notify }) {
     return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeEscape); };
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !status.running) return undefined;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [open, status.running]);
+
   async function start() {
-    setWorking(true);
+    setOperation('start');
     try {
       const result = await window.singularity.startCopilotService(repository, model);
       setStatus(result);
+      setModel(result.model ?? model);
       notify({ tone: 'good', text: 'Copilot backend is ready in native Plan mode.' });
     } catch (error) {
       notify({ tone: 'bad', text: error?.message || String(error) });
     } finally {
-      setWorking(false);
+      setOperation(null);
+    }
+  }
+
+  async function applyModel() {
+    setOperation('model');
+    try {
+      const result = await window.singularity.setCopilotServiceModel(repository, model);
+      setStatus(result);
+      setModel(result.model ?? model);
+      notify({ tone: 'good', text: `Copilot model changed to ${result.model}.` });
+    } catch (error) {
+      notify({ tone: 'bad', text: error?.message || String(error) });
+    } finally {
+      setOperation(null);
     }
   }
 
   async function stop() {
-    setWorking(true);
+    setOperation('stop');
     try {
       const result = await window.singularity.stopCopilotService(repository);
       setStatus(result);
@@ -421,24 +448,57 @@ function CopilotServiceControl({ repository, notify }) {
     } catch (error) {
       notify({ tone: 'bad', text: error?.message || String(error) });
     } finally {
-      setWorking(false);
+      setOperation(null);
     }
   }
 
   const tone = status.state === 'error' || status.preflight?.ready === false ? 'bad' : status.state === 'busy' ? 'busy' : status.running ? 'ready' : 'stopped';
   const canStop = status.running || status.canStop;
+  const connectedAt = Date.parse(status.connectedAt ?? status.startedAt);
+  const connectedFor = status.running && Number.isFinite(connectedAt) ? Math.max(0, clock - connectedAt) : null;
+  const availableModels = status.availableModels ?? [];
+  const selectedModelKnown = !model || availableModels.some((candidate) => candidate.value === model);
+  const modelChanged = Boolean(model && model !== status.model);
+  const usage = status.usage ?? { status: 'unavailable', byModel: [] };
+  const working = Boolean(operation);
+  const usageTone = usage.status === 'exact' ? 'good' : usage.status === 'partial' ? 'warn' : 'neutral';
+  const modelLabel = status.model
+    ? availableModels.find((candidate) => candidate.value === status.model)?.label ?? status.model
+    : 'Copilot auto';
   return <div className="copilot-service-control" ref={controlRef}>
     <button className={`copilot-service-trigger ${tone}`} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((current) => !current)} title="Manage the local Copilot ACP backend"><span className="copilot-service-orb">✦</span><span><strong>Copilot</strong><small>{status.state === 'loading' ? 'checking' : status.state}</small></span><i /></button>
     {open && <section className="copilot-service-popover" role="dialog" aria-label="Copilot backend service">
       <header><div><span className="eyebrow">Local ACP process</span><h2>Copilot backend</h2></div><Pill tone={status.running ? 'good' : status.state === 'error' ? 'bad' : 'neutral'}>{status.state}</Pill></header>
       <p>Start Copilot once, then reuse that native Plan-mode process across governed planning turns. Stopping it cancels any active turn; it never changes Git state by itself.</p>
-      <div className="copilot-service-facts"><div><span>Mode</span><strong>{status.mode ?? 'plan'}</strong></div><div><span>Version</span><strong>{status.version ?? status.preflight?.version ?? '—'}</strong></div><div><span>Process</span><strong>{status.processId ?? '—'}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
-      {!status.running && <label><span>Model <em>optional</em></span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Copilot auto selection" /></label>}
+      <div className="copilot-service-facts"><div><span>Model</span><strong title={modelLabel}>{modelLabel}</strong></div><div><span>Connected</span><strong>{connectedFor === null ? '—' : formatDuration(connectedFor)}</strong></div><div><span>Total tokens</span><strong>{formatServiceTokens(usage.totalTokens)}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
+      <div className="copilot-service-meta"><span>Plan mode</span><span>PID {status.processId ?? '—'}</span><span>{status.version ?? status.preflight?.version ?? 'Version unavailable'}</span></div>
+      <label className="copilot-model-control"><span>{status.running ? 'Active model' : 'Model for next connection'}</span>{availableModels.length
+        ? <select value={selectedModelKnown ? model : ''} disabled={working || (status.running && !status.modelSwitchSupported)} onChange={(event) => setModel(event.target.value)}>
+          {!selectedModelKnown && <option value="">{model}</option>}
+          {!status.running && <option value="">Copilot auto selection</option>}
+          {availableModels.map((candidate) => <option key={candidate.value} value={candidate.value}>{candidate.label}</option>)}
+        </select>
+        : <input value={model} disabled={working || status.running} onChange={(event) => setModel(event.target.value)} placeholder="Copilot auto selection" />}
+        <small>{status.running
+          ? status.modelSwitchSupported ? 'Switches this idle ACP session without restarting it.' : 'This Copilot version requires a stop and restart to change models.'
+          : 'Leave blank to let Copilot choose. The resolved model appears after connection.'}</small>
+      </label>
+      <section className="copilot-usage">
+        <header><div><span className="eyebrow">This connection</span><strong>Token usage by model</strong></div><Pill tone={usageTone}>{usage.status}</Pill></header>
+        {usage.byModel?.length
+          ? <div className="copilot-usage-table"><div className="head"><span>Model</span><span>Input</span><span>Output</span><span>Cache</span><span>Total</span></div>{usage.byModel.map((entry) => <div key={entry.model}><strong title={entry.model}>{entry.model}</strong><span>{formatServiceTokens(entry.inputTokens)}</span><span>{formatServiceTokens(entry.outputTokens)}</span><span>{formatServiceTokens(entry.cachedReadTokens)}</span><span>{formatServiceTokens(entry.totalTokens)}</span></div>)}</div>
+          : <div className="copilot-usage-empty"><strong>Waiting for exact usage</strong><span>Totals appear after a Copilot turn when ACP returns token counts. Singularity never estimates missing values.</span></div>}
+        <footer><span>{usage.exactTurns ?? 0} exact turn{usage.exactTurns === 1 ? '' : 's'}</span>{usage.unavailableTurns > 0 && <span>{usage.unavailableTurns} unavailable</span>}</footer>
+      </section>
       {status.preflight?.ready === false && <div className="copilot-service-warning">{status.preflight.message}</div>}
-      <div className="copilot-service-actions">{canStop ? <button className="danger-button" disabled={working} onClick={stop}>{working ? 'Stopping…' : status.state === 'error' ? 'Retry stop' : 'Stop backend'}</button> : <button className="primary" disabled={working || status.preflight?.ready === false} onClick={start}>{working ? 'Starting…' : 'Start backend'}</button>}<button className="ghost" onClick={() => setOpen(false)}>Close</button></div>
+      <div className="copilot-service-actions">{status.running && status.modelSwitchSupported && modelChanged && <button className="primary" disabled={working || status.state === 'busy' || Boolean(status.activePlanningSessionId)} onClick={applyModel}>{operation === 'model' ? 'Applying…' : 'Apply model'}</button>}{operation === 'start' || status.state === 'starting' ? <button className="primary" disabled>Starting…</button> : canStop ? <button className="danger-button" disabled={working} onClick={stop}>{operation === 'stop' ? 'Stopping…' : status.state === 'error' ? 'Retry stop' : 'Stop backend'}</button> : <button className="primary" disabled={working || status.preflight?.ready === false} onClick={start}>Start backend</button>}<button className="ghost" onClick={() => setOpen(false)}>Close</button></div>
       <details className="copilot-service-log"><summary>Service log <span>{logs.length}</span></summary><div>{logs.length ? logs.slice(-80).map((entry, index) => <p key={`${entry.at}:${entry.type}:${index}`}><time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><span>{entry.message ?? entry.detail ?? entry.state ?? ''}</span></p>) : <p className="empty-log">No backend events yet.</p>}</div></details>
     </section>}
   </div>;
+}
+
+function formatServiceTokens(value) {
+  return Number.isFinite(value) && value >= 0 ? value.toLocaleString('en-US') : 'Unavailable';
 }
 
 function ProgressRing({ value = 0 }) {

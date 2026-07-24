@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('singularity', {
   planningPreflight: (repository) => ipcRenderer.invoke('planning:preflight', { repository }),
   copilotServiceStatus: (repository) => ipcRenderer.invoke('copilot-service:status', { repository }),
   startCopilotService: (repository, model = null) => ipcRenderer.invoke('copilot-service:start', { repository, model }),
+  setCopilotServiceModel: (repository, model) => ipcRenderer.invoke('copilot-service:model', { repository, model }),
   stopCopilotService: (repository) => ipcRenderer.invoke('copilot-service:stop', { repository }),
   copilotServiceLogs: (repository) => ipcRenderer.invoke('copilot-service:logs', { repository }),
   buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),

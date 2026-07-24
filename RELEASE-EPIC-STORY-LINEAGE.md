@@ -9,6 +9,8 @@ initiative engines without changing existing work items.
   requirements, Story-plan, Jira-plan, and materialization templates.
 - Secure source adapter contract for Jira attachments, Artifactory,
   SharePoint, S3/AWS SSO, and public HTTPS references.
+- SharePoint delegated OAuth 2.0 PKCE sign-in through the system browser, with
+  OS-encrypted access/refresh tokens and automatic renewal in Electron main.
 - Hash-pinned local source cache and source-aware governed Copilot prompts.
 - `REQ-nnn`/`AC-nnn` source traceability and Story allocation validation.
 - Story plan schema version 2 with immutable temporary plan IDs, Jira numeric
@@ -34,8 +36,9 @@ initiative engines without changing existing work items.
 ## Security and trust
 
 - Source and Jira credentials never enter Git or Copilot prompt records.
-- Electron stores Artifactory/SharePoint tokens through OS-backed
-  `safeStorage`; S3 uses the AWS default credential chain.
+- Electron stores Artifactory tokens and SharePoint OAuth access/refresh
+  tokens through OS-backed `safeStorage`; S3 uses the AWS default credential
+  chain.
 - Git identity remains `configured-local`; Jira and GitHub identities are
   displayed independently.
 - No lifecycle operation force-pushes or automatically overwrites Jira from Git

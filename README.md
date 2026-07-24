@@ -130,7 +130,9 @@ branches, use the four-phase `epic-planning` profile:
 The same lifecycle is available as `singularity-flow epic ...`. Pinned source
 files stay in Jira attachments, Artifactory, SharePoint, S3, or an approved
 HTTPS location; Git carries immutable source records and lineage rather than
-large source bytes. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
+large source bytes. Desktop SharePoint sign-in uses a system-browser delegated
+OAuth 2.0 PKCE flow and OS-encrypted refresh tokens—no client secret or token
+paste is required. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
 2 then traces these to `STORY-nnn → returned Jira key/numeric ID → canonical
 branch → optional Developer child branch → review packet → GitHub Actions/PR
 evidence → conformance → exact-hash decision`.

@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld('singularity', {
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
   epicSources: (repository, initiativeId) => ipcRenderer.invoke('epic:sources', { repository, initiativeId }),
   saveEpicStorageCredential: (repository, providerId, token) => ipcRenderer.invoke('epic:storage-credential', { repository, providerId, token }),
+  connectEpicSharePoint: (repository, initiativeId, providerId) => ipcRenderer.invoke('epic:sharepoint-connect', {
+    repository, initiativeId, providerId
+  }),
   disconnectEpicStorage: (repository, providerId) => ipcRenderer.invoke('epic:storage-disconnect', { repository, providerId }),
   uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-upload', {
     repository, initiativeId, providerId, mimeType

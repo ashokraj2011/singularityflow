@@ -15,6 +15,7 @@ import {
 } from './desktop-scope.mjs';
 import { JiraCredentialStore } from './jira-credentials.mjs';
 import { StorageCredentialStore } from './storage-credentials.mjs';
+import { authorizeSharePoint, sharePointAccessToken } from './sharepoint-oauth.mjs';
 import {
   ONBOARDING_ROLES,
   prepareOnboardingProfile,
@@ -552,6 +553,19 @@ function registerHandlers() {
     assertRepository(repository);
     return storageCredentialStore().disconnect(providerId);
   });
+  trustedHandle('epic:sharepoint-connect', async (event, { repository, initiativeId, providerId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { loadInitiative } = await importCliModule('initiative-state.mjs');
+    const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+    const storage = initiative.resolution.storage ?? portfolio.storage;
+    const provider = storage.providers?.[providerId];
+    if (provider?.type !== 'sharepoint') throw new Error(`Storage provider '${providerId ?? ''}' is not a configured SharePoint provider.`);
+    const credential = await authorizeSharePoint(provider, {
+      openExternal: (url) => shell.openExternal(url)
+    });
+    return storageCredentialStore().saveOAuth(providerId, credential);
+  });
   async function epicSourceRuntime(root, initiativeId, providerId = null) {
     const { loadInitiative } = await importCliModule('initiative-state.mjs');
     const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -560,16 +574,23 @@ function registerHandlers() {
     const provider = storage.providers?.[selectedId];
     if (!provider) throw new Error(`Unknown Epic source provider '${selectedId ?? ''}'.`);
     const runtime = { tokens: {} };
+    const credentialErrors = {};
     for (const [id, configured] of Object.entries(storage.providers ?? {})) {
       if (!['artifactory', 'sharepoint'].includes(configured.type)) continue;
-      try { runtime.tokens[id] = (await storageCredentialStore().load(id)).token; } catch { /* Reported only if that provider is used. */ }
+      try {
+        runtime.tokens[id] = configured.type === 'sharepoint'
+          ? await sharePointAccessToken(id, configured, storageCredentialStore())
+          : (await storageCredentialStore().load(id)).token;
+      } catch (error) {
+        credentialErrors[id] = error;
+      }
     }
     if (Object.values(storage.providers ?? {}).some((entry) => entry.type === 'jira-attachment')) {
       const governed = await governedInitiativeJiraConnection(root, initiativeId, { issueKey: initiativeId });
       runtime.jiraConnection = governed.connection;
     }
     if (['artifactory', 'sharepoint'].includes(provider.type) && !runtime.tokens[selectedId]) {
-      throw new Error(`No secure credential is configured for storage provider '${selectedId}'.`);
+      throw new Error(credentialErrors[selectedId]?.message ?? `No secure credential is configured for storage provider '${selectedId}'.`);
     }
     return { selectedId, runtime };
   }

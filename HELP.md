@@ -182,8 +182,11 @@ Source bytes are uploaded through a configured Jira attachment, Artifactory,
 SharePoint, S3, or HTTPS-reference adapter. Git stores only immutable provider
 identity/version, URL, SHA-256, byte count, MIME type, uploader identity, and
 timestamp. Downloads are kept under `.git/singularity-flow/epic-sources/`,
-verified before prompt composition, and never committed. Artifactory and
-SharePoint tokens saved in Desktop are encrypted with Electron `safeStorage`;
+verified before prompt composition, and never committed. Artifactory tokens
+saved in Desktop are encrypted with Electron `safeStorage`. SharePoint uses a
+system-browser Microsoft delegated OAuth 2.0 PKCE flow with the tenant and
+public-client ID configured in `portfolio.yml`; access and refresh tokens are
+OS-encrypted, refreshed in the main process, and never exposed to the renderer.
 Jira uses the existing secure Jira connection and S3 uses the AWS default
 credential chain, including corporate SSO profiles.
 

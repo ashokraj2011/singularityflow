@@ -78,6 +78,11 @@ function normalizeStorage(value = {}) {
     }
     if (type === 'sharepoint') {
       for (const field of ['tenantId', 'clientId', 'siteId', 'driveId']) if (!raw[field]) throw new SingularityFlowError(`SharePoint provider '${id}' requires ${field}.`);
+      provider.scopes = [...(raw.scopes ?? ['offline_access', 'User.Read', 'Files.ReadWrite.All'])].map(String);
+      unique(provider.scopes, `SharePoint provider '${id}' scopes`);
+      if (!provider.scopes.length || provider.scopes.some((scope) => !scope.trim() || /\s/.test(scope))) {
+        throw new SingularityFlowError(`SharePoint provider '${id}' scopes must be non-empty values without whitespace.`);
+      }
     }
     if (type === 's3') {
       if (!raw.bucket) throw new SingularityFlowError(`S3 provider '${id}' requires bucket.`);

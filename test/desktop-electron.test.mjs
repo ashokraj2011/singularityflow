@@ -322,6 +322,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /sidebar-edge-toggle/);
   assert.match(source, /aria-controls="primary-navigation"/);
   assert.match(source, /function BusinessNavigation/);
+  assert.match(source, /function WorkspaceSelector/);
+  assert.match(source, /aria-label="Select current workspace"/);
+  assert.match(source, /Repository only — choose a workspace/);
+  assert.match(source, /Open or create workspace…/);
   assert.match(source, /className="business-navigation"/);
   assert.match(source, /aria-label="Epic planning navigation"/);
   assert.match(source, /experienceMode === 'business' \? 'business-shell'/);
@@ -398,6 +402,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.shell\.sidebar-collapsed \{ grid-template-columns: 72px/);
   assert.match(styles, /\.shell\.business-shell \{ grid-template-columns: minmax\(0,1fr\)/);
   assert.match(styles, /\.business-navigation/);
+  assert.match(styles, /\.workspace-quick-selector/);
+  assert.match(styles, /\.workspace-quick-control/);
   assert.match(styles, /\.business-project-switcher/);
   assert.match(styles, /\.business-shell \.topbar-title \{ display: none/);
   assert.match(styles, /Operational enterprise workspace/);

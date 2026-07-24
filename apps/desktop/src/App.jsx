@@ -207,6 +207,35 @@ function RecentWorkspaces({ items, currentPath = null, busy, onOpen, onForget, c
   return <section className={`recent-workspaces recent-repositories ${compact ? 'compact' : ''}`}><header><div><span className="eyebrow">Isolated project contexts</span><h3>Recent workspaces</h3></div><span>{items.length} saved</span></header><div className="recent-repository-list">{items.map((workspace) => <div className={`recent-repository ${workspace.available ? '' : 'unavailable'} ${workspace.path === currentPath ? 'current' : ''}`} key={workspace.path}><button className="recent-repository-open" disabled={busy || !workspace.available} onClick={() => onOpen(workspace.path)}><span className="recent-repository-icon workspace-icon">W</span><span className="recent-repository-copy"><strong>{workspace.name}</strong><small title={workspace.path}>{workspace.path}</small><em>{workspace.available ? `${workspace.anchorType ?? 'Jira'} ${workspace.anchorKey ?? ''} · ${formatRecentTime(workspace.openedAt)}` : 'Workspace manifest is no longer available'}</em></span>{workspace.path === currentPath && <Pill tone="good">Open</Pill>}<span className="recent-repository-arrow">→</span></button><button className="recent-repository-forget" aria-label={`Forget ${workspace.name}`} title="Forget this local workspace; files are not deleted" onClick={(event) => onForget(event, workspace.path)}>×</button></div>)}</div></section>;
 }
 
+function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
+  const currentPath = currentWorkspace?.path ?? '';
+  const currentIsSaved = items.some((workspace) => workspace.path === currentPath);
+  const choices = currentWorkspace && !currentIsSaved
+    ? [{ path: currentPath, name: currentWorkspace.name, anchorKey: currentWorkspace.anchor?.key, available: true }, ...items]
+    : items;
+  function selectWorkspace(event) {
+    const value = event.target.value;
+    if (value === '__browse__') onOpen();
+    else if (value && value !== currentPath) onOpen(value);
+  }
+  return <section className="workspace-quick-selector" aria-label="Workspace selection">
+    <header><div><span className="eyebrow">Project context</span><h3>Current workspace</h3></div><span>{items.length} saved</span></header>
+    <div className="workspace-quick-control">
+      <span className="workspace-quick-icon">W</span>
+      <label>
+        <span>{currentWorkspace ? 'Active workspace' : 'No workspace selected'}</span>
+        <select aria-label="Select current workspace" value={currentPath} onChange={selectWorkspace} disabled={busy}>
+          {!currentWorkspace && <option value="">Repository only — choose a workspace</option>}
+          {choices.map((workspace) => <option value={workspace.path} disabled={!workspace.available} key={workspace.path}>{workspace.name}{workspace.anchorKey ? ` · ${workspace.anchorKey}` : ''}{workspace.available ? '' : ' · unavailable'}</option>)}
+          <option value="__browse__">＋ Open or create workspace…</option>
+        </select>
+      </label>
+      <button type="button" className="workspace-quick-browse" aria-label="Open or create workspace" title="Open or create workspace" onClick={() => onOpen()} disabled={busy}>＋</button>
+    </div>
+    <p>{currentWorkspace ? <><strong>{currentWorkspace.name}</strong><span title={currentPath}>{currentPath}</span></> : <>This repository is open directly. Choose a workspace to switch the complete multi-repository project context.</>}</p>
+  </section>;
+}
+
 function BusinessNavigation({
   page,
   data,
@@ -244,10 +273,9 @@ function BusinessNavigation({
           <span><strong>{workspaceName}</strong><small>{repoName}</small></span>
           <i>⌄</i>
         </button>
-        {repositoryMenu && <div className="repository-menu" role="menu">
-          <RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact />
+        {repositoryMenu && <div className="repository-menu" role="dialog" aria-label="Switch workspace or repository">
+          <WorkspaceSelector items={recentWorkspaces} currentWorkspace={data.workspace?.workspace} busy={busy} onOpen={openWorkspace} />
           <RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact />
-          <button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button>
           <button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button>
         </div>}
       </div>

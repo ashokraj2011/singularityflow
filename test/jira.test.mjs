@@ -76,17 +76,20 @@ test('getIssue and listMyIssues use direct Jira REST endpoints', async () => {
     if (url.includes('/search/jql')) {
       return response({ issues: [{ key: 'ENG-7', fields: { summary: 'Build feature', status: { name: 'To Do' } } }], isLast: true });
     }
-    return response({ key: 'ENG-7', fields: { summary: 'Build feature', status: { name: 'To Do' } } });
+    return response({ id: url.includes('/issue/10042') ? '10042' : '10001', key: 'ENG-7', fields: { summary: 'Build feature', status: { name: 'To Do' } } });
   };
   const issue = await getIssue('ENG-7', { env, fetchImpl });
+  const issueById = await getIssue('10042', { env, fetchImpl });
   const list = await listMyIssues({ env, fetchImpl, project: 'ENG' });
   assert.equal(issue.key, 'ENG-7');
+  assert.equal(issueById.key, 'ENG-7');
   assert.equal(list.issues.length, 1);
   assert.match(calls[0].url, /\/rest\/api\/3\/issue\/ENG-7/);
   assert.match(calls[0].url, /expand=names/);
-  assert.match(calls[1].url, /\/rest\/api\/3\/search\/jql/);
-  assert.equal(calls[1].options.method, 'POST');
-  assert.match(calls[1].options.body, /currentUser/);
+  assert.match(calls[1].url, /\/rest\/api\/3\/issue\/10042/);
+  assert.match(calls[2].url, /\/rest\/api\/3\/search\/jql/);
+  assert.equal(calls[2].options.method, 'POST');
+  assert.match(calls[2].options.body, /currentUser/);
   assert.ok(calls.every((call) => call.options.headers.Authorization.startsWith('Basic ')));
 });
 

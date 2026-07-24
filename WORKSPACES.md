@@ -22,6 +22,26 @@ Jira authentication is not required to configure a workspace. Credentials
 remain an OS-protected integration concern when the Epic flow actually reads or
 writes Jira. They never enter `workspace.json`.
 
+## Manage an existing workspace
+
+Open **Engineer tools → Workspace configuration** for the active workspace:
+
+- **Jira connection** opens the workspace-scoped sign-in screen. The repository
+  project keys are reused automatically; only the Jira HTTPS URL, account, and
+  token are requested. Tokens remain in the operating-system keychain.
+- **Edit workspace** changes the display name, lead designation, Jira project
+  routing, App IDs, display names, metadata, and can add repositories. Existing
+  materialized repository IDs, clone URLs, branches, and paths stay immutable
+  so an edit cannot silently redirect a clone.
+- **Archive** requires the exact workspace ID. It hides the workspace from
+  normal selection without deleting its folder, repositories, documents, or Git
+  history. Archived workspaces remain visible in the recoverable list and can be
+  restored.
+
+Epic intake accepts a Jira key such as `KAN-8`, a Jira browse URL, or the
+numeric Jira issue ID. The returned issue must be an Epic and must belong to one
+of the project keys configured on the workspace repositories.
+
 ## Local layout
 
 ```text
@@ -65,10 +85,10 @@ and freshness cannot be bypassed.
   Repeating creation with the same workspace ID and exact repository plan resumes
   every missing clone and records each attempt. Interrupted clone staging is
   removed safely before the error is returned.
-- A changed repository URL, branch, path, Jira board, metadata set, required
-  flag, or lead repository is treated as a different materialization plan.
-  Singularity Flow refuses to reuse the existing directory; open its current
-  plan or choose a different workspace location.
+- Existing clone identity fields—repository ID, URL, branch, and path—cannot be
+  changed through workspace editing. Jira routing, metadata, App IDs, display
+  names, the lead selection, and new repositories are updated through a
+  validated save plan.
 - Existing unrelated directories are never overwritten.
 - Fetch skips dirty clones and never changes their branch or working tree.
 - Repair clones only missing repositories. Remote mismatches require deliberate
@@ -76,8 +96,9 @@ and freshness cannot be bypassed.
   completed, and failed recovery attempts.
 - Workspace aliases are resolved to one canonical location in the recent list.
   The managed `workspace.json` must be a regular file and cannot be a symlink.
-- Forgetting a workspace removes only the recent-location entry; it never
-  deletes repositories or documents.
+- Archiving or forgetting a workspace never deletes repositories or documents.
+  Archive is recoverable from the desktop; Forget removes only the local recent
+  pointer.
 - Opening another workspace or repository stops the previous Copilot backend
   and clears its pending planning handles before the new context becomes active.
 - Planning Copilot receives the ready clone roots as its explicit read-only

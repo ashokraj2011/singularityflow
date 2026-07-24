@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
 import {
+  assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
@@ -127,6 +128,10 @@ test('workspace Epic intake scopes Jira and derives portfolio configuration from
   assert.deepEqual(routing.projectKeys, ['KAN', 'MOB']);
   assert.equal(routing.leadProjectKey, 'KAN');
   assert.equal(assertWorkspaceEpicKey(routing, 'kan-8'), 'KAN-8');
+  assert.equal(assertWorkspaceEpicKey(routing, 'https://company.atlassian.net/browse/KAN-8'), 'KAN-8');
+  assert.equal(assertWorkspaceEpicKey(routing, '10042'), '10042');
+  assert.equal(assertWorkspaceEpicIssue(routing, { key: 'KAN-8' }).key, 'KAN-8');
+  assert.throws(() => assertWorkspaceEpicIssue(routing, { key: 'OTHER-2' }), /outside this workspace/);
   assert.throws(() => assertWorkspaceEpicKey(routing, 'OTHER-2'), /outside this workspace/);
   const configuration = workspacePortfolioConfiguration(workspace, credentials);
   assert.deepEqual(Object.keys(configuration.repositories), ['lead', 'mobile']);
@@ -543,6 +548,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /bootstrapWorkspacePortfolio/);
   assert.match(preload, /workspaceJiraContext/);
   assert.match(preload, /workspaceJiraEpic/);
+  assert.match(preload, /connectWorkspaceJira/);
+  assert.match(preload, /updateWorkspaceConfiguration/);
+  assert.match(preload, /archiveWorkspace/);
+  assert.match(preload, /restoreWorkspace/);
   assert.match(preload, /startCopilotService/);
   assert.match(preload, /setCopilotServiceModel/);
   assert.match(preload, /stopCopilotService/);
@@ -555,6 +564,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /configuration:bootstrap-workspace-portfolio/);
   assert.match(main, /workspace:jira-context/);
   assert.match(main, /workspace:jira-epic/);
+  assert.match(main, /workspace:jira-connect/);
+  assert.match(main, /workspace:configuration-update/);
+  assert.match(main, /workspace:archive/);
+  assert.match(main, /workspace:restore/);
   assert.match(main, /copilot-service:start/);
   assert.match(main, /copilot-service:model/);
   assert.match(await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8'), /session:\s*\{\s*configOptions:\s*\{\}\s*\}/);

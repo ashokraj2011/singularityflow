@@ -357,6 +357,73 @@ export async function saveWorkspaceConfiguration(options, { confirmation } = {})
   }
 }
 
+function workspaceUpdateManifest(current, { name, repositories, leadRepository }) {
+  const { normalized, lead } = validateRepositoryPlan(repositories, leadRepository);
+  const workspaceName = String(name ?? current.name).trim();
+  if (!workspaceName) throw new SingularityFlowError('Workspace name is required.');
+  for (const [id, repository] of Object.entries(current.repositories)) {
+    const replacement = normalized[id];
+    if (!replacement) {
+      throw new SingularityFlowError(`Workspace editing cannot remove existing repository '${id}'. Archive this workspace and create a replacement if its repository boundary changed.`);
+    }
+    for (const field of ['url', 'defaultBranch', 'path']) {
+      if (replacement[field] !== repository[field]) {
+        throw new SingularityFlowError(`Workspace editing cannot change ${field} for materialized repository '${id}'. Add a new repository entry instead.`);
+      }
+    }
+  }
+  return validateWorkspaceManifest({
+    ...current,
+    name: workspaceName,
+    leadRepository: lead,
+    repositories: normalized,
+    updatedAt: nowIso()
+  }, { workspaceRoot: current.path });
+}
+
+export async function previewWorkspaceUpdate(workspacePath, options) {
+  const current = await readWorkspace(workspacePath);
+  const manifest = workspaceUpdateManifest(current, options);
+  return {
+    root: current.path,
+    manifest,
+    operations: Object.values(manifest.repositories).map((repository) => ({
+      action: current.repositories[repository.id] ? 'update' : 'clone',
+      repository: repository.id,
+      url: repository.url,
+      target: path.join(current.path, repository.path),
+      branch: repository.defaultBranch,
+      required: repository.required
+    }))
+  };
+}
+
+export async function updateWorkspaceConfiguration(workspacePath, options, { confirmation } = {}) {
+  const preview = await previewWorkspaceUpdate(workspacePath, options);
+  if (confirmation !== preview.manifest.anchor.key) {
+    throw new SingularityFlowError(`Workspace editing requires exact workspace confirmation '${preview.manifest.anchor.key}'.`);
+  }
+  await atomicJson(path.join(preview.root, WORKSPACE_FILE), preview.manifest);
+  try {
+    const repaired = await repairWorkspace(preview.root);
+    return {
+      updated: true,
+      workspace: repaired.status.workspace,
+      status: repaired.status,
+      repair: repaired.repaired,
+      materializationError: null
+    };
+  } catch (error) {
+    return {
+      updated: true,
+      workspace: await readWorkspace(preview.root),
+      status: await workspaceStatus(preview.root),
+      repair: [],
+      materializationError: error?.message || String(error)
+    };
+  }
+}
+
 function gitValue(root, args) {
   const result = run('git', args, { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout.trim() : null;
@@ -665,7 +732,8 @@ function normalizeRegistryEntry(entry) {
     anchorType: entry.anchorType == null ? null : String(entry.anchorType),
     siteId: entry.siteId == null ? null : String(entry.siteId),
     leadRepositoryPath: entry.leadRepositoryPath == null ? null : path.resolve(entry.leadRepositoryPath),
-    openedAt: Number.isFinite(Date.parse(entry.openedAt)) ? new Date(entry.openedAt).toISOString() : new Date(0).toISOString()
+    openedAt: Number.isFinite(Date.parse(entry.openedAt)) ? new Date(entry.openedAt).toISOString() : new Date(0).toISOString(),
+    archivedAt: Number.isFinite(Date.parse(entry.archivedAt)) ? new Date(entry.archivedAt).toISOString() : null
   };
 }
 
@@ -704,7 +772,8 @@ export async function rememberWorkspace(file, workspace, status = null) {
     anchorType: normalized.anchor.issueTypeName,
     siteId: normalized.anchor.siteId,
     leadRepositoryPath: status?.leadRepositoryPath ?? path.join(normalized.path, normalized.repositories[normalized.leadRepository].path),
-    openedAt: nowIso()
+    openedAt: nowIso(),
+    archivedAt: null
   });
   return withRegistryMutation(file, async () => {
     const current = await readWorkspaceRegistry(file);
@@ -719,6 +788,35 @@ export async function forgetWorkspace(file, workspacePath) {
   const target = await realpath(resolved).catch(() => resolved);
   return withRegistryMutation(file, async () => {
     const workspaces = (await readWorkspaceRegistry(file)).filter((item) => item.path !== target);
+    await atomicJson(file, { schemaVersion: 1, workspaces });
+    return workspaces;
+  });
+}
+
+export async function archiveWorkspace(file, workspacePath, { confirmation } = {}) {
+  const workspace = await readWorkspace(workspacePath);
+  if (confirmation !== workspace.anchor.key) {
+    throw new SingularityFlowError(`Workspace archiving requires exact confirmation '${workspace.anchor.key}'.`);
+  }
+  return withRegistryMutation(file, async () => {
+    const workspaces = await readWorkspaceRegistry(file);
+    const target = workspaces.find((item) => item.path === workspace.path);
+    if (!target) throw new SingularityFlowError(`Workspace '${workspace.name}' is not in the local workspace registry.`);
+    target.archivedAt = nowIso();
+    await atomicJson(file, { schemaVersion: 1, workspaces });
+    return workspaces;
+  });
+}
+
+export async function restoreWorkspace(file, workspacePath) {
+  const resolved = path.resolve(workspacePath);
+  const targetPath = await realpath(resolved).catch(() => resolved);
+  return withRegistryMutation(file, async () => {
+    const workspaces = await readWorkspaceRegistry(file);
+    const target = workspaces.find((item) => item.path === targetPath);
+    if (!target) throw new SingularityFlowError('Archived workspace is no longer in the local registry.');
+    target.archivedAt = null;
+    target.openedAt = nowIso();
     await atomicJson(file, { schemaVersion: 1, workspaces });
     return workspaces;
   });

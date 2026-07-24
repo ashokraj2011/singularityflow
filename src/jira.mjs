@@ -497,12 +497,17 @@ export async function getIssue(key, {
   extraFields = envFields(env)
 } = {}) {
   const resolved = resolveConnection({ connection, env });
-  const requestedKey = validateIssueKey(key);
+  const requestedKey = String(key ?? '').trim().toUpperCase();
+  if (!/^(?:[A-Z][A-Z0-9_-]*-\d+|\d+)$/.test(requestedKey)) {
+    throw new SingularityFlowError('A valid Jira issue key or numeric issue ID is required.');
+  }
   const fields = [...new Set([...STANDARD_FIELDS, acceptanceField, storyPointsField, sprintField, ...extraFields].filter(Boolean))];
   const query = new URLSearchParams({ fields: fields.join(','), expand: 'names' });
   const { payload } = await jiraRequest(`${restPath(resolved, `issue/${encodeURIComponent(requestedKey)}`)}?${query}`, { connection: resolved, fetchImpl });
   const returnedKey = String(payload?.key ?? '').trim().toUpperCase();
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || returnedKey !== requestedKey) {
+  const returnedId = String(payload?.id ?? '').trim();
+  const matches = requestedKey.includes('-') ? returnedKey === requestedKey : returnedId === requestedKey;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !matches) {
     throw jiraFailure(`Jira returned ${returnedKey || 'an invalid payload'} for requested issue ${requestedKey}.`, {
       category: 'response'
     });

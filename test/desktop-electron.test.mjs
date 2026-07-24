@@ -9,6 +9,7 @@ import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/e
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
 } from '../apps/desktop/electron/workspace-epic.mjs';
@@ -140,6 +141,35 @@ test('workspace Epic intake scopes Jira and derives portfolio configuration from
   assert.equal(configuration.jira.writeMode, 'approved');
 });
 
+test('workspace Epic listing keeps valid projects when another Jira route is invalid', () => {
+  const result = summarizeWorkspaceEpicProjects([
+    {
+      projectKey: 'KAN',
+      repositoryIds: ['lead'],
+      epics: [
+        { key: 'KAN-8', title: 'Newest', updatedAt: '2026-07-24T12:00:00.000Z' },
+        { key: 'KAN-7', title: 'Older', updatedAt: '2026-07-23T12:00:00.000Z' }
+      ]
+    },
+    {
+      projectKey: 'KAB',
+      repositoryIds: ['mobile'],
+      error: new Error("Jira request failed (404): No project could be found with id or key 'KAB'.")
+    },
+    {
+      projectKey: 'KAN',
+      repositoryIds: ['duplicate-route'],
+      epics: [{ key: 'KAN-8', title: 'Duplicate', updatedAt: '2026-07-22T12:00:00.000Z' }]
+    }
+  ]);
+  assert.deepEqual(result.epics.map((epic) => epic.key), ['KAN-8', 'KAN-7']);
+  assert.deepEqual(result.warnings, [{
+    projectKey: 'KAB',
+    repositoryIds: ['mobile'],
+    message: "Jira request failed (404): No project could be found with id or key 'KAB'."
+  }]);
+});
+
 test('Electron Epic start remains usable without an existing portfolio and renderer failures stay recoverable', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const entrypoint = await readFile(path.join(packageRoot, 'apps/desktop/src/main.jsx'), 'utf8');
@@ -217,6 +247,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Select an Epic from Jira/);
   assert.match(source, /Fetch selected Epic/);
   assert.match(source, /Enter an Epic key, URL, or numeric Jira ID instead/);
+  assert.match(source, /Some configured Jira projects could not be loaded/);
   assert.match(source, /Generate the formatted requirements artifact/);
   assert.match(source, /function EpicRequirementsView/);
   assert.match(styles, /\.requirements-output-map/);

@@ -2345,6 +2345,42 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     ? status?.routing?.projectKeys ?? workspaceProjectKeys
     : portfolioProjectKeys;
   const epicProjectKeySignature = epicProjectKeys.join(',');
+  async function requestEpicList(refresh = false) {
+    if (workspacePath) {
+      return window.singularity.workspaceJiraEpics(data.repository.root, workspacePath, refresh);
+    }
+    const projects = await Promise.all(epicProjectKeys.map(async (projectKey) => {
+      try {
+        return {
+          projectKey,
+          epics: await window.singularity.jiraEpics(data.repository.root, projectKey, refresh)
+        };
+      } catch (error) {
+        return { projectKey, error: error.message };
+      }
+    }));
+    return {
+      epics: projects.flatMap((project) => project.epics ?? []),
+      warnings: projects.filter((project) => project.error).map((project) => ({
+        projectKey: project.projectKey,
+        repositoryIds: [],
+        message: project.error
+      }))
+    };
+  }
+  function normalizeEpicList(result) {
+    const epics = Array.isArray(result) ? result : result?.epics ?? [];
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    return {
+      epics: [...new Map(epics.map((epic) => [epic.key, epic])).values()]
+        .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+          || String(left.key).localeCompare(String(right.key))),
+      warning: warnings.map((item) => {
+        const repositories = item.repositoryIds?.length ? ` for ${item.repositoryIds.join(', ')}` : '';
+        return `${item.projectKey}${repositories}: ${item.message}`;
+      }).join(' ')
+    };
+  }
   useEffect(() => {
     let active = true;
     if (source !== 'jira' || !connected) {
@@ -2354,17 +2390,12 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     }
     setEpicsLoading(true);
     setEpicsError('');
-    const request = workspacePath
-      ? window.singularity.workspaceJiraEpics(data.repository.root, workspacePath)
-      : Promise.all(epicProjectKeys.map((projectKey) => window.singularity.jiraEpics(data.repository.root, projectKey)))
-        .then((groups) => groups.flat());
-    request
+    requestEpicList()
       .then((result) => {
         if (!active) return;
-        const unique = [...new Map(result.map((epic) => [epic.key, epic])).values()]
-          .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
-            || String(left.key).localeCompare(String(right.key)));
-        setAvailableEpics(unique);
+        const normalized = normalizeEpicList(result);
+        setAvailableEpics(normalized.epics);
+        setEpicsError(normalized.warning);
       })
       .catch((error) => { if (active) setEpicsError(error.message); })
       .finally(() => { if (active) setEpicsLoading(false); });
@@ -2386,13 +2417,9 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     setEpicsLoading(true);
     setEpicsError('');
     try {
-      const result = workspacePath
-        ? await window.singularity.workspaceJiraEpics(data.repository.root, workspacePath, true)
-        : (await Promise.all(epicProjectKeys.map((projectKey) => window.singularity.jiraEpics(data.repository.root, projectKey, true)))).flat();
-      const unique = [...new Map(result.map((epic) => [epic.key, epic])).values()]
-        .sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
-          || String(left.key).localeCompare(String(right.key)));
-      setAvailableEpics(unique);
+      const normalized = normalizeEpicList(await requestEpicList(true));
+      setAvailableEpics(normalized.epics);
+      setEpicsError(normalized.warning);
     } catch (error) {
       setEpicsError(error.message);
     } finally {
@@ -2459,7 +2486,7 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={`${source === 'jira' ? 'active' : ''} ${jiraConfigured ? '' : 'needs-setup'}`} onClick={() => jiraConfigured ? setSource('jira') : onSetupJira()}><strong>Bring from Jira</strong><small>{jiraConfigured ? `Fetch an Epic from ${workspaceProjectKeys.join(', ') || data.portfolio?.jira?.projectKey || 'the configured project'}` : 'Add Jira routing to the workspace first'}</small>{!jiraConfigured && <b>Set up Jira →</b>}</button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Enter Epic-like details without Jira</small></button></div>
       {source === 'jira' ? <>
         <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Workspace Jira connection</span><h3>Use the Jira routing already configured</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}. Allowed projects: ${status.routing?.projectKeys?.join(', ') || data.portfolio?.jira?.allowedProjects?.join(', ') || 'repository policy'}.` : 'This workspace has Jira project routing, but this operating-system user still needs a valid Jira connection.'}</p></div>{connected ? <Pill tone="good">ready</Pill> : <button className="secondary" onClick={onSetupJira}>Connect Jira</button>}</div>
-        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={availableEpics.some((epic) => epic.key === epicKey) ? epicKey : ''} disabled={!connected || epicsLoading} onChange={(event) => { setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn"><strong>Could not list Jira Epics.</strong> {epicsError} You can still enter an exact reference below.</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone="good">Fetched from Jira</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{fetchedEpic.issueType} · {fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded</small></article>}</div></div>
+        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={availableEpics.some((epic) => epic.key === epicKey) ? epicKey : ''} disabled={!connected || epicsLoading} onChange={(event) => { setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn"><strong>Some configured Jira projects could not be loaded.</strong> {epicsError} Valid projects are still listed above. Correct the Jira project key under Workspace configuration → Edit workspace.</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone="good">Fetched from Jira</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{fetchedEpic.issueType} · {fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded</small></article>}</div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
       <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div>{!data.portfolio && <p className="epic-defaults-note">The governed Epic defaults will be created when you start. No separate portfolio setup is required.</p>}</div></div>
       {source === 'local' && !localStartReady && <div className="notice warn epic-start-blocker"><strong>Local Epic creation starts from a clean {defaultBranch} branch.</strong><span>{data.repository.changes.length ? `Commit or set aside the ${data.repository.changes.length} current working-tree change(s), then switch to ${defaultBranch}.` : `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.`}</span></div>}

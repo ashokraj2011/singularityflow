@@ -123,6 +123,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  const indexHtml = await readFile(path.join(packageRoot, 'apps/desktop/index.html'), 'utf8');
   const artifactBuilder = await readFile(path.join(packageRoot, 'apps/desktop/src/artifact-builder.mjs'), 'utf8');
   assert.match(source, />＋ Workflow</);
   assert.match(source, />＋ New stage</);
@@ -159,7 +160,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Local workspace/);
   assert.match(source, /Git & GitHub/);
   assert.match(source, /Jira connection/);
-  assert.match(source, /Continue to Singularity/);
+  assert.match(source, /Continue to Flow/);
   assert.match(source, /Local setup recovered/);
   assert.match(source, /Application ID/);
   assert.match(source, /Additional metadata/);
@@ -310,7 +311,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Import from URL/);
   assert.match(source, /Fetch & preview/);
   assert.match(source, /Jira Story key/);
-  assert.match(source, /Flow workspace/);
+  assert.match(source, /context=\{data\.workspace \? data\.workspace\.workspace\.anchor\.key : 'Workspace'\}/);
+  assert.match(source, /function FlowBrand/);
+  assert.match(source, /className="flow-brand-parent">Singularity/);
+  assert.match(source, /className="flow-brand-product">Flow/);
+  assert.match(source, /aria-label=\{`Singularity Flow/);
+  assert.match(indexHtml, /<title>Singularity Flow<\/title>/);
   assert.match(source, /singularity\.sidebar\.collapsed/);
   assert.match(source, /sidebar-collapsed/);
   assert.match(source, /sidebar-edge-toggle/);
@@ -382,6 +388,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.pinned-media-strip/);
   assert.match(styles, /\.impact-graph/);
   assert.match(styles, /\.welcome-visual/);
+  assert.match(styles, /\.flow-brand-mark/);
+  assert.match(styles, /@keyframes flowOrbitPulse/);
+  assert.match(styles, /\.flow-brand-parent/);
+  assert.match(styles, /\.flow-brand-product/);
   assert.match(styles, /Avenir Next/);
   assert.match(styles, /--evergreen-950: #092d20/);
   assert.match(styles, /\.sidebar-edge-toggle/);

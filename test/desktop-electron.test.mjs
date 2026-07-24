@@ -162,8 +162,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Turn an Epic into delivery-ready Stories/);
   assert.match(source, /className="epic-start-intro-copy"/);
   assert.match(source, /aria-label="Epic planning workflow"/);
-  assert.match(source, /<i>1<\/i><small>Sources<\/small>/);
-  assert.match(source, /<i>✓<\/i><small>Complete<\/small>/);
+  assert.match(source, /const epicJourneySteps = \['Sources', 'Requirements', 'Planning', 'Stories', 'Complete'\]/);
+  assert.match(source, /function EpicJourneyDiagram\(\{ activeStep = 0 \}\)/);
+  assert.match(source, /<EpicJourneyDiagram activeStep=\{businessStage\.activeStep\} \/>/);
+  assert.match(source, /activeStep: 1/);
+  assert.match(source, /activeStep: 2/);
+  assert.match(source, /!entryTab && <nav className="epic-lifecycle-wizard"/);
   assert.match(source, /Bring from Jira/);
   assert.match(source, /Describe the work/);
   assert.match(source, /const businessNavSections/);
@@ -317,8 +321,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.epic-progress-list/);
   assert.match(styles, /\.business-stage-intro/);
   assert.match(styles, /\.business-lineage-handoff/);
+  assert.match(styles, /\.business-stage-intro \{ min-height: 112px/);
+  assert.match(styles, /\.business-stage-intro h2/);
   assert.match(styles, /\.epic-start-intro \{ min-height: 128px/);
   assert.match(styles, /\.epic-start-flow span i/);
+  assert.match(styles, /\.epic-start-flow span\.active i/);
   assert.match(styles, /\.artifact-builder/);
   assert.match(styles, /\.artifact-section-palette/);
   assert.match(styles, /\.artifact-builder-canvas/);

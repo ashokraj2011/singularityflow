@@ -2551,12 +2551,15 @@ label > span,
 .review-packet-document { max-height: 520px; overflow: auto; border: 1px solid #e3e8e4; border-radius: 10px; padding: 18px; color: #34443a; background: #fbfcfb; font-family: var(--font-mono); font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 
 .epic-lifecycle-wizard { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; margin: 0 0 22px; border: 1px solid #dfe7e1; border-radius: 16px; padding: 8px; background: rgba(255,255,255,.9); box-shadow: 0 10px 30px rgba(28,62,43,.06); scrollbar-width: thin; }
-.business-stage-intro { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px 28px; align-items: start; margin: 0 0 18px; border: 1px solid #cbded3; border-left: 4px solid #2b875d; border-radius: 14px; padding: 18px 20px; background: linear-gradient(110deg,#f6fbf8,#fff 72%); box-shadow: 0 8px 24px rgba(24,80,52,.045); }
-.business-stage-intro.waiting { border-color: #e3d7b7; border-left-color: #c28a22; background: linear-gradient(110deg,#fffbf2,#fff 72%); }
-.business-stage-intro > div:first-child { max-width: 820px; }
-.business-stage-intro h2 { margin: 4px 0 6px; color: #153d2d; font-size: 18px; font-weight: 610; letter-spacing: -.02em; }
-.business-stage-intro p { margin: 0; color: #617268; font-size: 11px; line-height: 1.55; }
-.business-lineage-handoff { grid-column: 1/-1; display: flex; align-items: center; gap: 10px; border-top: 1px solid #e2eae5; padding-top: 14px; color: #385248; }
+.business-stage-intro { min-height: 112px; display: grid; grid-template-columns: minmax(310px,.95fr) minmax(430px,1.05fr) auto; gap: 18px 28px; align-items: center; margin: 0 0 18px; border: 1px solid rgba(149,199,168,.24); border-radius: 16px; padding: 18px 22px; color: #edf7f0; background: radial-gradient(circle at 88% 0,rgba(36,156,96,.28),transparent 31%),linear-gradient(135deg,#0d3826,#174e33 64%,#0b3524); box-shadow: 0 10px 28px rgba(10,47,33,.13); }
+.business-stage-intro.waiting { border-color: rgba(241,185,63,.35); background: radial-gradient(circle at 88% 0,rgba(204,140,30,.22),transparent 31%),linear-gradient(135deg,#173b2b,#365231 68%,#253d26); }
+.business-stage-copy { min-width: 0; max-width: 600px; }
+.business-stage-intro .eyebrow { color: #a9d9bc; font-size: 8px; }
+.business-stage-intro h2 { margin: 4px 0 5px; color: #fff; font-size: clamp(17px,1.45vw,22px); font-weight: 570; line-height: 1.15; letter-spacing: -.025em; }
+.business-stage-intro p { max-width: 590px; margin: 0; color: #c5dbcd; font-size: 10px; line-height: 1.5; }
+.business-stage-intro > .pill { justify-self: end; border-color: rgba(216,239,224,.26); color: #eaf5ed; background: rgba(255,255,255,.08); white-space: nowrap; }
+.business-stage-intro.waiting > .pill { border-color: rgba(247,202,92,.38); color: #ffe5a0; background: rgba(111,70,8,.22); }
+.business-lineage-handoff { grid-column: 1/-1; display: flex; align-items: center; gap: 10px; border-top: 1px solid rgba(216,239,224,.18); padding-top: 14px; color: #d4e7da; }
 .business-lineage-handoff span { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 570; white-space: nowrap; }
 .business-lineage-handoff b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #267651; font-size: 9px; font-weight: 680; }
 .business-lineage-handoff i { flex: 1; min-width: 16px; color: #9aaba1; font-style: normal; text-align: center; }
@@ -2582,6 +2585,10 @@ label > span,
 .epic-start-flow span i { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(216,239,224,.38); border-radius: 50%; color: #f7c650; background: rgba(255,255,255,.06); font-style: normal; font-size: 8px; font-weight: 680; box-shadow: 0 0 0 4px rgba(255,255,255,.025); }
 .epic-start-flow span small { color: #bdd3c5; font-size: 8px; white-space: nowrap; }
 .epic-start-flow b { height: 1px; margin-top: 11px; background: linear-gradient(90deg,rgba(181,213,193,.18),rgba(241,185,63,.72),rgba(181,213,193,.18)); }
+.epic-start-flow span.complete i { border-color: #70bf8e; color: #fff; background: #188052; }
+.epic-start-flow span.complete small { color: #a9d9bc; }
+.epic-start-flow span.active i { border-color: #f7c650; color: #123f2c; background: #f7c650; box-shadow: 0 0 0 4px rgba(247,198,80,.12); }
+.epic-start-flow span.active small { color: #fff; font-weight: 650; }
 .epic-start-form { overflow: hidden; padding: 8px 26px 22px; }
 .epic-start-step { display: grid; grid-template-columns: 42px 1fr auto; gap: 16px; align-items: start; border-bottom: 1px solid #e7ece8; padding: 25px 0; }
 .epic-start-step > b { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #d7e1da; border-radius: 11px; color: #157849; background: #eef7f1; font-size: 12px; }
@@ -2996,6 +3003,8 @@ label > span,
   .epic-review-decision > div:first-child { grid-column: 1/-1; }
   .epic-start-intro { min-height: 0; grid-template-columns: 1fr; gap: 18px; padding: 20px 22px; }
   .epic-start-flow { max-width: 620px; }
+  .business-stage-intro { min-height: 0; grid-template-columns: minmax(300px,.85fr) minmax(420px,1.15fr); gap: 16px 24px; }
+  .business-stage-intro > .pill { grid-column: 1/-1; justify-self: start; }
   .business-lineage-handoff { overflow-x: auto; }
   .business-lineage-handoff span { min-width: max-content; }
   .epic-lifecycle-wizard > button { min-width: 118px; flex-basis: 118px; }

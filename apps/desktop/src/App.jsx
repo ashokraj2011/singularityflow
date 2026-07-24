@@ -1998,6 +1998,20 @@ function EpicReviewView({ data, selected, action, reload }) {
   </div>;
 }
 
+const epicJourneySteps = ['Sources', 'Requirements', 'Planning', 'Stories', 'Complete'];
+
+function EpicJourneyDiagram({ activeStep = 0 }) {
+  return <div className="epic-start-flow" aria-label="Epic planning workflow">
+    {epicJourneySteps.map((label, index) => <React.Fragment key={label}>
+      <span className={index < activeStep ? 'complete' : index === activeStep ? 'active' : ''}>
+        <i>{index < activeStep || index === epicJourneySteps.length - 1 ? '✓' : index + 1}</i>
+        <small>{label}</small>
+      </span>
+      {index < epicJourneySteps.length - 1 && <b aria-hidden="true" />}
+    </React.Fragment>)}
+  </div>;
+}
+
 function EpicStartWizard({ data, action, reload }) {
   const initiativeProfiles = data.portfolio?.initiativeProfiles ?? {
     'epic-planning': { label: 'Epic planning' }
@@ -2097,13 +2111,7 @@ function EpicStartWizard({ data, action, reload }) {
         <span className="ai-orb">S</span>
         <div><span className="eyebrow">Start a governed Epic</span><h2>Turn an Epic into delivery-ready Stories</h2><p>Bring the Epic from Jira or describe it directly; Singularity pins its identity, branch, and workflow before planning.</p></div>
       </div>
-      <div className="epic-start-flow" aria-label="Epic planning workflow">
-        <span><i>1</i><small>Sources</small></span><b aria-hidden="true" />
-        <span><i>2</i><small>Requirements</small></span><b aria-hidden="true" />
-        <span><i>3</i><small>Planning</small></span><b aria-hidden="true" />
-        <span><i>4</i><small>Stories</small></span><b aria-hidden="true" />
-        <span><i>✓</i><small>Complete</small></span>
-      </div>
+      <EpicJourneyDiagram />
     </section>
     <section className="panel epic-start-form">
       <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={source === 'jira' ? 'active' : ''} disabled={!data.portfolio?.jira?.enabled} onClick={() => setSource('jira')}><strong>Bring from Jira</strong><small>Use an existing Epic key and Jira identity</small></button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Reserve a local Singularity Epic ID</small></button></div>
@@ -2211,6 +2219,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
           step: 'Business requirements',
           title: 'Turn pinned Epic sources into approved requirements',
           detail: 'Generate and review REQ-nnn and AC-nnn records here. Every item stays linked to its source before Planning can use it.',
+          activeStep: 1,
           prerequisite: state.phases['epic-intake']?.status === 'approved',
           prerequisiteLabel: 'Approve Epic intake first'
         },
@@ -2218,6 +2227,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
           step: 'Business planning',
           title: 'Decompose requirements into governed User Stories',
           detail: 'Planning Copilot allocates requirements and acceptance criteria to repository-owned Stories, then produces the high-level specification.',
+          activeStep: 2,
           prerequisite: state.phases['epic-requirements']?.status === 'approved',
           prerequisiteLabel: 'Approve requirements first'
         },
@@ -2225,6 +2235,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
           step: 'Jira and Git handoff',
           title: 'Publish the reviewed Story plan',
           detail: 'Review every generated Story and selected artifact, then create or attach the Jira issue and canonical Git branch using the returned Jira key.',
+          activeStep: 3,
           prerequisite: state.phases['epic-plan']?.status === 'approved' && specificationReady,
           prerequisiteLabel: 'Approve the Story plan and high-level specification first'
         }
@@ -2328,11 +2339,12 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   return <div className="page initiative-page">
     <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p></div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
     {businessStage && <section className={`business-stage-intro ${businessStage.prerequisite ? 'ready' : 'waiting'}`}>
-      <div><span className="eyebrow">{businessStage.step}</span><h2>{businessStage.title}</h2><p>{businessStage.detail}</p></div>
+      <div className="business-stage-copy"><span className="eyebrow">{businessStage.step}</span><h2>{businessStage.title}</h2><p>{businessStage.detail}</p></div>
+      <EpicJourneyDiagram activeStep={businessStage.activeStep} />
       <Pill tone={businessStage.prerequisite ? 'good' : 'warn'}>{businessStage.prerequisite ? 'Ready to work' : businessStage.prerequisiteLabel}</Pill>
       {entryTab === 'publish' && <div className="business-lineage-handoff"><span><b>1</b>Approved Story plan</span><i>→</i><span><b>2</b>Jira Story key</span><i>→</i><span><b>3</b>Canonical Git branch</span><i>→</i><span><b>4</b>Governed seed & receipts</span></div>}
     </section>}
-    {selected?.state.initiative.profile === 'epic-planning' ? <nav className="epic-lifecycle-wizard" aria-label="Epic lifecycle wizard">{wizardSteps.map((step, index) => <React.Fragment key={step.id}><button className={`${tab === step.id ? 'active' : ''} ${step.status === 'approved' ? 'complete' : ''}`} onClick={() => setTab(step.id)}><span>{step.status === 'approved' ? '✓' : index + 1}</span><small>Step {index + 1}</small><strong>{step.label}</strong></button>{index < wizardSteps.length - 1 && <i>→</i>}</React.Fragment>)}<button className={`wizard-config ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab('configuration')}><span>⚙</span><small>Manage</small><strong>Configuration</strong></button></nav> : <nav className="epic-workspace-nav" aria-label="Initiative workspace">{[['delivery', 'Overview'], ['requirements', 'Documents'], ['configuration', 'Configuration']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>}
+    {selected?.state.initiative.profile === 'epic-planning' ? !entryTab && <nav className="epic-lifecycle-wizard" aria-label="Epic lifecycle wizard">{wizardSteps.map((step, index) => <React.Fragment key={step.id}><button className={`${tab === step.id ? 'active' : ''} ${step.status === 'approved' ? 'complete' : ''}`} onClick={() => setTab(step.id)}><span>{step.status === 'approved' ? '✓' : index + 1}</span><small>Step {index + 1}</small><strong>{step.label}</strong></button>{index < wizardSteps.length - 1 && <i>→</i>}</React.Fragment>)}<button className={`wizard-config ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab('configuration')}><span>⚙</span><small>Manage</small><strong>Configuration</strong></button></nav> : <nav className="epic-workspace-nav" aria-label="Initiative workspace">{[['delivery', 'Overview'], ['requirements', 'Documents'], ['configuration', 'Configuration']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>}
     {['delivery', 'publish'].includes(tab) && selected && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Epic and Story branches receive their own commits; Singularity never merges them into a default branch automatically. Accepted canonical Story results alone advance Epic progress.</p></div></div>}
     {tab === 'configuration' ? <div className="initiative-config-layout">
       <aside className="initiative-config-summary">

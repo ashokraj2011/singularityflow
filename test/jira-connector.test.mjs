@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
-  discoverJiraConnection, getIssueHierarchy, jiraRequest, listEpicStories,
+  discoverJiraConnection, getIssue, getIssueHierarchy, jiraRequest, listEpicStories,
   listWorkspaceAnchors, normalizeJiraConnection, searchIssues
 } from '../src/jira.mjs';
 import { normalizeJiraPolicy } from '../src/initiative-config.mjs';
@@ -166,6 +166,101 @@ test('Jira request timeout covers a response body that stalls after headers', as
   );
 });
 
+test('Jira request rejects oversized response bodies without retrying or reading a declared oversized body', async () => {
+  let calls = 0;
+  let textReads = 0;
+  const connection = {
+    baseUrl: 'https://jira.example.com',
+    deployment: 'data-center',
+    token: 'pat-secret',
+    authMode: 'pat'
+  };
+  await assert.rejects(
+    () => jiraRequest('/rest/api/2/myself', {
+      connection,
+      maxResponseBytes: 32,
+      maxRetries: 3,
+      sleep: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: (name) => name.toLowerCase() === 'content-length' ? '64' : null },
+          text: async () => {
+            textReads += 1;
+            return JSON.stringify({ value: 'must not be read' });
+          }
+        };
+      }
+    }),
+    (error) => error?.category === 'response-size' && /32 bytes/.test(error.message)
+  );
+  assert.equal(calls, 1);
+  assert.equal(textReads, 0);
+
+  calls = 0;
+  await assert.rejects(
+    () => jiraRequest('/rest/api/2/myself', {
+      connection,
+      maxResponseBytes: 32,
+      maxRetries: 3,
+      sleep: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return response({ value: 'x'.repeat(64) });
+      }
+    }),
+    (error) => error?.category === 'response-size' && /32 bytes/.test(error.message)
+  );
+  assert.equal(calls, 1);
+
+  calls = 0;
+  await assert.rejects(
+    () => jiraRequest('/rest/api/2/myself', {
+      connection,
+      maxResponseBytes: 32,
+      maxRetries: 0,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ value: 'x'.repeat(64) }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+    }),
+    (error) => error?.category === 'response-size' && /32 bytes/.test(error.message)
+  );
+  assert.equal(calls, 1);
+});
+
+test('Jira request rejects a non-JSON success response instead of accepting a proxy login page', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => jiraRequest('/rest/api/2/myself', {
+      connection: {
+        baseUrl: 'https://jira.example.com',
+        deployment: 'data-center',
+        token: 'pat-secret',
+        authMode: 'pat'
+      },
+      maxRetries: 3,
+      sleep: async () => {},
+      fetchImpl: async () => {
+        calls += 1;
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'text/html' },
+          text: async () => '<html><title>Corporate sign-in</title></html>'
+        };
+      }
+    }),
+    (error) => error?.category === 'response' && /non-JSON success response/.test(error.message)
+  );
+  assert.equal(calls, 1);
+});
+
 test('connection discovery and Epic child browsing use safe Jira endpoints', async () => {
   const seen = [];
   const fetchImpl = async (url, init) => {
@@ -206,6 +301,33 @@ test('Jira connection discovery performs only one bounded retry', async () => {
     (error) => error?.category === 'network' && /network unavailable/.test(error.message)
   );
   assert.equal(serverAttempts, 2);
+});
+
+test('Jira identity reads reject incomplete users and issue-key mismatches', async () => {
+  const connection = { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' };
+  await assert.rejects(
+    () => discoverJiraConnection({
+      connection,
+      fetchImpl: async (url) => {
+        if (url.endsWith('/serverInfo')) return response({ version: '1' });
+        if (url.endsWith('/myself')) return response({});
+        if (url.includes('/project/search')) return response({ values: [] });
+        throw new Error(`unexpected ${url}`);
+      }
+    }),
+    (error) => error?.category === 'response' && /current-user identity/.test(error.message)
+  );
+  await assert.rejects(
+    () => getIssue('APP-1', {
+      connection,
+      fetchImpl: async () => response({
+        id: '9',
+        key: 'OTHER-9',
+        fields: { summary: 'Wrong issue' }
+      })
+    }),
+    (error) => error?.category === 'response' && /returned OTHER-9 for requested issue APP-1/.test(error.message)
+  );
 });
 
 test('Jira issue search paginates Cloud tokens and Data Center offsets without exceeding the requested limit', async () => {
@@ -254,6 +376,73 @@ test('Jira issue search paginates Cloud tokens and Data Center offsets without e
   });
   assert.equal(dataCenter.length, 120);
   assert.deepEqual(dataCenterBodies.map((body) => [body.startAt, body.maxResults]), [[0, 100], [100, 20]]);
+});
+
+test('Jira issue search rejects duplicate issues and non-advancing Data Center pages', async () => {
+  const cloudConnection = { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' };
+  let cloudPage = 0;
+  await assert.rejects(
+    () => searchIssues('project = "APP"', {
+      connection: cloudConnection,
+      limit: 3,
+      fetchImpl: async () => {
+        cloudPage += 1;
+        return cloudPage === 1
+          ? response({
+              issues: [
+                { id: '1', key: 'APP-1', fields: { summary: 'One' } },
+                { id: '2', key: 'APP-2', fields: { summary: 'Two' } }
+              ],
+              isLast: false,
+              nextPageToken: 'page-2'
+            })
+          : response({
+              issues: [
+                { id: '2', key: 'APP-2', fields: { summary: 'Two repeated' } },
+                { id: '3', key: 'APP-3', fields: { summary: 'Three' } }
+              ],
+              isLast: true
+            });
+      }
+    }),
+    (error) => error?.category === 'response' && /duplicate issue APP-2/.test(error.message)
+  );
+
+  let dataCenterPage = 0;
+  await assert.rejects(
+    () => searchIssues('project = "APP"', {
+      connection: {
+        baseUrl: 'https://jira.example.com',
+        deployment: 'data-center',
+        token: 'pat-secret',
+        authMode: 'pat'
+      },
+      limit: 120,
+      fetchImpl: async (_url, init) => {
+        dataCenterPage += 1;
+        const body = JSON.parse(init.body);
+        const offset = dataCenterPage === 1 ? 0 : 100;
+        return response({
+          issues: Array.from({ length: body.maxResults }, (_, index) => ({
+            id: String(offset + index + 1),
+            key: `APP-${offset + index + 1}`,
+            fields: { summary: `Story ${offset + index + 1}` }
+          })),
+          startAt: 0,
+          total: 200
+        });
+      }
+    }),
+    (error) => error?.category === 'response' && /did not advance/.test(error.message)
+  );
+
+  await assert.rejects(
+    () => searchIssues('project = "APP"', {
+      connection: cloudConnection,
+      fetchImpl: async () => response({ values: [], isLast: true })
+    }),
+    (error) => error?.category === 'response' && /issues array/.test(error.message)
+  );
 });
 
 test('workspace anchors use Jira hierarchyLevel and hierarchy traversal uses parent', async () => {

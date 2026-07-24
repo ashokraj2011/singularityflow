@@ -15,12 +15,27 @@
       "additionalProperties": true,
       "required": ["provider", "siteId", "key", "issueTypeName", "hierarchyLevel"],
       "properties": {
-        "provider": { "const": "jira" },
+        "provider": { "enum": ["workspace", "jira"] },
         "siteId": { "type": "string", "minLength": 1 },
-        "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+$" },
+        "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
         "issueTypeName": { "type": "string", "minLength": 1 },
         "hierarchyLevel": { "type": "integer", "minimum": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "jira" } } },
+          "then": { "properties": { "key": { "pattern": "^[A-Z][A-Z0-9_-]*-[0-9]+$" } } }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "workspace" } } },
+          "then": {
+            "properties": {
+              "siteId": { "const": "local" },
+              "issueTypeName": { "const": "Workspace" }
+            }
+          }
+        }
+      ]
     },
     "leadRepository": { "type": "string", "minLength": 1 },
     "repositories": {
@@ -38,6 +53,14 @@
             "type": "object",
             "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
             "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "jira": {
+            "type": "object",
+            "required": ["board"],
+            "properties": {
+              "board": { "type": ["string", "null"], "maxLength": 128 }
+            },
+            "additionalProperties": false
           },
           "role": { "enum": ["lead", "participant"] }
         }

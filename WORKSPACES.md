@@ -1,34 +1,32 @@
-# Jira-Anchored Project Workspaces
+# Project Workspaces
 
 A Singularity workspace is a **local isolation boundary**, not a new Jira or
-SDLC hierarchy item. Its identity is an existing Jira Epic or a configured
-Jira item above Epic. Jira supplies the hierarchy, Git supplies authoritative
-workflow state, and the workspace supplies separate clones, staged documents,
-caches, logs, and Copilot process context.
+SDLC hierarchy item. It supplies separate clones, staged documents, caches,
+logs, and Copilot process context. Exactly one repository is the lead and
+stores Epic-level artifacts; every participating repository has its own Jira
+board routing, App ID, display name, and optional metadata.
 
 ## Create from the desktop
 
-1. Open the repository that will govern the initiative.
-2. Configure and commit `singularity/portfolio.yml`, including Jira policy and
-   participating repository URLs.
-3. Connect Jira from **Jira workspace**. The token/PAT is encrypted for the
-   operating-system account and never enters Git or `workspace.json`.
-4. Open **Project workspaces**.
-5. Choose a storage directory, Jira project, and an Epic or higher-level item.
-6. Review the live Jira hierarchy, choose the lead repository and participating
-   repositories, then preview every clone operation.
-7. Type the exact Jira key to create the workspace.
+1. Open any initialized Singularity repository.
+2. Open **Advanced → Workspace configuration**.
+3. Enter the workspace name and portable ID, then choose a local working
+   directory.
+4. Add repositories from local Git checkouts or enter clone URLs manually.
+5. For each repository, enter its Jira board/project key, Application ID,
+   display name, and any additional key/value metadata.
+6. Select exactly one lead repository and preview every clone operation.
+7. Type the exact workspace ID to create the workspace.
 
-The desktop discovers Jira issue-type names and numeric hierarchy levels. It
-does not assume that level 2 is named “Initiative.” Jira Standard projects can
-use an Epic anchor; Jira Premium/Enterprise sites may expose configured levels
-above Epic.
+Jira authentication is not required to configure a workspace. Credentials
+remain an OS-protected integration concern when the Epic flow actually reads or
+writes Jira. They never enter `workspace.json`.
 
 ## Local layout
 
 ```text
 <workspace-base>/
-  PAY-100--payments-modernization/
+  payments-modernization/
     workspace.json
     repos/
       platform/
@@ -47,9 +45,10 @@ above Epic.
       workspace-materialization.json
 ```
 
-`workspace.json` is machine-local. It contains the Jira anchor, local relative
-paths, clone URLs, and the lead-repository selection. It never contains Jira
-credentials, approvals, lifecycle state, or authoritative evidence.
+`workspace.json` is machine-local. It contains the workspace identity, local
+relative paths, clone URLs, repository Jira routing, application metadata, and
+the lead-repository selection. It never contains Jira credentials, approvals,
+lifecycle state, or authoritative evidence.
 
 Documents added with **Stage documents** remain visibly marked
 `staged-not-governed`. When the matching story branch and persona session are
@@ -62,14 +61,14 @@ and freshness cannot be bypassed.
 
 - Each workspace receives independent normal clones even when another
   workspace uses the same repository.
-- Creation requires exact Jira-key confirmation and keeps a resumable journal.
-  Repeating creation with the same Jira key and exact repository plan resumes
+- Creation requires exact workspace-ID confirmation and keeps a resumable journal.
+  Repeating creation with the same workspace ID and exact repository plan resumes
   every missing clone and records each attempt. Interrupted clone staging is
   removed safely before the error is returned.
-- A changed repository URL, branch, path, metadata set, required flag, or lead
-  repository is treated as a different materialization plan. Singularity Flow
-  refuses to reuse the existing directory; open its current plan or choose a
-  different workspace location.
+- A changed repository URL, branch, path, Jira board, metadata set, required
+  flag, or lead repository is treated as a different materialization plan.
+  Singularity Flow refuses to reuse the existing directory; open its current
+  plan or choose a different workspace location.
 - Existing unrelated directories are never overwritten.
 - Fetch skips dirty clones and never changes their branch or working tree.
 - Repair clones only missing repositories. Remote mismatches require deliberate
@@ -84,13 +83,15 @@ and freshness cannot be bypassed.
 - Planning Copilot receives the ready clone roots as its explicit read-only
   filesystem boundary. It is told to exclude staged documents until governance
   promotes or registers them.
-- A lost local workspace can be rebuilt from its Jira anchor, lead Git branch,
-  and participating remote branches.
+- A lost local workspace can be rebuilt from its saved configuration, lead Git
+  branch, and participating remote branches.
+- Existing Jira-anchored `workspace.json` files remain readable and resumable.
 
 ## CLI
 
-The Electron app is the recommended experience. The local commands are useful
-for diagnostics and corporate automation:
+The Electron app is the recommended experience for the unified workspace
+configuration. Existing Jira-anchored CLI commands remain available for
+backward compatibility and corporate automation:
 
 ```bash
 singularity-flow workspace create \

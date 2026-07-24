@@ -303,35 +303,38 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
 
-## Jira-anchored project workspaces
+## Workspace configuration
 
-A project workspace is a local isolation boundary around an existing Jira Epic
-or higher-level Jira item. It is not another workflow phase, Jira issue type, or
-portfolio level. Jira provides the configured issue-type hierarchy; the lead Git
-branch stores governed initiative state; `workspace.json` stores only local
-paths, clone URLs, and the selected lead repository.
+A workspace is a local isolation boundary for one project context. It is not
+another workflow phase, Jira issue type, or portfolio level. `workspace.json`
+stores the local directory layout, clone URLs, per-repository Jira board or
+project key, App ID, display name, optional metadata, and the selected lead
+repository. The lead repository is the Git home for Epic-level artifacts.
 
 In the desktop:
 
-1. Open the governing lead repository.
-2. Configure `singularity/portfolio.yml` and connect Jira.
-3. Open **Project workspaces**.
-4. Choose a storage folder and an Epic or higher Jira item.
-5. Review the Jira hierarchy and repository clone plan.
-6. Type the exact Jira key to create the isolated workspace.
+1. Open any initialized Singularity repository.
+2. Open **Advanced → Workspace configuration**.
+3. Enter a workspace name and ID, then choose the local working directory.
+4. Add repositories from disk or enter their clone URLs.
+5. Set each repository’s Jira board/project key, Application ID, and optional
+   metadata.
+6. Select exactly one lead repository and review the clone plan.
+7. Type the exact workspace ID to create the isolated workspace.
 
 Each selected repository is cloned separately below `repos/`. Fetch operations
 skip dirty clones and never change a branch. Switching workspace stops the
 previous Copilot backend and discards private planning handles before the new
 lead repository becomes active.
 
-If setup is interrupted, repeat creation with the same Jira key and unchanged
+If setup is interrupted, repeat creation with the same workspace ID and unchanged
 repository plan or select **Repair**. Missing clones resume and every attempt is
 written to `logs/workspace-materialization.json`. A changed URL, branch, local
-path, metadata set, required flag, or lead repository is refused at the same
-target so stale configuration cannot be mistaken for a successful resume.
-Recent locations use the canonical workspace path; `workspace.json` must be a
-regular local manifest rather than a symlink.
+path, Jira board, metadata set, required flag, or lead repository is refused at
+the same target so stale configuration cannot be mistaken for a successful
+resume. Recent locations use the canonical workspace path; `workspace.json`
+must be a regular local manifest rather than a symlink. Older Jira-anchored
+workspace manifests remain supported.
 
 Files placed in `documents/inbox/` are shown as **staged — not governed**.
 On a resumed story branch with an active persona, **Import to work item** copies,

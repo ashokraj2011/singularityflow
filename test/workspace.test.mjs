@@ -6,8 +6,8 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
-  normalizeWorkspaceAnchor, previewWorkspace, readWorkspace, readWorkspaceRegistry,
+  createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
+  normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, resolveWorkspaceDocument, stageWorkspaceDocuments,
   validateWorkspaceManifest, workspaceStatus
 } from '../src/workspace.mjs';
@@ -63,6 +63,58 @@ test('workspace anchors follow Jira hierarchy levels without hard-coded Initiati
     issueTypeName: 'Story',
     hierarchyLevel: 0
   }), /below Epic/);
+});
+
+test('workspace configuration is independent from Jira hierarchy and pins repository routing metadata', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-config-'));
+  const preview = previewWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'payments-platform',
+    name: 'Payments platform',
+    leadRepository: 'experience',
+    repositories: {
+      experience: {
+        url: path.join(root, 'experience.git'),
+        defaultBranch: 'main',
+        role: 'participant',
+        jira: { board: 'PAY Experience' },
+        metadata: { appId: 'APP-1001', name: 'Customer experience', owner: 'Digital' }
+      },
+      services: {
+        url: path.join(root, 'services.git'),
+        defaultBranch: 'main',
+        role: 'lead',
+        jira: { board: 'PAY-SVC' },
+        metadata: { appId: 'APP-1002', name: 'Payment services' }
+      }
+    }
+  });
+  assert.equal(preview.manifest.anchor.provider, 'workspace');
+  assert.equal(preview.manifest.anchor.issueTypeName, 'Workspace');
+  assert.equal(preview.manifest.repositories.experience.role, 'lead');
+  assert.equal(preview.manifest.repositories.services.role, 'participant');
+  assert.equal(preview.manifest.repositories.experience.jira.board, 'PAY Experience');
+  assert.equal(preview.manifest.repositories.experience.metadata.appId, 'APP-1001');
+  await assert.rejects(
+    () => createWorkspaceConfiguration({
+      baseDirectory: path.join(root, 'workspaces'),
+      id: 'payments-platform',
+      name: 'Payments platform',
+      leadRepository: 'experience',
+      repositories: preview.manifest.repositories
+    }, { confirmation: 'wrong', clone: false }),
+    /exact workspace-ID confirmation/
+  );
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'payments-platform',
+    name: 'Payments platform',
+    leadRepository: 'experience',
+    repositories: preview.manifest.repositories
+  }, { confirmation: 'payments-platform', clone: false });
+  assert.equal(created.workspace.name, 'Payments platform');
+  assert.equal(created.workspace.leadRepository, 'experience');
+  assert.equal(created.workspace.repositories.services.jira.board, 'PAY-SVC');
 });
 
 test('workspace manifest keeps repositories isolated below repos and requires a lead', () => {

@@ -1027,6 +1027,35 @@ button.ghost { color: #096b43; }
 .workspace-staged > div:last-child { border-bottom: 0; }
 .workspace-staged code { color: var(--muted); font-size: 10px; }
 .workspace-create { overflow: hidden; }
+.workspace-create > .panel-heading p { max-width: 720px; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.workspace-identity-grid { display: grid; grid-template-columns: minmax(220px,1fr) minmax(180px,.65fr); gap: 16px; padding: 22px; border-bottom: 1px solid var(--line); background: #fbfcfa; }
+.workspace-identity-grid label,.workspace-repository-fields label { display: grid; gap: 7px; }
+.workspace-identity-grid label > span,.workspace-repository-fields label > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .065em; text-transform: uppercase; }
+.workspace-identity-grid input,.workspace-repository-fields input,.workspace-metadata-editor input { width: 100%; min-width: 0; height: 42px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; background: #fff; color: var(--ink); }
+.workspace-directory-field { grid-column: 1/-1; }
+.workspace-directory-field > div { display: flex; gap: 10px; }
+.workspace-directory-field input { flex: 1; font-family: var(--font-mono); font-size: 10px; }
+.workspace-repository-config { display: grid; gap: 16px; padding: 22px; border-bottom: 1px solid var(--line); }
+.workspace-repository-config > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.workspace-repository-config > header h3 { margin: 3px 0; font: 650 18px/1.2 var(--font-display); }
+.workspace-repository-config > header p { margin: 0; color: var(--muted); font-size: 11px; }
+.workspace-repository-editor { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: #fff; transition: border-color .2s, box-shadow .2s; }
+.workspace-repository-editor.lead { border-color: rgba(17,122,77,.5); box-shadow: 0 10px 28px rgba(17,122,77,.08); }
+.workspace-repository-editor > header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: #f8faf7; }
+.workspace-lead-choice { display: flex; align-items: center; gap: 11px; cursor: pointer; }
+.workspace-lead-choice input { accent-color: var(--green-700); }
+.workspace-lead-choice > span { display: grid; gap: 2px; }
+.workspace-lead-choice strong { font-size: 13px; font-weight: 650; }
+.workspace-lead-choice small { color: var(--muted); font-size: 10px; }
+.workspace-repository-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; padding: 18px 16px; }
+.workspace-repository-fields .wide { grid-column: span 2; }
+.workspace-metadata-editor { padding: 0 16px 16px; }
+.workspace-metadata-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 0; border-top: 1px solid var(--line-soft); }
+.workspace-metadata-editor > header > div { display: grid; gap: 2px; }
+.workspace-metadata-editor > header strong { font-size: 12px; font-weight: 650; }
+.workspace-metadata-editor > header span { color: var(--muted); font-size: 10px; }
+.workspace-metadata-editor > div { display: grid; grid-template-columns: minmax(150px,.65fr) minmax(220px,1.35fr) auto; gap: 9px; margin-top: 9px; }
+.workspace-form-note { margin: 16px 22px 0; border: 1px solid #eed99a; border-radius: 10px; padding: 11px 13px; color: #775514; background: #fffbef; font-size: 11px; }
 .workspace-prerequisite { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 36px; padding: 30px; background: var(--surface-muted); }
 .workspace-prerequisite > div { max-width: 560px; display: grid; gap: 6px; }
 .workspace-prerequisite strong { font-size: 18px; }
@@ -1070,6 +1099,8 @@ button.ghost { color: #096b43; }
   .workspace-health-grid > div:nth-child(3) { border-left: 0; }
   .workspace-health-grid > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .workspace-step, .repository-selection { grid-template-columns: 36px minmax(180px,.65fr) minmax(190px,1fr); }
+  .workspace-repository-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .workspace-repository-fields .wide { grid-column: 1/-1; }
   .workspace-step > :last-child { grid-column: 3; }
   .workspace-operation-list > div { grid-template-columns: 64px 90px minmax(180px,1fr); }
   .workspace-operation-list > div > span { grid-column: 3; }

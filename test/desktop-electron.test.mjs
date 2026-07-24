@@ -68,8 +68,8 @@ test('Electron welcome screen renders persistent repository errors and loading f
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   assert.match(source, /Opening repository…/);
   assert.match(source, /Opening the selected project context/);
-  assert.match(source, /Open or create local workspace/);
-  assert.match(source, /Advanced setup & connections/);
+  assert.match(source, /Open or create workspace/);
+  assert.match(source, /Workspace configuration/);
   assert.match(source, /if \(!data\).*<Toast toast=\{toast\}/s);
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
@@ -94,6 +94,7 @@ test('Electron onboarding fails closed with a recoverable retry screen', async (
 
 test('Electron desktop exposes guided workflow and portable repository configuration controls', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const navigation = source.slice(source.indexOf('const navSections'), source.indexOf('const onboardingRoles'));
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
@@ -203,9 +204,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /No estimate shown/);
   assert.match(source, /Recent repositories/);
   assert.match(source, /Recent workspaces/);
-  assert.match(source, /Project workspaces/);
+  assert.match(source, /Workspace configuration/);
+  assert.match(source, /Jira board \/ project key/);
+  assert.match(source, /Epic-level artifacts are committed here/);
+  assert.doesNotMatch(navigation, /Initiative governance/);
+  assert.doesNotMatch(navigation, /Jira connection/);
   assert.match(source, /Staged — not governed/);
-  assert.match(source, /no synthetic parent is created/);
+  assert.match(source, /not separate setup steps/);
   assert.match(source, /Create workspace/);
   assert.match(source, /Saved locations/);
   assert.match(source, /Open another repository/);
@@ -289,6 +294,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /openRepository/);
   assert.match(preload, /forgetRepository/);
   assert.match(preload, /recentWorkspaces/);
+  assert.match(preload, /previewWorkspaceConfiguration/);
+  assert.match(preload, /createWorkspaceConfiguration/);
+  assert.match(preload, /chooseWorkspaceRepositories/);
   assert.match(preload, /previewWorkspace/);
   assert.match(preload, /jiraWorkspaceAnchors/);
   assert.match(main, /repository:recent/);
@@ -302,6 +310,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /repository:open/);
   assert.match(main, /repository:forget/);
   assert.match(main, /workspace:create/);
+  assert.match(main, /workspace:configuration-preview/);
+  assert.match(main, /workspace:configuration-create/);
+  assert.match(main, /workspace:repository-choose/);
   assert.match(main, /inspectWorkspaceSelection/);
   assert.match(main, /openWorkspaceSetup/);
   assert.match(main, /Choose the specific workspace folder/);

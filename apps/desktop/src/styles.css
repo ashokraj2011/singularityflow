@@ -2604,6 +2604,65 @@ label > span,
 .epic-completion-result strong { color: #126a40; font-size: 12px; font-weight: 620; }
 .epic-completion-result span { font-size: 10px; }
 
+/* v0.9 business experience */
+.experience-switcher { display: grid; gap: 7px; margin: 0 10px 10px; padding: 10px; border: 1px solid rgba(255,255,255,.11); border-radius: 12px; background: rgba(255,255,255,.055); }
+.experience-switcher > span { color: #aebbb3; font-size: 10px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+.experience-switcher > div { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 9px; background: rgba(0,0,0,.18); }
+.experience-switcher button { min-height: 31px; border: 0; border-radius: 7px; color: #aebbb3; background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
+.experience-switcher button.active { color: #123f2a; background: #f2f8f4; box-shadow: 0 2px 8px rgba(0,0,0,.2); font-weight: 650; }
+.sidebar-collapsed .experience-switcher { display: none; }
+
+.epics-home { max-width: 1500px; margin: 0 auto; }
+.epics-home-heading { align-items: center; }
+.epics-home-heading h1 { font-size: clamp(34px,3vw,48px); letter-spacing: -.045em; }
+.epics-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin: 10px 0 22px; }
+.epics-summary > div { display: grid; gap: 4px; border: 1px solid #dce5de; border-radius: 15px; padding: 18px 20px; background: linear-gradient(145deg,#fff,#f7faf8); box-shadow: 0 8px 24px rgba(29,71,47,.045); }
+.epics-summary strong { color: #173f2a; font-size: 30px; font-weight: 560; letter-spacing: -.035em; }
+.epics-summary span { color: #748178; font-size: 12px; }
+.epic-card-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(330px,1fr)); gap: 16px; }
+.epic-home-card { display: grid; gap: 14px; min-height: 250px; border: 1px solid #d9e3dc; border-radius: 18px; padding: 21px; text-align: left; color: inherit; background: #fff; box-shadow: 0 10px 32px rgba(27,66,44,.055); cursor: pointer; transition: transform .18s ease,border-color .18s ease,box-shadow .18s ease; }
+.epic-home-card:hover { transform: translateY(-3px); border-color: #91bca0; box-shadow: 0 18px 40px rgba(27,66,44,.11); }
+.epic-home-card > header,.epic-home-card > footer,.epic-home-card > header > span { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.epic-home-card > header code { color: #176e43; font-size: 12px; font-weight: 700; }
+.epic-home-card h2 { margin: 0; color: #172a20; font-size: 21px; font-weight: 590; line-height: 1.25; letter-spacing: -.025em; }
+.epic-home-card p { min-height: 38px; margin: 0; color: #738078; font-size: 13px; line-height: 1.5; }
+.epic-home-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+.epic-home-progress > i { overflow: hidden; height: 7px; border-radius: 8px; background: #e8eee9; }
+.epic-home-progress b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#176f43,#43a66e); }
+.epic-home-progress span { color: #315b43; font-size: 12px; font-weight: 650; }
+.epic-home-card > footer { align-self: end; border-top: 1px solid #edf1ee; padding-top: 14px; color: #78857d; font-size: 11px; }
+.epic-home-card > footer strong { color: #176f43; font-size: 12px; font-weight: 620; }
+
+.epic-origin-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 18px 20px 4px; }
+.epic-origin-choice button { display: grid; gap: 4px; border: 1px solid #d9e2db; border-radius: 12px; padding: 13px 15px; text-align: left; color: #68766d; background: #fafcfa; cursor: pointer; }
+.epic-origin-choice button.active { border-color: #6eae87; color: #174f31; background: #eff8f2; box-shadow: inset 0 0 0 1px #cee7d7; }
+.epic-origin-choice strong { font-size: 13px; font-weight: 620; }
+.epic-origin-choice small { font-size: 10px; }
+.local-epic-fields > div { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.local-epic-fields h3,.local-epic-fields > div > .eyebrow,.local-epic-fields .epic-local-id,.local-epic-fields .notice { grid-column: 1/-1; }
+.local-epic-fields label { display: grid; gap: 6px; color: #5f6e65; font-size: 11px; }
+.local-epic-fields label:has(textarea) { grid-column: 1/-1; }
+.local-epic-fields input,.local-epic-fields textarea { border: 1px solid #d5ded7; border-radius: 9px; padding: 10px 12px; color: #263d30; background: #fff; font: inherit; font-size: 12px; resize: vertical; }
+.epic-local-id { display: flex; align-items: center; justify-content: space-between; border: 1px solid #d9e5dc; border-radius: 9px; padding: 9px 11px; color: #718077; background: #f5faf7; font-size: 11px; }
+.epic-local-id code { color: #136a3d; font-weight: 700; }
+
+.phase-governance { display: grid; grid-template-columns: minmax(280px,1fr) minmax(180px,.4fr) minmax(220px,.5fr) auto; gap: 16px; align-items: end; padding: 20px; border-color: #cfe0d4; background: linear-gradient(135deg,#fff,#f4faf6); }
+.phase-governance h3 { margin: 4px 0 5px; color: #183d28; font-size: 18px; font-weight: 590; }
+.phase-governance p { margin: 0; color: #718078; font-size: 12px; line-height: 1.5; }
+.phase-governance label { display: grid; gap: 6px; color: #65736a; font-size: 10px; font-weight: 620; }
+.phase-governance select,.phase-governance input[type="text"],.phase-governance input:not([type]) { height: 39px; border: 1px solid #d2ddd5; border-radius: 8px; padding: 0 10px; color: #284333; background: #fff; font: inherit; font-size: 11px; }
+.phase-governance .self-approval-ack { grid-column: 2/4; display: flex; align-items: center; font-weight: 450; line-height: 1.35; }
+.stage-primary-action { display: flex; justify-content: flex-end; align-items: center; min-height: 40px; }
+.stage-evidence { grid-column: 1/-1; border-top: 1px solid #dce7df; padding-top: 12px; }
+.stage-evidence summary { display: flex; justify-content: space-between; color: #476251; font-size: 11px; font-weight: 620; cursor: pointer; }
+.stage-evidence summary span { color: #849188; font-weight: 500; }
+.stage-evidence > div { display: grid; gap: 7px; padding-top: 12px; }
+.stage-evidence p { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin: 0; }
+.stage-evidence p strong,.stage-evidence p small { display: block; }
+.stage-evidence p strong { color: #32493b; font-size: 11px; font-weight: 570; }
+.stage-evidence p small { margin-top: 2px; color: #839087; font-size: 9px; }
+.epic-delivery-summary { padding: 8px 0; }
+
 @media (max-width: 1220px) {
   .topbar-title { display: none; }
   .onboarding-shell { grid-template-columns: 245px minmax(0,1fr); }
@@ -2619,6 +2678,8 @@ label > span,
   .epic-start-wizard { grid-template-columns: 1fr; }
   .epic-start-intro { min-height: 360px; }
   .epic-lifecycle-wizard > button { min-width: 118px; flex-basis: 118px; }
+  .phase-governance { grid-template-columns: 1fr 1fr; }
+  .stage-primary-action { grid-column: 2; }
 }
 
 @media (max-width: 1440px) {

@@ -94,7 +94,7 @@ test('Electron onboarding fails closed with a recoverable retry screen', async (
 
 test('Electron desktop exposes guided workflow and portable repository configuration controls', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
-  const navigation = source.slice(source.indexOf('const navSections'), source.indexOf('const onboardingRoles'));
+  const navigation = source.slice(source.indexOf('const engineerNavSections'), source.indexOf('const onboardingRoles'));
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
@@ -144,7 +144,14 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Epic-level story progress/);
   assert.match(source, /Epic lifecycle wizard/);
-  assert.match(source, /Bring the Jira Epic into Singularity/);
+  assert.match(source, /Turn an Epic into delivery-ready Stories/);
+  assert.match(source, /Bring from Jira/);
+  assert.match(source, /Describe the work/);
+  assert.match(source, /const businessNavSections/);
+  assert.match(source, /\['epics', 'Epics'\]/);
+  assert.match(source, /\['inbox', 'Reviews'\]/);
+  assert.match(source, /Sources/);
+  assert.match(source, /PhaseGovernance/);
   assert.match(source, /generated User Stories/);
   assert.match(source, /High-level solution specification/);
   assert.match(source, /Select what Jira receives/);
@@ -164,12 +171,22 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /decideEpicReview:/);
   assert.match(preload, /completeEpicDelivery:/);
   assert.match(preload, /startEpicWizard:/);
+  assert.match(preload, /startLocalEpic:/);
+  assert.match(preload, /setExperienceMode:/);
+  assert.match(preload, /openInitiative:/);
+  assert.match(preload, /publishInitiativePhase:/);
+  assert.match(preload, /approveInitiativePhase:/);
   assert.match(main, /epic:sources-upload/);
   assert.match(main, /epic:review-inbox/);
   assert.match(main, /epic:checks/);
   assert.match(main, /epic:decision/);
   assert.match(main, /epic:complete/);
   assert.match(main, /epic:start/);
+  assert.match(main, /epic:start-local/);
+  assert.match(main, /onboarding:experience/);
+  assert.match(main, /initiative:open/);
+  assert.match(main, /initiative:phase-publish/);
+  assert.match(main, /initiative:phase-approve/);
   assert.match(main, /StorageCredentialStore/);
   assert.match(main, /authorizeSharePoint/);
   assert.match(source, /Sign in with Microsoft/);

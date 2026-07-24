@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { add, branch, commit, head, identity, pushBranch } from './git.mjs';
+import { add, branch, commit, fileAtRef, head, identity, pushBranch, remoteBranches } from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
   validatePortfolioWorldModelViews
@@ -72,6 +72,20 @@ function validateInitiativeRuntimeState(initiative, expectedId = initiative?.ini
   }
   if (initiative.initiative.branch !== expectedId) {
     throw new SingularityFlowError(`Initiative '${expectedId}' branch identity is invalid.`);
+  }
+  initiative.lineage ??= {
+    idAuthority: initiative.resolution.identity?.authority ?? (initiative.initiative.source?.type === 'jira' ? 'jira' : 'local'),
+    primaryId: initiative.initiative.id,
+    aliases: []
+  };
+  if (!['jira', 'local'].includes(initiative.lineage.idAuthority)) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' has unsupported identity authority '${initiative.lineage.idAuthority}'.`);
+  }
+  if (initiative.resolution.identity?.authority && initiative.lineage.idAuthority !== initiative.resolution.identity.authority) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' identity authority differs from its immutable resolution.`);
+  }
+  if (initiative.lineage.primaryId !== initiative.initiative.id) {
+    throw new SingularityFlowError(`Initiative '${expectedId}' primary lineage ID is invalid.`);
   }
   if (initiative.currentPhase !== null && !resolvedIds.includes(initiative.currentPhase)) {
     throw new SingularityFlowError(`Initiative '${expectedId}' current phase '${initiative.currentPhase}' is not in its immutable resolution.`);
@@ -198,7 +212,8 @@ export async function createInitiative(root, {
   title,
   profile,
   source = { type: 'manual' },
-  persona = null
+  persona = null,
+  idAuthority = null
 } = {}) {
   validateInitiativeId(id);
   const portfolio = await loadPortfolio(root);
@@ -216,7 +231,7 @@ export async function createInitiative(root, {
   if (directory.exists && (await readdir(directory.absolute)).length) {
     throw new SingularityFlowError(`Initiative directory ${directory.relative} already contains files but has no valid state. Inspect or recover it before starting ${id}; existing data will not be overwritten.`);
   }
-  const resolved = resolveInitiativeProfile(portfolio, profile);
+  const resolved = resolveInitiativeProfile(portfolio, profile, { idAuthority });
   assertAuthorityMembership(resolved);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.worldModelGrounding = groundingMode(definition);
@@ -243,6 +258,13 @@ export async function createInitiative(root, {
       source: structuredClone(source)
     },
     resolution,
+    lineage: {
+      idAuthority: resolution.identity.authority,
+      primaryId: id,
+      aliases: source?.type === 'jira' && source?.key && source.key !== id
+        ? [{ authority: 'jira', id: source.key, issueId: source.id ?? null, recordedAt: createdAt }]
+        : []
+    },
     status: 'in_progress',
     currentPhase: phases[0]?.id ?? null,
     phaseOrder: phases.map((phase) => phase.id),
@@ -283,7 +305,8 @@ export async function createInitiative(root, {
     resolution: {
       profile: resolution.profile,
       portfolioSha256: resolution.portfolioSha256,
-      resolutionSha256: resolution.resolutionSha256
+      resolutionSha256: resolution.resolutionSha256,
+      idAuthority: resolution.identity.authority
     }
   }));
   await writeText(breakdownPath.absolute, YAML.stringify({
@@ -299,6 +322,7 @@ export async function createInitiative(root, {
       defaultBranch: repository.defaultBranch,
       required: repository.required,
       metadata: structuredClone(repository.metadata ?? {}),
+      jira: structuredClone(repository.jira ?? {}),
       observedHead: null,
       observedAt: null
     }]))
@@ -468,9 +492,38 @@ export async function listInitiatives(root, portfolio = null) {
     label: 'Initiative root',
     type: 'directory'
   });
-  if (!base.exists) return [];
-  const results = [];
-  for (const entry of await readdir(base.absolute, { withFileTypes: true })) {
+  const results = new Map();
+  const summarize = (state, fallbackId, source = 'working-tree') => {
+    const phases = Array.isArray(state.phaseOrder)
+      ? state.phaseOrder.map((phaseId) => state.phases?.[phaseId]).filter(Boolean)
+      : [];
+    const approved = phases.filter((phase) => phase.status === 'approved').length;
+    const currentPhase = state.phases?.[state.currentPhase] ?? null;
+    const lastEvent = state.history?.at(-1) ?? null;
+    const waitingSince = currentPhase?.submittedAt ?? currentPhase?.startedAt ?? lastEvent?.at ?? state.initiative?.createdAt ?? null;
+    return {
+      id: state.initiative?.id ?? fallbackId,
+      title: state.initiative?.title ?? fallbackId,
+      profile: state.initiative?.profile ?? null,
+      profileLabel: state.initiative?.profileLabel ?? state.initiative?.profile ?? null,
+      idAuthority: state.lineage?.idAuthority ?? state.resolution?.identity?.authority ?? 'local',
+      status: state.status ?? 'unknown',
+      currentPhase: state.currentPhase ?? null,
+      currentPhaseLabel: currentPhase?.label ?? state.currentPhase ?? null,
+      currentPhaseStatus: currentPhase?.status ?? null,
+      percentage: phases.length ? Math.round((approved / phases.length) * 100) : 100,
+      phasesApproved: approved,
+      phasesTotal: phases.length,
+      waitingSince,
+      lastActor: lastEvent?.actor ?? null,
+      lastEvent: lastEvent?.event ?? null,
+      branch: state.initiative?.branch ?? fallbackId,
+      updatedAt: lastEvent?.at ?? state.initiative?.createdAt ?? null,
+      source
+    };
+  };
+  const localEntries = base.exists ? await readdir(base.absolute, { withFileTypes: true }) : [];
+  for (const entry of localEntries) {
     if (!entry.isDirectory()) continue;
     try {
       const statePath = await secureInitiativePath(root, definition, entry.name, 'state.json', {
@@ -479,20 +532,29 @@ export async function listInitiatives(root, portfolio = null) {
         type: 'file'
       });
       const state = await readJson(statePath.absolute);
-      results.push({
-        id: state.initiative?.id ?? entry.name,
-        title: state.initiative?.title ?? entry.name,
-        profile: state.initiative?.profile ?? null,
-        status: state.status ?? 'unknown',
-        currentPhase: state.currentPhase ?? null,
-        branch: state.initiative?.branch ?? entry.name,
-        updatedAt: state.history?.at(-1)?.at ?? state.initiative?.createdAt ?? null
-      });
+      results.set(state.initiative?.id ?? entry.name, summarize(state, entry.name));
     } catch (error) {
-      results.push({ id: entry.name, title: entry.name, status: 'invalid', error: error.message });
+      results.set(entry.name, { id: entry.name, title: entry.name, status: 'invalid', error: error.message });
     }
   }
-  return results.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
+  const remote = definition.git?.remote ?? 'origin';
+  for (const name of remoteBranches(root, remote)) {
+    try { validateInitiativeId(name); } catch { continue; }
+    const statePath = posix(path.join(definition.initiativeRoot, name, 'state.json'));
+    const content = fileAtRef(root, `${remote}/${name}`, statePath);
+    if (!content) continue;
+    try {
+      const state = JSON.parse(content);
+      if (state.initiative?.id !== name || state.initiative?.branch !== name) continue;
+      const candidate = summarize(state, name, `${remote}/${name}`);
+      const current = results.get(name);
+      if (!current || String(candidate.updatedAt ?? '') > String(current.updatedAt ?? '')) results.set(name, candidate);
+    } catch {
+      // Invalid remote branches are surfaced only when selected; one malformed
+      // branch must not hide healthy Epics from the business home.
+    }
+  }
+  return [...results.values()].sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
 }
 
 export function initiativeProgress(initiative) {

@@ -6,6 +6,18 @@ git:
   remote: origin
   publish: required
 
+# Identity is pinned independently for every Epic. Omit authority to use Jira
+# when Jira is enabled and local Git-native IDs otherwise. Set it explicitly
+# when an organization requires one authority for every new Epic.
+identity:
+  local:
+    epicPrefix: SF-E
+    storyPrefix: SF-S
+    pad: 3
+    # Story IDs include the reserved Epic sequence (SF-S-001-001). This keeps
+    # independently planned Epics collision-free without a central service.
+    scopeStoriesByEpic: true
+
 # Jira policy is repository configuration; credentials are never repository
 # data. The desktop encrypts them with the operating-system credential store.
 # CLI users may continue to use JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN, or
@@ -52,8 +64,14 @@ approvalAuthorities:
 #     url: git@github.com:company/mobile.git
 #     defaultBranch: main
 #     required: true
+#     jira: { projectKey: MOB }
 #     metadata: { appId: APP-1001, name: Mobile application, owner: Digital }
 repositories: {}
+
+repositoryMetadata:
+  requiredKeys: []
+  patterns:
+    appId: "^[A-Z0-9-]{3,32}$"
 
 storage:
   # Source bytes stay in shared corporate storage. Git records immutable
@@ -91,7 +109,7 @@ initiativePhases:
       - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, template: initiatives/epic/source-gaps.md }
       - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, template: initiatives/epic/intake-summary.md }
     checklist:
-      - { id: epic-identity-verified, label: Jira Epic identity and permissions verified, requirement: must, acceptedAssurance: [system-verified], gate: block }
+      - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: sources-pinned, label: Required source versions are accessible and hash-pinned, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
@@ -139,7 +157,7 @@ initiativePhases:
       - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-plan/story-plan, epic-spec/high-level-specification] }
       - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-plan/story-plan, epic-plan/repository-map, epic-spec/high-level-specification] }
     checklist:
-      - { id: jira-permission-verified, label: Connected Jira user can create Stories in the configured project, requirement: must, acceptedAssurance: [system-verified], gate: block }
+      - { id: jira-permission-verified, label: Selected identity authority can create Story records, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: stories-materialized, label: Jira Stories and canonical Git branches have receipts, requirement: must, acceptedAssurance: [system-verified, machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 

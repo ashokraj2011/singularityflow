@@ -144,6 +144,21 @@ function descriptionWithAcceptance(item) {
   ].filter(Boolean).join('\n\n');
 }
 
+function repositoryRouting(initiative, story, fallbackProjectKey, policy) {
+  const repository = initiative.resolution?.repositories?.[story.repository];
+  if (!repository) throw new SingularityFlowError(`Story '${story.id}' references repository '${story.repository}' outside the immutable resolution.`);
+  const projectKey = assertJiraProjectPolicy(
+    repository.jira?.projectKey || fallbackProjectKey,
+    policy,
+    `Story '${story.id}' Jira project`
+  );
+  const appId = repository.metadata?.appId == null ? null : String(repository.metadata.appId);
+  const appIdLabel = appId
+    ? `appid-${appId.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')}`.slice(0, 255)
+    : null;
+  return { repository, projectKey, appId, appIdLabel };
+}
+
 function materializationPhase(initiative) {
   return initiative.phaseOrder.includes('epic-spec')
     ? 'epic-spec'
@@ -412,6 +427,7 @@ export async function createJiraWritePlan(root, initiativeId, {
       });
     }
     for (const story of epic.stories) {
+      const routing = repositoryRouting(initiative, story, governedProjectKey, policy);
       if (story.jiraKey) {
         const storyKey = assertJiraIssuePolicy(story.jiraKey, policy, `Jira story '${story.id}'`);
         const issue = assertIssueRecordPolicy(
@@ -435,11 +451,15 @@ export async function createJiraWritePlan(root, initiativeId, {
           subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: null },
           parent: { epicId: epic.id, jiraKey: epic.jiraKey },
           issue: {
-            projectKey: governedProjectKey,
+            projectKey: routing.projectKey,
             issueType: policy.storyIssueType ?? 'Story',
             summary: story.title,
             description: descriptionWithAcceptance(story),
-            labels: [`sflow-${initiativeId.toLowerCase()}`, `sflow-${story.id.toLowerCase()}`]
+            labels: [
+              `sflow-${initiativeId.toLowerCase()}`,
+              `sflow-${story.id.toLowerCase()}`,
+              routing.appIdLabel
+            ].filter(Boolean)
           }
         });
       }
@@ -470,10 +490,14 @@ export async function createJiraWritePlan(root, initiativeId, {
   const forbidden = operations.filter((operation) => !(policy.writePolicy?.operations ?? []).includes(operation.action));
   if (forbidden.length) throw new SingularityFlowError(`Jira policy does not permit planned operations: ${[...new Set(forbidden.map((operation) => operation.action))].join(', ')}.`);
   const snapshotSha256 = hash(snapshots);
+  const projectKeys = [...new Set(operations
+    .filter((operation) => operation.action.startsWith('create-'))
+    .map((operation) => operation.issue.projectKey))].sort();
   const planBase = {
     schemaVersion: 1,
     initiativeId,
     projectKey: governedProjectKey,
+    projectKeys,
     connection: policy.connection,
     deployment: policy.deployment,
     source: { breakdownSha256: hash(initiativeBreakdownDocument(breakdown)), jiraSnapshotSha256: snapshotSha256 },
@@ -541,12 +565,23 @@ export async function applyJiraWritePlan(root, initiativeId, {
   const resolvedConnection = governedConnection(policy, { connection, env });
   const phaseId = materializationPhase(initiative);
   if (!phaseId || initiative.phases[phaseId]?.status !== 'approved') throw new SingularityFlowError(`Jira apply requires approved initiative phase '${phaseId}'.`);
-  const permissions = await getMyPermissions(projectKey, { connection: resolvedConnection, fetchImpl });
   const required = new Set(plan.operations.map((operation) => operation.action === 'attach-artifact'
     ? 'CREATE_ATTACHMENTS'
     : operation.action.startsWith('create-') ? 'CREATE_ISSUES' : 'EDIT_ISSUES'));
-  const missing = [...required].filter((name) => !permissions[name]?.havePermission);
-  if (missing.length) throw new SingularityFlowError(`Jira account lacks required permissions: ${missing.join(', ')}.`);
+  const projectKeys = [...new Set([
+    projectKey,
+    ...(plan.projectKeys ?? []),
+    ...plan.operations.filter((operation) => operation.issue?.projectKey).map((operation) => operation.issue.projectKey)
+  ])].map((key) => assertJiraProjectPolicy(key, policy, 'Jira write-plan project'));
+  const permissionFailures = [];
+  for (const key of projectKeys) {
+    const permissions = await getMyPermissions(key, { connection: resolvedConnection, fetchImpl });
+    const missing = [...required].filter((name) => !permissions[name]?.havePermission);
+    if (missing.length) permissionFailures.push(`${key}: ${missing.join(', ')}`);
+  }
+  if (permissionFailures.length) {
+    throw new SingularityFlowError(`Jira account lacks required permissions by project: ${permissionFailures.join('; ')}.`);
+  }
 
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
   const results = [];

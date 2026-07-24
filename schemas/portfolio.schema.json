@@ -8,6 +8,24 @@
     "version": { "const": 1 },
     "initiativeRoot": { "type": "string" },
     "templatesRoot": { "type": "string" },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "authority": { "enum": ["jira", "local"] },
+        "configurablePerEpic": { "type": "boolean" },
+        "local": {
+          "type": "object",
+          "properties": {
+            "epicPrefix": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{1,30}$" },
+            "storyPrefix": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{1,30}$" },
+            "pad": { "type": "integer", "minimum": 2, "maximum": 8 },
+            "scopeStoriesByEpic": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "jira": {
       "type": "object",
       "properties": {
@@ -59,6 +77,15 @@
             "uniqueItems": true
           },
           "required": { "type": "boolean" },
+          "jira": {
+            "type": "object",
+            "properties": {
+              "projectKey": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" },
+              "board": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" },
+              "boardId": { "type": "string", "maxLength": 128 }
+            },
+            "additionalProperties": false
+          },
           "metadata": {
             "type": "object",
             "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
@@ -67,6 +94,21 @@
         },
         "additionalProperties": true
       }
+    },
+    "repositoryMetadata": {
+      "type": "object",
+      "properties": {
+        "requiredKeys": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
+          "uniqueItems": true
+        },
+        "patterns": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
     },
     "storage": {
       "type": "object",

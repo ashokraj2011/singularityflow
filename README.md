@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.8.0
+# Singularity Flow Lite 0.9.0
 
 Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, personas, world-model views, approvals, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
 
@@ -34,7 +34,7 @@ The package contains:
 ## Install and initialize
 
 ```bash
-npm install --global ./singularity-flow-0.8.0.tgz
+npm install --global ./singularity-flow-0.9.0.tgz
 cd your-repository
 singularity-flow init
 git add singularity
@@ -131,9 +131,21 @@ use the five-phase `epic-planning` profile:
 /sflow-epic-status
 ```
 
-The Electron **Epic workspace** now presents this as a seven-step wizard:
-Epic intake, requirements, generated User Stories, high-level specification,
-Jira/Git publication, delivery progress, and spec-to-code completion. The
+The Electron **Business experience** presents a focused three-item navigation
+(`Epics`, `Reviews`, and `Help`) and a five-stage Epic workspace:
+Sources, Requirements, Planning, Stories, and Complete. Product Owners and
+Business Analysts enter this experience by default; anyone can switch between
+Business and Engineer experiences from the sidebar. Planning combines the
+Story decomposition and high-level specification without hiding either
+governed phase. Each stage exposes one primary action and keeps completed stages
+available for audit.
+
+An Epic can be imported from Jira or created without Jira. Local Epics reserve
+collision-safe IDs such as `SF-E-001` through an atomic branch push; their
+Stories retain immutable `STORY-nnn` plan IDs and receive scoped Work IDs such
+as `SF-S-001-001`. The prefixes and padding are configurable in
+`singularity/portfolio.yml`, and the selected identity authority is pinned for
+the life of the Epic. The
 same lifecycle is available as `singularity-flow epic ...`. Pinned source
 files stay in Jira attachments, Artifactory, SharePoint, S3, or an approved
 HTTPS location; Git carries immutable source records and lineage rather than

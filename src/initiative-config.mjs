@@ -16,8 +16,15 @@ export const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
 export const JIRA_WRITE_OPERATIONS = new Set(['create-epic', 'create-story', 'update-owned-fields', 'add-comment', 'attach-artifact']);
 export const STORAGE_PROVIDER_TYPES = new Set(['jira-attachment', 'artifactory', 'sharepoint', 's3', 'https-reference']);
 export const BRANCH_COMPLETION_POLICIES = new Set(['pr', 'direct', 'either']);
+export const ID_AUTHORITIES = new Set(['jira', 'local']);
 const DEFAULT_JIRA_FIELDS = ['summary', 'description', 'parent', 'labels', 'components'];
 const FORBIDDEN_JIRA_FIELDS = new Set(['status', 'assignee', 'sprint', 'priority', 'resolution']);
+const DEFAULT_LOCAL_IDENTITY = Object.freeze({
+  epicPrefix: 'SF-E',
+  storyPrefix: 'SF-S',
+  pad: 3,
+  scopeStoriesByEpic: true
+});
 
 function object(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${label} must be an object.`);
@@ -163,6 +170,43 @@ export function normalizeJiraPolicy(value = {}) {
   };
 }
 
+export function normalizeIdentityPolicy(value = {}, jira = {}) {
+  object(value, 'identity');
+  const configuredAuthority = value.authority ?? null;
+  if (configuredAuthority != null && !ID_AUTHORITIES.has(configuredAuthority)) {
+    throw new SingularityFlowError('identity.authority must be jira or local.');
+  }
+  if (value.configurablePerEpic != null && typeof value.configurablePerEpic !== 'boolean') {
+    throw new SingularityFlowError('identity.configurablePerEpic must be true or false.');
+  }
+  const local = object(value.local ?? {}, 'identity.local');
+  const prefix = (name, fallback) => {
+    const normalized = String(local[name] ?? fallback).trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9-]{1,30}$/.test(normalized) || /-\d+$/.test(normalized)) {
+      throw new SingularityFlowError(`identity.local.${name} must be an uppercase identifier prefix and must not end in digits.`);
+    }
+    return normalized;
+  };
+  const pad = local.pad ?? DEFAULT_LOCAL_IDENTITY.pad;
+  if (!Number.isInteger(pad) || pad < 2 || pad > 8) {
+    throw new SingularityFlowError('identity.local.pad must be an integer from 2 to 8.');
+  }
+  const policy = {
+    authority: configuredAuthority ?? (jira.enabled ? 'jira' : 'local'),
+    configurablePerEpic: value.configurablePerEpic ?? configuredAuthority == null,
+    local: {
+      epicPrefix: prefix('epicPrefix', DEFAULT_LOCAL_IDENTITY.epicPrefix),
+      storyPrefix: prefix('storyPrefix', DEFAULT_LOCAL_IDENTITY.storyPrefix),
+      pad,
+      scopeStoriesByEpic: local.scopeStoriesByEpic !== false
+    }
+  };
+  if (policy.local.epicPrefix === policy.local.storyPrefix) {
+    throw new SingularityFlowError('Local Epic and Story prefixes must be different.');
+  }
+  return policy;
+}
+
 function duration(value, label) {
   if (value == null) return null;
   if (typeof value !== 'string' || !/^[1-9]\d*(m|h|d|w)$/.test(value)) throw new SingularityFlowError(`${label} must use a positive duration such as 30m, 24h, 90d, or 4w.`);
@@ -271,6 +315,7 @@ export function validatePortfolio(value) {
   portfolio.initiativeProfiles = object(portfolio.initiativeProfiles ?? {}, 'initiativeProfiles');
   portfolio.initiativePhases = object(portfolio.initiativePhases ?? {}, 'initiativePhases');
   portfolio.jira = normalizeJiraPolicy(portfolio.jira ?? {});
+  portfolio.identity = normalizeIdentityPolicy(portfolio.identity ?? {}, portfolio.jira);
   portfolio.storage = normalizeStorage(portfolio.storage ?? {});
 
   for (const [id, repository] of Object.entries(portfolio.repositories)) {
@@ -284,7 +329,46 @@ export function validatePortfolio(value) {
     unique(repository.requiredChecks, `Repository '${id}' requiredChecks`);
     repository.required = repository.required !== false;
     repository.metadata = normalizeRepositoryMetadata(repository.metadata ?? {}, `Repository '${id}' metadata`);
+    const rawProjectKey = repository.jira?.projectKey ?? repository.jira?.board ?? '';
+    const projectKey = String(rawProjectKey).trim().toUpperCase();
+    if (projectKey && !/^[A-Z][A-Z0-9_-]{0,31}$/.test(projectKey)) {
+      throw new SingularityFlowError(`Repository '${id}' Jira projectKey '${rawProjectKey}' is invalid.`);
+    }
+    const boardId = repository.jira?.boardId == null ? null : String(repository.jira.boardId).trim();
+    if (boardId && boardId.length > 128) throw new SingularityFlowError(`Repository '${id}' Jira boardId is too long.`);
+    repository.jira = { projectKey: projectKey || null, boardId: boardId || null };
   }
+
+  const requiredMetadataKeys = [...(portfolio.repositoryMetadata?.requiredKeys ?? [])].map(String);
+  unique(requiredMetadataKeys, 'repositoryMetadata.requiredKeys');
+  requiredMetadataKeys.forEach((key) => {
+    if (!/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(key)) {
+      throw new SingularityFlowError(`repositoryMetadata required key '${key}' is invalid.`);
+    }
+  });
+  const patterns = object(portfolio.repositoryMetadata?.patterns ?? {}, 'repositoryMetadata.patterns');
+  const normalizedPatterns = {};
+  for (const [key, expression] of Object.entries(patterns)) {
+    if (!/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(key)) throw new SingularityFlowError(`repositoryMetadata pattern key '${key}' is invalid.`);
+    try { new RegExp(String(expression)); } catch {
+      throw new SingularityFlowError(`repositoryMetadata pattern for '${key}' is not a valid regular expression.`);
+    }
+    normalizedPatterns[key] = String(expression);
+  }
+  for (const [id, repository] of Object.entries(portfolio.repositories)) {
+    for (const key of requiredMetadataKeys) {
+      if (repository.metadata[key] == null) throw new SingularityFlowError(`Repository '${id}' requires metadata.${key}.`);
+    }
+    for (const [key, expression] of Object.entries(normalizedPatterns)) {
+      if (repository.metadata[key] != null && !new RegExp(expression).test(String(repository.metadata[key]))) {
+        throw new SingularityFlowError(`Repository '${id}' metadata.${key} does not match ${expression}.`);
+      }
+    }
+    if (repository.jira.projectKey && portfolio.jira.allowedProjects.length && !portfolio.jira.allowedProjects.includes(repository.jira.projectKey)) {
+      throw new SingularityFlowError(`Repository '${id}' Jira project '${repository.jira.projectKey}' is outside jira.allowedProjects.`);
+    }
+  }
+  portfolio.repositoryMetadata = { requiredKeys: requiredMetadataKeys, patterns: normalizedPatterns };
 
   for (const [id, authority] of Object.entries(portfolio.approvalAuthorities)) {
     safeId(id, 'Approval authority ID'); object(authority, `Approval authority '${id}'`);
@@ -365,9 +449,17 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
   return true;
 }
 
-export function resolveInitiativeProfile(portfolio, profileId) {
+export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = null } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
+  const authority = idAuthority ?? portfolio.identity.authority;
+  if (!ID_AUTHORITIES.has(authority)) throw new SingularityFlowError(`Unsupported initiative identity authority '${authority}'.`);
+  if (!portfolio.identity.configurablePerEpic && authority !== portfolio.identity.authority) {
+    throw new SingularityFlowError(`Portfolio identity authority is pinned to '${portfolio.identity.authority}'.`);
+  }
+  if (authority === 'jira' && !portfolio.jira.enabled) {
+    throw new SingularityFlowError('Jira identity authority requires jira.enabled: true.');
+  }
   return {
     id: profileId,
     label: profile.label,
@@ -375,6 +467,7 @@ export function resolveInitiativeProfile(portfolio, profileId) {
     phases: profile.phases.map((id, order) => ({ ...structuredClone(portfolio.initiativePhases[id]), order })),
     repositories: structuredClone(portfolio.repositories),
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
+    identity: { ...structuredClone(portfolio.identity), authority, configurablePerEpic: false },
     jira: structuredClone(portfolio.jira),
     storage: structuredClone(portfolio.storage)
   };
@@ -404,6 +497,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     phases: resolved.phases,
     repositories: resolved.repositories,
     approvalAuthorities: resolved.approvalAuthorities,
+    identity: resolved.identity,
     jira: resolved.jira,
     storage: resolved.storage,
     lifecycleMode: resolved.lifecycleMode,
@@ -419,6 +513,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     phases: structuredClone(resolved.phases),
     repositories: structuredClone(resolved.repositories),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities),
+    identity: structuredClone(resolved.identity),
     jira: structuredClone(resolved.jira),
     storage: structuredClone(resolved.storage)
   };

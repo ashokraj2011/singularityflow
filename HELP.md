@@ -56,7 +56,7 @@ prefix.
 Install the package, initialize a repository, and commit its editable process definition:
 
 ```bash
-npm install --global ./singularity-flow-0.8.0.tgz
+npm install --global ./singularity-flow-0.9.0.tgz
 cd your-repository
 singularity-flow init
 git add singularity
@@ -146,6 +146,27 @@ New Epics default to the immutable `epic-planning` profile:
 ```text
 Epic Intake → Requirements → User Story Plan → High-level Specification → Create Stories
 ```
+
+In Singularity Desktop, this appears as the simpler five-stage business journey:
+
+```text
+Sources → Requirements → Planning → Stories → Complete
+```
+
+Planning groups the underlying User Story Plan and High-level Specification
+phases into one reviewable workspace; their hashes and approvals remain
+separate. Product Owner and Business Analyst onboarding roles default to the
+Business experience (`Epics`, `Reviews`, `Help`). Other roles default to the
+Engineer experience, and the user can switch at any time without changing
+repository state.
+
+Start from Jira when it is available, or choose **Describe the work**. The
+local path atomically reserves a configurable Epic branch ID such as
+`SF-E-001`; generated Stories keep `STORY-nnn` plan lineage and receive stable
+Git-native IDs such as `SF-S-001-001`. Jira/local identity authority, local
+prefixes, repository Jira routing, App IDs, and metadata are pinned into the
+Epic resolution so later configuration edits cannot silently change active
+work.
 
 The workflow ends its governance lifecycle after the reviewed Jira Story plan
 and specification have been applied and every canonical Story branch has been

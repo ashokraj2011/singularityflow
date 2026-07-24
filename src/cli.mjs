@@ -120,13 +120,14 @@ import { runAndRecordStoryChecks } from './github-evidence.mjs';
 import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
+import { reserveLocalEpicBranch } from './local-identity.mjs';
 import {
   createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
   workspaceStatus
 } from './workspace.mjs';
 
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 
 const ABOUT = `Singularity Flow ${VERSION}
 
@@ -262,6 +263,7 @@ Usage:
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
   singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
+  singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT
   singularity-flow epic sources [list|add|verify|materialize] [--epic EPIC-KEY]
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
   singularity-flow epic generate [intake|requirements|plan|spec]
@@ -2032,7 +2034,38 @@ async function desktopCommand(positionals, options) {
   else if (subcommand === 'initiative-materialize') {
     const initiativeId = optionString(options, 'initiative');
     const confirmation = optionString(options, 'confirm');
+    const before = await loadInitiative(root, initiativeId);
+    if (before.initiative.lineage?.idAuthority === 'local') {
+      await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId: 'epic-create',
+        checkId: 'jira-permission-verified',
+        assurance: 'machine-verified',
+        verificationMethod: 'local-identity-authority',
+        source: {
+          externalId: initiativeId,
+          version: before.initiative.resolution.resolutionSha256,
+          observedState: 'Pinned local identity authority requires no Jira credentials'
+        }
+      });
+    }
     result = await materializeInitiative(root, initiativeId, { confirmation });
+    if (!result.failures.length) {
+      await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId: 'epic-create',
+        checkId: 'stories-materialized',
+        assurance: 'machine-verified',
+        verificationMethod: before.initiative.lineage?.idAuthority === 'jira'
+          ? 'jira-and-git-receipt-integrity'
+          : 'git-receipt-integrity',
+        source: {
+          externalId: initiativeId,
+          version: result.attempt.completedAt,
+          observedState: `${result.attempt.stories.length} canonical Story branches and governed seeds published`
+        }
+      });
+    }
     const fresh = await loadInitiative(root, initiativeId);
     result.publication = await commitInitiativeChange(
       root,
@@ -2249,6 +2282,65 @@ function selectedJiraArtifacts(options) {
 async function epicCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'start') {
+    if (optionBoolean(options, 'local')) {
+      const root = repoRoot();
+      const [portfolio, config] = await Promise.all([loadPortfolio(root), loadConfig(root)]);
+      assertClean(root);
+      const title = optionString(options, 'title');
+      const description = optionString(options, 'description');
+      const goal = optionString(options, 'goal');
+      if (!title || !description || !goal) {
+        throw new SingularityFlowError('Local Epic start requires --title, --description, and --goal.');
+      }
+      const profile = optionString(options, 'profile', 'epic-planning');
+      if (!portfolio.initiativeProfiles?.[profile]) throw new SingularityFlowError(`Unknown initiative profile '${profile}'.`);
+      const actor = identity(root);
+      const reservation = await reserveLocalEpicBranch(root, portfolio, {
+        base: optionString(options, 'base', config.defaultBaseBranch),
+        actor
+      });
+      const selectedPersona = await selectPersona(root, config, actor, reservation.id);
+      const source = {
+        type: 'manual',
+        id: reservation.id,
+        title,
+        description,
+        goal
+      };
+      const created = await createInitiative(root, {
+        id: reservation.id,
+        title: source.title,
+        profile,
+        source,
+        persona: selectedPersona.persona,
+        idAuthority: 'local'
+      });
+      await registerInitiativeEvidence(root, {
+        initiativeId: reservation.id,
+        phaseId: 'epic-intake',
+        checkId: 'epic-identity-verified',
+        assurance: 'machine-verified',
+        verificationMethod: 'git-atomic-branch-reservation',
+        source: {
+          externalId: reservation.id,
+          version: reservation.reservationCommit,
+          observedState: `Local Epic ID ${reservation.id} reserved on its canonical Git branch`
+        },
+        persona: selectedPersona.persona
+      });
+      const started = await loadInitiative(root, reservation.id, created.portfolio);
+      const publication = await commitInitiativeChange(
+        root,
+        started.portfolio,
+        started.initiative,
+        `[${reservation.id}][epic:init] start ${profile}`
+      );
+      const result = { initiativeId: reservation.id, source, reservation, publication };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Local Epic ${reservation.id} reserved, created, committed, and ${publication.pushed ? 'pushed' : 'recorded locally'}.`);
+      console.log(`Next: singularity-flow epic sources --epic ${reservation.id}`);
+      return;
+    }
     return initiativeCommand(['initiative', 'start', requirePositional(positionals, 2, 'Jira Epic key')], {
       ...options,
       profile: optionString(options, 'profile', 'epic-planning'),
@@ -2328,6 +2420,52 @@ async function epicCommand(positionals, options) {
   if (subcommand === 'create-stories') {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const loaded = await loadInitiative(root, initiativeId);
+    if (loaded.initiative.lineage?.idAuthority === 'local') {
+      const preview = await initiativeBreakdownReview(root, initiativeId, { probe: true });
+      if (optionBoolean(options, 'dry-run')) {
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+        console.log(`${preview.stories.length} local Story branches are ready to materialize across ${Object.keys(preview.repositories).length} repositories.`);
+        return;
+      }
+      if (!(await confirmInitiativeExact(`Start ${preview.stories.length} local Stories and canonical Git branches for ${initiativeId}?`, initiativeId))) {
+        throw new SingularityFlowError('Local Story creation cancelled.');
+      }
+      await registerInitiativeEvidence(root, {
+        initiativeId,
+        phaseId: 'epic-create',
+        checkId: 'jira-permission-verified',
+        assurance: 'machine-verified',
+        verificationMethod: 'local-identity-authority',
+        source: {
+          externalId: initiativeId,
+          version: loaded.initiative.resolution.resolutionSha256,
+          observedState: 'Pinned local identity authority requires no Jira credentials'
+        }
+      });
+      const materialized = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
+      if (!materialized.failures.length) {
+        await registerInitiativeEvidence(root, {
+          initiativeId,
+          phaseId: 'epic-create',
+          checkId: 'stories-materialized',
+          assurance: 'machine-verified',
+          verificationMethod: 'git-receipt-integrity',
+          source: {
+            externalId: initiativeId,
+            version: materialized.attempt.completedAt,
+            observedState: `${materialized.attempt.stories.length} local Story branches and governed seeds published`
+          }
+        });
+      }
+      const fresh = await loadInitiative(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+      const result = { authority: 'local', materialization: materialized.attempt, publication };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Local Story branches ready: ${materialized.attempt.stories.filter((entry) => entry.status !== 'failed').length}/${materialized.attempt.stories.length}.`);
+      materialized.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
+      return;
+    }
     const planSha256 = optionString(options, 'plan');
     if (!planSha256) {
       const result = await createJiraWritePlan(root, initiativeId, {

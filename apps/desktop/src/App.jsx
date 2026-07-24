@@ -34,7 +34,7 @@ import {
   VisualComparisonReview
 } from './VisualReview.jsx';
 
-const navSections = [
+const engineerNavSections = [
   {
     label: 'Epic flow',
     items: [
@@ -74,6 +74,15 @@ const navSections = [
     items: [['help', 'Help & guides']]
   }
 ];
+
+const businessNavSections = [{
+  label: 'Epic delivery',
+  items: [
+    ['epics', 'Epics'],
+    ['inbox', 'Reviews'],
+    ['help', 'Help']
+  ]
+}];
 
 const onboardingRoles = [
   ['product-owner', 'Product owner'],
@@ -117,6 +126,7 @@ const navIconPaths = {
   'world-model': ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18'],
   agents: ['M7 8h10a3 3 0 0 1 3 3v7H4v-7a3 3 0 0 1 3-3z M9 13h.01 M15 13h.01 M9 17h6 M12 3v5 M9 3h6'],
   help: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9.7 9a2.5 2.5 0 1 1 3.2 2.4c-.9.4-.9 1-.9 1.6 M12 17h.01'],
+  epics: ['M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5'],
   collapse: ['M14 5l-7 7 7 7 M20 5v14'],
   expand: ['M10 5l7 7-7 7 M4 5v14'],
   refresh: ['M20 7v5h-5 M4 17v-5h5 M6.1 8A7 7 0 0 1 18 6l2 6 M17.9 16A7 7 0 0 1 6 18l-2-6'],
@@ -1741,6 +1751,92 @@ function EpicArtifactView({ selected, phases, title, detail, openPlanning, downl
   return <div className="epic-workspace-view"><section className="panel epic-artifact-hero"><div><span className="eyebrow">Governed artifact workspace</span><h2>{title}</h2><p>{detail}</p></div>{openPlanning && <button className="primary" onClick={openPlanning}>Open Planning Copilot</button>}</section><section className="panel initiative-documents expanded"><header className="panel-heading"><div><span className="eyebrow">Hash-bound outputs</span><h2>{documents.length} documents</h2></div></header>{documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="secondary compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Open full document</button></div>)}</section></div>;
 }
 
+function PhaseGovernance({ data, selected, phaseId, action, reload }) {
+  const phase = selected.state.phases[phaseId];
+  const [persona, setPersona] = useState(
+    selected.state.sessionPersona
+      ?? preferredPersonaForRole(data.desktopProfile?.role, data.definition.personas)
+      ?? Object.keys(data.definition.personas)[0]
+      ?? ''
+  );
+  const [confirmation, setConfirmation] = useState('');
+  const [selfApproval, setSelfApproval] = useState(false);
+  if (!phase) return null;
+  const outputs = Object.values(phase.outputs ?? {});
+  const readyToPublish = phase.status === 'in_progress' && outputs.length > 0
+    && outputs.every((output) => output.sha256 && output.status === 'draft');
+  const awaitingApproval = phase.status === 'awaiting_approval';
+  const approved = phase.status === 'approved';
+  async function publish() {
+    const result = await action(
+      () => window.singularity.publishInitiativePhase(data.repository.root, selected.state.initiative.id, phaseId, persona),
+      `${phase.label} generation published, committed, and pushed`
+    );
+    if (result) await reload(null, selected.state.initiative.id);
+  }
+  async function approve() {
+    const result = await action(
+      () => window.singularity.approveInitiativePhase(
+        data.repository.root,
+        selected.state.initiative.id,
+        'phase',
+        confirmation,
+        persona,
+        selfApproval
+      ),
+      `${phase.label} approved against its exact bundle hash, committed, and pushed`
+    );
+    if (result) {
+      setConfirmation('');
+      setSelfApproval(false);
+      await reload(null, selected.state.initiative.id);
+    }
+  }
+  return <section className="panel phase-governance">
+    <div><span className="eyebrow">Governed stage action</span><h3>{phase.label}</h3><p>{approved ? 'This stage is approved and remains available for review.' : awaitingApproval ? 'Review the generated documents above, then bind your decision to the exact phase bundle.' : readyToPublish ? 'The authored outputs are ready to publish as an immutable generation.' : 'Generate or promote every required output before publishing this stage.'}</p></div>
+    <label><span>Session persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></label>
+    {awaitingApproval && <><label><span>Exact confirmation</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`${phaseId}:phase`} /></label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
+    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved</Pill> : awaitingApproval ? <button className="primary" disabled={!persona || confirmation !== `${phaseId}:phase`} onClick={approve}>Approve exact stage</button> : <button className="primary" disabled={!readyToPublish || !persona} onClick={publish}>Publish for approval</button>}</div>
+    {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}
+  </section>;
+}
+
+function epicStageLabel(item) {
+  if (item.status === 'complete') return 'Complete';
+  if (item.currentPhase === 'epic-intake') return 'Sources';
+  if (item.currentPhase === 'epic-requirements') return 'Requirements';
+  if (['epic-plan', 'epic-spec'].includes(item.currentPhase)) return 'Planning';
+  if (item.currentPhase === 'epic-create') return 'Stories';
+  return item.currentPhaseLabel ?? 'Not started';
+}
+
+function EpicsHome({ data, action, reload, openEpic }) {
+  const [starting, setStarting] = useState(false);
+  const epics = data.initiatives.filter((item) => item.profile === 'epic-planning');
+  async function refreshEpics() {
+    const result = await action(
+      () => window.singularity.refreshInitiatives(data.repository.root),
+      'Fetched the latest Epic branches'
+    );
+    if (result) await reload(null, null);
+  }
+  if (!epics.length || starting) return <div className="page epics-home"><header className="page-heading"><div><span className="eyebrow">Epic delivery workspace</span><h1>Turn requirements into ready-to-build Stories</h1><p>Bring an Epic from Jira or describe the work, ground it in source evidence, plan with Copilot, and publish governed Stories.</p></div>{epics.length > 0 && <button className="secondary" onClick={() => setStarting(false)}>← Back to Epics</button>}</header><EpicStartWizard data={data} action={action} reload={reload} /></div>;
+  return <div className="page epics-home">
+    <header className="page-heading epics-home-heading"><div><span className="eyebrow">Epic delivery workspace</span><h1>Your Epics</h1><p>One clear view of requirements, planning, Story publication, and downstream delivery readiness.</p></div><div className="row gap"><button className="secondary" onClick={refreshEpics}>↻ Fetch latest</button><button className="primary" onClick={() => setStarting(true)}>＋ Start Epic</button></div></header>
+    <section className="epics-summary"><div><strong>{epics.length}</strong><span>Active Epics</span></div><div><strong>{epics.filter((item) => item.currentPhase === 'epic-create').length}</strong><span>Ready for Stories</span></div><div><strong>{epics.filter((item) => item.status === 'complete').length}</strong><span>Completed</span></div></section>
+    <section className="epic-card-grid">{epics.map((item) => {
+      const waitingMs = item.waitingSince ? Date.now() - Date.parse(item.waitingSince) : null;
+      return <button className="epic-home-card" key={item.id} onClick={() => openEpic(item.id)}>
+        <header><span><code>{item.id}</code><Pill tone={item.idAuthority === 'jira' ? 'accent' : 'neutral'}>{item.idAuthority}</Pill></span><Pill tone={item.status === 'complete' ? 'good' : item.currentPhaseStatus === 'awaiting_approval' ? 'warn' : 'neutral'}>{epicStageLabel(item)}</Pill></header>
+        <h2>{item.title}</h2>
+        <p>{item.currentPhaseStatus === 'awaiting_approval' ? `Waiting for approval in ${item.currentPhaseLabel}` : `Currently in ${item.currentPhaseLabel ?? 'setup'}`}{Number.isFinite(waitingMs) ? ` · ${formatDuration(waitingMs)}` : ''}</p>
+        <div className="epic-home-progress"><i><b style={{ width: `${item.percentage ?? 0}%` }} /></i><span>{item.percentage ?? 0}%</span></div>
+        <footer><span>{item.phasesApproved ?? 0}/{item.phasesTotal ?? 0} stages approved</span><strong>Open Epic →</strong></footer>
+      </button>;
+    })}</section>
+  </div>;
+}
+
 function EpicReviewView({ data, selected, action, reload }) {
   const [inbox, setInbox] = useState([]);
   const [review, setReview] = useState(null);
@@ -1826,11 +1922,16 @@ function EpicReviewView({ data, selected, action, reload }) {
 }
 
 function EpicStartWizard({ data, action, reload }) {
+  const [source, setSource] = useState(data.portfolio?.jira?.enabled ? 'jira' : 'local');
   const [status, setStatus] = useState(null);
   const [projects, setProjects] = useState([]);
   const [projectKey, setProjectKey] = useState(data.portfolio?.jira?.projectKey ?? '');
   const [epics, setEpics] = useState([]);
   const [epicKey, setEpicKey] = useState('');
+  const [localPreview, setLocalPreview] = useState(null);
+  const [localTitle, setLocalTitle] = useState('');
+  const [localDescription, setLocalDescription] = useState('');
+  const [localGoal, setLocalGoal] = useState('');
   const [profile, setProfile] = useState('epic-planning');
   const [persona, setPersona] = useState(
     preferredPersonaForRole(data.desktopProfile?.role, data.definition.personas)
@@ -1845,6 +1946,14 @@ function EpicStartWizard({ data, action, reload }) {
       .catch((error) => { if (active) setStatus({ error: error.message, credentials: { connected: false } }); });
     return () => { active = false; };
   }, [data.repository.root, data.portfolio?.jira?.enabled]);
+  useEffect(() => {
+    let active = true;
+    if (source !== 'local') return undefined;
+    window.singularity.previewLocalEpicId(data.repository.root)
+      .then((result) => { if (active) setLocalPreview(result); })
+      .catch((error) => { if (active) setLocalPreview({ error: error.message }); });
+    return () => { active = false; };
+  }, [data.repository.root, source]);
   async function loadProjects() {
     const result = await action(() => window.singularity.jiraProjects(data.repository.root));
     if (!result) return;
@@ -1863,6 +1972,14 @@ function EpicStartWizard({ data, action, reload }) {
     if (result) setEpics(result);
   }
   async function start() {
+    if (source === 'local') {
+      const result = await action(
+        () => window.singularity.startLocalEpic(data.repository.root, localTitle, localDescription, localGoal, profile, persona),
+        'Local Epic ID reserved, initialized, committed, and pushed'
+      );
+      if (result) await reload(null, result.initiativeId);
+      return;
+    }
     const result = await action(
       () => window.singularity.startEpicWizard(data.repository.root, epicKey, profile, persona),
       `Epic ${epicKey} fetched from Jira, initialized, committed, and pushed`
@@ -1870,19 +1987,25 @@ function EpicStartWizard({ data, action, reload }) {
     if (result) await reload(null, epicKey);
   }
   const connected = status?.credentials?.connected;
+  const canStart = source === 'jira'
+    ? connected && epicKey && profile && persona
+    : localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && !localPreview?.error;
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <span className="ai-orb">S</span>
       <span className="eyebrow">Start a governed Epic</span>
-      <h2>Bring the Jira Epic into Singularity</h2>
-      <p>The wizard creates an isolated Epic branch, pins the chosen workflow and persona, records the Jira identity, commits the initial lineage, and pushes it for the team.</p>
-      <div className="epic-start-flow"><span>Jira Epic</span><b>→</b><span>Requirements</span><b>→</b><span>Stories</span><b>→</b><span>Specification</span><b>→</b><span>Delivery review</span></div>
+      <h2>Turn an Epic into delivery-ready Stories</h2>
+      <p>Start from Jira or describe the work directly. Singularity reserves an auditable identity, creates the shared Epic branch, and pins the selected workflow before planning begins.</p>
+      <div className="epic-start-flow"><span>Sources</span><b>→</b><span>Requirements</span><b>→</b><span>Planning</span><b>→</b><span>Stories</span><b>→</b><span>Complete</span></div>
     </section>
     <section className="panel epic-start-form">
-      <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Connection</span><h3>Use your Jira identity</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}.` : 'Connect Jira from the Jira page before starting an Epic.'}</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'ready' : 'setup required'}</Pill></div>
-      <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Choose an Epic</h3><div className="epic-start-controls"><select value={projectKey} disabled={!connected || !projects.length} onChange={(event) => chooseProject(event.target.value)}><option value="">Project…</option>{projects.map((project) => <option value={project.key} key={project.key}>{project.key} — {project.name}</option>)}</select><select value={epicKey} disabled={!epics.length} onChange={(event) => setEpicKey(event.target.value)}><option value="">Epic…</option>{epics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title}</option>)}</select><button className="secondary" disabled={!connected} onClick={loadProjects}>{projects.length ? 'Refresh Jira' : 'Load Jira Epics'}</button></div></div></div>
+      <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={source === 'jira' ? 'active' : ''} disabled={!data.portfolio?.jira?.enabled} onClick={() => setSource('jira')}><strong>Bring from Jira</strong><small>Use an existing Epic key and Jira identity</small></button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Reserve a local Singularity Epic ID</small></button></div>
+      {source === 'jira' ? <>
+        <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Connection</span><h3>Use your Jira identity</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}.` : 'Connect Jira from Workspace configuration, or use a local Epic.'}</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'ready' : 'setup required'}</Pill></div>
+        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Choose an Epic</h3><div className="epic-start-controls"><select value={projectKey} disabled={!connected || !projects.length} onChange={(event) => chooseProject(event.target.value)}><option value="">Project…</option>{projects.map((project) => <option value={project.key} key={project.key}>{project.key} — {project.name}</option>)}</select><select value={epicKey} disabled={!epics.length} onChange={(event) => setEpicKey(event.target.value)}><option value="">Epic…</option>{epics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title}</option>)}</select><button className="secondary" disabled={!connected} onClick={loadProjects}>{projects.length ? 'Refresh Jira' : 'Load Jira Epics'}</button></div></div></div>
+      </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
       <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(data.portfolio.initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div></div></div>
-      <footer><div><strong>Nothing is merged into the default branch.</strong><span>The Epic branch is the shared control plane; Story branches remain in their owning repositories.</span></div><button className="primary" disabled={!connected || !epicKey || !profile || !persona} onClick={start}>Start Epic workflow</button></footer>
+      <footer><div><strong>The Epic branch is the shared control plane.</strong><span>No default branch is merged automatically. Jira publication remains a reviewed, explicit action.</span></div><button className="primary" disabled={!canStart} onClick={start}>Start Epic workflow</button></footer>
     </section>
   </div>;
 }
@@ -1936,6 +2059,21 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     }
     setJiraArtifacts(defaults);
   }, [selected?.state.initiative.id, selected?.state.history.length]);
+  useEffect(() => {
+    const phase = selected?.state.currentPhase;
+    const nextTab = phase === 'epic-intake'
+      ? 'intake'
+      : phase === 'epic-requirements'
+        ? 'requirements'
+        : ['epic-plan', 'epic-spec'].includes(phase)
+          ? 'planning'
+          : phase === 'epic-create'
+            ? 'publish'
+            : selected?.state.status === 'complete'
+              ? 'complete'
+              : null;
+    if (nextTab) setTab(nextTab);
+  }, [selected?.state.initiative.id, selected?.state.currentPhase, selected?.state.status]);
   if (!portfolio) return <div className="page"><PortfolioSetup data={data} action={action} onCreated={bootstrapPortfolio} /></div>;
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
   const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
@@ -1959,13 +2097,15 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     ['epic-requirements', 'epic-spec'].includes(document.phase) && document.sha256
   ) ?? [];
   const wizardSteps = selected?.state.initiative.profile === 'epic-planning' ? [
-    { id: 'intake', label: 'Epic intake', phase: 'epic-intake' },
+    { id: 'intake', label: 'Sources', phase: 'epic-intake' },
     { id: 'requirements', label: 'Requirements', phase: 'epic-requirements' },
-    { id: 'planning', label: 'User Stories', phase: 'epic-plan' },
-    { id: 'specification', label: 'High-level spec', phase: 'epic-spec' },
-    { id: 'publish', label: 'Publish to Jira', phase: 'epic-create' },
-    { id: 'delivery', label: 'Delivery progress', complete: Boolean(selected?.delivery?.ready || selected?.delivery?.status === 'complete') },
-    { id: 'review', label: 'Validate & complete', complete: selected?.delivery?.status === 'complete' }
+    {
+      id: 'planning',
+      label: 'Planning',
+      complete: state.phases['epic-plan']?.status === 'approved' && (!state.phases['epic-spec'] || state.phases['epic-spec']?.status === 'approved')
+    },
+    { id: 'publish', label: 'Stories', phase: 'epic-create' },
+    { id: 'complete', label: 'Complete', complete: selected?.delivery?.status === 'complete' }
   ].filter((step) => !step.phase || state.phases[step.phase]).map((step) => ({
     ...step,
     status: step.phase ? state.phases[step.phase]?.status ?? 'not_started' : step.complete ? 'approved' : 'in_progress'
@@ -2012,7 +2152,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     const result = await action(() => window.singularity.previewInitiativeMaterialization(data.repository.root, state.initiative.id));
     if (!result) return;
     let writePlan = null;
-    if (state.initiative.profile === 'epic-planning' && data.portfolio.jira?.enabled) {
+    if (state.initiative.profile === 'epic-planning' && state.lineage?.idAuthority === 'jira' && data.portfolio.jira?.enabled) {
       const targets = artifactDestination === 'both' ? ['epic', 'stories'] : [artifactDestination];
       const artifacts = jiraArtifactCandidates
         .filter((document) => jiraArtifacts[`${document.phase}/${document.id}`])
@@ -2034,7 +2174,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     }
     const result = await action(
       () => window.singularity.materializeInitiative(data.repository.root, initiativeId, materializationModal.confirmation),
-      `Created or attached ${materializationModal.preview.stories.length} Jira/Git story work items and published the receipts`
+      `Created or attached ${materializationModal.preview.stories.length} governed Story branches and published the receipts`
     );
     if (!result) return;
     setMaterializationModal(null);
@@ -2060,14 +2200,15 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
       <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" />
-    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} /> : tab === 'intake' ? <div className="epic-workspace-view"><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Epic intake artifacts" detail="The Jira identity, source catalog, gaps, assumptions, and intake summary remain hash-bound to this Epic branch." downloadFile={downloadFile} openPlanning={openPlanning} /></div> : tab === 'requirements' ? <EpicArtifactView selected={selected} phases={['epic-requirements']} title="Requirements and traceability" detail="Every REQ-nnn and AC-nnn must cite a pinned source, page, frame, or section before approval." downloadFile={downloadFile} openPlanning={openPlanning} /> : tab === 'planning' ? <EpicStoryPlanView selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} /> : tab === 'specification' ? <EpicArtifactView selected={selected} phases={['epic-spec']} title="High-level solution specification" detail="Define the repository boundaries, interfaces, security, observability, test expectations, and per-Story implementation contracts the final Product Owner review will compare with code." downloadFile={downloadFile} openPlanning={openPlanning} /> : tab === 'publish' ? <div className="epic-workspace-view">
+    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} /> : tab === 'intake' ? <div className="epic-workspace-view"><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Epic intake artifacts" detail="The Epic identity, source catalog, gaps, assumptions, and intake summary remain hash-bound to this Epic branch." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-intake" action={action} reload={reload} /></div> : tab === 'requirements' ? <div className="epic-workspace-view"><EpicArtifactView selected={selected} phases={['epic-requirements']} title="Requirements and traceability" detail="Every REQ-nnn and AC-nnn must cite a pinned source, page, frame, or section before approval." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-requirements" action={action} reload={reload} /></div> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} /><PhaseGovernance data={data} selected={selected} phaseId="epic-plan" action={action} reload={reload} />{selected.state.phases['epic-spec'] && <><EpicArtifactView selected={selected} phases={['epic-spec']} title="High-level solution specification" detail="Define repository boundaries, interfaces, security, observability, tests, and the contracts that later spec-to-code review will evaluate." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-spec" action={action} reload={reload} /></>}</div> : tab === 'publish' ? <div className="epic-workspace-view">
       <section className="panel jira-artifact-publish">
         <header className="panel-heading"><div><span className="eyebrow">Reviewed outbound package</span><h2>Select what Jira receives</h2><p>The exact file hashes become part of the Jira write plan. Selected Markdown/YAML files are attached with hash-stamped filenames; retries reuse matching attachments.</p></div><Pill tone={specificationReady ? 'good' : 'warn'}>{specificationReady ? 'Specification approved' : 'Approve specification first'}</Pill></header>
         <div className="jira-artifact-options">{jiraArtifactCandidates.map((document) => { const reference = `${document.phase}/${document.id}`; return <label key={reference} className={jiraArtifacts[reference] ? 'selected' : ''}><input type="checkbox" checked={Boolean(jiraArtifacts[reference])} onChange={(event) => setJiraArtifacts((current) => ({ ...current, [reference]: event.target.checked }))} /><span><strong>{document.label}</strong><small>{reference} · {document.sha256.slice(0, 12)}</small></span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status}</Pill></label>; })}</div>
-        <footer><label><span>Attach selected documents to</span><select value={artifactDestination} onChange={(event) => setArtifactDestination(event.target.value)}><option value="epic">Epic only · recommended</option><option value="stories">Every generated Story</option><option value="both">Epic and every Story</option></select></label><button className="primary" onClick={previewMaterialization} disabled={selected.materialization.phaseStatus !== 'approved'}>Review Jira & Git publication</button></footer>
+        <footer>{state.lineage?.idAuthority === 'jira' && <label><span>Attach selected documents to</span><select value={artifactDestination} onChange={(event) => setArtifactDestination(event.target.value)}><option value="epic">Epic only · recommended</option><option value="stories">Every generated Story</option><option value="both">Epic and every Story</option></select></label>}<button className="primary" onClick={previewMaterialization} disabled={selected.materialization.phaseStatus !== 'approved'}>Review {state.lineage?.idAuthority === 'jira' ? 'Jira & Git' : 'Git'} publication</button></footer>
       </section>
       <EpicArtifactView selected={selected} phases={['epic-create']} title="Publication records" detail="After Jira and Git materialization, generate the final write-plan and receipt report, then complete the planning governance gate." downloadFile={downloadFile} openPlanning={openPlanning} />
-    </div> : tab === 'review' ? <div className="epic-workspace-view"><EpicReviewView data={data} selected={selected} action={action} reload={reload} /><EpicCompletionPanel data={data} selected={selected} action={action} reload={reload} synchronizeStories={synchronizeStories} /></div> : <>
+      <PhaseGovernance data={data} selected={selected} phaseId="epic-create" action={action} reload={reload} />
+    </div> : tab === 'complete' ? <div className="epic-workspace-view"><section className="panel epic-delivery-summary"><header className="panel-heading"><div><span className="eyebrow">Read-only downstream view</span><h2>Story delivery progress</h2><p>Developers continue in their own tools. Singularity aggregates the canonical Story branches and returns review packets here.</p></div><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button></header></section><EpicReviewView data={data} selected={selected} action={action} reload={reload} /><EpicCompletionPanel data={data} selected={selected} action={action} reload={reload} synchronizeStories={synchronizeStories} /></div> : <>
       <section className="initiative-hero">
         <div><div className="row gap"><Pill tone="accent">{state.initiative.profileLabel}</Pill><Pill tone={state.status === 'complete' ? 'good' : 'neutral'}>{state.status}</Pill><Pill>configured-local identity</Pill></div><h2>{state.initiative.title}</h2><p>{state.initiative.id} · branch {state.initiative.branch} · current phase {state.currentPhase ?? 'complete'}</p></div><ProgressRing value={progress.percentage} />
       </section>
@@ -2455,6 +2596,13 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('singularity.sidebar.collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+  const experienceMode = onboarding?.profile?.experienceMode ?? 'engineer';
+  const activeNavSections = experienceMode === 'business' ? businessNavSections : engineerNavSections;
+  useEffect(() => {
+    if (!data || experienceMode !== 'business') return;
+    const allowed = new Set(businessNavSections.flatMap((section) => section.items.map(([id]) => id)));
+    if (!allowed.has(page)) setPage('epics');
+  }, [data, experienceMode, page]);
   useEffect(() => {
     const toggleNavigation = (event) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'b') return;
@@ -2467,7 +2615,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', toggleNavigation);
   }, []);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
-  const activeNavigation = useMemo(() => navSections.flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label }))).find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [page]);
+  const activeNavigation = useMemo(() => activeNavSections.flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label }))).find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [activeNavSections, page]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
@@ -2535,7 +2683,32 @@ export default function App() {
   async function refreshInbox() { const result = await action(() => window.singularity.refreshInbox(data.repository.root), 'Remote approval inbox refreshed'); if (result) setData(result); return result; }
   async function attachInboxItem(workId) { const result = await action(() => window.singularity.attachInboxItem(data.repository.root, workId), `Attached to ${workId} at the latest remote commit`); if (result) { setData(result); setPage('review'); } return result; }
   async function selectWorkItem(event) { await reload(event.target.value || null); }
-  async function selectInitiative(event) { const result = await reload(null, event.target.value || null); if (result && event.target.value) setPage('dashboard'); }
+  async function selectInitiative(event) {
+    const initiativeId = event.target.value || null;
+    const result = initiativeId
+      ? await action(() => window.singularity.openInitiative(data.repository.root, initiativeId), `Opened latest ${initiativeId} branch`)
+      : await reload(null, null);
+    if (result) setData(result);
+    if (result && initiativeId) setPage(experienceMode === 'business' ? 'epics' : 'dashboard');
+  }
+  async function switchExperienceMode(nextMode) {
+    if (!['business', 'engineer'].includes(nextMode) || nextMode === experienceMode) return;
+    const result = await action(
+      () => window.singularity.setExperienceMode(nextMode),
+      `${nextMode === 'business' ? 'Business' : 'Engineer'} experience enabled`
+    );
+    if (!result) return;
+    setOnboarding((current) => ({ ...current, ...result, profile: result.profile }));
+    setPage(nextMode === 'business' ? 'epics' : 'dashboard');
+  }
+  async function openEpic(initiativeId) {
+    const result = await action(
+      () => window.singularity.openInitiative(data.repository.root, initiativeId),
+      `Opened latest ${initiativeId} branch`
+    );
+    if (result) setData(result);
+    if (result) setPage('epics');
+  }
   async function saveEditor() { const result = await action(() => window.singularity.saveFile(data.repository.root, editor.path, editor.content), `${editor.path} saved and validated`); if (result) { setEditor({ ...editor, original: editor.content }); await reload(); } }
   async function validate() { await action(() => window.singularity.validate(data.repository.root), 'Configuration is valid'); }
   async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
@@ -2770,9 +2943,9 @@ export default function App() {
     <Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
-    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{activeNavSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="experience-switcher"><span>Experience</span><div><button className={experienceMode === 'business' ? 'active' : ''} onClick={() => switchExperienceMode('business')}>Business</button><button className={experienceMode === 'engineer' ? 'active' : ''} onClick={() => switchExperienceMode('engineer')}>Engineer</button></div></div><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors">{experienceMode === 'engineer' && <select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{experienceMode === 'engineer' && data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button>{experienceMode === 'engineer' && <><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></>}</div></header>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startEpic={() => setData((current) => ({ ...current, initiative: null, selectedInitiativeId: null }))} />)}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

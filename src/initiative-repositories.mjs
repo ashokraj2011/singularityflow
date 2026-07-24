@@ -86,7 +86,8 @@ export function validateInitiativeBreakdown(value, portfolio) {
         jiraAliases: textList(rawStory.jiraAliases, `Story '${id}' jiraAliases`),
         jiraIssueId: rawStory.jiraIssueId == null ? null : String(rawStory.jiraIssueId),
         epicKey: rawStory.epicKey ?? rawEpic.jiraKey ?? null,
-        estimate: rawStory.estimate ?? null
+        estimate: rawStory.estimate ?? null,
+        idAuthority: rawStory.idAuthority ?? null
       };
       if (value.version === 2) {
         for (const requirement of story.requirements) {
@@ -150,6 +151,7 @@ export function initiativeBreakdownDocument(breakdown) {
         ...(story.jiraIssueId ? { jiraIssueId: story.jiraIssueId } : {}),
         ...(story.epicKey ? { epicKey: story.epicKey } : {}),
         ...(story.estimate != null ? { estimate: story.estimate } : {}),
+        ...(story.idAuthority ? { idAuthority: story.idAuthority } : {}),
         ...(story.dependsOn.length ? { dependsOn: story.dependsOn } : {}),
         ...(story.consumesContracts.length ? { consumesContracts: story.consumesContracts } : {})
       }))
@@ -192,7 +194,7 @@ export async function initiativeBreakdownReview(root, initiativeId, { probe = fa
   const repositories = {};
   for (const story of breakdown.stories) {
     if (repositories[story.repository]) continue;
-    const repository = portfolio.repositories[story.repository];
+    const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
     const probeResult = probe ? run('git', ['ls-remote', '--heads', repository.url], { cwd: root, allowFailure: true }) : null;
     repositories[story.repository] = {
       ...repository,
@@ -287,6 +289,7 @@ function storySeed(root, initiative, story) {
       jiraIssueId: story.jiraIssueId ?? null,
       initialJiraKey: story.initialJiraKey ?? story.jiraKey ?? null,
       jiraAliases: story.jiraAliases ?? [],
+      idAuthority: story.idAuthority ?? initiative.lineage?.idAuthority ?? null,
       repository: story.repository,
       repositoryMetadata: structuredClone(initiative.resolution.repositories?.[story.repository]?.metadata ?? {}),
       branchCompletionPolicy: initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy ?? 'pr',
@@ -301,7 +304,7 @@ function storySeed(root, initiative, story) {
 }
 
 async function materializeStory(root, portfolio, initiative, story, actor) {
-  const repository = portfolio.repositories[story.repository];
+  const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
   const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
     const cloned = run('git', ['clone', repository.url, target], { cwd: root, allowFailure: true });
@@ -358,15 +361,17 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
 }
 
 async function materializeJira(portfolio, initiative, breakdown, { env, fetchImpl } = {}) {
-  if (!portfolio.jira?.write) return { mode: 'off', epics: {}, stories: {} };
-  const projectKey = portfolio.jira.projectKey;
+  const policy = initiative.resolution?.jira ?? portfolio.jira;
+  if (initiative.lineage?.idAuthority === 'local') return { mode: 'off', authority: 'local', epics: {}, stories: {} };
+  if (!policy?.write) return { mode: 'off', authority: 'jira', epics: {}, stories: {} };
+  const projectKey = policy.projectKey;
   if (!projectKey) throw new SingularityFlowError('portfolio.jira.projectKey is required when Jira write materialization is enabled.');
   const epics = {}, stories = {};
   for (const epic of breakdown.epics) {
     const epicIssue = epic.jiraKey ? { key: epic.jiraKey, created: false } : await findOrCreateIssue({
       idempotencyLabel: stableLabel(initiative.initiative.id, epic.id),
       projectKey,
-      issueType: portfolio.jira.epicIssueType ?? 'Epic',
+      issueType: policy.epicIssueType ?? 'Epic',
       summary: epic.title,
       description: [
         `Singularity Flow initiative ${initiative.initiative.id}, epic ${epic.id}.`,
@@ -376,17 +381,21 @@ async function materializeJira(portfolio, initiative, breakdown, { env, fetchImp
     }, { env, fetchImpl });
     epics[epic.id] = epicIssue;
     for (const story of epic.stories) {
+      const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
+      const storyProjectKey = repository?.jira?.projectKey || projectKey;
+      const appId = repository?.metadata?.appId == null ? null : String(repository.metadata.appId);
       const issue = story.jiraKey ? { key: story.jiraKey, created: false } : await findOrCreateIssue({
         idempotencyLabel: stableLabel(initiative.initiative.id, story.id),
-        projectKey,
-        issueType: portfolio.jira.storyIssueType ?? 'Story',
+        projectKey: storyProjectKey,
+        issueType: policy.storyIssueType ?? 'Story',
         summary: story.title,
         description: [
           `Repository ${story.repository}; Singularity Flow Story Work ID ${story.id}.`,
           story.description,
           story.acceptanceCriteria.length ? `Acceptance criteria:\n${story.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : ''
         ].filter(Boolean).join('\n\n'),
-        parentKey: epicIssue.key
+        parentKey: epicIssue.key,
+        labels: appId ? [`appid-${appId.toLowerCase()}`] : []
       }, { env, fetchImpl });
       stories[story.id] = issue;
     }

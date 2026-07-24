@@ -180,6 +180,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Question from Copilot/);
   assert.match(source, /Copilot logs/);
   assert.match(source, /Copilot backend/);
+  assert.match(source, /Token usage by model/);
+  assert.match(source, /Total tokens/);
+  assert.match(source, /Apply model/);
+  assert.match(source, /Connected/);
   assert.match(source, /Start backend/);
   assert.match(source, /Stop backend/);
   assert.match(source, /Planning context released; the Copilot backend remains ready/);
@@ -335,6 +339,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /answerPlanningQuestion/);
   assert.match(preload, /bootstrapPortfolio/);
   assert.match(preload, /startCopilotService/);
+  assert.match(preload, /setCopilotServiceModel/);
   assert.match(preload, /stopCopilotService/);
   assert.match(preload, /onCopilotServiceEvent/);
   assert.match(preload, /materializeInitiative/);
@@ -343,6 +348,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /planning:answer/);
   assert.match(main, /configuration:bootstrap-portfolio/);
   assert.match(main, /copilot-service:start/);
+  assert.match(main, /copilot-service:model/);
+  assert.match(await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8'), /session:\s*\{\s*configOptions:\s*\{\}\s*\}/);
   assert.match(main, /copilot-service:stop/);
   assert.match(main, /initiative:materialize/);
   assert.match(main, /\['documents', 'preview'/);

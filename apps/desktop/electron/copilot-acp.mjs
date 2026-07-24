@@ -68,6 +68,33 @@ function planEntries(entries = []) {
   return entries.map((entry) => `- [${entry.status === 'completed' ? 'x' : ' '}] ${entry.content}`).join('\n');
 }
 
+function flattenedOptions(options = []) {
+  return options.flatMap((option) => Array.isArray(option?.options) ? option.options : [option]);
+}
+
+export function modelConfiguration(configOptions = [], fallback = null) {
+  const option = configOptions.find((candidate) => candidate?.type === 'select'
+    && (candidate.category === 'model' || candidate.id === 'model' || candidate.name?.toLowerCase() === 'model'));
+  if (!option) {
+    return {
+      configId: null,
+      current: fallback,
+      available: [],
+      switchSupported: false
+    };
+  }
+  return {
+    configId: option.id,
+    current: option.currentValue ?? fallback,
+    available: flattenedOptions(option.options).filter((candidate) => candidate?.value).map((candidate) => ({
+      value: candidate.value,
+      label: candidate.name ?? candidate.value,
+      description: candidate.description ?? null
+    })),
+    switchSupported: true
+  };
+}
+
 async function planningFileUpdate(base, plan, repository) {
   const planId = plan?.planId ?? null;
   let absolute;
@@ -121,6 +148,7 @@ export async function normalizePlanningUpdate(update, { repository } = {}) {
   }
   if (update.sessionUpdate === 'usage_update') return { ...base, usage: update.usage ?? update };
   if (update.sessionUpdate === 'current_mode_update') return { ...base, mode: update.currentModeId ?? update.modeId ?? null };
+  if (update.sessionUpdate === 'config_option_update') return { ...base, configOptions: update.configOptions ?? [] };
   if (update.sessionUpdate === 'available_commands_update') return { ...base, commands: update.availableCommands ?? [] };
   return base;
 }
@@ -146,6 +174,21 @@ export class CopilotPlanningBridge {
     this.closed = false;
     this.questionCounter = 0;
     this.pendingQuestions = new Map();
+    this.configOptions = [];
+    this.model = null;
+    this.availableModels = [];
+    this.modelConfigId = null;
+    this.modelSwitchSupported = false;
+  }
+
+  applyConfigOptions(configOptions = [], fallback = this.model) {
+    this.configOptions = configOptions;
+    const configuration = modelConfiguration(configOptions, fallback);
+    this.model = configuration.current;
+    this.availableModels = configuration.available;
+    this.modelConfigId = configuration.configId;
+    this.modelSwitchSupported = configuration.switchSupported;
+    return configuration;
   }
 
   requestInput(params) {
@@ -226,6 +269,7 @@ export class CopilotPlanningBridge {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
+          session: { configOptions: {} },
           plan: {},
           elicitation: { form: {} }
         }
@@ -233,6 +277,7 @@ export class CopilotPlanningBridge {
       processError
     ]);
     this.session = await this.connection.agent.buildSession(this.repository).start();
+    const modelState = this.applyConfigOptions(this.session.configOptions ?? [], model);
     const planMode = this.session.modes?.availableModes?.find((mode) => mode.name?.toLowerCase() === 'plan')
       ?? this.session.modes?.availableModes?.find((mode) => String(mode.id).endsWith('#plan'));
     if (!planMode) throw new Error('Copilot ACP did not advertise native Plan mode.');
@@ -242,14 +287,51 @@ export class CopilotPlanningBridge {
       sessionId: this.session.sessionId,
       version: preflight.version,
       protocolVersion: initialized.protocolVersion,
-      modes: { ...(this.session.modes ?? {}), currentModeId: planMode.id }
+      modes: { ...(this.session.modes ?? {}), currentModeId: planMode.id },
+      model: modelState.current,
+      models: modelState.available,
+      modelSwitchSupported: modelState.switchSupported
     });
     if (prompt) void this.prompt(prompt).catch(() => {});
     return {
       sessionId: this.session.sessionId,
       version: preflight.version,
       protocolVersion: initialized.protocolVersion,
-      mode: 'plan'
+      mode: 'plan',
+      model: modelState.current,
+      models: modelState.available,
+      modelSwitchSupported: modelState.switchSupported
+    };
+  }
+
+  async setModel(model) {
+    if (!this.session || this.closed) throw new Error('Copilot planning session is not active.');
+    if (this.running) throw new Error('Wait for the current Copilot planning turn to finish before changing its model.');
+    if (!this.modelConfigId) {
+      throw new Error('This Copilot ACP version does not advertise live model switching. Stop the backend, choose a model, and start it again.');
+    }
+    const requested = String(model ?? '').trim();
+    if (!requested) throw new Error('Choose a Copilot model before applying the change.');
+    if (this.availableModels.length && !this.availableModels.some((candidate) => candidate.value === requested)) {
+      throw new Error(`Copilot did not advertise model '${requested}' for this session.`);
+    }
+    const result = await this.connection.agent.setSessionConfigOption({
+      sessionId: this.session.sessionId,
+      configId: this.modelConfigId,
+      value: requested
+    });
+    const next = this.applyConfigOptions(result.configOptions ?? [], requested);
+    this.emit({
+      type: 'model-changed',
+      message: `Copilot model changed to ${next.current}.`,
+      model: next.current,
+      models: next.available,
+      modelSwitchSupported: next.switchSupported
+    });
+    return {
+      model: next.current,
+      models: next.available,
+      modelSwitchSupported: next.switchSupported
     };
   }
 
@@ -272,7 +354,18 @@ export class CopilotPlanningBridge {
           });
           return message.response;
         }
-        this.emit(await normalizePlanningUpdate(message.update, { repository: this.repository }));
+        const update = await normalizePlanningUpdate(message.update, { repository: this.repository });
+        if (update.type === 'config_option_update') {
+          const next = this.applyConfigOptions(update.configOptions);
+          this.emit({
+            ...update,
+            model: next.current,
+            models: next.available,
+            modelSwitchSupported: next.switchSupported
+          });
+        } else {
+          this.emit(update);
+        }
       }
     } catch (error) {
       this.emit({ type: 'error', message: error?.message ?? String(error) });

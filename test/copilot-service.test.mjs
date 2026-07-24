@@ -20,9 +20,25 @@ class FakeBridge {
       type: 'ready',
       sessionId: 'acp-session-1',
       version: '1.0.73',
-      modes: { currentModeId: 'plan' }
+      modes: { currentModeId: 'plan' },
+      model: model ?? 'claude-sonnet',
+      models: [
+        { value: 'claude-sonnet', label: 'Claude Sonnet' },
+        { value: 'gpt-5', label: 'GPT-5' }
+      ],
+      modelSwitchSupported: true
     });
-    return { sessionId: 'acp-session-1', version: '1.0.73', mode: 'plan' };
+    return {
+      sessionId: 'acp-session-1',
+      version: '1.0.73',
+      mode: 'plan',
+      model: model ?? 'claude-sonnet',
+      models: [
+        { value: 'claude-sonnet', label: 'Claude Sonnet' },
+        { value: 'gpt-5', label: 'GPT-5' }
+      ],
+      modelSwitchSupported: true
+    };
   }
 
   async prompt(text) {
@@ -37,6 +53,16 @@ class FakeBridge {
 
   answerQuestion(questionId, answer) {
     return { accepted: true, questionId, answer };
+  }
+
+  async setModel(model) {
+    this.model = model;
+    const models = [
+      { value: 'claude-sonnet', label: 'Claude Sonnet' },
+      { value: 'gpt-5', label: 'GPT-5' }
+    ];
+    this.emit({ type: 'model-changed', model, models, modelSwitchSupported: true });
+    return { model, models, modelSwitchSupported: true };
   }
 
   async cancelCurrentTurn() {
@@ -104,6 +130,9 @@ test('Copilot backend starts once, routes planning events, releases context, and
   assert.equal(started.running, true);
   assert.equal(started.state, 'ready');
   assert.equal(started.processId, 4242);
+  assert.equal(started.model, 'claude-sonnet');
+  assert.equal(started.modelSwitchSupported, true);
+  assert.equal(started.connectedAt, '2026-07-24T00:00:02.000Z');
   assert.equal(bridges.length, 1);
   assert.equal(bridges[0].model, 'claude-sonnet');
   await controller.start(repository);
@@ -115,6 +144,8 @@ test('Copilot backend starts once, routes planning events, releases context, and
   assert.deepEqual(bridges[0].prompts, ['Read the governed context.']);
   assert.ok(events.some((event) => event.channel === 'planning:event' && event.payload.planningSessionId === 'planning-1' && event.payload.type === 'agent_message_chunk'));
   assert.equal(controller.status(repository).state, 'ready');
+  assert.equal(controller.status(repository).usage.totalTokens, 42);
+  assert.equal(controller.status(repository).usage.byModel[0].model, 'claude-sonnet');
   await assert.rejects(
     () => controller.beginPlanning(repository, 'planning-2', { prompt: 'Competing context.' }),
     /already attached/
@@ -134,6 +165,65 @@ test('Copilot backend starts once, routes planning events, releases context, and
   assert.equal(stopped.state, 'stopped');
   assert.equal(bridges[0].stopped, 1);
   assert.ok(controller.logs(repository).some((entry) => entry.type === 'service-stopped'));
+});
+
+test('Copilot backend tracks cumulative exact tokens by active model and supports an idle live model change', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-model-usage');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      bridge = new FakeBridge(options);
+      return bridge;
+    }
+  });
+  const started = await controller.start(repository, { model: 'claude-sonnet' });
+  assert.equal(started.usage.status, 'unavailable');
+  bridge.emit({
+    type: 'turn-complete',
+    usage: { totalTokens: 100, inputTokens: 80, outputTokens: 20, cachedReadTokens: 30 }
+  });
+  const changed = await controller.setModel(repository, 'gpt-5');
+  assert.equal(changed.model, 'gpt-5');
+  bridge.emit({
+    type: 'turn-complete',
+    usage: { totalTokens: 175, inputTokens: 140, outputTokens: 35, cachedReadTokens: 50 },
+    meta: { 'gen_ai.response.model': 'gpt-5' }
+  });
+  const status = controller.status(repository);
+  assert.equal(status.model, 'gpt-5');
+  assert.equal(status.usage.status, 'exact');
+  assert.equal(status.usage.turns, 2);
+  assert.equal(status.usage.totalTokens, 175);
+  assert.equal(status.usage.inputTokens, 140);
+  assert.equal(status.usage.outputTokens, 35);
+  assert.equal(status.usage.cachedReadTokens, 50);
+  assert.deepEqual(status.usage.byModel.map((entry) => [entry.model, entry.totalTokens]), [
+    ['claude-sonnet', 100],
+    ['gpt-5', 75]
+  ]);
+});
+
+test('Copilot backend reports partial capture when a completed turn has no exact usage', async () => {
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-partial-usage');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => {
+      bridge = new FakeBridge(options);
+      return bridge;
+    }
+  });
+  await controller.start(repository);
+  bridge.emit({ type: 'turn-complete', usage: null });
+  bridge.emit({ type: 'turn-complete', usage: { totalTokens: 17 } });
+  const usage = controller.status(repository).usage;
+  assert.equal(usage.status, 'partial');
+  assert.equal(usage.turns, 2);
+  assert.equal(usage.exactTurns, 1);
+  assert.equal(usage.unavailableTurns, 1);
+  assert.equal(usage.totalTokens, 17);
+  assert.equal(usage.inputTokens, null);
 });
 
 test('stopping the Copilot backend notifies an attached planning UI and preflight blocks launch', async () => {

@@ -1,7 +1,17 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import {
+  exists,
+  nowIso,
+  posix,
+  readJson,
+  secureRepositoryPath,
+  SingularityFlowError,
+  snapshot,
+  writeJson,
+  writeText
+} from './util.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
 const MODES = new Set(['replace', 'append', 'off']);
@@ -149,7 +159,12 @@ export async function renderInjection(root, definition, signals = {}) {
 export async function injectPersonaPrompt(root, definition, personaId, signals = {}) {
   const persona = definition.personas?.[personaId];
   if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
-  const base = await readFile(path.join(root, definition.personaPromptsRoot, persona.prompt), 'utf8');
+  const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
+    label: `Persona prompt for '${personaId}'`,
+    mustExist: true,
+    type: 'file'
+  });
+  const base = await readFile(prompt.absolute, 'utf8');
   const rendered = await renderInjection(root, definition, { ...signals, persona: personaId });
   if (rendered.mode === 'off' || !rendered.sections.length) return {
     text: base.replaceAll(rendered.placeholder, ''),

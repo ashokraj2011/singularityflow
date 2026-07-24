@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { stat } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const DESKTOP_CLI_TIMEOUT_MS = 120_000;
@@ -19,20 +19,43 @@ export class LegacyControlRootError extends Error {
 
 export async function validateRepositoryDirectory(repository) {
   const resolved = path.resolve(repository || '');
-  const root = await stat(resolved).catch(() => null);
+  const canonical = await realpath(resolved).catch(() => null);
+  const root = canonical ? await lstat(canonical).catch(() => null) : null;
   if (!root?.isDirectory()) throw new Error('The selected repository folder does not exist or is not a directory.');
-  const git = await stat(path.join(resolved, '.git')).catch(() => null);
+  const git = await lstat(path.join(canonical, '.git')).catch(() => null);
   if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
-  const workflow = await stat(path.join(resolved, 'singularity', 'workflow.yml')).catch(() => null);
+  if (git.isSymbolicLink()) throw new Error(`The selected repository has unsafe symbolic-link Git metadata: ${canonical}`);
+  const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: canonical,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (probe.status !== 0 || !probe.stdout?.trim()) {
+    throw new Error(`The selected folder is not a valid Git working tree: ${canonical}`);
+  }
+  const topLevel = await realpath(probe.stdout.trim()).catch(() => null);
+  if (!topLevel || topLevel !== canonical) {
+    throw new Error(`Select the Git repository root instead of a nested directory: ${canonical}`);
+  }
+
+  const control = await lstat(path.join(canonical, 'singularity')).catch(() => null);
+  if (control?.isSymbolicLink()) throw new Error(`The singularity control directory cannot be a symbolic link: ${canonical}`);
+  const workflow = await lstat(path.join(canonical, 'singularity', 'workflow.yml')).catch(() => null);
+  if (workflow?.isSymbolicLink()) throw new Error(`The Singularity Flow workflow cannot be a symbolic link: ${canonical}`);
   if (!workflow?.isFile()) {
     for (const legacyRoot of ['.singularity', '.sdlc']) {
-      const legacyWorkflow = await stat(path.join(resolved, legacyRoot, 'workflow.yml')).catch(() => null);
-      const legacyConfig = await stat(path.join(resolved, legacyRoot, 'config.json')).catch(() => null);
-      if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(resolved, legacyRoot);
+      const legacyControl = await lstat(path.join(canonical, legacyRoot)).catch(() => null);
+      if (legacyControl?.isSymbolicLink()) throw new Error(`The former ${legacyRoot} control directory cannot be a symbolic link: ${canonical}`);
+      const legacyWorkflow = await lstat(path.join(canonical, legacyRoot, 'workflow.yml')).catch(() => null);
+      const legacyConfig = await lstat(path.join(canonical, legacyRoot, 'config.json')).catch(() => null);
+      if (legacyWorkflow?.isSymbolicLink() || legacyConfig?.isSymbolicLink()) {
+        throw new Error(`Former Singularity Flow configuration files cannot be symbolic links: ${canonical}/${legacyRoot}`);
+      }
+      if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(canonical, legacyRoot);
     }
     throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
   }
-  return resolved;
+  return canonical;
 }
 
 export function invokeCliProcess({ executable, cli, repository, args, input = null, json = true, env = {}, timeoutMs = DESKTOP_CLI_TIMEOUT_MS, spawnImpl = spawn }) {

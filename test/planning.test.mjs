@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -222,6 +222,27 @@ test('ACP planning updates normalize structured plans and reject plan files outs
   }, { repository });
   assert.match(rejected.warning, /outside the open repository/);
   assert.equal(rejected.plan, undefined);
+  const linked = path.join(repository, 'linked-plan.md');
+  await symlink(outside, linked);
+  const linkedRejected = await normalizePlanningUpdate({
+    sessionUpdate: 'plan_update',
+    plan: { type: 'file', planId: 'p4', uri: pathToFileURL(linked).href }
+  }, { repository });
+  assert.match(linkedRejected.warning, /symbolic link/);
+  assert.equal(linkedRejected.plan, undefined);
+  assert.equal(linkedRejected.planPath, undefined);
+  const oversized = path.join(repository, 'oversized-plan.md');
+  await writeFile(oversized, Buffer.alloc(1024 * 1024 + 1, 0x61));
+  const oversizedRejected = await normalizePlanningUpdate({
+    sessionUpdate: 'plan_update',
+    plan: { type: 'file', planId: 'p5', uri: pathToFileURL(oversized).href }
+  }, { repository });
+  assert.match(oversizedRejected.warning, /exceeds the 1048576-byte/);
+  const malformed = await normalizePlanningUpdate({
+    sessionUpdate: 'plan_update',
+    plan: { type: 'file', planId: 'p6', uri: 'file:///%ZZ' }
+  }, { repository });
+  assert.match(malformed.warning, /invalid file URL/);
   const removed = await normalizePlanningUpdate({ sessionUpdate: 'plan_removed', planId: 'p3' }, { repository });
   assert.equal(removed.removed, true);
 });

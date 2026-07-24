@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
+
+const MAX_PLAN_FILE_BYTES = 1024 * 1024;
 
 function executableCandidates(env = process.env) {
   const configured = env.SINGULARITY_FLOW_COPILOT_PATH ? [env.SINGULARITY_FLOW_COPILOT_PATH] : [];
@@ -66,6 +68,39 @@ function planEntries(entries = []) {
   return entries.map((entry) => `- [${entry.status === 'completed' ? 'x' : ' '}] ${entry.content}`).join('\n');
 }
 
+async function planningFileUpdate(base, plan, repository) {
+  const planId = plan?.planId ?? null;
+  let absolute;
+  try {
+    absolute = fileURLToPath(plan?.uri);
+  } catch {
+    return { ...base, warning: 'Copilot returned an invalid file URL for its plan; it was not loaded.', planId };
+  }
+  if (!repository) return { ...base, warning: 'Copilot returned a plan file without an open repository boundary; it was not loaded.', planId };
+  const relative = path.relative(repository, absolute);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { ...base, warning: 'Copilot returned a plan file outside the open repository; it was not loaded.', planId };
+  }
+  try {
+    const entry = await lstat(absolute);
+    if (entry.isSymbolicLink()) {
+      return { ...base, warning: 'Copilot returned a symbolic link as a plan file; it was not loaded.', planId };
+    }
+    if (!entry.isFile()) return { ...base, warning: 'Copilot returned a plan path that is not a regular file; it was not loaded.', planId };
+    const [canonicalRepository, canonicalFile] = await Promise.all([realpath(repository), realpath(absolute)]);
+    const canonicalRelative = path.relative(canonicalRepository, canonicalFile);
+    if (canonicalRelative.startsWith('..') || path.isAbsolute(canonicalRelative)) {
+      return { ...base, warning: 'Copilot returned a plan file that resolves outside the open repository; it was not loaded.', planId };
+    }
+    if (entry.size > MAX_PLAN_FILE_BYTES) {
+      return { ...base, warning: `Copilot plan file exceeds the ${MAX_PLAN_FILE_BYTES}-byte safety limit; it was not loaded.`, planId };
+    }
+    return { ...base, plan: await readFile(canonicalFile, 'utf8'), planPath: canonicalFile, planId };
+  } catch (error) {
+    return { ...base, warning: `Copilot plan file could not be loaded safely: ${error.message}`, planId };
+  }
+}
+
 export async function normalizePlanningUpdate(update, { repository } = {}) {
   const base = { type: update.sessionUpdate, raw: update };
   if (['agent_message_chunk', 'agent_thought_chunk', 'user_message_chunk'].includes(update.sessionUpdate)) {
@@ -73,16 +108,9 @@ export async function normalizePlanningUpdate(update, { repository } = {}) {
   }
   if (update.sessionUpdate === 'plan') return { ...base, plan: planEntries(update.entries), entries: update.entries };
   if (update.sessionUpdate === 'plan_update') {
-    if (update.plan.type === 'markdown') return { ...base, plan: update.plan.content, planId: update.plan.planId };
-    if (update.plan.type === 'items') return { ...base, plan: planEntries(update.plan.entries), entries: update.plan.entries, planId: update.plan.planId };
-    if (update.plan.type === 'file' && update.plan.uri?.startsWith('file:')) {
-      const absolute = fileURLToPath(update.plan.uri);
-      const relative = path.relative(repository, absolute);
-      if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
-        return { ...base, plan: await readFile(absolute, 'utf8'), planPath: absolute, planId: update.plan.planId };
-      }
-      return { ...base, warning: 'Copilot returned a plan file outside the open repository; it was not loaded.', planPath: absolute, planId: update.plan.planId };
-    }
+    if (update.plan?.type === 'markdown') return { ...base, plan: update.plan.content, planId: update.plan.planId };
+    if (update.plan?.type === 'items') return { ...base, plan: planEntries(update.plan.entries), entries: update.plan.entries, planId: update.plan.planId };
+    if (update.plan?.type === 'file') return planningFileUpdate(base, update.plan, repository);
   }
   if (update.sessionUpdate === 'plan_removed') return { ...base, planId: update.planId, removed: true };
   if (update.sessionUpdate === 'tool_call') {

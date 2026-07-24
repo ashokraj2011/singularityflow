@@ -1,11 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, migrateLegacyConfig, normalizePhaseInputs, normalizePlanning, normalizeSequenceGates, normalizeSessionPolicy, personaPrompt, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import {
+  initializeDefinition,
+  loadDefinition,
+  migrateLegacyConfig,
+  normalizePhaseInputs,
+  normalizePlanning,
+  normalizeSequenceGates,
+  normalizeSessionPolicy,
+  personaPrompt,
+  renderArtifactTemplate,
+  resolveWorkType,
+  snapshotResolution,
+  validateDefinition
+} from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
@@ -33,6 +46,36 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
   assert.match(await personaPrompt(root, definition, 'product-designer'), /exported design package/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('workflow loading rejects symlinked governance templates instead of reading outside the repository', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-boundary-'));
+  await initializeDefinition(root);
+  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-config-outside-')), 'design.md');
+  await writeFile(outside, '# external instructions\n');
+  const template = path.join(root, 'singularity/templates/feature/design.md');
+  await unlink(template);
+  await symlink(outside, template);
+  await assert.rejects(() => loadDefinition(root), /Template for work type 'feature' phase 'design'.*symbolic link/);
+});
+
+test('artifact rendering enforces the work-item template hash snapshot', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-template-pin-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  const resolved = resolveWorkType(definition, 'feature');
+  const pinned = await snapshotResolution(root, definition, resolved);
+  const design = resolved.phases.find((phase) => phase.id === 'design');
+  await writeFile(path.join(root, pinned.templates.design.path), '# changed after intake\n');
+  await assert.rejects(
+    () => renderArtifactTemplate(root, definition, design, {
+      id: 'PIN-1',
+      title: 'Pinned template',
+      workType: 'feature',
+      templateSnapshot: pinned.templates.design
+    }),
+    /changed after this work item was created/
+  );
 });
 
 test('Copilot session persona policy is configurable and absent configuration stays inert', () => {

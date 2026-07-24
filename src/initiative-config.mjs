@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
-import { SingularityFlowError, posix, snapshot } from './util.mjs';
+import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -290,13 +289,16 @@ export function validatePortfolio(value) {
 }
 
 export async function loadPortfolio(root, { required = true } = {}) {
-  const file = path.join(root, PORTFOLIO_PATH);
-  if (!existsSync(file)) {
+  const file = await secureRepositoryPath(root, PORTFOLIO_PATH, {
+    label: 'Initiative portfolio configuration',
+    type: 'file'
+  });
+  if (!file.exists) {
     if (!required) return null;
     throw new SingularityFlowError(`No ${PORTFOLIO_PATH} exists. Run singularity-flow init or add the portfolio configuration.`);
   }
   let parsed;
-  try { parsed = YAML.parse(await readFile(file, 'utf8')); }
+  try { parsed = YAML.parse(await readFile(file.absolute, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to parse ${PORTFOLIO_PATH}: ${error.message}`); }
   return validatePortfolio(parsed);
 }
@@ -325,14 +327,22 @@ export function resolveInitiativeProfile(portfolio, profileId) {
 }
 
 export async function snapshotInitiativeResolution(root, portfolio, resolved) {
-  const portfolioSnapshot = await snapshot(path.join(root, PORTFOLIO_PATH));
+  const portfolioFile = await secureRepositoryPath(root, PORTFOLIO_PATH, {
+    label: 'Initiative portfolio configuration',
+    mustExist: true,
+    type: 'file'
+  });
+  const portfolioSnapshot = await snapshot(portfolioFile.absolute);
   const templates = {};
   for (const phase of resolved.phases) {
     for (const output of phase.outputs) {
       if (!output.template) continue;
-      const absolute = path.join(root, portfolio.templatesRoot, output.template);
-      if (!existsSync(absolute)) throw new SingularityFlowError(`Initiative template missing for '${phase.id}/${output.id}': ${posix(path.relative(root, absolute))}`);
-      templates[`${phase.id}/${output.id}`] = { path: posix(path.relative(root, absolute)), ...(await snapshot(absolute)) };
+      const template = await secureRepositoryPath(root, path.join(portfolio.templatesRoot, output.template), {
+        label: `Initiative template for '${phase.id}/${output.id}'`,
+        mustExist: true,
+        type: 'file'
+      });
+      templates[`${phase.id}/${output.id}`] = { path: template.relative, ...(await snapshot(template.absolute)) };
     }
   }
   const canonical = JSON.stringify({

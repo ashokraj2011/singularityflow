@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -297,6 +297,44 @@ test('desktop manages repository prompts and skills and exports portable YAML an
   assert.ok(bundle.files.some((item) => item.path === skillPath));
   assert.equal((await deleteDesktopFile(root, skillPath)).deleted, true);
   await assert.rejects(() => readDesktopFile(root, 'README.md'), /not an exportable/i);
+});
+
+test('desktop configuration refuses symlinked files and parent directories outside the repository', async () => {
+  const root = await repository();
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-outside-'));
+  const secret = path.join(outside, 'secret.md');
+  await writeFile(secret, '# outside secret\n');
+
+  const linkedSkill = path.join(root, '.github', 'skills', 'linked', 'SKILL.md');
+  await mkdir(path.dirname(linkedSkill), { recursive: true });
+  await symlink(secret, linkedSkill);
+  await assert.rejects(
+    () => readDesktopFile(root, '.github/skills/linked/SKILL.md'),
+    /symbolic link/
+  );
+  await unlink(linkedSkill);
+
+  const escapedRoot = path.join(root, '.github', 'skills', 'escaped');
+  await symlink(outside, escapedRoot, 'dir');
+  await assert.rejects(
+    () => saveDesktopFile(root, '.github/skills/escaped/CREATED.md', '# must stay local\n'),
+    /symbolic link|outside the repository/
+  );
+  await assert.rejects(
+    () => desktopSnapshot(root),
+    /symbolic link|outside the repository/
+  );
+  await assert.rejects(
+    () => desktopExportBundle(root),
+    /symbolic link|outside the repository/
+  );
+  await unlink(escapedRoot);
+  await symlink(secret, linkedSkill);
+  await assert.rejects(
+    () => deleteDesktopFile(root, '.github/skills/linked/SKILL.md'),
+    /symbolic link/
+  );
+  assert.equal(await readFile(secret, 'utf8'), '# outside secret\n');
 });
 
 test('desktop persona selection remains local and requires the active work branch', async () => {

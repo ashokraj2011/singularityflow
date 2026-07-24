@@ -2551,6 +2551,15 @@ label > span,
 .review-packet-document { max-height: 520px; overflow: auto; border: 1px solid #e3e8e4; border-radius: 10px; padding: 18px; color: #34443a; background: #fbfcfb; font-family: var(--font-mono); font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 
 .epic-lifecycle-wizard { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; margin: 0 0 22px; border: 1px solid #dfe7e1; border-radius: 16px; padding: 8px; background: rgba(255,255,255,.9); box-shadow: 0 10px 30px rgba(28,62,43,.06); scrollbar-width: thin; }
+.business-stage-intro { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px 28px; align-items: start; margin: 0 0 18px; border: 1px solid #cbded3; border-left: 4px solid #2b875d; border-radius: 14px; padding: 18px 20px; background: linear-gradient(110deg,#f6fbf8,#fff 72%); box-shadow: 0 8px 24px rgba(24,80,52,.045); }
+.business-stage-intro.waiting { border-color: #e3d7b7; border-left-color: #c28a22; background: linear-gradient(110deg,#fffbf2,#fff 72%); }
+.business-stage-intro > div:first-child { max-width: 820px; }
+.business-stage-intro h2 { margin: 4px 0 6px; color: #153d2d; font-size: 18px; font-weight: 610; letter-spacing: -.02em; }
+.business-stage-intro p { margin: 0; color: #617268; font-size: 11px; line-height: 1.55; }
+.business-lineage-handoff { grid-column: 1/-1; display: flex; align-items: center; gap: 10px; border-top: 1px solid #e2eae5; padding-top: 14px; color: #385248; }
+.business-lineage-handoff span { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 570; white-space: nowrap; }
+.business-lineage-handoff b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #267651; font-size: 9px; font-weight: 680; }
+.business-lineage-handoff i { flex: 1; min-width: 16px; color: #9aaba1; font-style: normal; text-align: center; }
 .epic-lifecycle-wizard > button { position: relative; min-width: 128px; flex: 1 0 128px; display: grid; grid-template-columns: 32px 1fr; grid-template-rows: auto auto; column-gap: 9px; border: 0; border-radius: 11px; padding: 11px 12px; color: #6e7d74; text-align: left; background: transparent; transition: background .18s ease, color .18s ease, transform .18s ease; }
 .epic-lifecycle-wizard > button:hover { color: #174f34; background: #f1f7f3; transform: translateY(-1px); }
 .epic-lifecycle-wizard > button.active { color: #0b5e39; background: #e8f4ec; box-shadow: inset 0 0 0 1px #c9e2d1; }
@@ -2710,6 +2719,8 @@ label > span,
   .epic-review-decision > div:first-child { grid-column: 1/-1; }
   .epic-start-wizard { grid-template-columns: 1fr; }
   .epic-start-intro { min-height: 360px; }
+  .business-lineage-handoff { overflow-x: auto; }
+  .business-lineage-handoff span { min-width: max-content; }
   .epic-lifecycle-wizard > button { min-width: 118px; flex-basis: 118px; }
   .phase-governance { grid-template-columns: 1fr 1fr; }
   .stage-primary-action { grid-column: 2; }

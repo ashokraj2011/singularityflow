@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   normalizeOnboardingProfile,
+  prepareOnboardingProfile,
   readOnboardingProfile,
   saveOnboardingProfile,
   validateOnboardingWorkspace
@@ -49,6 +50,10 @@ test('onboarding completion requires name, role, workspace, and a Jira decision'
   );
   assert.throws(
     () => normalizeOnboardingProfile({ ...base, jiraChoice: 'disconnected' }, { complete: true }),
+    /Reconnect Jira or explicitly confirm/
+  );
+  assert.throws(
+    () => normalizeOnboardingProfile({ ...base, completed: true, jiraChoice: 'disconnected' }, { complete: true }),
     /Reconnect Jira or explicitly confirm/
   );
 });
@@ -98,6 +103,23 @@ test('an obsolete valid profile recovers to the wizard instead of blocking start
   assert.match(recovered.recovery.message, /removed-role/);
 });
 
+test('a future onboarding profile version recovers instead of being silently misread', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-future-'));
+  const file = path.join(root, 'onboarding.json');
+  await writeFile(file, JSON.stringify({
+    schemaVersion: 999,
+    completed: true,
+    name: 'Future User',
+    role: 'developer',
+    workspacePath: '/tmp/workspaces',
+    jiraChoice: 'not-used'
+  }));
+  const recovered = await readOnboardingProfile(file);
+  assert.equal(recovered.completed, false);
+  assert.equal(recovered.recovery.reason, 'invalid-profile');
+  assert.match(recovered.recovery.message, /version 999/);
+});
+
 test('a removed Jira credential does not force a completed user through onboarding again', () => {
   const profile = normalizeOnboardingProfile({
     completed: true,
@@ -105,9 +127,60 @@ test('a removed Jira credential does not force a completed user through onboardi
     role: 'architect',
     workspacePath: '/tmp/workspaces',
     jiraChoice: 'connected'
-  }, { complete: true, jiraConnected: false });
+  }, { complete: true, jiraConnected: false, allowDisconnectedCompletion: true });
   assert.equal(profile.completed, true);
   assert.equal(profile.jiraChoice, 'disconnected');
+});
+
+test('incomplete onboarding recovers a stale workspace and removes unavailable optional repositories visibly', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-recovery-'));
+  const availableRepository = path.join(root, 'available');
+  const unavailableRepository = path.join(root, 'unavailable');
+  const prepared = await prepareOnboardingProfile({
+    name: 'Recovery User',
+    role: 'developer',
+    step: 4,
+    workspacePath: path.join(root, 'missing-workspace'),
+    repositories: [
+      { path: availableRepository, name: 'Available' },
+      { path: unavailableRepository, name: 'Unavailable' }
+    ],
+    jiraChoice: 'not-used'
+  }, {
+    validateWorkspace: async () => { throw new Error('workspace moved'); },
+    validateRepository: async (repository) => {
+      if (repository === unavailableRepository) throw new Error('repository moved');
+      return `${repository}-canonical`;
+    }
+  });
+
+  assert.equal(prepared.profile.workspacePath, null);
+  assert.equal(prepared.profile.step, 2);
+  assert.deepEqual(prepared.profile.repositories, [{
+    path: `${availableRepository}-canonical`,
+    name: 'Available'
+  }]);
+  assert.deepEqual(prepared.notices.map((notice) => notice.kind), ['workspace', 'repository']);
+  assert.match(prepared.notices[0].message, /select it again/i);
+  assert.match(prepared.notices[1].message, /Unavailable/);
+});
+
+test('completed onboarding fails closed when its required workspace is unavailable', async () => {
+  await assert.rejects(
+    () => prepareOnboardingProfile({
+      name: 'Recovery User',
+      role: 'developer',
+      step: 4,
+      workspacePath: '/missing-workspace',
+      repositories: [],
+      jiraChoice: 'not-used'
+    }, {
+      complete: true,
+      validateWorkspace: async () => { throw new Error('workspace moved'); },
+      validateRepository: async (repository) => repository
+    }),
+    /workspace moved/
+  );
 });
 
 test('onboarding workspace validation canonicalizes directory aliases and rejects files and filesystem roots', async () => {

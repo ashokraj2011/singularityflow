@@ -755,6 +755,7 @@ button.full { width: 100%; }
 .toast button { border: 0; padding: 0 2px; color: currentColor; background: transparent; cursor: pointer; font-size: 17px; }
 .toast.good { border-left: 4px solid var(--green-700); }
 .toast.bad { border-left: 4px solid var(--red-700); }
+.toast.warning { border-left: 4px solid #b87a13; }
 @keyframes opening-pulse { 50% { box-shadow: 0 0 0 10px rgba(196,102,69,.14); } }
 
 @media (max-width: 1240px) {
@@ -2288,6 +2289,7 @@ label > span,
 .onboarding-ready-summary strong { overflow: hidden; font-size: 10px; font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
 .onboarding-ready-summary small { overflow: hidden; color: #758078; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .onboarding-error { margin-top: 12px; border: 1px solid #e5b9bb; border-radius: 10px; padding: 11px 13px; color: #9e2730; background: #fff2f2; font-size: 11px; }
+.onboarding-warning { margin-top: 12px; border: 1px solid #e7d69c; border-radius: 10px; padding: 11px 13px; color: #725e19; background: #fffbea; font-size: 11px; }
 .onboarding-footer { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 18px; border-top: 1px solid #e0e5e1; padding: 0 42px; background: #fff; }
 .onboarding-footer > span { color: #7c8780; font-size: 9px; text-align: center; }
 .onboarding-footer > button:last-child { min-width: 145px; }

@@ -16,6 +16,7 @@ import {
 import { JiraCredentialStore } from './jira-credentials.mjs';
 import {
   ONBOARDING_ROLES,
+  prepareOnboardingProfile,
   readOnboardingProfile,
   saveOnboardingProfile,
   validateOnboardingWorkspace
@@ -297,21 +298,21 @@ function registerHandlers() {
   });
   trustedHandle('onboarding:save', async (event, { profile: input, complete = false }) => {
     assertTrustedSender(event);
-    const normalizedInput = structuredClone(input ?? {});
-    if (normalizedInput.workspacePath) normalizedInput.workspacePath = await validateOnboardingWorkspace(normalizedInput.workspacePath);
-    normalizedInput.repositories = await Promise.all((normalizedInput.repositories ?? []).map(async (repository) => ({
-      ...repository,
-      path: await validateRepositoryDirectory(repository.path)
-    })));
     const jira = await jiraCredentialStore().safeStatus();
-    const profile = await saveOnboardingProfile(onboardingProfilePath(), normalizedInput, {
+    const prepared = await prepareOnboardingProfile(structuredClone(input ?? {}), {
+      complete,
+      jiraConnected: jira.connected,
+      validateWorkspace: validateOnboardingWorkspace,
+      validateRepository: validateRepositoryDirectory
+    });
+    const profile = await saveOnboardingProfile(onboardingProfilePath(), prepared.profile, {
       complete,
       jiraConnected: jira.connected
     });
     for (const repository of profile.repositories) {
       await rememberRecentRepository(recentRepositoriesPath(), repository);
     }
-    return { profile, jira };
+    return { profile, jira, notices: prepared.notices };
   });
   trustedHandle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });

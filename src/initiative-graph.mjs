@@ -68,6 +68,11 @@ export function buildInitiativeGraph(initiative, { evidence = [], approvals = []
       const dependencyId = typeof dependency === 'string' ? dependency : dependency.story;
       addEdge(graph, initiativeNode('story', dependencyId), storyNode, 'story-dependency');
     }
+    if (story.blocking) {
+      for (const phaseId of ['build', 'construction', 'release', 'delivery']) {
+        if (initiative.phases?.[phaseId]) addEdge(graph, storyNode, initiativeNode('phase', phaseId), 'blocking-story-milestone');
+      }
+    }
   }
   return graph;
 }
@@ -115,6 +120,49 @@ function markNodeStale(initiative, node, recordSha256) {
   }
 }
 
+function affectedPhaseIds(initiative, affected) {
+  const phaseIds = new Set();
+  for (const node of affected) {
+    const [type, reference] = node.split(':', 2);
+    if (!['phase', 'output', 'check'].includes(type)) continue;
+    const phaseId = reference?.split('/')[0];
+    if (initiative.phases?.[phaseId]) phaseIds.add(phaseId);
+  }
+  return phaseIds;
+}
+
+function rewindInvalidatedLifecycle(initiative, affected, recordSha256, at) {
+  const affectedPhases = affectedPhaseIds(initiative, affected);
+  if (!affectedPhases.size) return null;
+  const currentIndex = initiative.currentPhase == null
+    ? initiative.phaseOrder.length
+    : initiative.phaseOrder.indexOf(initiative.currentPhase);
+  const earliestIndex = initiative.phaseOrder.findIndex((phaseId) => affectedPhases.has(phaseId));
+  if (earliestIndex < 0 || earliestIndex > currentIndex) return null;
+  const reopenedId = initiative.phaseOrder[earliestIndex];
+  for (let index = earliestIndex; index < initiative.phaseOrder.length; index += 1) {
+    const phaseId = initiative.phaseOrder[index];
+    const phase = initiative.phases[phaseId];
+    if (index === earliestIndex) {
+      phase.status = 'in_progress';
+      phase.startedAt ??= at;
+      phase.submittedAt = null;
+      phase.approvedAt = null;
+      phase.invalidatedBy = recordSha256;
+      continue;
+    }
+    if (phase.status !== 'approved' || affectedPhases.has(phaseId)) {
+      phase.status = 'not_started';
+      phase.submittedAt = null;
+      phase.approvedAt = null;
+      if (affectedPhases.has(phaseId)) phase.invalidatedBy = recordSha256;
+    }
+  }
+  initiative.currentPhase = reopenedId;
+  initiative.status = 'in_progress';
+  return reopenedId;
+}
+
 export async function invalidateInitiativeCone(root, {
   initiativeId,
   starts,
@@ -145,16 +193,17 @@ export async function invalidateInitiativeCone(root, {
   };
   const appended = await appendInitiativeRecord(root, portfolio, initiativeId, 'invalidations', record);
   for (const node of affected) markNodeStale(initiative, node, appended.sha256);
+  const reopenedPhase = rewindInvalidatedLifecycle(initiative, affected, appended.sha256, record.at);
   initiative.history.push({
     at: record.at,
     actor: actor.email?.toLowerCase() ?? actor.name,
     persona,
     event: 'initiative_cone_invalidated',
-    phase: null,
-    detail: `${starts.join(', ')} affected ${affected.length} nodes: ${reason.trim()}`
+    phase: reopenedPhase,
+    detail: `${starts.join(', ')} affected ${affected.length} nodes${reopenedPhase ? ` and reopened ${reopenedPhase}` : ''}: ${reason.trim()}`
   });
   await saveInitiative(root, portfolio, initiative);
-  return { ...appended, affected, graph };
+  return { ...appended, affected, graph, reopenedPhase };
 }
 
 export async function activeInitiativeInvalidations(root, portfolio, initiativeId) {

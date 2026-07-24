@@ -10,6 +10,7 @@ import {
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
+export { initiativeMilestoneReadiness } from './initiative-milestones.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, writeJson, writeText
 } from './util.mjs';
@@ -438,6 +439,86 @@ function milestoneReached(workflow, phaseId) {
   return phase?.status === 'approved';
 }
 
+const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete']);
+const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved']);
+
+function parseChildWorkflow(text, story) {
+  let workflow;
+  try {
+    workflow = JSON.parse(text);
+  } catch (error) {
+    throw new SingularityFlowError(`Child workflow for '${story.id}' is not valid JSON: ${error.message}`);
+  }
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
+    throw new SingularityFlowError(`Child workflow for '${story.id}' must be a JSON object.`);
+  }
+  if (![1, 2].includes(workflow.schemaVersion)) {
+    throw new SingularityFlowError(`Child workflow for '${story.id}' has unsupported schema version '${workflow.schemaVersion}'.`);
+  }
+  if (workflow.workItem?.id !== story.id) {
+    throw new SingularityFlowError(`Child workflow belongs to '${workflow.workItem?.id ?? 'unknown'}'; expected '${story.id}'.`);
+  }
+  if (workflow.schemaVersion === 2 && workflow.workItem.branch == null) {
+    throw new SingularityFlowError(`Child workflow '${story.id}' has no immutable branch identity.`);
+  }
+  if (workflow.workItem.branch != null && workflow.workItem.branch !== story.id) {
+    throw new SingularityFlowError(`Child workflow branch is '${workflow.workItem.branch}'; expected '${story.id}'.`);
+  }
+  if (!CHILD_WORKFLOW_STATUSES.has(workflow.status)) {
+    throw new SingularityFlowError(`Child workflow '${story.id}' has invalid status '${workflow.status}'.`);
+  }
+  if (!workflow.phases || typeof workflow.phases !== 'object' || Array.isArray(workflow.phases)) {
+    throw new SingularityFlowError(`Child workflow '${story.id}' has no valid phase state.`);
+  }
+  const phaseOrder = workflow.phaseOrder ?? Object.keys(workflow.phases);
+  if (!Array.isArray(phaseOrder) || !phaseOrder.length || new Set(phaseOrder).size !== phaseOrder.length) {
+    throw new SingularityFlowError(`Child workflow '${story.id}' has no valid unique phase order.`);
+  }
+  if (workflow.schemaVersion === 2) {
+    const resolvedIds = workflow.resolution?.phases?.map((phase) => phase?.id);
+    if (!Array.isArray(resolvedIds) || resolvedIds.some((phaseId) => typeof phaseId !== 'string')) {
+      throw new SingularityFlowError(`Child workflow '${story.id}' has no immutable phase resolution.`);
+    }
+    if (JSON.stringify(resolvedIds) !== JSON.stringify(phaseOrder)) {
+      throw new SingularityFlowError(`Child workflow '${story.id}' phase order differs from its immutable resolution.`);
+    }
+    if (workflow.resolution.workType !== workflow.workItem.workType) {
+      throw new SingularityFlowError(`Child workflow '${story.id}' work type differs from its immutable resolution.`);
+    }
+  }
+  for (const phaseId of phaseOrder) {
+    if (typeof phaseId !== 'string' || !workflow.phases[phaseId] || !CHILD_PHASE_STATUSES.has(workflow.phases[phaseId].status)) {
+      throw new SingularityFlowError(`Child workflow '${story.id}' has invalid phase '${phaseId}'.`);
+    }
+  }
+  if (workflow.status === 'complete') {
+    if (workflow.currentPhase != null || phaseOrder.some((phaseId) => workflow.phases[phaseId].status !== 'approved')) {
+      throw new SingularityFlowError(`Completed child workflow '${story.id}' must have no current phase and every phase approved.`);
+    }
+  } else if (!phaseOrder.includes(workflow.currentPhase) || !['in_progress', 'awaiting_approval'].includes(workflow.phases[workflow.currentPhase].status)) {
+    throw new SingularityFlowError(`In-progress child workflow '${story.id}' has invalid current phase '${workflow.currentPhase ?? 'none'}'.`);
+  }
+  return { ...workflow, phaseOrder };
+}
+
+function childTelemetry(workflow) {
+  const usage = Object.values(workflow.phases ?? {}).flatMap((phase) => phase.usage ?? []);
+  const costs = usage.map((record) => record.providerCost).filter(Number.isFinite);
+  return {
+    totalTokens: workflow.usage?.totalTokens ?? (usage.length ? usage.reduce((sum, record) => sum + (record.totalTokens ?? 0), 0) : null),
+    exactRecords: workflow.usage?.exactRecords ?? usage.filter((record) => record.status === 'exact').length,
+    unavailableRecords: workflow.usage?.unavailableRecords ?? usage.filter((record) => record.status !== 'exact').length,
+    models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
+    providerCost: costs.length ? costs.reduce((sum, value) => sum + value, 0) : null
+  };
+}
+
+function recordMilestoneRegressions(previous, current, storyId, regressions) {
+  for (const [milestone, wasReached] of Object.entries(previous.milestones ?? {})) {
+    if (wasReached && !current.milestones?.[milestone]) regressions.push({ storyId, milestone });
+  }
+}
+
 export async function syncInitiativeRepositories(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
@@ -475,9 +556,42 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'missing-branch' });
       continue;
     }
-    const workflowText = run('git', ['show', `origin/${story.id}:singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
-    const workflow = workflowText.status === 0 ? JSON.parse(workflowText.stdout) : null;
+    const workflowText = run('git', ['show', `${commit}:singularity/work-items/${story.id}/workflow.json`], { cwd: cache, allowFailure: true });
     const previous = initiative.childStories[story.id] ?? {};
+    let workflow = null;
+    if (workflowText.status === 0) {
+      try {
+        workflow = parseChildWorkflow(workflowText.stdout, story);
+      } catch (error) {
+        const observedAt = nowIso();
+        const current = {
+          ...previous,
+          ...story,
+          branch: story.id,
+          observedCommit: commit,
+          observedAt,
+          status: 'invalid',
+          currentPhase: null,
+          phaseOrder: [],
+          approvedPhases: [],
+          progress: { completed: 0, total: 0, percentage: 0 },
+          blocked: true,
+          stale: true,
+          milestones: { implementationSpec: false, verification: false, conformance: false },
+          telemetry: null,
+          error: error.message
+        };
+        recordMilestoneRegressions(previous, current, story.id, regressions);
+        initiative.childStories[story.id] = current;
+        lock.repositories[story.repository] = {
+          ...lock.repositories[story.repository],
+          observedHead: run('git', ['rev-parse', `origin/${repository.defaultBranch}`], { cwd: cache, allowFailure: true }).stdout.trim() || null,
+          observedAt
+        };
+        results.push({ storyId: story.id, repository: story.repository, status: 'invalid-workflow', commit, error: error.message });
+        continue;
+      }
+    }
     const phaseOrder = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
     const approvedPhases = phaseOrder.filter((phaseId) => workflow?.phases?.[phaseId]?.status === 'approved');
     const completedPhases = approvedPhases.length;
@@ -499,25 +613,17 @@ export async function syncInitiativeRepositories(root, initiativeId) {
           : phaseOrder.length ? Math.round((completedPhases / phaseOrder.length) * 100) : 0
       },
       blocked: false,
+      stale: false,
+      invalidatedBy: null,
+      error: null,
       milestones: {
         implementationSpec: milestoneReached(workflow, 'implementation-spec') || milestoneReached(workflow, 'fix-spec'),
         verification: milestoneReached(workflow, 'verification'),
         conformance: milestoneReached(workflow, 'conformance')
       },
-      telemetry: workflow ? {
-        totalTokens: workflow.usage?.totalTokens ?? null,
-        models: [...new Set(Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.usage ?? []).map((usage) => usage.model).filter(Boolean)))],
-        providerCost: (() => {
-          const values = Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.usage ?? []).map((usage) => usage.providerCost).filter(Number.isFinite));
-          return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
-        })()
-      } : previous.telemetry ?? null
+      telemetry: workflow ? childTelemetry(workflow) : previous.telemetry ?? null
     };
-    if (previous.milestones) {
-      for (const [milestone, wasReached] of Object.entries(previous.milestones)) {
-        if (wasReached && !current.milestones[milestone]) regressions.push({ storyId: story.id, milestone });
-      }
-    }
+    recordMilestoneRegressions(previous, current, story.id, regressions);
     initiative.childStories[story.id] = current;
     lock.repositories[story.repository] = {
       ...lock.repositories[story.repository],
@@ -529,7 +635,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
   for (const story of breakdown.stories) {
     const current = initiative.childStories[story.id];
     if (!current) continue;
-    current.blocked = story.dependsOn.some((dependency) => {
+    current.blocked = current.status === 'invalid' || story.dependsOn.some((dependency) => {
       const dependencyState = initiative.childStories[dependency.story];
       if (dependency.requiredPhase === 'complete') return dependencyState?.status !== 'complete';
       const camelMilestone = dependency.requiredPhase.replace(/-([a-z])/g, (_, character) => character.toUpperCase());
@@ -548,19 +654,4 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     cause: 'dependency-regressed'
   }));
   return { initiativeId, results, regressions, invalidations };
-}
-
-export function initiativeMilestoneReadiness(initiative, phaseId, stories = Object.values(initiative.childStories ?? {})) {
-  const blocking = stories.filter((story) => story.blocking);
-  const required = phaseId === 'delivery' ? 'conformance' : phaseId === 'construction' ? 'verification' : null;
-  const incomplete = required ? blocking.filter((story) => !story.milestones?.[required] || story.stale) : [];
-  return {
-    phase: phaseId,
-    policy: 'allBlocking',
-    requiredMilestone: required,
-    blockingStories: blocking.length,
-    readyStories: blocking.length - incomplete.length,
-    ready: incomplete.length === 0,
-    incomplete: incomplete.map((story) => ({ id: story.id, repository: story.repository, status: story.status, currentPhase: story.currentPhase, stale: story.stale }))
-  };
 }

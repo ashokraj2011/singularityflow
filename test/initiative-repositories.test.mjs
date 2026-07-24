@@ -199,11 +199,17 @@ test('repository sync observes child workflow milestones and all-blocking readin
   await mkdir(path.join(author, 'singularity/work-items/API-1'), { recursive: true });
   await writeFile(path.join(author, 'singularity/work-items/API-1/workflow.json'), JSON.stringify({
     schemaVersion: 2,
-    workItem: { id: 'API-1' },
+    workItem: { id: 'API-1', branch: 'API-1', workType: 'feature' },
+    resolution: {
+      workType: 'feature',
+      phases: ['implementation-spec', 'implementation', 'verification', 'conformance'].map((id) => ({ id }))
+    },
     status: 'in_progress',
     currentPhase: 'implementation',
+    phaseOrder: ['implementation-spec', 'implementation', 'verification', 'conformance'],
     phases: {
       'implementation-spec': { status: 'approved' },
+      implementation: { status: 'in_progress' },
       verification: { status: 'not_started' },
       conformance: { status: 'not_started' }
     }
@@ -216,11 +222,137 @@ test('repository sync observes child workflow milestones and all-blocking readin
   assert.equal(synchronized.results.filter((item) => item.status === 'synchronized').length, 2);
   const initiative = (await loadInitiative(root, 'INIT-MULTI')).initiative;
   assert.equal(initiative.childStories['API-1'].milestones.implementationSpec, true);
-  assert.equal(initiative.childStories['API-1'].progress.percentage, 33);
+  assert.equal(initiative.childStories['API-1'].progress.percentage, 25);
   assert.equal(initiative.childStories['MOB-1'].blocked, false);
   const readiness = initiativeMilestoneReadiness(initiative, 'construction');
   assert.equal(readiness.ready, false);
   assert.deepEqual(readiness.incomplete.map((story) => story.id).sort(), ['API-1', 'MOB-1']);
+});
+
+test('repository sync isolates malformed and identity-mismatched child workflow state', async () => {
+  const { root, api } = await repository();
+  await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
+  const author = path.join(root, 'author-invalid-api');
+  run('git', ['clone', '--branch', 'API-1', api, author], { cwd: root });
+  run('git', ['config', 'user.name', 'API Developer'], { cwd: author });
+  run('git', ['config', 'user.email', 'api@example.com'], { cwd: author });
+  const workflowPath = path.join(author, 'singularity/work-items/API-1/workflow.json');
+  await mkdir(path.dirname(workflowPath), { recursive: true });
+  await writeFile(workflowPath, '{not-json');
+  run('git', ['add', '.'], { cwd: author });
+  run('git', ['commit', '-m', 'Add malformed child workflow'], { cwd: author });
+  run('git', ['push'], { cwd: author });
+
+  let synchronized = await syncInitiativeRepositories(root, 'INIT-MULTI');
+  let invalid = synchronized.results.find((item) => item.storyId === 'API-1');
+  assert.equal(invalid.status, 'invalid-workflow');
+  assert.match(invalid.error, /valid JSON/i);
+  assert.ok(synchronized.results.some((item) => item.storyId === 'MOB-1' && item.status === 'synchronized'));
+  let initiative = (await loadInitiative(root, 'INIT-MULTI')).initiative;
+  assert.equal(initiative.childStories['API-1'].status, 'invalid');
+  assert.equal(initiative.childStories['API-1'].stale, true);
+  assert.equal(initiative.childStories['API-1'].blocked, true);
+
+  await writeFile(workflowPath, JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'OTHER-1', branch: 'OTHER-1' },
+    status: 'complete',
+    currentPhase: null,
+    phaseOrder: ['conformance'],
+    phases: { conformance: { status: 'approved' } }
+  }, null, 2));
+  run('git', ['add', workflowPath], { cwd: author });
+  run('git', ['commit', '-m', 'Replace with mismatched child workflow'], { cwd: author });
+  run('git', ['push'], { cwd: author });
+
+  synchronized = await syncInitiativeRepositories(root, 'INIT-MULTI');
+  invalid = synchronized.results.find((item) => item.storyId === 'API-1');
+  assert.equal(invalid.status, 'invalid-workflow');
+  assert.match(invalid.error, /belongs to 'OTHER-1'.*expected 'API-1'/i);
+  initiative = (await loadInitiative(root, 'INIT-MULTI')).initiative;
+  assert.equal(initiative.childStories['API-1'].observedCommit, invalid.commit);
+
+  await writeFile(workflowPath, JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'API-1', branch: 'API-1', workType: 'feature' },
+    status: 'complete',
+    currentPhase: null,
+    phaseOrder: ['conformance'],
+    phases: { conformance: { status: 'approved' } }
+  }, null, 2));
+  run('git', ['add', workflowPath], { cwd: author });
+  run('git', ['commit', '-m', 'Replace with unpinned child workflow'], { cwd: author });
+  run('git', ['push'], { cwd: author });
+  synchronized = await syncInitiativeRepositories(root, 'INIT-MULTI');
+  invalid = synchronized.results.find((item) => item.storyId === 'API-1');
+  assert.equal(invalid.status, 'invalid-workflow');
+  assert.match(invalid.error, /no immutable phase resolution/i);
+
+  initiative = (await loadInitiative(root, 'INIT-MULTI')).initiative;
+  assert.equal(initiativeMilestoneReadiness(initiative, 'build').ready, false);
+  assert.equal(initiativeMilestoneReadiness(initiative, 'release').ready, false);
+});
+
+test('lite and enterprise delivery phases enforce the same blocking-story milestones', () => {
+  const initiative = {
+    childStories: {
+      'API-1': {
+        id: 'API-1',
+        repository: 'api',
+        blocking: true,
+        status: 'in_progress',
+        currentPhase: 'verification',
+        stale: false,
+        milestones: { verification: true, conformance: false }
+      }
+    }
+  };
+  assert.equal(initiativeMilestoneReadiness(initiative, 'build').ready, true);
+  assert.equal(initiativeMilestoneReadiness(initiative, 'construction').ready, true);
+  assert.equal(initiativeMilestoneReadiness(initiative, 'release').ready, false);
+  assert.equal(initiativeMilestoneReadiness(initiative, 'delivery').ready, false);
+});
+
+test('initiative telemetry reports exact and partial model-cost coverage without child stories', async () => {
+  const { root } = await repository();
+  const loaded = await loadInitiative(root, 'INIT-MULTI');
+  loaded.initiative.telemetry = {
+    totalTokens: 125,
+    exactRecords: 1,
+    unavailableRecords: 0,
+    models: ['claude-enterprise'],
+    providerCost: 0.0125
+  };
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+
+  let report = await deriveInitiativeReport(root, 'INIT-MULTI');
+  assert.deepEqual(report.telemetry.models, ['claude-enterprise']);
+  assert.equal(report.telemetry.totalTokens, 125);
+  assert.equal(report.telemetry.providerCost, 0.0125);
+  assert.equal(report.telemetry.costStatus, 'exact');
+
+  loaded.initiative.telemetry.providerCost = null;
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  const reloaded = await loadInitiative(root, 'INIT-MULTI');
+  reloaded.initiative.childStories['API-1'] = {
+    id: 'API-1',
+    epicId: 'EPIC-1',
+    repository: 'api',
+    blocking: true,
+    status: 'in_progress',
+    telemetry: {
+      totalTokens: 50,
+      exactRecords: 1,
+      unavailableRecords: 0,
+      models: ['gpt-child'],
+      providerCost: 0.005
+    }
+  };
+  await saveInitiative(root, reloaded.portfolio, reloaded.initiative);
+  report = await deriveInitiativeReport(root, 'INIT-MULTI');
+  assert.deepEqual(report.telemetry.models, ['claude-enterprise', 'gpt-child']);
+  assert.equal(report.telemetry.providerCost, 0.005);
+  assert.equal(report.telemetry.costStatus, 'partial');
 });
 
 test('breakdown review can probe participating repositories without materializing them', async () => {

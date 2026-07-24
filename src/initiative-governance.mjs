@@ -1,7 +1,6 @@
 import { branch, head } from './git.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { evaluateInitiativePhase, readInitiativeRecords } from './initiative-evidence.mjs';
-import { initiativeMilestoneReadiness } from './initiative-repositories.mjs';
 import { loadInitiative } from './initiative-state.mjs';
 import { verifyInitiativeContext } from './initiative-context.mjs';
 import { run } from './util.mjs';
@@ -40,11 +39,6 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
   for (const contract of await interfaceContractStatus(root, initiativeId)) {
     if (contract.integrity !== 'verified') errors.push(`contract ${contract.key} is ${contract.integrity}`);
     else passes.push(`contract ${contract.key}@${contract.sha256.slice(0, 12)}`);
-  }
-  for (const phaseId of ['construction', 'delivery'].filter((id) => initiative.phaseOrder.includes(id))) {
-    const readiness = initiativeMilestoneReadiness(initiative, phaseId);
-    if ((initiative.phases[phaseId].status === 'approved' || terminal) && !readiness.ready) errors.push(`${phaseId}: ${readiness.incomplete.length} blocking stories have not reached ${readiness.requiredMilestone}`);
-    else if (readiness.ready) passes.push(`${phaseId}: all ${readiness.blockingStories} blocking stories reached ${readiness.requiredMilestone}`);
   }
   if (terminal) {
     for (const phaseId of initiative.phaseOrder) if (initiative.phases[phaseId].status !== 'approved') errors.push(`terminal: phase ${phaseId} is ${initiative.phases[phaseId].status}`);

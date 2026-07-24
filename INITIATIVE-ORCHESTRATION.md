@@ -112,7 +112,16 @@ The world model remains repository-owned. Initiative profile views are validated
 
 Every prepare, publication, evidence record, approval, rejection, materialization, synchronization, and lifecycle transition creates a commit and pushes it. A failed push retains the local commit, records pending publication, and blocks later mutations until `singularity-flow initiative sync` succeeds.
 
-Approvals bind to exact output or phase-bundle hashes. The bundle includes sorted output hashes, checklist evidence, contracts, child-story snapshots, and invalidation records. Multi-approval thresholds count distinct normalized Git emails. Self-approval may be valid when allowed, but it is visibly marked and never reported as independent review.
+Approvals bind to exact output or phase-bundle hashes, and the gate rechecks the
+exact current bundle before treating an approved phase as valid. The bundle
+includes sorted output hashes, checklist evidence, relevant contracts,
+phase-specific blocking-story milestones, and invalidation records. Build and
+Construction pin `verification`; Release and Delivery pin `conformance`.
+Later child progress does not churn an earlier milestone bundle, while a
+regression or stale contract changes the hash and requires fresh approval.
+Multi-approval thresholds count distinct normalized Git emails. Self-approval
+may be valid when allowed, but it is visibly marked and never reported as
+independent review.
 
 ## Evidence assurance and freshness
 
@@ -243,6 +252,12 @@ singularity-flow initiative contracts add \
 
 Contracts are copied into `contracts/<id>/<version>/`, hashed, and mapped to producers/consumers. Existing versions are immutable. A new version invalidates only its downstream consumer cone and marks child context stale until synchronization/regeneration.
 
+When invalidation reaches an already approved earlier phase, the initiative
+automatically rewinds to the earliest affected phase. Later affected phases
+return to `not_started`; unrelated approved phases and artifacts remain intact.
+Reapproval resumes at the next non-approved phase, so preserved approvals are
+not silently discarded.
+
 ## Synchronize and report
 
 ```bash
@@ -252,9 +267,16 @@ singularity-flow initiative report
 singularity-flow initiative gate
 ```
 
-Synchronization reads each story branch’s committed state and aggregates its current phase, approved phase count, completion percentage, implementation-spec, verification, and conformance milestones. Construction and Delivery use an all-blocking policy by default. Nonblocking stories remain visible without preventing the gate.
+Synchronization reads each story branch at the exact fetched commit and
+aggregates its current phase, approved phase count, completion percentage,
+implementation-spec, verification, and conformance milestones. Malformed,
+unsupported, or identity-mismatched child workflow state is isolated to that
+story, marked stale and blocked, and reported without aborting synchronization
+of the other repositories. Build/Construction require every blocking story to
+reach verification; Release/Delivery require conformance. Nonblocking stories
+remain visible without preventing the gate.
 
-Reports group every planned story under its epic even before branch materialization, then show Work ID, Jira ID, repository, status, current phase, and percentage progress. They also show phase progress/duration, evidence assurance/freshness, invalidations, local identity assurance, self-approval, contracts, and captured Copilot models/tokens/provider cost. Unavailable values remain unavailable; Singularity Flow never guesses them.
+Reports group every planned story under its epic even before branch materialization, then show Work ID, Jira ID, repository, status, current phase, and percentage progress. They also show phase progress/duration, evidence assurance/freshness, invalidations, local identity assurance, self-approval, contracts, and captured Copilot models/tokens/provider cost. Initiative-level and child-story telemetry are combined; cost is `exact` only when every observed telemetry source has provider cost, otherwise it is `partial` or `unavailable`. Unavailable values remain unavailable; Singularity Flow never guesses them.
 
 ## Flow Studio
 

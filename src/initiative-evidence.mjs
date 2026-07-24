@@ -7,6 +7,9 @@ import {
 import {
   loadInitiative, saveInitiative, secureInitiativePath, verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
+import {
+  initiativeMilestoneReadiness, requiredInitiativeMilestone
+} from './initiative-milestones.mjs';
 import { identity } from './git.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
@@ -314,21 +317,25 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
   const invalidations = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'invalidations');
   const invalidatedApprovals = new Set(invalidations.flatMap((entry) =>
     (entry.record.affected ?? []).filter((node) => node.startsWith('approval:')).map((node) => node.slice('approval:'.length))));
-  const contracts = Object.values(initiative.contracts ?? {}).map((contract) => ({
-    id: contract.id,
-    version: contract.version,
-    sha256: contract.sha256,
-    status: contract.status
-  })).sort((left, right) => left.id.localeCompare(right.id));
-  const children = Object.values(initiative.childStories ?? {}).map((story) => ({
-    id: story.id,
-    repository: story.repository,
-    blocking: story.blocking,
-    phase: story.currentPhase ?? null,
-    status: story.status ?? null,
-    observedCommit: story.observedCommit ?? null,
-    stale: story.stale ?? false
-  })).sort((left, right) => left.id.localeCompare(right.id));
+  const requiredMilestone = requiredInitiativeMilestone(phaseId);
+  const contracts = requiredMilestone
+    ? Object.values(initiative.contracts ?? {}).map((contract) => ({
+        id: contract.id,
+        version: contract.version,
+        sha256: contract.sha256,
+        status: contract.status
+      })).sort((left, right) => left.id.localeCompare(right.id))
+    : [];
+  const children = requiredMilestone
+    ? Object.values(initiative.childStories ?? {}).filter((story) => story.blocking).map((story) => ({
+        id: story.id,
+        repository: story.repository,
+        blocking: true,
+        milestone: requiredMilestone,
+        reached: story.milestones?.[requiredMilestone] === true,
+        stale: story.stale ?? false
+      })).sort((left, right) => left.id.localeCompare(right.id))
+    : [];
   const value = {
     initiativeId: initiative.initiative.id,
     phase: phaseId,
@@ -383,6 +390,28 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
     const message = `checklist ${phaseId}/${check.id} is ${check.status}`;
     if (check.gate === 'block') errors.push(message);
     else if (check.gate === 'warn') warnings.push(message);
+  }
+  const milestone = initiativeMilestoneReadiness(initiative, phaseId);
+  if (milestone.requiredMilestone) {
+    if (!milestone.ready) {
+      errors.push(`${phaseId} has ${milestone.incomplete.length} blocking stories below ${milestone.requiredMilestone}`);
+    } else {
+      passes.push(`${phaseId}: all ${milestone.blockingStories} blocking stories reached ${milestone.requiredMilestone}`);
+    }
+  }
+  if (phase.status === 'approved' && definition.bundleApproval.mode !== 'none') {
+    const decisions = activeApprovalRecords(bundle.approvals, {
+      phaseId,
+      subjectType: 'phase',
+      subjectId: phaseId,
+      subjectHash: bundle.sha256
+    }, bundle.invalidatedApprovals);
+    const count = distinctApprovals(decisions);
+    if (count < definition.bundleApproval.minimum) {
+      errors.push(`phase ${phaseId} has ${count}/${definition.bundleApproval.minimum} approvals for exact bundle ${bundle.sha256.slice(0, 12)}`);
+    } else {
+      passes.push(`phase bundle approval: ${phaseId}@${bundle.sha256.slice(0, 12)}`);
+    }
   }
   return { ready: errors.length === 0, errors, warnings, passes, bundleSha256: bundle.sha256, checklist: bundle.checklist };
 }
@@ -498,10 +527,12 @@ export async function approveInitiative(root, {
   if (reached && target.type === 'phase') {
     phase.status = 'approved';
     phase.approvedAt = at;
-    const nextId = initiative.phaseOrder[initiative.phaseOrder.indexOf(selectedPhase) + 1] ?? null;
+    const nextId = initiative.phaseOrder
+      .slice(initiative.phaseOrder.indexOf(selectedPhase) + 1)
+      .find((phaseId) => initiative.phases[phaseId].status !== 'approved') ?? null;
     if (nextId) {
       initiative.phases[nextId].status = 'in_progress';
-      initiative.phases[nextId].startedAt = at;
+      initiative.phases[nextId].startedAt ??= at;
       initiative.currentPhase = nextId;
     } else {
       initiative.currentPhase = null;

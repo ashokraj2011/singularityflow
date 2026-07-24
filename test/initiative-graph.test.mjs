@@ -65,6 +65,34 @@ test('justification graph invalidates only the transitive consumer cone', async 
   assert.equal(reloaded.phases.plan.outputs['story-plan'].status, 'not_generated');
 });
 
+test('invalidating an approved earlier phase rewinds the lifecycle to the earliest affected phase', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'INIT-GRAPH');
+  loaded.initiative.phases.define.status = 'approved';
+  loaded.initiative.phases.define.approvedAt = new Date().toISOString();
+  loaded.initiative.phases.plan.status = 'in_progress';
+  loaded.initiative.phases.plan.startedAt = new Date().toISOString();
+  loaded.initiative.currentPhase = 'plan';
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+
+  const invalidation = await invalidateInitiativeCone(root, {
+    initiativeId: 'INIT-GRAPH',
+    starts: [initiativeNode('output', 'define', 'scope-and-outcomes')],
+    reason: 'The approved scope changed and must be reviewed again.',
+    cause: 'output-regenerated'
+  });
+
+  const initiative = (await loadInitiative(root, 'INIT-GRAPH')).initiative;
+  assert.equal(invalidation.reopenedPhase, 'define');
+  assert.equal(initiative.currentPhase, 'define');
+  assert.equal(initiative.status, 'in_progress');
+  assert.equal(initiative.phases.define.status, 'in_progress');
+  assert.equal(initiative.phases.define.approvedAt, null);
+  assert.equal(initiative.phases.plan.status, 'not_started');
+  assert.equal(initiative.phases.plan.outputs['architecture-summary'].status, 'stale');
+  assert.equal(initiative.phases.plan.outputs['story-plan'].status, 'not_generated');
+});
+
 test('versioned interface contracts pin exact bytes and stale only declared consumers', async () => {
   const root = await repository();
   const v1 = path.join(root, 'customer-api-v1.yaml');

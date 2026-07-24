@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -154,6 +154,37 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
 });
 
+test('workspace repository and document roots cannot escape through symlinked directories', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-boundary-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: path.join(root, 'outside.git'), defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const outsideRepositories = path.join(root, 'outside-repositories');
+  const outsideDocuments = path.join(root, 'outside-documents');
+  await mkdir(path.join(outsideRepositories, 'platform', '.git'), { recursive: true });
+  await mkdir(outsideDocuments, { recursive: true });
+  await writeFile(path.join(outsideDocuments, 'secret.md'), '# outside\n');
+
+  await rm(path.join(created.workspace.path, 'repos'), { recursive: true });
+  await symlink(outsideRepositories, path.join(created.workspace.path, 'repos'), 'dir');
+  const status = await workspaceStatus(created.workspace.path);
+  assert.equal(status.healthy, false);
+  assert.equal(status.repositories[0].state, 'invalid-path');
+  assert.match(status.repositories[0].error, /outside its configured root/);
+  const fetched = await fetchWorkspace(created.workspace.path);
+  assert.deepEqual(fetched.results, [{ repository: 'platform', status: 'skipped', reason: 'invalid-path' }]);
+
+  const inbox = path.join(created.workspace.path, 'documents', 'inbox');
+  await rm(inbox, { recursive: true });
+  await symlink(outsideDocuments, inbox, 'dir');
+  await assert.rejects(() => listWorkspaceDocuments(created.workspace.path), /outside its configured root/);
+  const source = path.join(root, 'new-requirement.md');
+  await writeFile(source, '# new\n');
+  await assert.rejects(() => stageWorkspaceDocuments(created.workspace.path, [source]), /outside its configured root/);
+  assert.equal(await readFile(path.join(outsideDocuments, 'secret.md'), 'utf8'), '# outside\n');
+});
+
 test('workspace CLI can provision an approved offline clone plan outside a Git repository', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-cli-'));
   const registry = path.join(root, 'registry.json');
@@ -185,4 +216,12 @@ test('workspace CLI can provision an approved offline clone plan outside a Git r
     env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry }
   });
   assert.equal(JSON.parse(listed.stdout)[0].anchorKey, 'APP-42');
+  const status = spawnSync(process.execPath, [cli, 'workspace', 'status', created.workspace.path], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry }
+  });
+  assert.equal(status.status, 0, status.stderr);
+  assert.match(status.stdout, new RegExp(`Lead repository: ${created.status.leadRepositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.doesNotMatch(status.stdout, /Lead repository: undefined/);
 });

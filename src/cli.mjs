@@ -1971,7 +1971,7 @@ function renderWorkspaceStatus(status) {
   console.log(`\n${status.workspace.anchor.key} — ${status.workspace.anchor.title}`);
   console.log(`Workspace: ${status.workspace.path}`);
   console.log(`Jira: ${status.workspace.anchor.issueTypeName} · level ${status.workspace.anchor.hierarchyLevel} · ${status.workspace.anchor.siteId}`);
-  console.log(`Lead repository: ${status.workspace.leadRepositoryPath}`);
+  console.log(`Lead repository: ${status.leadRepositoryPath}`);
   console.log(table(status.repositories.map((repository) => ({
     id: repository.id,
     role: repository.role,

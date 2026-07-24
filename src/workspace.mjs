@@ -290,6 +290,20 @@ export async function createWorkspace(options, {
 
 async function repositoryStatus(root, repository) {
   const absolute = path.join(root, repository.path);
+  try {
+    await assertInside(root, absolute);
+  } catch (error) {
+    return {
+      ...repository,
+      absolutePath: absolute,
+      state: 'invalid-path',
+      error: error.message,
+      dirty: null,
+      branch: null,
+      remote: null,
+      head: null
+    };
+  }
   const directory = await lstat(absolute).catch(() => null);
   if (directory?.isSymbolicLink()) return { ...repository, absolutePath: absolute, state: 'invalid-symlink', dirty: null, branch: null, remote: null };
   if (!directory?.isDirectory()) return { ...repository, absolutePath: absolute, state: 'missing', dirty: null, branch: null, remote: null };
@@ -333,8 +347,13 @@ async function assertInside(root, target) {
   const resolvedTarget = path.resolve(target);
   if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) throw new SingularityFlowError('Workspace path escaped its configured root.');
   const canonicalRoot = await realpath(resolvedRoot).catch(() => resolvedRoot);
-  const parent = await realpath(path.dirname(resolvedTarget)).catch(() => path.dirname(resolvedTarget));
-  if (parent !== canonicalRoot && !parent.startsWith(`${canonicalRoot}${path.sep}`)) throw new SingularityFlowError('Workspace path resolves outside its configured root.');
+  const targetInfo = await lstat(resolvedTarget).catch(() => null);
+  const canonicalTarget = targetInfo
+    ? await realpath(resolvedTarget)
+    : await realpath(path.dirname(resolvedTarget)).catch(() => path.dirname(resolvedTarget));
+  if (canonicalTarget !== canonicalRoot && !canonicalTarget.startsWith(`${canonicalRoot}${path.sep}`)) {
+    throw new SingularityFlowError('Workspace path resolves outside its configured root.');
+  }
   return resolvedTarget;
 }
 
@@ -345,6 +364,7 @@ async function hashFile(file) {
 export async function stageWorkspaceDocuments(workspacePath, sourcePaths) {
   const workspace = await readWorkspace(workspacePath);
   const targetRoot = path.join(workspace.path, workspace.directories.stagedDocuments);
+  await assertInside(workspace.path, targetRoot);
   await mkdir(targetRoot, { recursive: true });
   const sources = Array.isArray(sourcePaths) ? sourcePaths : [sourcePaths];
   const added = [];
@@ -375,6 +395,7 @@ export async function stageWorkspaceDocuments(workspacePath, sourcePaths) {
 export async function listWorkspaceDocuments(workspacePath) {
   const workspace = await readWorkspace(workspacePath);
   const directory = path.join(workspace.path, workspace.directories.stagedDocuments);
+  await assertInside(workspace.path, directory);
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
   const records = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {

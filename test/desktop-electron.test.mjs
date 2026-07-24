@@ -112,6 +112,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  const artifactBuilder = await readFile(path.join(packageRoot, 'apps/desktop/src/artifact-builder.mjs'), 'utf8');
   assert.match(source, />＋ Workflow</);
   assert.match(source, />＋ New stage</);
   assert.match(source, /Artifact path/);
@@ -268,6 +269,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Jira Story key/);
   assert.match(source, /Canonical Git branch/);
   assert.match(source, /Commit templates/);
+  assert.match(source, /Artifact builder/);
+  assert.match(source, /Section library/);
+  assert.match(source, /Drag into artifact/);
+  assert.match(artifactBuilder, /Approved inputs/);
+  assert.match(source, /Import from URL/);
+  assert.match(source, /Fetch & preview/);
+  assert.match(source, /Jira Story key/);
   assert.match(source, /Flow workspace/);
   assert.match(source, /singularity\.sidebar\.collapsed/);
   assert.match(source, /sidebar-collapsed/);
@@ -299,6 +307,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.epic-progress-list/);
   assert.match(styles, /\.business-stage-intro/);
   assert.match(styles, /\.business-lineage-handoff/);
+  assert.match(styles, /\.artifact-builder/);
+  assert.match(styles, /\.artifact-section-palette/);
+  assert.match(styles, /\.artifact-builder-canvas/);
+  assert.match(styles, /\.artifact-section-card/);
+  assert.match(styles, /\.artifact-drop-zone/);
+  assert.match(styles, /\.remote-template-preview/);
   assert.match(styles, /\.copilot-question-card/);
   assert.match(styles, /\.planning-console/);
   assert.match(styles, /\.portfolio-setup/);
@@ -347,6 +361,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /forgetRepository/);
   assert.match(preload, /recentWorkspaces/);
   assert.match(preload, /previewWorkspaceConfiguration/);
+  assert.match(preload, /previewTemplateUrl/);
   assert.match(preload, /createWorkspaceConfiguration/);
   assert.match(preload, /chooseWorkspaceRepositories/);
   assert.match(preload, /previewWorkspace/);
@@ -363,6 +378,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /repository:forget/);
   assert.match(main, /workspace:create/);
   assert.match(main, /workspace:configuration-preview/);
+  assert.match(main, /configuration:template-url-preview/);
+  assert.match(main, /fetchRemoteMarkdown/);
   assert.match(main, /workspace:configuration-create/);
   assert.match(main, /workspace:repository-choose/);
   assert.match(main, /inspectWorkspaceSelection/);

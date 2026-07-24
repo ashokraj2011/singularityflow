@@ -1100,7 +1100,33 @@ The welcome screen remembers up to ten repository locations in local Electron ap
 
 Select a work item and open **Overview** to see total elapsed, active, and approval-wait time plus the wall-clock breakdown for every phase. These durations include nights and weekends. The cost dashboard prefers provider-reported cost from committed phase telemetry and falls back to exact model-name prices under `tokens.pricing`. Phase and model breakdowns show tokens, priced-record coverage, and whether each amount came from the provider or configured pricing. Exact, partial, and unavailable states are visibly distinct. When coverage is missing, the dashboard checks repository capture health and explains whether Copilot telemetry was inactive, the installed wrapper is outdated, an export is pending, exact token components are missing, or a matching model price is needed. It never displays an invented estimate or treats unavailable cost as zero. Past turns cannot be reconstructed when Copilot produced no raw telemetry; rerun `install.sh`, fully exit Copilot, and start a new session for future capture.
 
-Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically. Use **Artifact templates** to create the Markdown structure first, then return to **Workflow** and assign it to a stage. Template deletion is refused while any default or workflow override still references it.
+Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically.
+
+Use **Artifact templates** in the Business experience to build the generated
+document structure. The visual builder provides reusable Business content,
+Traceability, Solution, Assurance, and custom sections. Drag sections from the
+library onto the canvas, drag existing sections between drop zones to reorder
+them, or use the accessible up/down controls. Titles and Markdown guidance are
+editable in place, and the live preview shows the resulting document. The
+document header remains available for frontmatter, the title, and managed
+placeholders. **Source** and **Preview** remain available for exact Markdown
+control.
+
+Templates can also be imported from a local Markdown file or a public HTTPS URL.
+URL import:
+
+- sends no credentials or cookies;
+- rejects embedded credentials and local/private host forms;
+- follows at most three HTTPS redirects;
+- requires non-empty UTF-8 Markdown;
+- enforces a 1 MiB download ceiling;
+- shows the resolved URL, byte count, SHA-256, and content preview before use.
+
+The imported bytes become an ordinary repository template. They are not fetched
+again during generation and do not change when the remote URL changes. Select
+**Commit templates** to validate, commit, and push the local snapshot. Return to
+**Workflow** to assign it to a stage. Template deletion is refused while any
+default or workflow override still references it.
 
 Use **Prompts & skills** for repository persona prompts, the world-model builder prompt, and repository-specific Copilot skills under `.github/skills/<id>/SKILL.md`. Use **Agents & remote Markdown** for repository agent files and their explicit remote skill/template/output tables. Installed plugin skills remain product defaults; repository skills and agents are the portable project overrides.
 

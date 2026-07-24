@@ -485,6 +485,11 @@ function registerHandlers() {
   trustedHandle('configuration:save', (_event, { repository, filePath, content }) => invokeCli(assertRepository(repository), ['desktop', 'save', filePath], { input: content }));
   trustedHandle('configuration:delete-template', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-template', filePath, '--json']));
   trustedHandle('configuration:delete-file', (_event, { repository, filePath }) => invokeCli(assertRepository(repository), ['desktop', 'delete-file', filePath, '--json']));
+  trustedHandle('configuration:template-url-preview', async (_event, { repository, url }) => {
+    assertRepository(repository);
+    const { fetchRemoteMarkdown } = await importCliModule('agents.mjs');
+    return fetchRemoteMarkdown(url, { maxBytes: 1024 * 1024, timeoutMs: 15000 });
+  });
   trustedHandle('configuration:download', async (_event, { repository, filePath }) => {
     const source = await invokeCli(assertRepository(repository), ['desktop', 'read', filePath, '--json']);
     const result = await dialog.showSaveDialog({ title: 'Download Singularity Flow file', defaultPath: source.name });

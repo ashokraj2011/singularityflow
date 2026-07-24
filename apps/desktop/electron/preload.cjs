@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('singularity', {
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
   deleteTemplate: (repository, filePath) => ipcRenderer.invoke('configuration:delete-template', { repository, filePath }),
   deleteFile: (repository, filePath) => ipcRenderer.invoke('configuration:delete-file', { repository, filePath }),
+  previewTemplateUrl: (repository, url) => ipcRenderer.invoke('configuration:template-url-preview', { repository, url }),
   downloadFile: (repository, filePath) => ipcRenderer.invoke('configuration:download', { repository, filePath }),
   importFile: (repository, options) => ipcRenderer.invoke('configuration:import', { repository, ...options }),
   exportBundle: (repository) => ipcRenderer.invoke('configuration:export-bundle', { repository }),

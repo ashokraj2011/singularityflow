@@ -146,6 +146,14 @@ These planning and artifact-template destinations are intentionally owned by
 the Business experience; the Engineer navigation stays focused on downstream
 delivery, impact, review, and advanced workflow controls.
 
+Artifact templates include a visual drag-and-drop builder with a reusable
+section library, reorderable canvas, in-place guidance editing, live Markdown
+preview, and exact Source mode. Templates may also be loaded from a public HTTPS
+Markdown URL after a bounded, credential-free fetch and a SHA-256/content
+preview. The selected bytes are copied into the repository and become the
+governed local template; generation never depends on the URL remaining
+available.
+
 An Epic can be imported from Jira or created without Jira. Local Epics reserve
 collision-safe IDs such as `SF-E-001` through an atomic branch push; their
 Stories retain immutable `STORY-nnn` plan IDs and receive scoped Work IDs such

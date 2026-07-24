@@ -67,7 +67,26 @@ test('onboarding profile persists locally, deduplicates repositories, and never 
   assert.equal(loaded.completed, true);
   assert.equal(loaded.name, 'Product User');
   await writeFile(file, '{malformed');
-  assert.equal((await readOnboardingProfile(file)).completed, false);
+  const recovered = await readOnboardingProfile(file);
+  assert.equal(recovered.completed, false);
+  assert.equal(recovered.recovery.reason, 'invalid-json');
+});
+
+test('an obsolete valid profile recovers to the wizard instead of blocking startup forever', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-obsolete-'));
+  const file = path.join(root, 'onboarding.json');
+  await writeFile(file, JSON.stringify({
+    completed: true,
+    name: 'Legacy User',
+    role: 'removed-role',
+    workspacePath: '/tmp/workspaces',
+    jiraChoice: 'not-used'
+  }));
+  const recovered = await readOnboardingProfile(file);
+  assert.equal(recovered.completed, false);
+  assert.equal(recovered.role, null);
+  assert.equal(recovered.recovery.reason, 'invalid-profile');
+  assert.match(recovered.recovery.message, /removed-role/);
 });
 
 test('a removed Jira credential does not force a completed user through onboarding again', () => {

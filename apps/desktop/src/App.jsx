@@ -270,6 +270,7 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
       <header className="onboarding-topbar"><span>First-time setup</span><button className="ghost" onClick={onHelp}>Why Singularity?</button></header>
       <section className="onboarding-stage">
         <div className="onboarding-step-count">Step {draft.step + 1} of 5</div>
+        {draft.recovery && <div className="onboarding-recovery" role="status"><strong>Local setup recovered</strong><span>{draft.recovery.message}</span></div>}
         {draft.step === 0 && <div className="onboarding-card"><span className="onboarding-symbol">01</span><div className="onboarding-copy"><span className="eyebrow">Welcome</span><h1>What should we call you?</h1><p>This name identifies your local desktop profile. Git identity still remains the authority recorded for governed approvals.</p></div><label className="onboarding-field"><span>Your name</span><input autoFocus value={draft.name} placeholder="Ashok Raj" onChange={(event) => update('name', event.target.value)} /><small>Stored locally, never written to a repository by onboarding.</small></label></div>}
         {draft.step === 1 && <div className="onboarding-card"><span className="onboarding-symbol">02</span><div className="onboarding-copy"><span className="eyebrow">Working perspective</span><h1>How will you use Singularity?</h1><p>Your role personalizes guidance and recommended personas. It never restricts what work you can perform.</p></div><label className="onboarding-field"><span>Primary role</span><select autoFocus value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Anyone can still assume any repository-configured persona during a session.</small></label></div>}
         {draft.step === 2 && <div className="onboarding-card"><span className="onboarding-symbol">03</span><div className="onboarding-copy"><span className="eyebrow">Local isolation</span><h1>Choose your workspace home.</h1><p>Singularity uses this folder for project workspaces, repository clones, staged documents, caches, and local planning context.</p></div><div className={`onboarding-picker ${draft.workspacePath ? 'selected' : ''}`}><span className="onboarding-picker-icon">⌂</span><div><strong>{draft.workspacePath ? 'Workspace selected' : 'No folder selected'}</strong><small>{draft.workspacePath ?? 'Choose a corporate-approved local directory.'}</small></div><button className={draft.workspacePath ? 'secondary' : 'primary'} onClick={chooseWorkspace} disabled={working}>{draft.workspacePath ? 'Change' : 'Choose folder'}</button></div><div className="onboarding-note"><strong>No new hierarchy</strong><span>This is a local storage boundary, not another Jira or delivery concept.</span></div></div>}
@@ -279,6 +280,20 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
       </section>
       <footer className="onboarding-footer"><button className="ghost" disabled={working || draft.step === 0} onClick={back}>Back</button><span>Your setup is saved locally after each step.</span>{draft.step < 4 ? <button className="primary" disabled={working} onClick={next}>{working ? 'Saving…' : draft.step === 3 ? 'Continue to Jira' : 'Continue'}</button> : <button className="primary onboarding-finish" disabled={working || !canFinish} onClick={() => persist(4, true)}>{working ? 'Finishing…' : 'Finish setup & start'}</button>}</footer>
     </main>
+  </div>;
+}
+
+function OnboardingLoadFailure({ error, retry, help }) {
+  return <div className="onboarding-failure">
+    <div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Desktop setup</small></div></div>
+    <section>
+      <span className="onboarding-failure-mark">!</span>
+      <span className="eyebrow">Setup could not be loaded</span>
+      <h1>We stopped before opening your workspace.</h1>
+      <p>Singularity could not safely read the local onboarding profile. No repository, Jira, or Git state was changed.</p>
+      <pre>{error}</pre>
+      <div><button className="primary" onClick={retry}>Try again</button><button className="secondary" onClick={help}>Open help</button></div>
+    </section>
   </div>;
 }
 
@@ -1791,6 +1806,8 @@ export default function App() {
   const [data, setData] = useState(null);
   const [onboarding, setOnboarding] = useState(null);
   const [onboardingLoading, setOnboardingLoading] = useState(true);
+  const [onboardingError, setOnboardingError] = useState(null);
+  const [onboardingAttempt, setOnboardingAttempt] = useState(0);
   const [page, setPage] = useState('dashboard');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1803,16 +1820,22 @@ export default function App() {
 
   useEffect(() => {
     let current = true;
-    window.singularity.onboarding()
+    setOnboardingLoading(true);
+    setOnboardingError(null);
+    Promise.resolve()
+      .then(() => {
+        if (!window.singularity?.onboarding) throw new Error('The secure desktop bridge is unavailable. Restart Singularity Desktop.');
+        return window.singularity.onboarding();
+      })
       .then((result) => { if (current) setOnboarding(result); })
       .catch((error) => {
         if (!current) return;
-        setToast({ tone: 'bad', text: `Could not load desktop onboarding: ${error.message}` });
-        setOnboarding({ profile: { completed: true }, jira: { connected: false } });
+        setOnboarding(null);
+        setOnboardingError(error?.message || String(error));
       })
       .finally(() => { if (current) setOnboardingLoading(false); });
     return () => { current = false; };
-  }, []);
+  }, [onboardingAttempt]);
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
   useEffect(() => { if (toast?.tone !== 'good') return undefined; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {
@@ -2115,6 +2138,7 @@ export default function App() {
 
   if (onboardingLoading) return <div className="onboarding-loading"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Preparing desktop setup</small></div></div><span className="onboarding-loading-orb">✦</span></div>;
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
+  if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;
   if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening…' : 'Open a project workspace'}</button><button className="secondary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open one repository'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Workspace</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Jira-anchored delivery</span><h3>Initiative across repositories</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>

@@ -188,9 +188,9 @@ test('desktop exposes a narrow Jira IPC workspace without renderer credential re
   const app = await readFile(new URL('../apps/desktop/src/App.jsx', import.meta.url), 'utf8');
   assert.match(main, /safeStorage/);
   assert.match(main, /assertTrustedSender\(event\)/);
-  assert.match(main, /ipcMain\.handle\('jira:connect'/);
-  assert.match(main, /ipcMain\.handle\('jira:write-plan'/);
-  assert.match(main, /ipcMain\.handle\('jira:apply'/);
+  assert.match(main, /trustedHandle\('jira:connect'/);
+  assert.match(main, /trustedHandle\('jira:write-plan'/);
+  assert.match(main, /trustedHandle\('jira:apply'/);
   assert.match(preload, /connectJira/);
   assert.doesNotMatch(preload, /loadJiraCredential|readJiraToken|getJiraToken/);
   assert.match(app, /function JiraWorkspace/);

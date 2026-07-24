@@ -26,7 +26,8 @@ The package contains:
 
 ## Requirements
 
-- Node.js 20 or newer.
+- Node.js 20 or newer for the CLI. Desktop development and packaging use
+  Node.js 22.12 or newer, matching Electron 43's supported runtime.
 - Git with a configured identity.
 - A Git remote when `git.publish: required` is configured.
 - GitHub CLI authentication is recommended so lifecycle events can record the authenticated GitHub login as well as Git identity.

@@ -245,6 +245,13 @@ With no source flags, `start` first asks whether intake comes from a Jira story 
 
 The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live YAML-derived intake, workflow, and persona options; Copilot presents those options through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval uses `singularity-flow choices begin approve <WORK-ID> --fetch --json` and additionally binds the receipt to the submitted phase, generation, and artifact hashes while requiring the reviewer to type the exact phase ID. The completed token is passed as `--selection-receipt`, expires after 15 minutes, is bound to the work ID, repository HEAD, and Copilot session when available, and is deleted after one use. It never creates a commit by itself, never contains Jira credentials, and cannot be substituted for another work item or changed repository state.
 
+Receipt answers use a short-lived filesystem mutation lock, so Copilot can
+submit different answers concurrently from separate CLI processes without
+losing one. Every read verifies the receipt schema, filename token, repository
+HEAD shape, and bounded expiry timestamps before accepting it. Shared CLI JSON
+and text replacement also uses collision-resistant temporary files and cleans
+them after either success or failure.
+
 New repositories enable the session hook policy in `singularity/workflow.yml`:
 
 ```yaml

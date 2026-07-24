@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export class SingularityFlowError extends Error {
@@ -148,18 +148,23 @@ export async function readJson(filePath) {
   }
 }
 
-export async function writeJson(filePath, value) {
+export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
   await ensureDir(path.dirname(filePath));
-  const temp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await rename(temp, filePath);
+  const temp = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temp, value, { encoding: 'utf8', ...(mode == null ? {} : { mode }) });
+    await rename(temp, filePath);
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+}
+
+export async function writeJson(filePath, value) {
+  await writeAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 export async function writeText(filePath, value) {
-  await ensureDir(path.dirname(filePath));
-  const temp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temp, value.endsWith('\n') ? value : `${value}\n`, 'utf8');
-  await rename(temp, filePath);
+  await writeAtomic(filePath, value.endsWith('\n') ? value : `${value}\n`);
 }
 
 export async function snapshot(filePath) {

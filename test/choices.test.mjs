@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
+import {
+  beginCustomSelectionReceipt,
+  consumeSelectionReceipt,
+  selectionReceiptStatus
+} from '../src/choices.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -22,6 +27,25 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
 
 function flow(root, args, options) {
   return run(process.execPath, [bin, ...args], root, options);
+}
+
+function flowAsync(root, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [bin, ...args], {
+      cwd: root,
+      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Choice Tester' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', (status) => {
+      if (status === 0) resolve({ stdout, stderr });
+      else reject(new Error(`choices process exited ${status}\n${stdout}\n${stderr}`));
+    });
+  });
 }
 
 async function repository() {
@@ -137,4 +161,53 @@ test('approval receipt keeps persona selection and exact phase confirmation insi
   assert.equal(workflow.currentPhase, 'requirements');
   assert.equal(workflow.phases.intake.approvals[0].channel, 'copilot-selection-receipt');
   assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
+});
+
+test('concurrent selection answers preserve every choice and leave no mutation lock behind', async () => {
+  const root = await repository();
+  const receipt = await beginCustomSelectionReceipt(root, {
+    action: 'test',
+    workId: 'CHOICE-CONCURRENT',
+    choiceSets: [
+      { id: 'workflow', label: 'Workflow', options: [{ id: 'feature', label: 'Feature' }] },
+      { id: 'persona', label: 'Persona', options: [{ id: 'developer', label: 'Developer' }] }
+    ]
+  });
+
+  await Promise.all([
+    flowAsync(root, ['choices', 'answer', receipt.token, 'workflow', 'feature', '--json']),
+    flowAsync(root, ['choices', 'answer', receipt.token, 'persona', 'developer', '--json'])
+  ]);
+
+  const ready = await selectionReceiptStatus(root, receipt.token);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.answers.workflow.id, 'feature');
+  assert.equal(ready.answers.persona.id, 'developer');
+  const directory = path.join(root, '.git', 'singularity-flow', 'choices');
+  assert.deepEqual((await readdir(directory)).filter((file) => file.endsWith('.lock')), []);
+  await consumeSelectionReceipt(root, receipt.token);
+});
+
+test('selection receipt reads reject mismatched tokens, unsupported schemas, and invalid expiry timestamps', async () => {
+  const root = await repository();
+  const create = () => beginCustomSelectionReceipt(root, {
+    action: 'test',
+    workId: 'CHOICE-INTEGRITY',
+    choiceSets: [{ id: 'persona', label: 'Persona', options: [{ id: 'developer', label: 'Developer' }] }]
+  });
+
+  let receipt = await create();
+  let file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
+  await writeFile(file, JSON.stringify({ ...receipt, token: '11111111-1111-4111-8111-111111111111' }));
+  await assert.rejects(() => selectionReceiptStatus(root, receipt.token), /token does not match/i);
+
+  receipt = await create();
+  file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
+  await writeFile(file, JSON.stringify({ ...receipt, schemaVersion: 999 }));
+  await assert.rejects(() => selectionReceiptStatus(root, receipt.token), /version 999/i);
+
+  receipt = await create();
+  file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
+  await writeFile(file, JSON.stringify({ ...receipt, expiresAt: 'not-a-date' }));
+  await assert.rejects(() => selectionReceiptStatus(root, receipt.token), /expiry.*invalid/i);
 });

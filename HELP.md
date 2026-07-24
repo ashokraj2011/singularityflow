@@ -478,8 +478,10 @@ in a 15-minute one-time receipt under the Git directory and passes only its toke
 to the lifecycle command. Approval receipts additionally pin the submitted phase,
 generation, and artifact hashes and require the reviewer to type the exact phase
 ID. The receipt is bound to the work ID, repository HEAD, and Copilot session when
-available, and is consumed once. The skill never invents a default
-or uses hidden `--type`/`--persona` flags. If `ask_user` is disabled, it stops.
+available, and is consumed once. Concurrent answer processes are serialized by
+a short-lived local lock; schema, filename token, repository HEAD, and expiry
+timestamps are revalidated on every read. The skill never invents a default or
+uses hidden `--type`/`--persona` flags. If `ask_user` is disabled, it stops.
 
 Switch the active persona at any time without changing committed workflow state:
 

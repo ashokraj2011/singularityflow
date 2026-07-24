@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir, head } from './git.mjs';
 import { loadCopilotSession } from './session.mjs';
-import { SingularityFlowError, nowIso } from './util.mjs';
+import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
+const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
+const RECEIPT_LOCK_STALE_MS = 60 * 1000;
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function receiptDirectory(root) {
@@ -71,24 +73,92 @@ async function writeReceipt(root, receipt) {
   const directory = receiptDirectory(root);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = receiptPath(root, receipt.token);
-  const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, target);
+  await writeAtomic(target, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
   await chmod(target, 0o600);
   return receipt;
 }
 
+function validateReceipt(receipt, token) {
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new SingularityFlowError(`Selection receipt '${token}' is not an object.`);
+  }
+  if (receipt.schemaVersion !== 1) {
+    throw new SingularityFlowError(`Selection receipt '${token}' uses unsupported version ${receipt.schemaVersion}; expected version 1.`);
+  }
+  if (receipt.token !== token) throw new SingularityFlowError(`Selection receipt '${token}' token does not match its filename.`);
+  if (typeof receipt.action !== 'string' || !receipt.action.trim()) throw new SingularityFlowError(`Selection receipt '${token}' has no action.`);
+  if (typeof receipt.workId !== 'string' || !receipt.workId.trim()) throw new SingularityFlowError(`Selection receipt '${token}' has no work ID.`);
+  if (typeof receipt.repositoryHead !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(receipt.repositoryHead)) {
+    throw new SingularityFlowError(`Selection receipt '${token}' has an invalid repository HEAD.`);
+  }
+  if (!Array.isArray(receipt.choiceSets)) throw new SingularityFlowError(`Selection receipt '${token}' has invalid choices.`);
+  if (!receipt.answers || typeof receipt.answers !== 'object' || Array.isArray(receipt.answers)) {
+    throw new SingularityFlowError(`Selection receipt '${token}' has invalid answers.`);
+  }
+  if (typeof receipt.ready !== 'boolean') throw new SingularityFlowError(`Selection receipt '${token}' has an invalid readiness state.`);
+  const createdAt = Date.parse(receipt.createdAt ?? '');
+  const expiresAt = Date.parse(receipt.expiresAt ?? '');
+  if (!Number.isFinite(createdAt)) throw new SingularityFlowError(`Selection receipt '${token}' creation timestamp is invalid.`);
+  if (!Number.isFinite(expiresAt) || expiresAt <= createdAt || expiresAt - createdAt > RECEIPT_TTL_MS) {
+    throw new SingularityFlowError(`Selection receipt '${token}' expiry timestamp is invalid.`);
+  }
+  return receipt;
+}
+
 async function readReceipt(root, token) {
-  try { return JSON.parse(await readFile(receiptPath(root, token), 'utf8')); }
+  let receipt;
+  try { receipt = JSON.parse(await readFile(receiptPath(root, token), 'utf8')); }
   catch (error) {
     if (error?.code === 'ENOENT') throw new SingularityFlowError(`Selection receipt '${token}' was not found or was already consumed.`);
     if (error instanceof SyntaxError) throw new SingularityFlowError(`Selection receipt '${token}' is invalid JSON.`);
     throw error;
   }
+  return validateReceipt(receipt, token);
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function withReceiptMutation(root, token, operation) {
+  const target = receiptPath(root, token);
+  const directory = path.dirname(target);
+  const lock = `${target}.lock`;
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + RECEIPT_LOCK_TIMEOUT_MS;
+  while (true) {
+    try {
+      await mkdir(lock, { mode: 0o700 });
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const info = await lstat(lock).catch((readError) => {
+        if (readError?.code === 'ENOENT') return null;
+        throw readError;
+      });
+      if (!info) continue;
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        throw new SingularityFlowError(`Selection receipt '${token}' has an unsafe mutation lock.`);
+      }
+      if (Date.now() - info.mtimeMs > RECEIPT_LOCK_STALE_MS) {
+        await rm(lock, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new SingularityFlowError(`Selection receipt '${token}' is busy in another process. Retry the action.`);
+      }
+      await wait(20);
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    await rm(lock, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
 }
 
 async function assertActive(root, receipt) {
-  if (Date.parse(receipt.expiresAt ?? '') <= Date.now()) throw new SingularityFlowError(`Selection receipt '${receipt.token}' expired. Ask the contributor to make the choices again.`);
+  if (Date.parse(receipt.expiresAt) <= Date.now()) throw new SingularityFlowError(`Selection receipt '${receipt.token}' expired. Ask the contributor to make the choices again.`);
   const copilot = await loadCopilotSession(root);
   if (receipt.copilotSessionId && copilot?.sessionId !== receipt.copilotSessionId) {
     throw new SingularityFlowError(`Selection receipt '${receipt.token}' belongs to a different Copilot session.`);
@@ -100,9 +170,13 @@ async function removeExpired(root) {
   let files = [];
   try { files = await readdir(directory); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
   await Promise.all(files.filter((file) => file.endsWith('.json')).map(async (file) => {
+    const token = file.slice(0, -'.json'.length);
+    if (!TOKEN_PATTERN.test(token)) return;
     try {
-      const receipt = JSON.parse(await readFile(path.join(directory, file), 'utf8'));
-      if (Date.parse(receipt.expiresAt ?? '') <= Date.now()) await unlink(path.join(directory, file));
+      await withReceiptMutation(root, token, async () => {
+        const receipt = await readReceipt(root, token);
+        if (Date.parse(receipt.expiresAt) <= Date.now()) await unlink(receiptPath(root, token));
+      });
     } catch { /* Invalid local receipts remain unusable and are handled when explicitly referenced. */ }
   }));
 }
@@ -138,16 +212,19 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
 }
 
 export async function answerSelectionReceipt(root, token, choiceId, selectedId) {
-  const receipt = await readReceipt(root, token);
-  await assertActive(root, receipt);
-  const choices = receipt.choiceSets.find((item) => item.id === choiceId);
-  if (!choices) throw new SingularityFlowError(`Selection receipt '${token}' has no choice '${choiceId}'.`);
-  if (!choices.options.some((item) => item.id === selectedId)) {
-    throw new SingularityFlowError(`Unknown ${choices.label.toLowerCase()} '${selectedId}'. Allowed: ${choices.options.map((item) => item.id).join(', ')}.`);
-  }
-  receipt.answers[choiceId] = { id: selectedId, answeredAt: nowIso() };
-  receipt.ready = receipt.choiceSets.every((item) => receipt.answers[item.id]?.id);
-  return writeReceipt(root, receipt);
+  return withReceiptMutation(root, token, async () => {
+    const receipt = await readReceipt(root, token);
+    await assertActive(root, receipt);
+    const choices = receipt.choiceSets.find((item) => item.id === choiceId);
+    if (!choices) throw new SingularityFlowError(`Selection receipt '${token}' has no choice '${choiceId}'.`);
+    if (!Array.isArray(choices.options) || !choices.options.some((item) => item.id === selectedId)) {
+      const allowed = Array.isArray(choices.options) ? choices.options.map((item) => item.id).join(', ') : 'none';
+      throw new SingularityFlowError(`Unknown ${String(choices.label ?? choiceId).toLowerCase()} '${selectedId}'. Allowed: ${allowed}.`);
+    }
+    receipt.answers[choiceId] = { id: selectedId, answeredAt: nowIso() };
+    receipt.ready = receipt.choiceSets.every((item) => receipt.answers[item.id]?.id);
+    return writeReceipt(root, receipt);
+  });
 }
 
 export async function selectionReceiptStatus(root, token) {
@@ -188,5 +265,12 @@ export async function resolveCustomSelectionReceipt(root, token, { action, workI
 }
 
 export async function consumeSelectionReceipt(root, token) {
-  await unlink(receiptPath(root, token));
+  return withReceiptMutation(root, token, async () => {
+    try {
+      await unlink(receiptPath(root, token));
+    } catch (error) {
+      if (error?.code === 'ENOENT') throw new SingularityFlowError(`Selection receipt '${token}' was not found or was already consumed.`);
+      throw error;
+    }
+  });
 }

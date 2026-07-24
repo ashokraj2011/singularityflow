@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
-  findOrCreateIssue, getIssue, getMyPermissions, listEpicStories, updateIssue
+  assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
+  findOrCreateIssue, getIssue, getMyPermissions, listEpicStories,
+  resolveJiraConnection, updateIssue
 } from './jira.mjs';
 import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
@@ -51,6 +53,74 @@ function issueForRepository(issue, policy) {
   if (policy.read?.attachmentPolicy === 'none') copy.attachments = [];
   else copy.attachments = (copy.attachments ?? []).map(({ url: _url, ...metadata }) => metadata);
   return copy;
+}
+
+function governedConnection(policy, { connection, env = process.env } = {}) {
+  return assertJiraConnectionPolicy(resolveJiraConnection({ connection, env }), policy);
+}
+
+function assertIssueRecordPolicy(issue, policy, label) {
+  assertJiraIssuePolicy(issue?.key, policy, label);
+  if (issue?.project?.key) assertJiraProjectPolicy(issue.project.key, policy, `${label} project`);
+  return issue;
+}
+
+function assertReceiptMatches(receipt, { initiativeId, plan, operation, policy }) {
+  if (
+    receipt?.schemaVersion !== 1
+    || receipt.initiativeId !== initiativeId
+    || receipt.planSha256 !== plan.sha256
+    || receipt.operationId !== operation.id
+    || receipt.action !== operation.action
+    || hash(receipt.subject) !== hash(operation.subject)
+  ) {
+    throw new SingularityFlowError(`Jira receipt '${operation.id}' does not match the reviewed write plan.`);
+  }
+  assertJiraIssuePolicy(receipt.jiraKey, policy, `Jira receipt '${operation.id}'`);
+  return receipt;
+}
+
+export function assertJiraWriteOperationPolicy(operation, policy = {}) {
+  if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
+    throw new SingularityFlowError('Each Jira write-plan operation must be an object.');
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(operation.id ?? '')) {
+    throw new SingularityFlowError('Each Jira write-plan operation requires a safe ID.');
+  }
+  if (!(policy.writePolicy?.operations ?? []).includes(operation.action)) {
+    throw new SingularityFlowError(`Jira policy does not permit planned operation '${operation.action ?? ''}'.`);
+  }
+  if (!['create-epic', 'create-story', 'update-owned-fields'].includes(operation.action)) {
+    throw new SingularityFlowError(`Jira write-plan action '${operation.action}' is not implemented by this apply path.`);
+  }
+  if (!operation.subject || typeof operation.subject !== 'object' || !['epic', 'story'].includes(operation.subject.type)) {
+    throw new SingularityFlowError(`Jira operation '${operation.id}' requires an Epic or story subject.`);
+  }
+  if (operation.action.startsWith('create-')) {
+    const expectedType = operation.action === 'create-epic' ? 'epic' : 'story';
+    if (operation.subject.type !== expectedType || !operation.issue || typeof operation.issue !== 'object' || Array.isArray(operation.issue)) {
+      throw new SingularityFlowError(`Jira operation '${operation.id}' does not match its create action.`);
+    }
+    const unexpected = Object.keys(operation.issue).filter((key) => !['projectKey', 'issueType', 'summary', 'description', 'labels'].includes(key));
+    if (unexpected.length) {
+      throw new SingularityFlowError(`Jira operation '${operation.id}' contains unsupported create fields: ${unexpected.join(', ')}.`);
+    }
+    assertJiraProjectPolicy(operation.issue.projectKey, policy, `Jira operation '${operation.id}' project`);
+    if (operation.action === 'create-story' && operation.parent?.jiraKey) {
+      assertJiraIssuePolicy(operation.parent.jiraKey, policy, `Jira operation '${operation.id}' parent`);
+    }
+    return operation;
+  }
+  assertJiraIssuePolicy(operation.subject.jiraKey, policy, `Jira operation '${operation.id}' subject`);
+  if (!operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) {
+    throw new SingularityFlowError(`Jira operation '${operation.id}' requires owned update fields.`);
+  }
+  const allowed = new Set(policy.writePolicy?.allowedFields ?? []);
+  const unsupported = Object.keys(operation.fields).filter((field) => !allowed.has(field));
+  if (unsupported.length) {
+    throw new SingularityFlowError(`Jira operation '${operation.id}' contains fields outside allowedFields: ${unsupported.join(', ')}.`);
+  }
+  return operation;
 }
 
 function descriptionWithAcceptance(item) {
@@ -112,12 +182,17 @@ export async function previewJiraAdoption(root, initiativeId, epicKey, {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const policy = initiative.resolution?.jira;
   if (!policy?.enabled) throw new SingularityFlowError('Jira was not enabled in this initiative’s immutable configuration snapshot. Start a new initiative after enabling Jira.');
+  const resolvedConnection = governedConnection(policy, { connection, env });
+  const validatedEpicKey = assertJiraIssuePolicy(epicKey, policy, 'Jira Epic');
   const [remoteEpic, remoteStories] = await Promise.all([
-    getIssue(epicKey, { connection, env, fetchImpl }),
-    listEpicStories(epicKey, { connection, env, fetchImpl })
+    getIssue(validatedEpicKey, { connection: resolvedConnection, fetchImpl }),
+    listEpicStories(validatedEpicKey, { connection: resolvedConnection, fetchImpl })
   ]);
-  const epic = issueForRepository(remoteEpic, policy);
-  const stories = remoteStories.map((story) => issueForRepository(story, policy));
+  const epic = issueForRepository(assertIssueRecordPolicy(remoteEpic, policy, 'Jira Epic'), policy);
+  const stories = remoteStories.map((story) => issueForRepository(
+    assertIssueRecordPolicy(story, policy, 'Jira child issue'),
+    policy
+  ));
   const built = buildJiraBreakdownDraft(epic, stories, portfolio, { repositoryMap });
   built.draft.initiativeId = initiativeId;
   const source = {
@@ -214,13 +289,23 @@ export async function createJiraWritePlan(root, initiativeId, {
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
   const projectKey = policy.projectKey || portfolio.jira.projectKey;
   if (!projectKey) throw new SingularityFlowError('jira.projectKey is required to create a Jira write plan.');
-  if (policy.allowedProjects?.length && !policy.allowedProjects.includes(projectKey)) throw new SingularityFlowError(`Jira project ${projectKey} is outside the configured allowedProjects.`);
+  const governedProjectKey = assertJiraProjectPolicy(projectKey, policy);
+  let resolvedConnection = connection ? governedConnection(policy, { connection, env }) : null;
+  const remoteConnection = () => {
+    resolvedConnection ??= governedConnection(policy, { connection, env });
+    return resolvedConnection;
+  };
   const operations = [];
   const snapshots = {};
   for (const epic of breakdown.epics) {
     let epicIssue = null;
     if (epic.jiraKey) {
-      epicIssue = await getIssue(epic.jiraKey, { connection, env, fetchImpl });
+      const epicKey = assertJiraIssuePolicy(epic.jiraKey, policy, `Jira Epic '${epic.id}'`);
+      epicIssue = assertIssueRecordPolicy(
+        await getIssue(epicKey, { connection: remoteConnection(), fetchImpl }),
+        policy,
+        `Jira Epic '${epic.id}'`
+      );
       snapshots[epic.jiraKey] = epicIssue;
       const fields = allowedUpdateFields(policy, fieldDiff(epicIssue, expectedFields(epic, { initiativeId })));
       if (Object.keys(fields).length) operations.push({
@@ -236,7 +321,7 @@ export async function createJiraWritePlan(root, initiativeId, {
         action: 'create-epic',
         subject: { type: 'epic', id: epic.id, jiraKey: null },
         issue: {
-          projectKey,
+          projectKey: governedProjectKey,
           issueType: policy.epicIssueType ?? 'Epic',
           summary: epic.title,
           description: descriptionWithAcceptance(epic),
@@ -246,7 +331,12 @@ export async function createJiraWritePlan(root, initiativeId, {
     }
     for (const story of epic.stories) {
       if (story.jiraKey) {
-        const issue = await getIssue(story.jiraKey, { connection, env, fetchImpl });
+        const storyKey = assertJiraIssuePolicy(story.jiraKey, policy, `Jira story '${story.id}'`);
+        const issue = assertIssueRecordPolicy(
+          await getIssue(storyKey, { connection: remoteConnection(), fetchImpl }),
+          policy,
+          `Jira story '${story.id}'`
+        );
         snapshots[story.jiraKey] = issue;
         const fields = allowedUpdateFields(policy, fieldDiff(issue, expectedFields(story, { parentKey: epic.jiraKey, initiativeId })));
         if (Object.keys(fields).length) operations.push({
@@ -263,7 +353,7 @@ export async function createJiraWritePlan(root, initiativeId, {
           subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: null },
           parent: { epicId: epic.id, jiraKey: epic.jiraKey },
           issue: {
-            projectKey,
+            projectKey: governedProjectKey,
             issueType: policy.storyIssueType ?? 'Story',
             summary: story.title,
             description: descriptionWithAcceptance(story),
@@ -279,7 +369,7 @@ export async function createJiraWritePlan(root, initiativeId, {
   const planBase = {
     schemaVersion: 1,
     initiativeId,
-    projectKey,
+    projectKey: governedProjectKey,
     connection: policy.connection,
     deployment: policy.deployment,
     source: { breakdownSha256: hash(initiativeBreakdownDocument(breakdown)), jiraSnapshotSha256: snapshotSha256 },
@@ -337,9 +427,16 @@ export async function applyJiraWritePlan(root, initiativeId, {
   if (confirmation !== initiativeId) throw new SingularityFlowError(`Jira apply requires exact initiative confirmation '${initiativeId}'.`);
   const plan = await readJiraWritePlan(root, portfolio, initiativeId);
   if (!planSha256 || planSha256 !== plan.sha256) throw new SingularityFlowError(`Jira apply requires exact write-plan hash '${plan.sha256}'.`);
+  if (plan.connection !== policy.connection || plan.deployment !== policy.deployment) {
+    throw new SingularityFlowError('The Jira write plan does not match the initiative-pinned connection and deployment.');
+  }
+  const projectKey = assertJiraProjectPolicy(plan.projectKey, policy, 'Jira write-plan project');
+  if (!Array.isArray(plan.operations)) throw new SingularityFlowError('The Jira write plan operations are invalid. Regenerate the plan.');
+  for (const operation of plan.operations) assertJiraWriteOperationPolicy(operation, policy);
+  const resolvedConnection = governedConnection(policy, { connection, env });
   const phaseId = materializationPhase(initiative);
   if (!phaseId || initiative.phases[phaseId]?.status !== 'approved') throw new SingularityFlowError(`Jira apply requires approved initiative phase '${phaseId}'.`);
-  const permissions = await getMyPermissions(plan.projectKey, { connection, env, fetchImpl });
+  const permissions = await getMyPermissions(projectKey, { connection: resolvedConnection, fetchImpl });
   const required = new Set(plan.operations.map((operation) => operation.action.startsWith('create-') ? 'CREATE_ISSUES' : 'EDIT_ISSUES'));
   const missing = [...required].filter((name) => !permissions[name]?.havePermission);
   if (missing.length) throw new SingularityFlowError(`Jira account lacks required permissions: ${missing.join(', ')}.`);
@@ -354,6 +451,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
     });
     if (receiptPath.exists) {
       const receipt = JSON.parse(await readFile(receiptPath.absolute, 'utf8'));
+      assertReceiptMatches(receipt, { initiativeId, plan, operation, policy });
       results.push(receipt);
       if (receipt.subject.type === 'epic') epicKeys[receipt.subject.id] = receipt.jiraKey;
       continue;
@@ -366,16 +464,16 @@ export async function applyJiraWritePlan(root, initiativeId, {
         ...operation.issue,
         idempotencyLabel: `sflow-${hash({ initiativeId, operationId: operation.id }).slice(0, 24)}`,
         ...(parentKey ? { parentKey } : {})
-      }, { connection, env, fetchImpl });
+      }, { connection: resolvedConnection, fetchImpl });
       if (operation.subject.type === 'epic') epicKeys[operation.subject.id] = result.key;
     } else {
       result = await updateIssue(operation.subject.jiraKey, operation.fields, {
         expectedUpdatedAt: operation.expectedUpdatedAt,
-        connection,
-        env,
+        connection: resolvedConnection,
         fetchImpl
       });
     }
+    assertIssueRecordPolicy(result, policy, `Jira operation '${operation.id}' result`);
     const receipt = {
       schemaVersion: 1,
       initiativeId,

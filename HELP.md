@@ -289,7 +289,7 @@ singularity-flow jira children APP-100
 singularity-flow jira permissions --project APP
 ```
 
-The Electron **Jira workspace** is the preferred corporate setup. If no portfolio exists, its first screen is the guided `singularity/portfolio.yml` bootstrap; Jira sign-in is deliberately unavailable until governed repository policy has been created. Repository policy controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer, placed in Git, passed to CLI child processes, or included in Copilot context.
+The Electron **Jira workspace** is the preferred corporate setup. If no portfolio exists, its first screen is the guided `singularity/portfolio.yml` bootstrap; Jira sign-in is deliberately unavailable until governed repository policy has been created. Repository policy controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. Every Jira route revalidates the repository-selected connection and project scope. Initiative adoption and write operations use the initiative's immutable policy snapshot rather than silently following later base-branch changes. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer, placed in Git, passed to CLI child processes, or included in Copilot context.
 
 Select an existing Epic, map each child to an owning repository, and choose an existing initiative. Preview then adopt it to create a committed source snapshot and `breakdown.yml` with separate Singularity Work IDs and Jira IDs. Outbound changes use a two-step flow:
 
@@ -298,7 +298,7 @@ singularity-flow initiative jira-plan
 singularity-flow initiative jira-apply --plan <exact-sha256>
 ```
 
-The plan is committed and pushed before review. Apply requires `jira.writeMode: approved`, an approved Plan/Elaboration phase, discovered Jira permissions, the exact plan hash, and exact initiative-ID confirmation. Optimistic `updatedAt` checks reject stale updates. Operation receipts are committed and pushed; status transitions, assignee, sprint, priority, and resolution are never writable through this connector.
+The plan is committed and pushed before review. Apply requires `jira.writeMode: approved`, an approved Plan/Elaboration phase, discovered Jira permissions, the exact plan hash, exact initiative-ID confirmation, and a plan that still matches the pinned connection, deployment, and project policy. Optimistic `updatedAt` checks reject stale updates. Operation receipts are committed and pushed; retry accepts a receipt only when its operation and reviewed plan hash still match. Status transitions, assignee, sprint, priority, and resolution are never writable through this connector.
 
 ## Manual intake and documents
 

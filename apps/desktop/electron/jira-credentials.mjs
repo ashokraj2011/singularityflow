@@ -67,23 +67,26 @@ export class JiraCredentialStore {
     return store.connections[selected];
   }
 
-  async status() {
+  async status(name = null) {
     const store = await this.#read();
+    const selected = name ?? store.active;
     return {
-      connected: Boolean(store.active && store.connections[store.active]),
+      connected: Boolean(selected && store.connections[selected]),
       active: store.active,
-      connection: store.active && store.connections[store.active] ? publicConnection(store.connections[store.active]) : null,
+      selected,
+      connection: selected && store.connections[selected] ? publicConnection(store.connections[selected]) : null,
       connections: Object.values(store.connections).map(publicConnection)
     };
   }
 
-  async safeStatus() {
+  async safeStatus(name = null) {
     try {
-      return await this.status();
+      return await this.status(name);
     } catch {
       return {
         connected: false,
         active: null,
+        selected: name,
         connection: null,
         connections: [],
         recovery: {
@@ -108,10 +111,10 @@ export class JiraCredentialStore {
     if (store.active === selected) store.active = Object.keys(store.connections)[0] ?? null;
     if (!Object.keys(store.connections).length) {
       await unlink(this.file).catch((error) => { if (error?.code !== 'ENOENT') throw error; });
-      return { connected: false, active: null, connections: [] };
+      return { connected: false, active: null, selected, connection: null, connections: [] };
     }
     await this.#write(store);
-    return this.status();
+    return this.status(selected);
   }
 }
 

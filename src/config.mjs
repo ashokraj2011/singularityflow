@@ -15,6 +15,7 @@ import { validateInjectionDefinition } from './inject.mjs';
 import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import { normalizeStorage } from './initiative-config.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -143,6 +144,10 @@ export function validateDefinition(definition) {
   }
   for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
   if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
+  // Optional per-work-item storage providers (OneDrive/SharePoint, Artifactory, S3, …) let the
+  // documents feature fetch governed bytes. Same normalizer as the initiative portfolio, so the
+  // schema never drifts between the two surfaces.
+  if (definition.storage != null) definition.storage = normalizeStorage(definition.storage);
   if (definition.collaboration != null) {
     if (!definition.collaboration || typeof definition.collaboration !== 'object' || Array.isArray(definition.collaboration)) throw new SingularityFlowError('collaboration must be an object.');
     if (definition.collaboration.assignmentMode && !['off', 'suggested', 'required'].includes(definition.collaboration.assignmentMode)) throw new SingularityFlowError('collaboration.assignmentMode must be off, suggested, or required.');

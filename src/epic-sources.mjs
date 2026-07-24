@@ -154,7 +154,24 @@ export function storageAdapter(providerId, provider, runtime = {}) {
         const url = `${graph}/sites/${encodeURIComponent(provider.siteId)}/drives/${encodeURIComponent(provider.driveId)}/items/${encodeURIComponent(reference.objectId)}`;
         const result = await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), maxBytes: 1024 * 1024 });
         const item = JSON.parse(result.bytes.toString('utf8'));
-        return { exists: true, version: item.eTag ?? item.cTag, etag: item.eTag ?? null };
+        return { exists: true, name: item.name ?? null, mimeType: item.file?.mimeType ?? null, size: item.size ?? null, version: item.eTag ?? item.cTag, etag: item.eTag ?? null };
+      },
+      async list({ path: subPath = '' } = {}) {
+        const base = `${graph}/sites/${encodeURIComponent(provider.siteId)}/drives/${encodeURIComponent(provider.driveId)}`;
+        const clean = String(subPath).split('/').filter(Boolean);
+        const url = clean.length
+          ? `${base}/root:/${clean.map(encodeURIComponent).join('/')}:/children`
+          : `${base}/root/children`;
+        const result = await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), maxBytes: 8 * 1024 * 1024 });
+        const payload = JSON.parse(result.bytes.toString('utf8'));
+        return (payload.value ?? []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          size: item.size ?? null,
+          mimeType: item.file?.mimeType ?? (item.folder ? 'inode/directory' : 'application/octet-stream'),
+          folder: Boolean(item.folder),
+          path: clean.length ? `${clean.join('/')}/${item.name}` : item.name
+        }));
       }
     };
   }
@@ -215,7 +232,7 @@ function sourceRecordHash(record) {
   return sha256(JSON.stringify(record));
 }
 
-function sourceRuntime(runtime, providerId) {
+export function sourceRuntime(runtime, providerId) {
   const envName = `SINGULARITY_FLOW_STORAGE_TOKEN_${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
   return { ...runtime, token: runtime.token ?? process.env[envName] ?? null };
 }

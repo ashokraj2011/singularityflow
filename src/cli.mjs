@@ -57,7 +57,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { activateWorkItemSession, loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, documentCatalog, previewDocument, viewDocument } from './documents.mjs';
+import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -734,6 +734,30 @@ async function documentsCommand(positionals, options) {
     const workflow = await loadWorkflow(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
     const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
+  }
+  if (subcommand === 'browse') {
+    const workflow = await loadWorkflow(root, config, optionString(options, 'work-id'));
+    const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', '') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.providerId} (${result.providerType})`);
+    if (!result.entries.length) return console.log('No entries.');
+    return console.log(table(result.entries.map((entry) => ({ name: entry.name, kind: entry.folder ? 'folder' : 'file', id: entry.id, size: entry.folder ? '' : entry.size ?? '' })), [
+      { key: 'name', label: 'NAME' }, { key: 'kind', label: 'KIND' }, { key: 'size', label: 'BYTES' }, { key: 'id', label: 'ITEM ID' }
+    ]));
+  }
+  if (subcommand === 'fetch') {
+    const workflow = await loadWorkflow(root, config);
+    const records = await fetchRemoteDocument(root, config, workflow, {
+      providerId: optionString(options, 'provider'),
+      remoteRef: optionString(options, 'ref') ?? positionals[2],
+      name: optionString(options, 'name'),
+      label: optionString(options, 'label'),
+      kind: optionString(options, 'kind')
+    });
+    const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
+    console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    return;
   }
   throw new SingularityFlowError(`Unknown documents subcommand: ${subcommand}`);
 }

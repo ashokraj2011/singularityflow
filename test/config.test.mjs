@@ -230,3 +230,26 @@ test('control-root migration refuses to combine hidden and visible folders', asy
   await mkdir(path.join(root, '.singularity'), { recursive: true });
   await assert.rejects(() => migrateLegacyConfig(root), /Both singularity\/ and \.singularity\/ exist/);
 });
+
+test('workflow.yml storage providers normalize and reject invalid SharePoint config', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-storage-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
+  const base = await loadDefinition(root);
+
+  const valid = structuredClone(base);
+  valid.storage = { providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
+  const normalized = validateDefinition(valid);
+  assert.equal(normalized.storage.defaultProvider, 'onedrive');
+  assert.deepEqual(normalized.storage.providers.onedrive.scopes, ['offline_access', 'User.Read', 'Files.ReadWrite.All']);
+
+  const missingField = structuredClone(base);
+  missingField.storage = { providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's' } } };
+  assert.throws(() => validateDefinition(missingField), /SharePoint provider 'onedrive' requires driveId/);
+
+  const badType = structuredClone(base);
+  badType.storage = { providers: { onedrive: { type: 'dropbox' } } };
+  assert.throws(() => validateDefinition(badType), /unsupported type 'dropbox'/);
+
+  const badDefault = structuredClone(base);
+  badDefault.storage = { defaultProvider: 'ghost', providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
+  assert.throws(() => validateDefinition(badDefault), /defaultProvider references unknown provider 'ghost'/);
+});

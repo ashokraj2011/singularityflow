@@ -681,6 +681,45 @@ function registerHandlers() {
       packetSha256, decision, persona, target, reason
     });
   });
+  trustedHandle('epic:complete', async (event, { repository, initiativeId, confirmation }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [
+      { completeEpicDelivery },
+      { commitInitiativeChange, loadInitiative },
+      { syncInitiativeRepositories },
+      { identity }
+    ] = await Promise.all([
+      importCliModule('epic-completion.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-repositories.mjs'),
+      importCliModule('git.mjs')
+    ]);
+    const synchronized = await syncInitiativeRepositories(root, initiativeId);
+    const synced = await loadInitiative(root, initiativeId);
+    const syncPublication = await commitInitiativeChange(
+      root,
+      synced.portfolio,
+      synced.initiative,
+      `[${initiativeId}][epic:sync] completion preflight`
+    );
+    const result = await completeEpicDelivery(root, initiativeId, {
+      confirmation,
+      actor: identity(root)
+    });
+    const publication = await commitInitiativeChange(
+      root,
+      result.portfolio,
+      result.initiative,
+      `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`
+    );
+    return {
+      record: result.record,
+      reportPath: result.reportPath,
+      synchronized,
+      publications: { sync: syncPublication, completion: publication }
+    };
+  });
   trustedHandle('epic:jira-drift', async (event, { repository, initiativeId }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -920,6 +959,74 @@ function registerHandlers() {
     const { listEpicStories } = await importCliModule('jira.mjs');
     return jiraCacheWrite(key, await listEpicStories(epicKey, { connection, limit: 100 }));
   });
+  trustedHandle('epic:start', async (event, {
+    repository, epicKey, profile = 'epic-planning', persona
+  }) => {
+    assertTrustedSender(event);
+    const { root, connection } = await governedJiraConnection(repository, { issueKey: epicKey });
+    const [
+      { getIssue },
+      { loadDefinition },
+      { loadPortfolio },
+      {
+        assertClean, checkout, identity
+      },
+      {
+        commitInitiativeChange, createInitiative, loadInitiative
+      },
+      { registerInitiativeEvidence },
+      { setPersonaSession }
+    ] = await Promise.all([
+      importCliModule('jira.mjs'),
+      importCliModule('config.mjs'),
+      importCliModule('initiative-config.mjs'),
+      importCliModule('git.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('session.mjs')
+    ]);
+    const [definition, portfolio, source] = await Promise.all([
+      loadDefinition(root),
+      loadPortfolio(root),
+      getIssue(epicKey, { connection })
+    ]);
+    if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
+    if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    assertClean(root);
+    checkout(root, epicKey, { base: definition.defaultBaseBranch, fetch: true });
+    const actor = identity(root);
+    await setPersonaSession(root, definition, actor, persona, epicKey);
+    const created = await createInitiative(root, {
+      id: epicKey,
+      title: source.title ?? epicKey,
+      profile,
+      source,
+      persona
+    });
+    if (profile === 'epic-planning') {
+      await registerInitiativeEvidence(root, {
+        initiativeId: epicKey,
+        phaseId: 'epic-intake',
+        checkId: 'epic-identity-verified',
+        assurance: 'system-verified',
+        verificationMethod: 'jira-issue-read',
+        source: {
+          externalId: source.id ?? source.key ?? epicKey,
+          version: source.updatedAt ?? null,
+          observedState: `${source.key ?? epicKey}: ${source.title ?? epicKey}`
+        },
+        persona
+      });
+    }
+    const started = await loadInitiative(root, epicKey, created.portfolio);
+    const publication = await commitInitiativeChange(
+      root,
+      started.portfolio,
+      started.initiative,
+      `[${epicKey}][epic:init] start ${profile}`
+    );
+    return { initiativeId: epicKey, source, publication };
+  });
   trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap
   }) => {
@@ -943,14 +1050,14 @@ function registerHandlers() {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     return { sourceSha256: result.sourceSha256, unresolved: result.unresolved, breakdown: result.breakdown, publication };
   });
-  trustedHandle('jira:write-plan', async (event, { repository, initiativeId }) => {
+  trustedHandle('jira:write-plan', async (event, { repository, initiativeId, artifacts = [] }) => {
     assertTrustedSender(event);
     const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId);
     const [{ createJiraWritePlan }, { commitInitiativeChange }] = await Promise.all([
       importCliModule('jira-initiative.mjs'),
       importCliModule('initiative-state.mjs')
     ]);
-    const result = await createJiraWritePlan(root, initiativeId, { connection });
+    const result = await createJiraWritePlan(root, initiativeId, { connection, artifactSelections: artifacts });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
     return { plan: result.plan, publication };
   });

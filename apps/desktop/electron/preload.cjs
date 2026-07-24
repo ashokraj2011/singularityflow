@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld('singularity', {
   decideEpicReview: (repository, initiativeId, storyId, packetSha256, decision, persona, target = null, reason = null) => ipcRenderer.invoke('epic:decision', {
     repository, initiativeId, storyId, packetSha256, decision, persona, target, reason
   }),
+  completeEpicDelivery: (repository, initiativeId, confirmation) => ipcRenderer.invoke('epic:complete', {
+    repository, initiativeId, confirmation
+  }),
   observeEpicJiraDrift: (repository, initiativeId) => ipcRenderer.invoke('epic:jira-drift', { repository, initiativeId }),
   jiraStatus: (repository) => ipcRenderer.invoke('jira:status', { repository }),
   connectJira: (repository, connection) => ipcRenderer.invoke('jira:connect', { repository, connection }),
@@ -86,9 +89,12 @@ contextBridge.exposeInMainWorld('singularity', {
   jiraWorkspaceAnchors: (repository, projectKey, refresh = false) => ipcRenderer.invoke('jira:workspace-anchors', { repository, projectKey, refresh }),
   jiraHierarchy: (repository, anchorKey, refresh = false) => ipcRenderer.invoke('jira:hierarchy', { repository, anchorKey, refresh }),
   jiraChildren: (repository, epicKey, refresh = false) => ipcRenderer.invoke('jira:children', { repository, epicKey, refresh }),
+  startEpicWizard: (repository, epicKey, profile, persona) => ipcRenderer.invoke('epic:start', {
+    repository, epicKey, profile, persona
+  }),
   previewJiraAdoption: (repository, initiativeId, epicKey, repositoryMap = {}) => ipcRenderer.invoke('jira:adopt-preview', { repository, initiativeId, epicKey, repositoryMap }),
   adoptJiraEpic: (repository, initiativeId, epicKey, repositoryMap = {}, replace = false) => ipcRenderer.invoke('jira:adopt', { repository, initiativeId, epicKey, repositoryMap, replace }),
-  createJiraWritePlan: (repository, initiativeId) => ipcRenderer.invoke('jira:write-plan', { repository, initiativeId }),
+  createJiraWritePlan: (repository, initiativeId, artifacts = []) => ipcRenderer.invoke('jira:write-plan', { repository, initiativeId, artifacts }),
   applyJiraWritePlan: (repository, initiativeId, planSha256, confirmation) => ipcRenderer.invoke('jira:apply', { repository, initiativeId, planSha256, confirmation }),
   openJira: (repository, url) => ipcRenderer.invoke('jira:open', { repository, url }),
   onPlanningEvent: (listener) => {

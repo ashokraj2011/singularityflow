@@ -46,6 +46,7 @@ import { deriveInitiativeReport, initiativeNextActions } from './initiative-repo
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
 import { listEpicSources } from './epic-sources.mjs';
+import { epicDeliveryReadiness } from './epic-completion.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -169,6 +170,25 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
       });
     }
   }
+  const deliveryReport = initiative.delivery?.completion?.reportPath;
+  if (deliveryReport) {
+    const target = await secureRepositoryPath(root, deliveryReport, {
+      label: `Epic '${initiativeId}' completion report`,
+      type: 'file'
+    });
+    documents.push({
+      id: 'spec-to-code-completion',
+      label: 'Epic spec-to-code completion',
+      kind: 'markdown',
+      path: deliveryReport,
+      repositoryPath: deliveryReport,
+      phase: 'delivery',
+      status: 'approved',
+      generation: 1,
+      sha256: initiative.delivery.completion.sha256,
+      content: target.exists ? await readFile(target.absolute, 'utf8') : null
+    });
+  }
   const sources = initiative.resolution.profile === 'epic-planning'
     ? (await listEpicSources(root, initiativeId)).manifest
     : { version: 1, initiativeId, sources: [] };
@@ -183,6 +203,9 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     nextActions: await initiativeNextActions(root, initiativeId),
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
+    delivery: initiative.resolution.profile === 'epic-planning'
+      ? await epicDeliveryReadiness(root, initiativeId)
+      : null,
     documents
   };
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -824,6 +825,7 @@ test('governed Jira write plan creates Epic then child story and persists receip
     connection: 'corporate-jira',
     deployment: 'cloud',
     writeMode: 'approved',
+    writeOperations: ['create-epic', 'create-story', 'update-owned-fields', 'attach-artifact'],
     projectKey: 'APP',
     epicIssueType: 'Epic',
     storyIssueType: 'Story'
@@ -837,6 +839,16 @@ test('governed Jira write plan creates Epic then child story and persists receip
   created.initiative.phases.plan.status = 'approved';
   created.initiative.phases.build.status = 'in_progress';
   created.initiative.currentPhase = 'build';
+  const requirementPath = path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'artifacts/define/business-case.md');
+  const requirementContent = '# Approved business case\n';
+  await mkdir(path.dirname(requirementPath), { recursive: true });
+  await writeFile(requirementPath, requirementContent);
+  Object.assign(created.initiative.phases.define.outputs['business-case'], {
+    status: 'published',
+    generation: 1,
+    sha256: createHash('sha256').update(requirementContent).digest('hex'),
+    bytes: Buffer.byteLength(requirementContent)
+  });
   await saveInitiative(root, created.portfolio, created.initiative);
   await writeFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'breakdown.yml'), YAML.stringify({
     version: 1,
@@ -848,19 +860,39 @@ test('governed Jira write plan creates Epic then child story and persists receip
     }]
   }));
   const connection = { baseUrl: 'https://office.atlassian.net', email: 'owner@example.com', token: 'token' };
-  const planned = await createJiraWritePlan(root, 'INIT-JIRA', { connection, fetchImpl: async () => { throw new Error('write-plan creation should not call Jira for new issues'); } });
-  assert.deepEqual(planned.plan.operations.map((operation) => operation.action), ['create-epic', 'create-story']);
+  const planned = await createJiraWritePlan(root, 'INIT-JIRA', {
+    connection,
+    artifactSelections: [{ phase: 'define', id: 'business-case', targets: ['epic'] }],
+    fetchImpl: async () => { throw new Error('write-plan creation should not call Jira for new issues'); }
+  });
+  assert.deepEqual(planned.plan.operations.map((operation) => operation.action), ['create-epic', 'create-story', 'attach-artifact']);
+  assert.equal(planned.plan.artifacts[0].sha256, created.initiative.phases.define.outputs['business-case'].sha256);
   let sequence = 100;
   const bodies = [];
   const fetchImpl = async (url, init) => {
     if (url.includes('/mypermissions?')) return response({ permissions: {
       CREATE_ISSUES: { name: 'Create Issues', havePermission: true },
-      EDIT_ISSUES: { name: 'Edit Issues', havePermission: true }
+      EDIT_ISSUES: { name: 'Edit Issues', havePermission: true },
+      CREATE_ATTACHMENTS: { name: 'Create Attachments', havePermission: true }
     } });
     if (url.endsWith('/search/jql') && init.method === 'POST') return response({ issues: [] });
     if (url.endsWith('/issue') && init.method === 'POST') {
       bodies.push(JSON.parse(init.body));
       return response({ id: String(sequence), key: `APP-${sequence++}` });
+    }
+    if (url.includes('/issue/APP-100?')) return response({
+      id: '100',
+      key: 'APP-100',
+      fields: {
+        summary: 'Mobile onboarding',
+        issuetype: { name: 'Epic' },
+        project: { key: 'APP' },
+        labels: [],
+        attachment: []
+      }
+    });
+    if (url.endsWith('/issue/APP-100/attachments') && init.method === 'POST') {
+      return response([{ id: 'att-1', filename: planned.plan.artifacts[0].filename, size: Buffer.byteLength(requirementContent), mimeType: 'text/markdown' }]);
     }
     throw new Error(`unexpected ${url}`);
   };
@@ -871,7 +903,8 @@ test('governed Jira write plan creates Epic then child story and persists receip
     fetchImpl,
     actor: 'owner@example.com'
   });
-  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101']);
+  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101', 'APP-100']);
+  assert.equal(applied.results[2].attachment.sha256, planned.plan.artifacts[0].sha256);
   assert.equal(bodies[1].fields.parent.key, 'APP-100');
   const breakdown = YAML.parse(await readFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'breakdown.yml'), 'utf8'));
   assert.equal(breakdown.epics[0].jiraKey, 'APP-100');

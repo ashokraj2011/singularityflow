@@ -118,6 +118,7 @@ import {
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
 import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
+import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import {
   createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
@@ -263,10 +264,12 @@ Usage:
   singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
   singularity-flow epic sources [list|add|verify|materialize] [--epic EPIC-KEY]
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
-  singularity-flow epic generate [intake|requirements|plan]
-  singularity-flow epic submit [intake|requirements|plan]
+  singularity-flow epic generate [intake|requirements|plan|spec]
+  singularity-flow epic submit [intake|requirements|plan|spec]
   singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256]
+    [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report [EPIC-KEY]
+  singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json]
   singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic checks <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
@@ -2219,10 +2222,28 @@ function epicPhaseName(value) {
     intake: 'epic-intake',
     requirements: 'epic-requirements',
     plan: 'epic-plan',
+    spec: 'epic-spec',
+    specification: 'epic-spec',
     create: 'epic-create',
     'create-stories': 'epic-create'
   };
   return value ? (aliases[value] ?? value) : null;
+}
+
+function selectedJiraArtifacts(options) {
+  const targets = optionString(options, 'artifact-to', 'epic');
+  if (!['epic', 'stories', 'both'].includes(targets)) {
+    throw new SingularityFlowError('--artifact-to must be epic, stories, or both.');
+  }
+  return optionStrings(options, 'artifact').map((reference) => {
+    const [phase, id, ...rest] = reference.split('/');
+    if (!phase || !id || rest.length) throw new SingularityFlowError(`Invalid Jira artifact '${reference}'. Use PHASE/OUTPUT.`);
+    return {
+      phase,
+      id,
+      targets: targets === 'both' ? ['epic', 'stories'] : [targets]
+    };
+  });
 }
 
 async function epicCommand(positionals, options) {
@@ -2309,7 +2330,9 @@ async function epicCommand(positionals, options) {
     const initiativeId = optionString(options, 'epic') ?? branch(root);
     const planSha256 = optionString(options, 'plan');
     if (!planSha256) {
-      const result = await createJiraWritePlan(root, initiativeId);
+      const result = await createJiraWritePlan(root, initiativeId, {
+        artifactSelections: selectedJiraArtifacts(options)
+      });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
@@ -2358,6 +2381,35 @@ async function epicCommand(positionals, options) {
     console.log(`Created or attached ${applied.results.filter((entry) => entry.subject.type === 'story').length} Jira Stories.`);
     console.log(`Canonical branches ready: ${materialized.attempt.stories.filter((entry) => entry.status !== 'failed').length}/${materialized.attempt.stories.length}.`);
     materialized.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
+    return;
+  }
+  if (subcommand === 'complete') {
+    const root = repoRoot();
+    const initiativeId = positionals[2] ?? branch(root);
+    if (optionBoolean(options, 'dry-run')) {
+      const readiness = await epicDeliveryReadiness(root, initiativeId);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(readiness, null, 2));
+      console.log(`Epic ${initiativeId}: ${readiness.readyStories}/${readiness.requiredStories} blocking Stories ready.`);
+      readiness.stories.forEach((story) => console.log(`${story.ready ? '✓' : story.blocking ? '!' : '○'} ${story.workId} · ${story.status}${story.problems.length ? ` · ${story.problems.join('; ')}` : ''}`));
+      return;
+    }
+    if (!(await confirmInitiativeExact(`Mark Epic ${initiativeId} complete against the exact Story review and conformance hashes?`, initiativeId))) {
+      throw new SingularityFlowError('Epic completion cancelled.');
+    }
+    const synchronized = await syncInitiativeRepositories(root, initiativeId);
+    const synced = await loadInitiative(root, initiativeId);
+    const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, `[${initiativeId}][epic:sync] completion preflight`);
+    const result = await completeEpicDelivery(root, initiativeId, {
+      confirmation: initiativeId,
+      actor: identity(root)
+    });
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
+    const output = { record: result.record, reportPath: result.reportPath, synchronized, publications: { sync: syncPublication, completion: publication } };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
+    console.log(`Epic ${initiativeId} marked complete.`);
+    console.log(`Spec-to-code report: ${result.reportPath}`);
+    console.log(`Decision: ${result.record.sha256}`);
+    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     return;
   }
   if (subcommand === 'review') {

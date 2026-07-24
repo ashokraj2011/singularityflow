@@ -159,6 +159,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       records: sourceManifest.sources
     },
     jiraDrift: initiative.jiraDrift ?? null,
+    delivery: initiative.delivery ?? null,
     children: {
       total: children.length,
       blocking: children.filter((story) => story.blocking).length,
@@ -209,6 +210,9 @@ export function renderInitiativeReport(report) {
   }
   if (report.sources.total) lines.push('', '## Epic source lineage', '', `- Pinned source versions: ${report.sources.pinned}/${report.sources.total}`);
   if (report.jiraDrift) lines.push(`- Latest Jira observation: ${report.jiraDrift.observedAt}; ${report.jiraDrift.drifted} drifted issue(s)`);
+  if (report.initiative.profile === 'epic-planning') {
+    lines.push(`- Epic delivery decision: ${report.delivery?.status ?? 'tracking'}${report.delivery?.completion?.sha256 ? ` (${report.delivery.completion.sha256.slice(0, 12)})` : ''}`);
+  }
   lines.push('', '## Copilot usage and cost', '');
   lines.push(`- Models: ${report.telemetry.models.join(', ') || 'unavailable'}`);
   lines.push(`- Tokens: ${report.telemetry.totalTokens ?? 'unavailable'}`);
@@ -237,15 +241,19 @@ export async function initiativeNextActions(root, initiativeId) {
       reason: 'Pin the Epic requirements, research, designs, or other source material before generating intake artifacts.'
     }];
   }
-  const materializationPhase = initiative.phaseOrder.includes('epic-plan')
-    ? 'epic-plan'
+  const materializationPhase = initiative.phaseOrder.includes('epic-spec')
+    ? 'epic-spec'
+    : initiative.phaseOrder.includes('epic-plan')
+      ? 'epic-plan'
     : initiative.phaseOrder.includes('elaboration') ? 'elaboration' : 'plan';
   if (initiative.phases[materializationPhase]?.status === 'approved' && initiative.materialization.status !== 'complete') return [{
     action: 'materialize',
     command: initiative.resolution.profile === 'epic-planning'
       ? `singularity-flow epic create-stories --epic ${initiativeId}`
       : `singularity-flow initiative materialize ${initiativeId} --dry-run`,
-    reason: 'The Story plan is approved but Jira Stories and canonical repository branches have not been fully materialized.'
+    reason: initiative.resolution.profile === 'epic-planning' && initiative.phaseOrder.includes('epic-spec')
+      ? 'The Story plan and high-level specification are approved but Jira Stories and canonical repository branches have not been fully materialized.'
+      : 'The Story plan is approved but repository Story branches have not been fully materialized.'
   }];
   if (phase.status === 'in_progress') {
     const outputs = Object.values(phase.outputs);

@@ -25,7 +25,7 @@ jira:
     attachmentPolicy: metadata-only
     cacheMinutes: 10
   writeMode: off
-  writeOperations: [create-epic, create-story, update-owned-fields]
+  writeOperations: [create-epic, create-story, update-owned-fields, attach-artifact]
   allowedFields: [summary, description, parent, labels, components]
   # Backward-compatible materialization switch. New Jira writes additionally
   # require writeMode: approved and an exact reviewed write-plan hash.
@@ -67,9 +67,9 @@ storage:
 initiativeProfiles:
   epic-planning:
     label: Epic planning
-    description: Intake an existing Jira Epic, synthesize requirements, approve a story plan, and create Jira/Git stories.
+    description: Intake an existing Jira Epic, synthesize requirements, approve a Story plan and high-level specification, and create Jira/Git stories.
     lifecycleMode: planning-only
-    phases: [epic-intake, epic-requirements, epic-plan, epic-create]
+    phases: [epic-intake, epic-requirements, epic-plan, epic-spec, epic-create]
   initiative-lite:
     label: Initiative lite
     description: Four governed phases for smaller cross-repository initiatives.
@@ -122,13 +122,22 @@ initiativePhases:
       - { id: dependencies-acyclic, label: Story dependencies are valid and acyclic, requirement: must, acceptedAssurance: [machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
+  epic-spec:
+    label: High-level specification
+    lanes: [business-product, design-architecture, engineering]
+    worldModelViews: [business, architecture, development, testing, security, operations]
+    outputs:
+      - { id: high-level-specification, label: High-level solution specification, kind: markdown, path: high-level-specification.md, template: initiatives/epic/high-level-specification.md, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-plan/story-plan, epic-plan/repository-map, epic-plan/dependency-map] }
+    checklist: []
+    bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
+
   epic-create:
     label: Create Stories
     lanes: [business-product, engineering]
     worldModelViews: [business, architecture, development]
     outputs:
-      - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-plan/story-plan] }
-      - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-plan/story-plan, epic-plan/repository-map] }
+      - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-plan/story-plan, epic-spec/high-level-specification] }
+      - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-plan/story-plan, epic-plan/repository-map, epic-spec/high-level-specification] }
     checklist:
       - { id: jira-permission-verified, label: Connected Jira user can create Stories in the configured project, requirement: must, acceptedAssurance: [system-verified], gate: block }
       - { id: stories-materialized, label: Jira Stories and canonical Git branches have receipts, requirement: must, acceptedAssurance: [system-verified, machine-verified], gate: block }

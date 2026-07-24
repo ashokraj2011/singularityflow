@@ -173,8 +173,10 @@ export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-plan')
-    ? 'epic-plan'
+  return initiative.phaseOrder.includes('epic-spec')
+    ? 'epic-spec'
+    : initiative.phaseOrder.includes('epic-plan')
+      ? 'epic-plan'
     : initiative.phaseOrder.includes('elaboration')
       ? 'elaboration'
       : initiative.phaseOrder.includes('plan') ? 'plan' : null;

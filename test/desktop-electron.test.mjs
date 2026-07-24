@@ -242,6 +242,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /saveOnboarding/);
   assert.match(preload, /chooseOnboardingWorkspace/);
   assert.match(preload, /connectOnboardingJira/);
+  assert.match(preload, /resetJiraCredentials/);
   assert.match(preload, /openRepository/);
   assert.match(preload, /forgetRepository/);
   assert.match(preload, /recentWorkspaces/);
@@ -251,6 +252,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /onboarding:get/);
   assert.match(main, /onboarding:save/);
   assert.match(main, /onboarding:jira-connect/);
+  assert.match(main, /jira:reset-credentials/);
   assert.match(main, /function trustedHandle/);
   assert.equal((main.match(/\bipcMain\.handle\(/g) ?? []).length, 1);
   assert.match(main, /safeExternalUrl/);

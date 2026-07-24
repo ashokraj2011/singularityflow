@@ -1435,6 +1435,10 @@ input, select, textarea { border-radius: 11px !important; }
 .jira-connect-form label,.jira-story-panel > label { display: grid; gap: 7px; }
 .jira-connect-form label > span,.jira-story-panel label > span,.jira-story-list label span { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .jira-connect-form .full { grid-column: 1/-1; }
+.jira-credential-recovery { min-height: 220px; display: grid; grid-template-columns: 52px minmax(0,1fr) auto; align-items: center; gap: 22px; padding: 34px; border-color: #e8c4c6; background: #fff8f8; }
+.jira-credential-recovery .jira-mark { color: #9e2730; background: #fde7e8; }
+.jira-credential-recovery h2 { margin: 5px 0 8px; color: #532128; font-size: 22px; font-weight: 600; }
+.jira-credential-recovery p { max-width: 720px; margin: 4px 0; color: #725b5e; font-size: 12px; line-height: 1.55; }
 .jira-context-strip { display: grid; grid-template-columns: repeat(4,1fr); border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.82); box-shadow: var(--shadow-sm); }
 .jira-context-strip > div { display: grid; gap: 5px; min-width: 0; padding: 18px 22px; border-right: 1px solid var(--line); }
 .jira-context-strip > div:last-child { border-right: 0; }
@@ -2272,6 +2276,12 @@ label > span,
 .onboarding-jira-connected > div { min-width: 0; display: grid; gap: 4px; }
 .onboarding-jira-connected strong { font-size: 12px; font-weight: 590; }
 .onboarding-jira-connected small { overflow: hidden; color: #68766e; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.onboarding-jira-recovery { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 12px; margin-top: 24px; border: 1px solid #e4b9bc; border-radius: 12px; padding: 12px 14px; color: #79262d; background: #fff4f4; }
+.onboarding-jira-recovery > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #a5363e; font-weight: 650; }
+.onboarding-jira-recovery > div { min-width: 0; display: grid; gap: 4px; }
+.onboarding-jira-recovery > div:last-child { display: flex; justify-content: flex-end; }
+.onboarding-jira-recovery strong { font-size: 12px; font-weight: 600; }
+.onboarding-jira-recovery small { color: #80585b; font-size: 9px; line-height: 1.45; }
 .onboarding-ready-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 22px; }
 .onboarding-ready-summary > div { min-width: 0; display: grid; grid-template-columns: 19px minmax(0,1fr); gap: 2px 5px; border: 1px solid #e1e5e1; border-radius: 10px; padding: 9px; background: #fafbfa; }
 .onboarding-ready-summary > div > span { grid-row: 1 / span 2; color: #0c7a49; font-size: 11px; }

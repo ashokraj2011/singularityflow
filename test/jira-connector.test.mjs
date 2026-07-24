@@ -182,6 +182,25 @@ test('desktop Jira credential storage fails closed when OS encryption is unavail
   }), /unavailable/);
 });
 
+test('desktop Jira credential status reports recoverable corruption and reset removes only the encrypted store', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-jira-store-corrupt-'));
+  const file = path.join(directory, 'jira.json');
+  await writeFile(file, '{not-json');
+  const store = new JiraCredentialStore(file, {
+    isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'keychain',
+    decryptString: () => {
+      throw new Error('must not be reached for malformed JSON');
+    }
+  });
+  const status = await store.safeStatus();
+  assert.equal(status.connected, false);
+  assert.equal(status.recovery.required, true);
+  assert.match(status.recovery.message, /could not be read/i);
+  await store.reset();
+  assert.equal((await store.safeStatus()).connected, false);
+});
+
 test('desktop exposes a narrow Jira IPC workspace without renderer credential reads', async () => {
   const main = await readFile(new URL('../apps/desktop/electron/main.mjs', import.meta.url), 'utf8');
   const preload = await readFile(new URL('../apps/desktop/electron/preload.cjs', import.meta.url), 'utf8');

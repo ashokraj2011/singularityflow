@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
   normalizeOnboardingProfile,
   readOnboardingProfile,
-  saveOnboardingProfile
+  saveOnboardingProfile,
+  validateOnboardingWorkspace
 } from '../apps/desktop/electron/onboarding-profile.mjs';
 
 test('onboarding profile validates the minimum ready state while keeping repositories optional', () => {
@@ -41,6 +42,14 @@ test('onboarding completion requires name, role, workspace, and a Jira decision'
   assert.equal(
     normalizeOnboardingProfile({ ...base, jiraChoice: 'connected' }, { complete: true, jiraConnected: true }).jiraChoice,
     'connected'
+  );
+  assert.throws(
+    () => normalizeOnboardingProfile({ ...base, jiraChoice: 'connected' }, { complete: true, jiraConnected: false }),
+    /Reconnect Jira or explicitly confirm/
+  );
+  assert.throws(
+    () => normalizeOnboardingProfile({ ...base, jiraChoice: 'disconnected' }, { complete: true }),
+    /Reconnect Jira or explicitly confirm/
   );
 });
 
@@ -99,4 +108,27 @@ test('a removed Jira credential does not force a completed user through onboardi
   }, { complete: true, jiraConnected: false });
   assert.equal(profile.completed, true);
   assert.equal(profile.jiraChoice, 'disconnected');
+});
+
+test('onboarding workspace validation canonicalizes directory aliases and rejects files and filesystem roots', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-workspace-'));
+  const workspace = path.join(root, 'workspace-home');
+  const alias = path.join(root, 'workspace-alias');
+  await mkdir(workspace);
+  await symlink(workspace, alias, 'dir');
+  assert.equal(await validateOnboardingWorkspace(alias), await realpath(workspace));
+
+  const file = path.join(root, 'not-a-directory');
+  await writeFile(file, 'no');
+  await assert.rejects(() => validateOnboardingWorkspace(file), /must be a directory/);
+  await assert.rejects(() => validateOnboardingWorkspace(path.parse(root).root), /specific local workspace/);
+});
+
+test('onboarding rejects repository overflow instead of silently dropping selections', () => {
+  assert.throws(
+    () => normalizeOnboardingProfile({
+      repositories: Array.from({ length: 21 }, (_, index) => `/tmp/repository-${index}`)
+    }),
+    /at most 20/
+  );
 });

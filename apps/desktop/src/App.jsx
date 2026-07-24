@@ -72,6 +72,30 @@ const navSections = [
   }
 ];
 
+const onboardingRoles = [
+  ['product-owner', 'Product owner'],
+  ['business-analyst', 'Business analyst'],
+  ['product-designer', 'Product designer'],
+  ['architect', 'Architect'],
+  ['developer', 'Developer'],
+  ['qa', 'Quality engineer'],
+  ['security', 'Security / risk'],
+  ['delivery-manager', 'Delivery manager'],
+  ['operations', 'Operations / SRE'],
+  ['other', 'Another role']
+];
+
+function preferredPersonaForRole(role, personas) {
+  const aliases = {
+    'business-analyst': ['product-owner', 'architect'],
+    'delivery-manager': ['product-owner', 'architect'],
+    operations: ['developer', 'architect'],
+    security: ['architect', 'developer'],
+    other: []
+  };
+  return [role, ...(aliases[role] ?? [])].find((candidate) => candidate && personas[candidate]) ?? Object.keys(personas)[0];
+}
+
 const navIconPaths = {
   dashboard: ['M4 4h6v6H4z M14 4h6v4h-6z M14 12h6v8h-6z M4 14h6v6H4z'],
   documents: ['M6 3h8l4 4v14H6z M14 3v5h5 M9 12h6 M9 16h6'],
@@ -128,6 +152,134 @@ function RecentRepositories({ items, currentPath = null, busy, onOpen, onForget,
 function RecentWorkspaces({ items, currentPath = null, busy, onOpen, onForget, compact = false }) {
   if (!items.length) return null;
   return <section className={`recent-workspaces recent-repositories ${compact ? 'compact' : ''}`}><header><div><span className="eyebrow">Isolated project contexts</span><h3>Recent workspaces</h3></div><span>{items.length} saved</span></header><div className="recent-repository-list">{items.map((workspace) => <div className={`recent-repository ${workspace.available ? '' : 'unavailable'} ${workspace.path === currentPath ? 'current' : ''}`} key={workspace.path}><button className="recent-repository-open" disabled={busy || !workspace.available} onClick={() => onOpen(workspace.path)}><span className="recent-repository-icon workspace-icon">W</span><span className="recent-repository-copy"><strong>{workspace.name}</strong><small title={workspace.path}>{workspace.path}</small><em>{workspace.available ? `${workspace.anchorType ?? 'Jira'} ${workspace.anchorKey ?? ''} · ${formatRecentTime(workspace.openedAt)}` : 'Workspace manifest is no longer available'}</em></span>{workspace.path === currentPath && <Pill tone="good">Open</Pill>}<span className="recent-repository-arrow">→</span></button><button className="recent-repository-forget" aria-label={`Forget ${workspace.name}`} title="Forget this local workspace; files are not deleted" onClick={(event) => onForget(event, workspace.path)}>×</button></div>)}</div></section>;
+}
+
+function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
+  const [draft, setDraft] = useState(() => ({
+    ...initial,
+    step: initial.step ?? 0,
+    repositories: initial.repositories ?? [],
+    jiraChoice: jira?.connected ? 'connected' : (initial.jiraChoice ?? 'later')
+  }));
+  const [connection, setConnection] = useState({
+    name: 'corporate-jira',
+    deployment: 'cloud',
+    baseUrl: jira?.connection?.baseUrl ?? '',
+    email: jira?.connection?.email ?? '',
+    token: '',
+    authMode: jira?.connection?.authMode ?? 'user-token'
+  });
+  const [jiraStatus, setJiraStatus] = useState(jira ?? { connected: false });
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState(null);
+  const steps = ['Your name', 'Your role', 'Local workspace', 'Repositories', 'Jira & ready'];
+  const roleLabel = onboardingRoles.find(([id]) => id === draft.role)?.[1] ?? 'Not selected';
+
+  function update(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setError(null);
+  }
+
+  async function persist(nextStep = draft.step, complete = false) {
+    setWorking(true);
+    setError(null);
+    try {
+      const result = await window.singularity.saveOnboarding({ ...draft, step: nextStep }, complete);
+      setDraft(result.profile);
+      if (complete) await onComplete(result);
+      return result;
+    } catch (saveError) {
+      setError(saveError?.message || String(saveError));
+      return null;
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function next() {
+    if (draft.step === 0 && !draft.name.trim()) return setError('Enter your name to continue.');
+    if (draft.step === 1 && !draft.role) return setError('Choose the role you want to use for this desktop profile.');
+    if (draft.step === 2 && !draft.workspacePath) return setError('Choose a local workspace directory.');
+    const nextStep = Math.min(4, draft.step + 1);
+    const saved = await persist(nextStep);
+    if (saved) setDraft((current) => ({ ...current, step: nextStep }));
+  }
+
+  async function back() {
+    const nextStep = Math.max(0, draft.step - 1);
+    const saved = await persist(nextStep);
+    if (saved) setDraft((current) => ({ ...current, step: nextStep }));
+  }
+
+  async function chooseWorkspace() {
+    setWorking(true);
+    setError(null);
+    try {
+      const selected = await window.singularity.chooseOnboardingWorkspace();
+      if (selected) update('workspacePath', selected);
+    } catch (chooseError) {
+      setError(chooseError?.message || String(chooseError));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function addRepositories() {
+    setWorking(true);
+    setError(null);
+    try {
+      const selected = await window.singularity.chooseOnboardingRepositories();
+      if (!selected?.length) return;
+      const repositories = new Map(draft.repositories.map((repository) => [repository.path, repository]));
+      selected.forEach((repository) => repositories.set(repository.path, repository));
+      update('repositories', [...repositories.values()]);
+    } catch (chooseError) {
+      setError(chooseError?.message || String(chooseError));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function connectJira() {
+    setWorking(true);
+    setError(null);
+    try {
+      const result = await window.singularity.connectOnboardingJira({
+        ...connection,
+        email: connection.deployment === 'data-center' ? null : connection.email,
+        authMode: connection.deployment === 'data-center' ? 'pat' : connection.authMode
+      });
+      setJiraStatus({ connected: true, active: result.active, connection: result.connection });
+      setConnection((current) => ({ ...current, token: '' }));
+      update('jiraChoice', 'connected');
+    } catch (connectError) {
+      setError(connectError?.message || String(connectError));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const canFinish = Boolean(draft.name && draft.role && draft.workspacePath && draft.jiraChoice !== 'later');
+  return <div className="onboarding-shell">
+    <aside className="onboarding-rail">
+      <div className="brand onboarding-brand"><span>S</span><div><strong>Singularity</strong><small>Desktop setup</small></div></div>
+      <div className="onboarding-progress">{steps.map((label, index) => <button key={label} className={`${index === draft.step ? 'active' : ''} ${index < draft.step ? 'complete' : ''}`} disabled={index > draft.step} onClick={() => index < draft.step && persist(index)}><span>{index < draft.step ? '✓' : index + 1}</span><div><strong>{label}</strong><small>{index === draft.step ? 'Current step' : index < draft.step ? 'Complete' : 'Up next'}</small></div></button>)}</div>
+      <div className="onboarding-promise"><span>Private by design</span><p>Your profile and workspace location stay on this computer. Only governed repository configuration enters Git.</p></div>
+    </aside>
+    <main className="onboarding-main">
+      <header className="onboarding-topbar"><span>First-time setup</span><button className="ghost" onClick={onHelp}>Why Singularity?</button></header>
+      <section className="onboarding-stage">
+        <div className="onboarding-step-count">Step {draft.step + 1} of 5</div>
+        {draft.step === 0 && <div className="onboarding-card"><span className="onboarding-symbol">01</span><div className="onboarding-copy"><span className="eyebrow">Welcome</span><h1>What should we call you?</h1><p>This name identifies your local desktop profile. Git identity still remains the authority recorded for governed approvals.</p></div><label className="onboarding-field"><span>Your name</span><input autoFocus value={draft.name} placeholder="Ashok Raj" onChange={(event) => update('name', event.target.value)} /><small>Stored locally, never written to a repository by onboarding.</small></label></div>}
+        {draft.step === 1 && <div className="onboarding-card"><span className="onboarding-symbol">02</span><div className="onboarding-copy"><span className="eyebrow">Working perspective</span><h1>How will you use Singularity?</h1><p>Your role personalizes guidance and recommended personas. It never restricts what work you can perform.</p></div><label className="onboarding-field"><span>Primary role</span><select autoFocus value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Anyone can still assume any repository-configured persona during a session.</small></label></div>}
+        {draft.step === 2 && <div className="onboarding-card"><span className="onboarding-symbol">03</span><div className="onboarding-copy"><span className="eyebrow">Local isolation</span><h1>Choose your workspace home.</h1><p>Singularity uses this folder for project workspaces, repository clones, staged documents, caches, and local planning context.</p></div><div className={`onboarding-picker ${draft.workspacePath ? 'selected' : ''}`}><span className="onboarding-picker-icon">⌂</span><div><strong>{draft.workspacePath ? 'Workspace selected' : 'No folder selected'}</strong><small>{draft.workspacePath ?? 'Choose a corporate-approved local directory.'}</small></div><button className={draft.workspacePath ? 'secondary' : 'primary'} onClick={chooseWorkspace} disabled={working}>{draft.workspacePath ? 'Change' : 'Choose folder'}</button></div><div className="onboarding-note"><strong>No new hierarchy</strong><span>This is a local storage boundary, not another Jira or delivery concept.</span></div></div>}
+        {draft.step === 3 && <div className="onboarding-card"><span className="onboarding-symbol">04</span><div className="onboarding-copy"><span className="eyebrow">Optional starting points</span><h1>Add repositories now—or later.</h1><p>Select existing Git repositories already initialized with a visible <code>singularity/</code> folder. They become quick-access locations after setup.</p></div><div className="onboarding-repositories">{draft.repositories.map((repository) => <div key={repository.path}><span>{repository.name.slice(0, 1).toUpperCase()}</span><div><strong>{repository.name}</strong><small>{repository.path}</small></div><button className="ghost" aria-label={`Remove ${repository.name}`} onClick={() => update('repositories', draft.repositories.filter((item) => item.path !== repository.path))}>×</button></div>)}<button className="onboarding-add-repository" onClick={addRepositories} disabled={working}><span>＋</span><div><strong>Add local repositories</strong><small>Optional · up to 20 locations</small></div></button></div></div>}
+        {draft.step === 4 && <div className="onboarding-card onboarding-jira-card"><span className="onboarding-symbol">05</span><div className="onboarding-copy"><span className="eyebrow">Corporate integration</span><h1>Connect Jira, then you’re ready.</h1><p>The token is validated and encrypted by the operating-system credential store. Repository policies still control which Jira hosts and projects each project may use.</p></div>{jiraStatus.connected || draft.jiraChoice === 'connected' ? <div className="onboarding-jira-connected"><span>✓</span><div><strong>Jira connected securely</strong><small>{jiraStatus.connection?.baseUrl ?? 'Credential available in this OS account'} · {jiraStatus.connection?.account?.displayName ?? jiraStatus.connection?.email ?? 'authenticated user'}</small></div><Pill tone="good">Ready</Pill></div> : draft.jiraChoice === 'not-used' ? <div className="onboarding-jira-connected neutral"><span>—</span><div><strong>Jira is not used</strong><small>You can connect it later from a repository’s Jira workspace.</small></div><button className="secondary compact" onClick={() => update('jiraChoice', 'later')}>Configure instead</button></div> : <><div className="onboarding-jira-form"><label><span>Deployment</span><select value={connection.deployment} onChange={(event) => setConnection((current) => ({ ...current, deployment: event.target.value, authMode: event.target.value === 'data-center' ? 'pat' : 'user-token' }))}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="wide"><span>Jira HTTPS URL</span><input value={connection.baseUrl} placeholder="https://company.atlassian.net" onChange={(event) => setConnection((current) => ({ ...current, baseUrl: event.target.value }))} /></label>{connection.deployment === 'cloud' && <label><span>Email</span><input type="email" value={connection.email} placeholder="you@company.com" onChange={(event) => setConnection((current) => ({ ...current, email: event.target.value }))} /></label>}<label><span>{connection.deployment === 'cloud' ? 'API token' : 'Personal access token'}</span><input type="password" value={connection.token} placeholder="Stored in OS keychain" onChange={(event) => setConnection((current) => ({ ...current, token: event.target.value }))} /></label></div><div className="onboarding-jira-actions"><button className="primary" disabled={working || !connection.baseUrl || !connection.token || (connection.deployment === 'cloud' && !connection.email)} onClick={connectJira}>{working ? 'Verifying…' : 'Verify & connect Jira'}</button><button className="ghost" onClick={() => update('jiraChoice', 'not-used')}>We do not use Jira</button></div></>}<div className="onboarding-ready-summary"><div><span>✓</span><strong>{draft.name}</strong><small>{roleLabel}</small></div><div><span>✓</span><strong>Workspace</strong><small>{draft.workspacePath}</small></div><div><span>{draft.repositories.length ? '✓' : '○'}</span><strong>{draft.repositories.length} repositories</strong><small>{draft.repositories.length ? 'Ready for quick access' : 'Optional—add later'}</small></div><div><span>{draft.jiraChoice === 'later' ? '○' : '✓'}</span><strong>Jira decision</strong><small>{draft.jiraChoice === 'connected' ? 'Securely connected' : draft.jiraChoice === 'not-used' ? 'Not used' : 'Action required'}</small></div></div></div>}
+        {error && <div className="onboarding-error" role="alert">{error}</div>}
+      </section>
+      <footer className="onboarding-footer"><button className="ghost" disabled={working || draft.step === 0} onClick={back}>Back</button><span>Your setup is saved locally after each step.</span>{draft.step < 4 ? <button className="primary" disabled={working} onClick={next}>{working ? 'Saving…' : draft.step === 3 ? 'Continue to Jira' : 'Continue'}</button> : <button className="primary onboarding-finish" disabled={working || !canFinish} onClick={() => persist(4, true)}>{working ? 'Finishing…' : 'Finish setup & start'}</button>}</footer>
+    </main>
+  </div>;
 }
 
 function Toast({ toast, onClose }) {
@@ -536,7 +688,7 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
   </div>;
 }
 
-function WorkspaceStudio({ data, action, onOpened, onConfigureJira }) {
+function WorkspaceStudio({ data, action, onOpened, onConfigureJira, defaultBaseDirectory = '' }) {
   const policy = data.portfolio?.jira;
   const current = data.workspace;
   const configuredRepositories = Object.keys(data.portfolio?.repositories ?? {});
@@ -547,7 +699,7 @@ function WorkspaceStudio({ data, action, onOpened, onConfigureJira }) {
   const [anchors, setAnchors] = useState([]);
   const [anchorKey, setAnchorKey] = useState('');
   const [hierarchy, setHierarchy] = useState(null);
-  const [baseDirectory, setBaseDirectory] = useState('');
+  const [baseDirectory, setBaseDirectory] = useState(defaultBaseDirectory);
   const [leadRepository, setLeadRepository] = useState(repositoryChoices[0] ?? 'lead');
   const [selectedRepositories, setSelectedRepositories] = useState(() => Object.fromEntries(repositoryChoices.map((id) => [id, true])));
   const [preview, setPreview] = useState(null);
@@ -866,14 +1018,16 @@ function ApprovalInbox({ data, busy, refresh, attach }) {
   </div>;
 }
 
-function PlanningStudio({ data, action, reload, openPlanningPrompt }) {
+function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null }) {
   const groups = data.planning?.targets ?? [];
   const defaultGroup = groups.find((item) => item.scope === 'initiative') ?? groups[0] ?? null;
   const [groupKey, setGroupKey] = useState(defaultGroup ? `${defaultGroup.scope}:${defaultGroup.id}` : '');
   const [phaseId, setPhaseId] = useState(defaultGroup?.currentPhase ?? '');
   const initialPhase = defaultGroup?.phases.find((phase) => phase.id === defaultGroup.currentPhase);
   const [targetId, setTargetId] = useState(initialPhase?.targets[0]?.id ?? '');
-  const [persona, setPersona] = useState(data.session?.persona && data.definition.personas[data.session.persona] ? data.session.persona : Object.keys(data.definition.personas)[0]);
+  const [persona, setPersona] = useState(data.session?.persona && data.definition.personas[data.session.persona]
+    ? data.session.persona
+    : preferredPersonaForRole(profileRole, data.definition.personas));
   const [objective, setObjective] = useState('');
   const [model, setModel] = useState('');
   const [preflight, setPreflight] = useState(null);
@@ -1635,6 +1789,8 @@ function Documents({ data, action, reload, downloadFile }) {
 
 export default function App() {
   const [data, setData] = useState(null);
+  const [onboarding, setOnboarding] = useState(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(true);
   const [page, setPage] = useState('dashboard');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1645,6 +1801,18 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('singularity.sidebar.collapsed') === 'true');
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
 
+  useEffect(() => {
+    let current = true;
+    window.singularity.onboarding()
+      .then((result) => { if (current) setOnboarding(result); })
+      .catch((error) => {
+        if (!current) return;
+        setToast({ tone: 'bad', text: `Could not load desktop onboarding: ${error.message}` });
+        setOnboarding({ profile: { completed: true }, jira: { connected: false } });
+      })
+      .finally(() => { if (current) setOnboardingLoading(false); });
+    return () => { current = false; };
+  }, []);
   useEffect(() => { if (data && !editor.path) setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }, [data, editor.path]);
   useEffect(() => { if (toast?.tone !== 'good') return undefined; const timer = setTimeout(() => setToast(null), 5000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {
@@ -1716,6 +1884,12 @@ export default function App() {
     acceptOpened(result, 'workspaces');
     await refreshRecentRepositories();
     await refreshRecentWorkspaces();
+  }
+  async function completeOnboarding(result) {
+    setOnboarding(result);
+    await refreshRecentRepositories();
+    const firstRepository = result.profile.repositories?.[0];
+    if (firstRepository) await openRepository(firstRepository.path);
   }
   async function forgetRepository(event, repositoryPath) {
     event.stopPropagation();
@@ -1939,12 +2113,14 @@ export default function App() {
   function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'prompt' }); setPage('resources'); }
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
 
+  if (onboardingLoading) return <div className="onboarding-loading"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Preparing desktop setup</small></div></div><span className="onboarding-loading-orb">✦</span></div>;
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
+  if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening…' : 'Open a project workspace'}</button><button className="secondary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open one repository'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Validating the repository and loading workflow state…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Workspace</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Jira-anchored delivery</span><h3>Initiative across repositories</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} onConfigureJira={() => setPage('jira')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} downloadFile={downloadFile} openWorkspace={() => setPage('documents')} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={onboarding?.profile?.workspacePath ?? ''} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} onConfigureJira={() => setPage('jira')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

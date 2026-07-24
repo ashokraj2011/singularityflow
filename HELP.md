@@ -12,6 +12,18 @@ The short command reference is available with `singularity-flow --help`.
 
 For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff, phase-input, and remote-agent diagrams, open `HOW-TO.md` in the repository.
 
+## Desktop first-run onboarding
+
+The desktop app opens a resumable five-step wizard the first time an operating-system user launches it:
+
+1. Enter the name shown in planning and local desktop activity.
+2. Select a role such as Product owner, Architect, Developer, QA, Designer, Security, Operations, or Delivery lead. This only suggests an initial planning persona; anyone can still select any configured persona.
+3. Choose the local workspace directory used for isolated project workspaces and repository clones.
+4. Add existing initialized Singularity repositories, or skip this optional step.
+5. Connect Jira Cloud/Data Center, choose **We do not use Jira**, and review the ready summary.
+
+Each step is saved locally and can be resumed after restarting the app. The profile is kept in Electron application data rather than Git. Jira tokens and PATs never enter the onboarding file: they are validated in Electron's main process and encrypted using the operating-system credential store. Selecting repositories does not clone, commit, push, or modify them. After setup, the first selected repository opens automatically; if none was selected, the welcome screen provides repository and workspace actions.
+
 ## About and command namespace
 
 **Singularity Flow** is the product under the **Singularity** brand. It is a

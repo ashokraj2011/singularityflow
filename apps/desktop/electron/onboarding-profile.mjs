@@ -67,8 +67,7 @@ export async function validateOnboardingWorkspace(value) {
 export function normalizeOnboardingProfile(input = {}, {
   complete = false,
   jiraConnected = false,
-  touch = false,
-  allowDisconnectedCompletion = false
+  touch = false
 } = {}) {
   const schemaVersion = input.schemaVersion ?? ONBOARDING_SCHEMA_VERSION;
   if (schemaVersion !== ONBOARDING_SCHEMA_VERSION) {
@@ -89,11 +88,6 @@ export function normalizeOnboardingProfile(input = {}, {
   if (complete) {
     if (!name) throw new Error('Enter your name before finishing onboarding.');
     if (!role) throw new Error('Choose your role before finishing onboarding.');
-    if (!workspacePath) throw new Error('Choose a local workspace before finishing onboarding.');
-    if (jiraChoice === 'later') throw new Error('Connect Jira or confirm that Jira is not used before finishing onboarding.');
-    if (jiraChoice === 'disconnected' && !allowDisconnectedCompletion) {
-      throw new Error('Reconnect Jira or explicitly confirm that Jira is not used before finishing onboarding.');
-    }
   }
   const completed = complete === true;
   const completedAt = completed
@@ -133,8 +127,7 @@ export async function readOnboardingProfile(file, { jiraConnected = false } = {}
   try {
     return normalizeOnboardingProfile(parsed, {
       complete: parsed?.completed === true,
-      jiraConnected,
-      allowDisconnectedCompletion: parsed?.completed === true
+      jiraConnected
     });
   } catch (error) {
     return {

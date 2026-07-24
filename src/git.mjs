@@ -2,6 +2,11 @@ import path from 'node:path';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 
 function git(args, options = {}) {
+  // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
+  // progress chatter ("[main abc1234] message", "branch 'main' set up to track...") must never
+  // land there. Inherited git output is routed to the parent's stderr (fd 2) instead, which keeps
+  // it visible in a terminal while leaving stdout pure for machine-readable output.
+  if (options.stdio === 'inherit') return run('git', args, { ...options, stdio: ['inherit', 2, 'inherit'] });
   return run('git', args, options);
 }
 

@@ -382,3 +382,36 @@ test('desktop persona selection remains local and requires the active work branc
   assert.equal(session.workId, 'DESK-2');
   await assert.rejects(() => selectDesktopPersona(root, 'DESK-2', 'unknown'), /Unknown persona/);
 });
+
+test('desktop publish --json emits machine-readable stdout even when git commits and pushes', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-json-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'repo');
+  const git = (args, cwd) => {
+    const outcome = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    assert.equal(outcome.status, 0, `git ${args.join(' ')}\n${outcome.stderr}`);
+    return outcome.stdout;
+  };
+  git(['init', '--bare', '-b', 'main', remote], base);
+  git(['init', '-b', 'main', root], base);
+  git(['config', 'user.name', 'Publish Tester'], root);
+  git(['config', 'user.email', 'publish@example.com'], root);
+  spawnSync(process.execPath, [bin, 'init'], { cwd: root, encoding: 'utf8' });
+  await writeFile(path.join(root, 'README.md'), '# Publish\n');
+  git(['add', '-A'], root);
+  git(['commit', '-m', 'initialize'], root);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  await writeFile(definitionPath, `${await readFile(definitionPath, 'utf8')}\n# publishable tweak\n`);
+
+  const execution = spawnSync(process.execPath, [bin, 'desktop', 'publish', '--message', 'test publish', '--json'], { cwd: root, encoding: 'utf8' });
+  assert.equal(execution.status, 0, execution.stderr);
+  // Git progress must not contaminate stdout; the desktop parses it as JSON.
+  const parsed = JSON.parse(execution.stdout);
+  assert.equal(parsed.pushed, true);
+  assert.deepEqual(parsed.files, ['singularity/workflow.yml']);
+  // The human-readable git output is still emitted, on stderr.
+  assert.match(execution.stderr, /\[main [0-9a-f]+\]/);
+});

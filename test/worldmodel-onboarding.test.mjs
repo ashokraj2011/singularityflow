@@ -86,3 +86,33 @@ test('portfolio bootstrap self-heals a repo with no worldModel block instead of 
     assert.ok(definition.worldModel.views.includes(view), `workflow.yml now declares ${view}`);
   }
 });
+
+test('bootstrap installs initiative templates missing from a repository initialized earlier', async () => {
+  const root = await repository();
+  await stripWorldModel(root);
+  // Simulate a repository created before the initiatives/ templates shipped: the templates root
+  // exists (so a directory-level copy-if-missing is skipped) but the subtree is absent.
+  await rm(path.join(root, 'singularity/templates/initiatives'), { recursive: true, force: true });
+  assert.ok(!existsSync(path.join(root, 'singularity/templates/initiatives')));
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  if (existsSync(portfolioFile)) await rm(portfolioFile);
+  await writeFile(path.join(root, 'README.md'), '# Templates\n');
+  git(['add', '-A'], root);
+  git(['commit', '-m', 'initialize'], root);
+
+  await bootstrapDesktopPortfolio(root, {
+    approvalEmail: 'onboard@example.com',
+    repository: { id: 'app', url: 'https://example.com/app.git' }
+  });
+
+  // Every template the portfolio's phases reference now exists in the repository.
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  const referenced = new Set();
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
+    for (const output of phase.outputs ?? []) if (output.template) referenced.add(output.template);
+  }
+  assert.ok(referenced.has('initiatives/epic/source-catalog.md'), 'fixture should reference the epic templates');
+  for (const template of referenced) {
+    assert.ok(existsSync(path.join(root, 'singularity/templates', template)), `missing template ${template}`);
+  }
+});

@@ -374,6 +374,35 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
   return merged;
 }
 
+// Copy every file from `source` that is absent at `destination`, recursively, without touching
+// files that already exist. A whole-directory copyIfMissing is skipped once the destination exists,
+// so template files added to the package in later versions never reach a repository initialized by
+// an earlier one. This merges them in while preserving every local edit. Returns the relative paths
+// that were installed.
+export async function copyMissingFiles(source, destination, installed = [], relative = '') {
+  if (!existsSync(source)) return installed;
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    const key = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) await copyMissingFiles(from, to, installed, key);
+    else if (entry.isFile() && !existsSync(to)) {
+      await mkdir(path.dirname(to), { recursive: true });
+      await cp(from, to);
+      installed.push(key);
+    }
+  }
+  return installed;
+}
+
+// Install any packaged template files the repository is missing (for example the initiatives/
+// subtree required by the Epic profiles) into the configured templates root.
+export async function ensureRepositoryTemplates(root, definition = null) {
+  const templatesRoot = definition?.templatesRoot ?? 'singularity/templates';
+  assertRelative(templatesRoot, 'templatesRoot');
+  return copyMissingFiles(path.join(packageRoot, 'templates', 'artifacts'), path.join(root, templatesRoot));
+}
+
 async function copyIfMissing(source, destination) {
   if (existsSync(destination)) return false;
   await mkdir(path.dirname(destination), { recursive: true });
@@ -396,6 +425,15 @@ export async function initializeDefinition(root) {
   ];
   for (const [source, destination] of mappings) {
     if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);
+  }
+  // Directory mappings above are skipped once the destination exists, so re-running init on a
+  // repository created by an earlier version would never receive template files added since.
+  // Merge in any missing ones without overwriting local edits.
+  for (const [source, destination] of [['artifacts', 'singularity/templates'], ['personas', 'singularity/personas']]) {
+    if (wrote.includes(destination)) continue;
+    for (const file of await copyMissingFiles(path.join(packageRoot, 'templates', source), path.join(root, destination))) {
+      wrote.push(path.posix.join(destination, file));
+    }
   }
   return wrote;
 }

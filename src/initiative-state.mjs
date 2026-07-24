@@ -76,6 +76,10 @@ function validateInitiativeRuntimeState(initiative, expectedId = initiative?.ini
   if (initiative.currentPhase !== null && !resolvedIds.includes(initiative.currentPhase)) {
     throw new SingularityFlowError(`Initiative '${expectedId}' current phase '${initiative.currentPhase}' is not in its immutable resolution.`);
   }
+  initiative.delivery ??= {
+    status: initiative.resolution.profile === 'epic-planning' ? 'tracking' : 'not_applicable',
+    completion: null
+  };
   for (const definition of initiative.resolution.phases) {
     const phase = initiative.phases?.[definition.id];
     if (!phase || phase.id !== definition.id) {
@@ -153,6 +157,9 @@ function statusMarkdown(initiative) {
     `- Branch: \`${initiative.initiative.branch}\``,
     `- Status: **${initiative.status}**`,
     `- Current phase: **${initiative.currentPhase ?? 'complete'}**`,
+    ...(initiative.resolution.profile === 'epic-planning'
+      ? [`- Delivery tracking: **${initiative.delivery?.status ?? 'tracking'}**`]
+      : []),
     `- Identity assurance: **configured-local**`, '',
     '| # | Phase | Status | Generation | Outputs | Checklist |',
     '|---:|---|---|---:|---:|---:|'
@@ -241,6 +248,10 @@ export async function createInitiative(root, {
     phaseOrder: phases.map((phase) => phase.id),
     phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
     materialization: { status: 'not_started', attempts: [] },
+    delivery: {
+      status: resolved.id === 'epic-planning' ? 'tracking' : 'not_applicable',
+      completion: null
+    },
     childStories: {},
     contracts: {},
     telemetry: { totalTokens: 0, exactRecords: 0, unavailableRecords: 0, providerCost: null },

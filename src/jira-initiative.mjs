@@ -5,7 +5,7 @@ import YAML from 'yaml';
 import {
   assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
   findOrCreateIssue, getIssue, getMyPermissions, listEpicStories,
-  resolveJiraConnection, updateIssue
+  resolveJiraConnection, updateIssue, uploadJiraAttachment
 } from './jira.mjs';
 import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
@@ -14,7 +14,7 @@ import {
   loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import {
-  SingularityFlowError, nowIso, writeJson, writeText
+  SingularityFlowError, nowIso, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function canonical(value) {
@@ -90,11 +90,25 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
   if (!(policy.writePolicy?.operations ?? []).includes(operation.action)) {
     throw new SingularityFlowError(`Jira policy does not permit planned operation '${operation.action ?? ''}'.`);
   }
-  if (!['create-epic', 'create-story', 'update-owned-fields'].includes(operation.action)) {
+  if (!['create-epic', 'create-story', 'update-owned-fields', 'attach-artifact'].includes(operation.action)) {
     throw new SingularityFlowError(`Jira write-plan action '${operation.action}' is not implemented by this apply path.`);
   }
   if (!operation.subject || typeof operation.subject !== 'object' || !['epic', 'story'].includes(operation.subject.type)) {
     throw new SingularityFlowError(`Jira operation '${operation.id}' requires an Epic or story subject.`);
+  }
+  if (operation.action === 'attach-artifact') {
+    const artifact = operation.artifact;
+    if (
+      !artifact
+      || typeof artifact !== 'object'
+      || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/.test(artifact.reference ?? '')
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? '')
+      || !artifact.path
+      || !artifact.filename
+    ) {
+      throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid governed artifact metadata.`);
+    }
+    return operation;
   }
   if (operation.action.startsWith('create-')) {
     const expectedType = operation.action === 'create-epic' ? 'epic' : 'story';
@@ -131,11 +145,73 @@ function descriptionWithAcceptance(item) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-plan')
-    ? 'epic-plan'
+  return initiative.phaseOrder.includes('epic-spec')
+    ? 'epic-spec'
+    : initiative.phaseOrder.includes('epic-plan')
+      ? 'epic-plan'
     : initiative.phaseOrder.includes('elaboration')
       ? 'elaboration'
       : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+}
+
+function artifactMimeType(kind, file) {
+  if (kind === 'yaml' || /\.ya?ml$/i.test(file)) return 'application/yaml';
+  if (kind === 'markdown' || /\.md$/i.test(file)) return 'text/markdown';
+  return 'application/octet-stream';
+}
+
+function artifactFilename(initiativeId, phaseId, output, sha256) {
+  const extension = path.extname(output.path);
+  const stem = path.basename(output.path, extension)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || output.id;
+  const prefix = `${initiativeId}-${phaseId}-${stem}`.replace(/[^A-Za-z0-9._-]+/g, '-');
+  return `${prefix.slice(0, 190)}-${sha256.slice(0, 12)}${extension || '.md'}`;
+}
+
+async function resolveArtifactSelections(root, portfolio, initiative, selections = []) {
+  if (!Array.isArray(selections)) throw new SingularityFlowError('Jira artifact selections must be an array.');
+  const seen = new Set();
+  const resolved = [];
+  for (const selection of selections) {
+    const phaseId = String(selection?.phase ?? '');
+    const outputId = String(selection?.id ?? '');
+    const reference = `${phaseId}/${outputId}`;
+    if (seen.has(reference)) throw new SingularityFlowError(`Jira artifact selection '${reference}' is duplicated.`);
+    seen.add(reference);
+    const phase = initiative.phases?.[phaseId];
+    const output = phase?.outputs?.[outputId];
+    if (!output) throw new SingularityFlowError(`Jira artifact selection '${reference}' is not an output in this Epic.`);
+    if (!output.sha256 || !['published', 'approved'].includes(output.status)) {
+      throw new SingularityFlowError(`Jira artifact selection '${reference}' must be published before it can be attached.`);
+    }
+    const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
+      label: `Jira artifact selection '${reference}'`,
+      mustExist: true,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
+    if (current.sha256 !== output.sha256) {
+      throw new SingularityFlowError(`Jira artifact selection '${reference}' changed after publication.`);
+    }
+    const destinations = [...new Set(selection.targets ?? ['epic'])];
+    if (!destinations.length || destinations.some((value) => !['epic', 'stories'].includes(value))) {
+      throw new SingularityFlowError(`Jira artifact selection '${reference}' targets must be epic and/or stories.`);
+    }
+    resolved.push({
+      reference,
+      phase: phaseId,
+      id: outputId,
+      label: output.label,
+      path: output.path,
+      sha256: output.sha256,
+      bytes: current.size,
+      mimeType: artifactMimeType(output.kind, output.path),
+      filename: artifactFilename(initiative.initiative.id, phaseId, output, output.sha256),
+      targets: destinations.sort()
+    });
+  }
+  return resolved;
 }
 
 export function buildJiraBreakdownDraft(epic, stories, portfolio, {
@@ -283,6 +359,7 @@ function fieldDiff(issue, expected) {
 
 export async function createJiraWritePlan(root, initiativeId, {
   connection,
+  artifactSelections = [],
   env = process.env,
   fetchImpl = globalThis.fetch
 } = {}) {
@@ -301,6 +378,7 @@ export async function createJiraWritePlan(root, initiativeId, {
   };
   const operations = [];
   const snapshots = {};
+  const artifacts = await resolveArtifactSelections(root, portfolio, initiative, artifactSelections);
   for (const epic of breakdown.epics) {
     let epicIssue = null;
     if (epic.jiraKey) {
@@ -367,6 +445,28 @@ export async function createJiraWritePlan(root, initiativeId, {
       }
     }
   }
+  const operationId = (artifact, subject) => {
+    const readable = `attach-${artifact.phase}-${artifact.id}-${subject.type}-${subject.id}`;
+    return readable.length <= 127 ? readable : `${readable.slice(0, 110)}-${hash(readable).slice(0, 12)}`;
+  };
+  for (const artifact of artifacts) {
+    for (const epic of breakdown.epics) {
+      if (artifact.targets.includes('epic')) operations.push({
+        id: operationId(artifact, { type: 'epic', id: epic.id }),
+        action: 'attach-artifact',
+        subject: { type: 'epic', id: epic.id, jiraKey: epic.jiraKey ?? null },
+        artifact
+      });
+      if (artifact.targets.includes('stories')) {
+        for (const story of epic.stories) operations.push({
+          id: operationId(artifact, { type: 'story', id: story.id }),
+          action: 'attach-artifact',
+          subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: story.jiraKey ?? null },
+          artifact
+        });
+      }
+    }
+  }
   const forbidden = operations.filter((operation) => !(policy.writePolicy?.operations ?? []).includes(operation.action));
   if (forbidden.length) throw new SingularityFlowError(`Jira policy does not permit planned operations: ${[...new Set(forbidden.map((operation) => operation.action))].join(', ')}.`);
   const snapshotSha256 = hash(snapshots);
@@ -377,6 +477,7 @@ export async function createJiraWritePlan(root, initiativeId, {
     connection: policy.connection,
     deployment: policy.deployment,
     source: { breakdownSha256: hash(initiativeBreakdownDocument(breakdown)), jiraSnapshotSha256: snapshotSha256 },
+    artifacts,
     operations,
     createdAt: nowIso(),
     status: 'proposed'
@@ -397,7 +498,7 @@ export async function createJiraWritePlan(root, initiativeId, {
     actor: null,
     event: 'jira_write_plan_created',
     phase: materializationPhase(initiative),
-    detail: `${operations.length} operations; ${plan.sha256.slice(0, 12)}`
+    detail: `${operations.length} operations; ${artifacts.length} selected artifacts; ${plan.sha256.slice(0, 12)}`
   });
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative, plan };
@@ -441,13 +542,16 @@ export async function applyJiraWritePlan(root, initiativeId, {
   const phaseId = materializationPhase(initiative);
   if (!phaseId || initiative.phases[phaseId]?.status !== 'approved') throw new SingularityFlowError(`Jira apply requires approved initiative phase '${phaseId}'.`);
   const permissions = await getMyPermissions(projectKey, { connection: resolvedConnection, fetchImpl });
-  const required = new Set(plan.operations.map((operation) => operation.action.startsWith('create-') ? 'CREATE_ISSUES' : 'EDIT_ISSUES'));
+  const required = new Set(plan.operations.map((operation) => operation.action === 'attach-artifact'
+    ? 'CREATE_ATTACHMENTS'
+    : operation.action.startsWith('create-') ? 'CREATE_ISSUES' : 'EDIT_ISSUES'));
   const missing = [...required].filter((name) => !permissions[name]?.havePermission);
   if (missing.length) throw new SingularityFlowError(`Jira account lacks required permissions: ${missing.join(', ')}.`);
 
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
   const results = [];
   const epicKeys = Object.fromEntries(breakdown.epics.filter((epic) => epic.jiraKey).map((epic) => [epic.id, epic.jiraKey]));
+  const storyKeys = Object.fromEntries(breakdown.stories.filter((story) => story.jiraKey).map((story) => [story.id, story.jiraKey]));
   for (const operation of plan.operations) {
     const receiptPath = await jiraPath(root, portfolio, initiativeId, path.join('receipts', `${operation.id}.json`), {
       label: `Initiative '${initiativeId}' Jira receipt '${operation.id}'`,
@@ -458,10 +562,50 @@ export async function applyJiraWritePlan(root, initiativeId, {
       assertReceiptMatches(receipt, { initiativeId, plan, operation, policy });
       results.push(receipt);
       if (receipt.subject.type === 'epic') epicKeys[receipt.subject.id] = receipt.jiraKey;
+      if (receipt.subject.type === 'story') storyKeys[receipt.subject.id] = receipt.jiraKey;
       continue;
     }
     let result;
-    if (operation.action.startsWith('create-')) {
+    let attachment = null;
+    let targetIssue = null;
+    if (operation.action === 'attach-artifact') {
+      const [artifactPhase, artifactId] = operation.artifact.reference.split('/');
+      const governedOutput = initiative.phases?.[artifactPhase]?.outputs?.[artifactId];
+      if (
+        !governedOutput
+        || governedOutput.path !== operation.artifact.path
+        || governedOutput.sha256 !== operation.artifact.sha256
+        || !['published', 'approved'].includes(governedOutput.status)
+      ) {
+        throw new SingularityFlowError(`Jira artifact '${operation.artifact.reference}' no longer matches a published governed Epic output.`);
+      }
+      const jiraKey = operation.subject.jiraKey
+        ?? (operation.subject.type === 'epic' ? epicKeys[operation.subject.id] : storyKeys[operation.subject.id]);
+      if (!jiraKey) throw new SingularityFlowError(`Cannot attach ${operation.artifact.reference}: ${operation.subject.id} has no Jira key.`);
+      targetIssue = assertIssueRecordPolicy(
+        await getIssue(jiraKey, { connection: resolvedConnection, fetchImpl }),
+        policy,
+        `Jira attachment target '${operation.subject.id}'`
+      );
+      attachment = targetIssue.attachments?.find((item) => item.filename === operation.artifact.filename) ?? null;
+      if (!attachment) {
+        const selected = await secureInitiativePath(root, portfolio, initiativeId, operation.artifact.path, {
+          label: `Jira artifact '${operation.artifact.reference}'`,
+          mustExist: true,
+          type: 'file'
+        });
+        const current = await snapshot(selected.absolute);
+        if (current.sha256 !== operation.artifact.sha256 || current.size !== operation.artifact.bytes) {
+          throw new SingularityFlowError(`Jira artifact '${operation.artifact.reference}' changed after the reviewed write plan was created.`);
+        }
+        attachment = await uploadJiraAttachment(jiraKey, {
+          filename: operation.artifact.filename,
+          bytes: await readFile(selected.absolute),
+          mimeType: operation.artifact.mimeType
+        }, { connection: resolvedConnection, fetchImpl });
+      }
+      result = targetIssue;
+    } else if (operation.action.startsWith('create-')) {
       const parentKey = operation.subject.type === 'story' ? (operation.parent.jiraKey ?? epicKeys[operation.parent.epicId]) : null;
       if (operation.subject.type === 'story' && !parentKey) throw new SingularityFlowError(`Cannot create ${operation.subject.id}: its parent Epic has no Jira key.`);
       result = await findOrCreateIssue({
@@ -470,6 +614,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
         ...(parentKey ? { parentKey } : {})
       }, { connection: resolvedConnection, fetchImpl });
       if (operation.subject.type === 'epic') epicKeys[operation.subject.id] = result.key;
+      if (operation.subject.type === 'story') storyKeys[operation.subject.id] = result.key;
     } else {
       result = await updateIssue(operation.subject.jiraKey, operation.fields, {
         expectedUpdatedAt: operation.expectedUpdatedAt,
@@ -489,7 +634,17 @@ export async function applyJiraWritePlan(root, initiativeId, {
       jiraIssueId: result.id ?? null,
       jiraUpdatedAt: result.updatedAt ?? null,
       appliedAt: nowIso(),
-      actor
+      actor,
+      ...(attachment ? {
+        attachment: {
+          id: attachment.id ?? null,
+          filename: attachment.filename,
+          sha256: operation.artifact.sha256,
+          bytes: attachment.size ?? operation.artifact.bytes,
+          mimeType: attachment.mimeType ?? operation.artifact.mimeType,
+          reused: Boolean(targetIssue.attachments?.some((item) => item.filename === operation.artifact.filename))
+        }
+      } : {})
     };
     await writeJson(receiptPath.absolute, receipt);
     results.push(receipt);

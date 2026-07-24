@@ -116,8 +116,9 @@ Starting uses `main` (or the configured default branch) only as the source basel
 
 ### Epic planning is the streamlined default
 
-For a Jira Epic that should end with reviewed Stories and canonical repository
-branches, use the four-phase `epic-planning` profile:
+For a Jira Epic that should end with reviewed Stories, an approved high-level
+specification, canonical repository branches, and Product Owner validation,
+use the five-phase `epic-planning` profile:
 
 ```text
 /sflow-epic-start MOB-100
@@ -127,7 +128,10 @@ branches, use the four-phase `epic-planning` profile:
 /sflow-epic-status
 ```
 
-The same lifecycle is available as `singularity-flow epic ...`. Pinned source
+The Electron **Epic workspace** now presents this as a seven-step wizard:
+Epic intake, requirements, generated User Stories, high-level specification,
+Jira/Git publication, delivery progress, and spec-to-code completion. The
+same lifecycle is available as `singularity-flow epic ...`. Pinned source
 files stay in Jira attachments, Artifactory, SharePoint, S3, or an approved
 HTTPS location; Git carries immutable source records and lineage rather than
 large source bytes. Desktop SharePoint sign-in uses a system-browser delegated
@@ -149,6 +153,14 @@ Reviewers use **Epic workspace → Review** or
 through `gh` and do not run repository code on the reviewer’s machine. See
 [HELP.md](HELP.md#epic-to-story-planning-and-lifecycle-lineage) for the complete
 workflow and corporate credential/storage behavior.
+
+When publishing, the user explicitly selects which approved requirements and
+specification outputs Jira receives. Those files and hashes are part of the
+reviewed write plan and are uploaded with hash-stamped filenames to the Epic,
+every Story, or both. After all blocking Stories are complete and their exact
+review packets, GitHub checks, and conformance tree hashes match, the Product
+Owner runs `singularity-flow epic complete <EPIC-KEY>` or uses the wizard to
+create and push the immutable Epic completion report.
 
 ## Built-in help
 

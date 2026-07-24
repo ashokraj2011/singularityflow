@@ -144,12 +144,13 @@ only when every observed source supplies provider cost.
 New Epics default to the immutable `epic-planning` profile:
 
 ```text
-Epic Intake → Requirements → Plan → Create Stories
+Epic Intake → Requirements → User Story Plan → High-level Specification → Create Stories
 ```
 
 The workflow ends its governance lifecycle after the reviewed Jira Story plan
-has been applied and every canonical Story branch has been seeded. The Epic
-then remains as a read-only delivery dashboard. Select another configured
+and specification have been applied and every canonical Story branch has been
+seeded. The Epic then remains as a delivery dashboard until the Product Owner
+records the exact spec-to-code completion decision. Select another configured
 initiative profile at start when the Epic itself needs the full delivery
 lifecycle.
 
@@ -172,10 +173,15 @@ singularity-flow epic start MOB-100
 singularity-flow epic sources add --file requirements.pdf
 singularity-flow epic generate intake
 singularity-flow epic submit intake
+singularity-flow epic generate spec
+singularity-flow epic submit spec
 singularity-flow epic create-stories
+singularity-flow epic create-stories --artifact epic-requirements/requirements-specification --artifact epic-spec/high-level-specification --artifact-to epic
 singularity-flow epic create-stories --plan <exact-sha256>
 singularity-flow epic review MOB-123
 singularity-flow epic checks MOB-123 --packet <exact-sha256>
+singularity-flow epic complete MOB-100 --dry-run
+singularity-flow epic complete MOB-100
 ```
 
 Source bytes are uploaded through a configured Jira attachment, Artifactory,
@@ -223,16 +229,43 @@ runs repository build or test code locally. The evidence commit is pushed to
 the submitted branch; approval and rejection decisions remain bound to the
 packet hash.
 
+The reviewed Jira write plan can contain explicit governed artifact
+selections. Each selected requirements/specification output is verified against
+its published SHA-256, attached with a hash-stamped filename, and receipted.
+`--artifact-to epic` is the recommended default; `stories` attaches to every
+generated Story and `both` does both. Repository policy must include
+`attach-artifact` in `jira.writeOperations`. Retries query existing attachment
+metadata and reuse the matching hash-stamped filename instead of uploading a
+second copy.
+
+After Story reviews, `epic complete --dry-run` reports every blocking Story
+that is still missing a complete canonical workflow, approved conformance tree,
+submitted packet, or passing exact-SHA evidence. The mutating command requires
+exact Epic-ID confirmation and writes
+`artifacts/delivery/spec-to-code-completion.md` plus a content-addressed
+completion record. The decision is committed and pushed and is bound to the
+exact canonical Story commits, review packets, check evidence, and conformance
+tree hashes.
+
 Git is canonical for the approved plan. `singularity-flow epic drift observe`
 records Jira as a timestamped external observation. Choose `drift adopt` to
 promote external values into a new Git artifact generation, or
 `drift restore-plan` to create a new reviewed Jira write plan. No automatic
 two-way overwrite occurs.
 
-Desktop’s Epic workspace separates **Epic overview**, **Sources**,
-**Requirements**, **Planning**, **Stories**, **Review**, and **Configuration**.
-It shows local role, Jira account, configured Git identity, and GitHub login as
-separate identity domains; none is described as cryptographically equivalent.
+Desktop’s Epic workspace is a guided wizard for **Epic intake**,
+**Requirements**, **User Stories**, **High-level spec**, **Publish to Jira**,
+**Delivery progress**, and **Validate & complete**, with Configuration kept
+separate. With no active Epic, the first wizard screen browses the connected
+Jira projects and Epics, selects the immutable profile and session persona, and
+creates/pushes the Epic branch without asking the user to leave the app. The
+Story screen displays every generated Story with repository, requirements,
+acceptance criteria, and dependencies before approval. The publication screen
+selects the exact artifacts Jira receives. The final screen shows Story-level
+spec-to-code readiness and permits completion only when every blocking Story is
+ready. Local role, Jira account, configured Git identity, and GitHub login are
+displayed as separate identity domains; none is described as cryptographically
+equivalent.
 
 ## Copilot Planning Studio
 

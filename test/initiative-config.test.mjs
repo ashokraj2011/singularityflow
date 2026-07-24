@@ -71,7 +71,7 @@ test('starter portfolio resolves Epic planning and pins storage and repository d
   const epic = resolveInitiativeProfile(portfolio, 'epic-planning');
   assert.equal(epic.lifecycleMode, 'planning-only');
   assert.deepEqual(epic.phases.map((phase) => phase.id), [
-    'epic-intake', 'epic-requirements', 'epic-plan', 'epic-create'
+    'epic-intake', 'epic-requirements', 'epic-plan', 'epic-spec', 'epic-create'
   ]);
   assert.equal(epic.repositories.mobile.branchCompletionPolicy, 'either');
   assert.deepEqual(epic.repositories.mobile.requiredChecks, ['build', 'security']);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -101,6 +101,19 @@ test('breakdown validation enforces repositories, unique stories, and an acyclic
   assert.throws(() => validateInitiativeBreakdown(unknown, portfolio), /unknown repository/);
 });
 
+test('initiative breakdown loading rejects a symbolic-link replacement', async () => {
+  const { root } = await repository();
+  const { portfolio } = await loadInitiative(root, 'INIT-MULTI');
+  const breakdown = path.join(root, 'singularity/initiatives/INIT-MULTI/breakdown.yml');
+  const original = `${breakdown}.original`;
+  await rename(breakdown, original);
+  await symlink(original, breakdown);
+  await assert.rejects(
+    () => loadInitiativeBreakdown(root, portfolio, 'INIT-MULTI'),
+    /breakdown cannot be a symbolic link/i
+  );
+});
+
 test('materialization previews then creates idempotent repository story branches and seeds', async () => {
   const { root, mobile, api } = await repository();
   const preview = await materializeInitiative(root, 'INIT-MULTI', { dryRun: true });
@@ -128,6 +141,19 @@ test('materialization previews then creates idempotent repository story branches
 
   const retry = await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
   assert.deepEqual(retry.attempt.stories.map((story) => story.status), ['attached', 'attached']);
+});
+
+test('materialization rejects a symbolic-link managed-clone cache', async () => {
+  const { root } = await repository();
+  const cache = path.join(root, '.git/singularity-flow/initiatives/INIT-MULTI/repositories');
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-managed-clone-outside-'));
+  await mkdir(cache, { recursive: true });
+  await symlink(outside, path.join(cache, 'api'));
+  const result = await materializeInitiative(root, 'INIT-MULTI', { confirmation: 'INIT-MULTI' });
+  const api = result.attempt.stories.find((story) => story.repository === 'api');
+  assert.equal(api.status, 'failed');
+  assert.match(api.error, /managed clone.*cannot be a symbolic link/i);
+  assert.deepEqual(await readdir(outside), []);
 });
 
 test('Jira materialization persists separate epic and story Jira IDs into breakdown and seeds', async () => {

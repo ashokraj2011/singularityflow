@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -124,4 +124,19 @@ test('an existing contract version cannot be rewritten', async () => {
     format: 'markdown',
     sourcePath: source
   }), /Create a new version/);
+});
+
+test('interface contract registration rejects a symbolic-link source', async () => {
+  const root = await repository();
+  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-contract-outside-')), 'contract.md');
+  await writeFile(outside, '# Outside contract\n');
+  const linked = path.join(root, 'linked-contract.md');
+  await symlink(outside, linked);
+  await assert.rejects(() => registerInterfaceContract(root, {
+    initiativeId: 'INIT-GRAPH',
+    contractId: 'unsafe-contract',
+    version: '1',
+    format: 'markdown',
+    sourcePath: linked
+  }), /contract.*source cannot be a symbolic link/i);
 });

@@ -88,8 +88,8 @@ import {
 } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import {
-  commitInitiativeChange, createInitiative, initiativeDir, initiativeProgress, listInitiatives,
-  loadInitiative, prepareInitiativePhase, syncInitiativePublication, validateInitiativeId
+  commitInitiativeChange, createInitiative, initiativeProgress, listInitiatives,
+  loadInitiative, prepareInitiativePhase, secureInitiativePath, syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
 import {
   approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
@@ -1618,7 +1618,12 @@ async function initiativeCommand(positionals, options) {
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-      result.outputs.forEach((document) => console.log(`- ${document.id}: ${document.path} (${document.sha256.slice(0, 12)})`));
+      result.outputs.forEach((document) => {
+        const detail = document.awaitingUpload
+          ? 'awaiting upload'
+          : `${document.sha256.slice(0, 12)}, ${document.bytes} bytes`;
+        console.log(`- ${document.id}: ${document.path} (${detail})`);
+      });
     }
     return;
   }
@@ -1638,13 +1643,25 @@ async function initiativeCommand(positionals, options) {
     const phaseId = positionals[2] ?? initiative.currentPhase ?? initiative.phaseOrder.at(-1);
     const records = Object.values(initiative.phases[phaseId]?.outputs ?? {});
     const documents = await Promise.all(records.map(async (record) => {
-      const absolute = path.join(initiativeDir(root, portfolio, initiativeId), record.path);
-      return { ...record, repositoryPath: posix(path.relative(root, absolute)), content: existsSync(absolute) ? await readFile(absolute, 'utf8') : null };
+      const target = await secureInitiativePath(root, portfolio, initiativeId, record.path, {
+        label: `Initiative document '${phaseId}/${record.id}'`,
+        type: 'file'
+      });
+      const renderable = ['markdown', 'yaml', 'interface-contract'].includes(record.kind);
+      return {
+        ...record,
+        repositoryPath: target.relative,
+        content: renderable && target.exists ? await readFile(target.absolute, 'utf8') : null,
+        exists: target.exists
+      };
     }));
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(documents, null, 2));
     else for (const document of documents) {
       console.log(`\n--- BEGIN ${document.repositoryPath} ---`);
-      console.log(document.content ?? '[not generated]');
+      console.log(document.content
+        ?? (document.exists
+          ? `[binary bundle: ${document.bytes} bytes, sha256 ${document.sha256 ?? 'not recorded'}]`
+          : document.status === 'awaiting_upload' ? '[awaiting upload]' : '[not generated]'));
       console.log(`--- END ${document.repositoryPath} ---`);
     }
     return;

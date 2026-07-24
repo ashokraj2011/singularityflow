@@ -9,10 +9,10 @@ import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
-  initiativeDir, loadInitiative, saveInitiative
+  loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import {
-  SingularityFlowError, ensureDir, exists, nowIso, writeJson, writeText
+  SingularityFlowError, nowIso, writeJson, writeText
 } from './util.mjs';
 
 function canonical(value) {
@@ -25,8 +25,12 @@ function hash(value) {
   return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
-function jiraContext(root, portfolio, initiativeId) {
-  return path.join(initiativeDir(root, portfolio, initiativeId), 'context', 'jira');
+async function jiraPath(root, portfolio, initiativeId, relative = '', options = {}) {
+  return secureInitiativePath(root, portfolio, initiativeId, path.join('context', 'jira', relative), {
+    label: options.label ?? `Initiative '${initiativeId}' Jira path`,
+    mustExist: options.mustExist ?? false,
+    type: options.type ?? null
+  });
 }
 
 function onlyRepository(portfolio) {
@@ -138,18 +142,28 @@ export async function adoptJiraEpic(root, initiativeId, epicKey, options = {}) {
     throw new SingularityFlowError(`Repository mapping is required for Jira stories: ${preview.unresolved.map((story) => story.jiraKey).join(', ')}.`);
   }
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
-  const directory = initiativeDir(root, portfolio, initiativeId);
-  const breakdownPath = path.join(directory, 'breakdown.yml');
-  if (await exists(breakdownPath)) {
-    const existing = YAML.parse(await readFile(breakdownPath, 'utf8'));
+  const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
+    label: `Initiative '${initiativeId}' breakdown`,
+    mustExist: true,
+    type: 'file'
+  });
+  if (breakdownPath.exists) {
+    const existing = YAML.parse(await readFile(breakdownPath.absolute, 'utf8'));
     const hasStories = existing?.epics?.some((epic) => epic.stories?.length);
     if (hasStories && options.replace !== true) throw new SingularityFlowError('This initiative already has a story breakdown. Use --replace only after reviewing the Jira import preview.');
   }
   const validated = validateInitiativeBreakdown(preview.draft, portfolio);
-  await ensureDir(jiraContext(root, portfolio, initiativeId));
-  await writeJson(path.join(jiraContext(root, portfolio, initiativeId), 'imports', `${preview.sourceSha256}.json`), preview.source);
-  await writeText(path.join(jiraContext(root, portfolio, initiativeId), 'adoption-draft.yml'), YAML.stringify(preview.draft));
-  await writeText(breakdownPath, YAML.stringify(initiativeBreakdownDocument(validated)));
+  const importPath = await jiraPath(root, portfolio, initiativeId, path.join('imports', `${preview.sourceSha256}.json`), {
+    label: `Initiative '${initiativeId}' Jira import`,
+    type: 'file'
+  });
+  const draftPath = await jiraPath(root, portfolio, initiativeId, 'adoption-draft.yml', {
+    label: `Initiative '${initiativeId}' Jira adoption draft`,
+    type: 'file'
+  });
+  await writeJson(importPath.absolute, preview.source);
+  await writeText(draftPath.absolute, YAML.stringify(preview.draft));
+  await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(validated)));
   initiative.history.push({
     at: nowIso(),
     actor: options.actor ?? null,
@@ -274,9 +288,16 @@ export async function createJiraWritePlan(root, initiativeId, {
     status: 'proposed'
   };
   const plan = { ...planBase, sha256: hash(planBase) };
-  await ensureDir(jiraContext(root, portfolio, initiativeId));
-  await writeJson(path.join(jiraContext(root, portfolio, initiativeId), 'snapshots', `${snapshotSha256}.json`), snapshots);
-  await writeText(path.join(jiraContext(root, portfolio, initiativeId), 'write-plan.yml'), YAML.stringify(plan));
+  const snapshotPath = await jiraPath(root, portfolio, initiativeId, path.join('snapshots', `${snapshotSha256}.json`), {
+    label: `Initiative '${initiativeId}' Jira snapshot`,
+    type: 'file'
+  });
+  const planPath = await jiraPath(root, portfolio, initiativeId, 'write-plan.yml', {
+    label: `Initiative '${initiativeId}' Jira write plan`,
+    type: 'file'
+  });
+  await writeJson(snapshotPath.absolute, snapshots);
+  await writeText(planPath.absolute, YAML.stringify(plan));
   initiative.history.push({
     at: plan.createdAt,
     actor: null,
@@ -289,9 +310,12 @@ export async function createJiraWritePlan(root, initiativeId, {
 }
 
 export async function readJiraWritePlan(root, portfolio, initiativeId) {
-  const file = path.join(jiraContext(root, portfolio, initiativeId), 'write-plan.yml');
-  if (!(await exists(file))) throw new SingularityFlowError('No Jira write plan exists. Create and review one first.');
-  const plan = YAML.parse(await readFile(file, 'utf8'));
+  const file = await jiraPath(root, portfolio, initiativeId, 'write-plan.yml', {
+    label: `Initiative '${initiativeId}' Jira write plan`,
+    type: 'file'
+  });
+  if (!file.exists) throw new SingularityFlowError('No Jira write plan exists. Create and review one first.');
+  const plan = YAML.parse(await readFile(file.absolute, 'utf8'));
   const provided = plan.sha256;
   const { sha256: _ignored, ...base } = plan;
   if (hash(base) !== provided) throw new SingularityFlowError('The Jira write plan hash is invalid. Regenerate the plan.');
@@ -321,14 +345,15 @@ export async function applyJiraWritePlan(root, initiativeId, {
   if (missing.length) throw new SingularityFlowError(`Jira account lacks required permissions: ${missing.join(', ')}.`);
 
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
-  const receiptsDir = path.join(jiraContext(root, portfolio, initiativeId), 'receipts');
-  await ensureDir(receiptsDir);
   const results = [];
   const epicKeys = Object.fromEntries(breakdown.epics.filter((epic) => epic.jiraKey).map((epic) => [epic.id, epic.jiraKey]));
   for (const operation of plan.operations) {
-    const receiptPath = path.join(receiptsDir, `${operation.id}.json`);
-    if (await exists(receiptPath)) {
-      const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+    const receiptPath = await jiraPath(root, portfolio, initiativeId, path.join('receipts', `${operation.id}.json`), {
+      label: `Initiative '${initiativeId}' Jira receipt '${operation.id}'`,
+      type: 'file'
+    });
+    if (receiptPath.exists) {
+      const receipt = JSON.parse(await readFile(receiptPath.absolute, 'utf8'));
       results.push(receipt);
       if (receipt.subject.type === 'epic') epicKeys[receipt.subject.id] = receipt.jiraKey;
       continue;
@@ -363,7 +388,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
       appliedAt: nowIso(),
       actor
     };
-    await writeJson(receiptPath, receipt);
+    await writeJson(receiptPath.absolute, receipt);
     results.push(receipt);
   }
   for (const epic of breakdown.epics) {
@@ -372,7 +397,12 @@ export async function applyJiraWritePlan(root, initiativeId, {
       story.jiraKey = results.find((receipt) => receipt.subject.type === 'story' && receipt.subject.id === story.id)?.jiraKey ?? story.jiraKey;
     }
   }
-  await writeText(path.join(initiativeDir(root, portfolio, initiativeId), 'breakdown.yml'), YAML.stringify(initiativeBreakdownDocument(breakdown)));
+  const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
+    label: `Initiative '${initiativeId}' breakdown`,
+    mustExist: true,
+    type: 'file'
+  });
+  await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
   const application = {
     schemaVersion: 1,
     initiativeId,
@@ -382,7 +412,11 @@ export async function applyJiraWritePlan(root, initiativeId, {
     appliedBy: actor,
     operations: results.map((receipt) => ({ operationId: receipt.operationId, jiraKey: receipt.jiraKey }))
   };
-  await writeJson(path.join(jiraContext(root, portfolio, initiativeId), 'applications', `${plan.sha256}.json`), application);
+  const applicationPath = await jiraPath(root, portfolio, initiativeId, path.join('applications', `${plan.sha256}.json`), {
+    label: `Initiative '${initiativeId}' Jira application`,
+    type: 'file'
+  });
+  await writeJson(applicationPath.absolute, application);
   initiative.history.push({
     at: application.appliedAt,
     actor,

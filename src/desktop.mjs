@@ -38,7 +38,7 @@ import {
   validatePortfolioWorldModelViews
 } from './initiative-config.mjs';
 import {
-  initiativeDir, initiativeProgress, listInitiatives, loadInitiative
+  initiativeProgress, listInitiatives, loadInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
@@ -152,17 +152,19 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   const { initiative } = await loadInitiative(root, initiativeId, portfolio);
   const phaseId = initiative.currentPhase ?? initiative.phaseOrder.at(-1);
   const phaseGate = phaseId ? await evaluateInitiativePhase(root, portfolio, initiative, phaseId) : null;
-  const directory = initiativeDir(root, portfolio, initiativeId);
   const documents = [];
   for (const currentPhase of initiative.phaseOrder) {
     for (const output of Object.values(initiative.phases[currentPhase].outputs)) {
-      const absolute = path.join(directory, output.path);
+      const target = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
+        label: `Initiative document '${currentPhase}/${output.id}'`,
+        type: 'file'
+      });
       const renderable = ['markdown', 'yaml', 'interface-contract'].includes(output.kind);
       documents.push({
         ...output,
         phase: currentPhase,
-        repositoryPath: posix(path.relative(root, absolute)),
-        content: renderable && await exists(absolute) ? await readFile(absolute, 'utf8') : null
+        repositoryPath: target.relative,
+        content: renderable && target.exists ? await readFile(target.absolute, 'utf8') : null
       });
     }
   }

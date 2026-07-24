@@ -1,14 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  initiativeDir, loadInitiative, saveInitiative
+  loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
 import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import {
-  SingularityFlowError, exists, nowIso, posix, repoRelative, snapshot, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeJson, writeText
 } from './util.mjs';
 
 const CONTRACT_FORMATS = new Set(['markdown', 'openapi', 'asyncapi', 'json-schema', 'protobuf']);
@@ -36,9 +36,12 @@ export async function registerInterfaceContract(root, {
   if (!CONTRACT_FORMATS.has(format)) throw new SingularityFlowError(`Contract format must be one of: ${[...CONTRACT_FORMATS].join(', ')}.`);
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const sourceRelative = repoRelative(root, sourcePath);
-  const sourceAbsolute = path.join(root, sourceRelative);
-  const sourceSnapshot = await snapshot(sourceAbsolute);
-  if (!sourceSnapshot.exists || !sourceSnapshot.sha256) throw new SingularityFlowError(`Contract source is not a file: ${sourceRelative}`);
+  const source = await secureRepositoryPath(root, sourceRelative, {
+    label: `Contract '${contractId}' source`,
+    mustExist: true,
+    type: 'file'
+  });
+  const sourceSnapshot = await snapshot(source.absolute);
   const key = contractKey(contractId, String(version));
   const existing = initiative.contracts[key];
   if (existing && existing.sha256 !== sourceSnapshot.sha256) throw new SingularityFlowError(`Contract ${key} already exists with different content. Create a new version instead of rewriting it.`);
@@ -49,15 +52,20 @@ export async function registerInterfaceContract(root, {
   ]);
   const unknownStories = [...new Set([...producers, ...consumers])].filter((storyId) => !plannedStories.has(storyId));
   if (unknownStories.length) throw new SingularityFlowError(`Contract ${key} references unknown stories: ${unknownStories.join(', ')}.`);
-  const directory = path.join(initiativeDir(root, portfolio, initiativeId), 'contracts', contractId, String(version));
-  const destination = path.join(directory, path.basename(sourceRelative));
-  if (!(await exists(destination))) await writeText(destination, await readFile(sourceAbsolute, 'utf8'));
+  const destination = await secureInitiativePath(
+    root,
+    portfolio,
+    initiativeId,
+    path.join('contracts', contractId, String(version), path.basename(sourceRelative)),
+    { label: `Contract '${key}' snapshot`, type: 'file' }
+  );
+  if (!destination.exists) await writeText(destination.absolute, await readFile(source.absolute, 'utf8'));
   const record = {
     schemaVersion: 1,
     id: contractId,
     version: String(version),
     format,
-    path: posix(path.relative(root, destination)),
+    path: destination.relative,
     sha256: sourceSnapshot.sha256,
     bytes: sourceSnapshot.size,
     producers: [...new Set(producers)].sort(),
@@ -67,7 +75,14 @@ export async function registerInterfaceContract(root, {
     registeredAt: nowIso(),
     persona
   };
-  await writeJson(path.join(directory, 'manifest.json'), record);
+  const manifest = await secureInitiativePath(
+    root,
+    portfolio,
+    initiativeId,
+    path.join('contracts', contractId, String(version), 'manifest.json'),
+    { label: `Contract '${key}' manifest`, type: 'file' }
+  );
+  await writeJson(manifest.absolute, record);
   const previous = Object.values(initiative.contracts).filter((contract) => contract.id === contractId && contract.version !== String(version) && contract.status === 'active');
   initiative.contracts[key] = record;
   initiative.history.push({
@@ -96,7 +111,11 @@ export async function interfaceContractStatus(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const contracts = [];
   for (const [key, contract] of Object.entries(initiative.contracts ?? {})) {
-    const current = await snapshot(path.join(root, contract.path));
+    const target = await secureRepositoryPath(root, contract.path, {
+      label: `Contract '${key}' snapshot`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
     const consumers = (contract.consumers ?? []).map((storyId) => ({
       storyId,
       repository: initiative.childStories?.[storyId]?.repository ?? null,

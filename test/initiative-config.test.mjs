@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -12,6 +12,7 @@ import {
 import {
   createInitiative, initiativeProgress, loadInitiative, prepareInitiativePhase
 } from '../src/initiative-state.mjs';
+import { publishInitiativePhase } from '../src/initiative-evidence.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository() {
@@ -74,6 +75,14 @@ test('portfolio validation rejects bad references, assurance, conditions, and em
   assert.throws(() => validatePortfolio(condition), /requires applicability/);
   const empty = structuredClone(base); empty.initiativeProfiles.lite.phases = [];
   assert.throws(() => validatePortfolio(empty), /at least one phase/);
+  const duplicatePath = structuredClone(base);
+  duplicatePath.initiativePhases.one.outputs.push({
+    id: 'duplicate-brief',
+    kind: 'markdown',
+    path: 'brief.md',
+    template: 'brief.md'
+  });
+  assert.throws(() => validatePortfolio(duplicatePath), /output paths contains duplicates/i);
 });
 
 test('portfolio repository metadata accepts App IDs, names, and scalar organization fields', () => {
@@ -154,6 +163,120 @@ test('initiative preparation enforces its immutable template snapshot', async ()
     () => prepareInitiativePhase(root, 'INIT-PIN', 'define', { persona: 'product-owner' }),
     /changed after INIT-PIN was created/
   );
+});
+
+test('template-less binary outputs wait for an upload and publish with an actionable path', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(file, 'utf8'));
+  portfolio.initiativePhases.define.outputs.push({
+    id: 'research-bundle',
+    label: 'Research bundle',
+    kind: 'binary-bundle',
+    path: 'research/research-bundle.zip',
+    approval: { mode: 'none' }
+  });
+  await writeFile(file, YAML.stringify(portfolio));
+  run('git', ['add', file], { cwd: root });
+  run('git', ['commit', '-m', 'Add binary initiative output'], { cwd: root });
+  run('git', ['switch', '-c', 'INIT-BINARY'], { cwd: root });
+  await createInitiative(root, {
+    id: 'INIT-BINARY',
+    title: 'Binary evidence initiative',
+    profile: 'initiative-lite',
+    persona: 'product-owner'
+  });
+
+  const prepared = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { persona: 'product-owner' });
+  const pending = prepared.outputs.find((output) => output.id === 'research-bundle');
+  assert.deepEqual(
+    { awaitingUpload: pending.awaitingUpload, sha256: pending.sha256, bytes: pending.bytes },
+    { awaitingUpload: true, sha256: null, bytes: 0 }
+  );
+  assert.equal(prepared.phase.outputs['research-bundle'].status, 'awaiting_upload');
+  const expected = path.join(root, 'singularity/initiatives/INIT-BINARY/artifacts/define/research/research-bundle.zip');
+  assert.equal((await stat(path.dirname(expected))).isDirectory(), true);
+  await assert.rejects(
+    () => publishInitiativePhase(root, 'INIT-BINARY', 'define'),
+    /research-bundle \(artifacts\/define\/research\/research-bundle\.zip\)/
+  );
+
+  await writeFile(expected, Buffer.from('PK mocked governed bundle'));
+  const uploaded = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { persona: 'product-owner' });
+  const record = uploaded.outputs.find((output) => output.id === 'research-bundle');
+  assert.equal(record.awaitingUpload, false);
+  assert.ok(record.sha256);
+  assert.equal(uploaded.phase.outputs['research-bundle'].status, 'draft');
+  await assert.doesNotReject(() => publishInitiativePhase(root, 'INIT-BINARY', 'define'));
+});
+
+test('initiative creation and loading reject symlink escapes from the repository', async () => {
+  const root = await repository();
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-outside-'));
+  const initiatives = path.join(root, 'singularity/initiatives');
+  await symlink(outside, initiatives);
+  run('git', ['switch', '-c', 'INIT-ESCAPE'], { cwd: root });
+  await assert.rejects(
+    () => createInitiative(root, { id: 'INIT-ESCAPE', profile: 'initiative-lite' }),
+    /initiative.*resolves outside the repository/i
+  );
+  await assert.rejects(
+    () => stat(path.join(outside, 'INIT-ESCAPE/state.json')),
+    /ENOENT/
+  );
+});
+
+test('initiative creation does not overwrite a pre-existing partial directory', async () => {
+  const root = await repository();
+  run('git', ['switch', '-c', 'INIT-PARTIAL'], { cwd: root });
+  const directory = path.join(root, 'singularity/initiatives/INIT-PARTIAL');
+  await mkdir(directory, { recursive: true });
+  const sentinel = path.join(directory, 'recovery-notes.md');
+  await writeFile(sentinel, '# Preserve me\n');
+  await assert.rejects(
+    () => createInitiative(root, { id: 'INIT-PARTIAL', profile: 'initiative-lite' }),
+    /already contains files.*will not be overwritten/i
+  );
+  assert.equal(await readFile(sentinel, 'utf8'), '# Preserve me\n');
+});
+
+test('initiative output preparation rejects a symlinked artifact target', async () => {
+  const root = await repository();
+  run('git', ['switch', '-c', 'INIT-OUTPUT-LINK'], { cwd: root });
+  await createInitiative(root, {
+    id: 'INIT-OUTPUT-LINK',
+    title: 'Protected output initiative',
+    profile: 'initiative-lite'
+  });
+  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-output-outside-')), 'business-case.md');
+  await writeFile(outside, '# Outside repository\n');
+  const target = path.join(root, 'singularity/initiatives/INIT-OUTPUT-LINK/artifacts/define/business-case.md');
+  await mkdir(path.dirname(target), { recursive: true });
+  await symlink(outside, target);
+  await assert.rejects(
+    () => prepareInitiativePhase(root, 'INIT-OUTPUT-LINK', 'define'),
+    /initiative output.*cannot be a symbolic link/i
+  );
+});
+
+test('initiative output preparation rejects a tampered path outside its initiative directory', async () => {
+  const root = await repository();
+  run('git', ['switch', '-c', 'INIT-OUTPUT-ESCAPE'], { cwd: root });
+  await createInitiative(root, {
+    id: 'INIT-OUTPUT-ESCAPE',
+    title: 'Protected output boundary',
+    profile: 'initiative-lite'
+  });
+  const statePath = path.join(root, 'singularity/initiatives/INIT-OUTPUT-ESCAPE/state.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.phases.define.outputs['business-case'].path = '../../../README.md';
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  const readme = await readFile(path.join(root, 'README.md'), 'utf8');
+  await assert.rejects(
+    () => prepareInitiativePhase(root, 'INIT-OUTPUT-ESCAPE', 'define'),
+    /output 'define\/business-case' differs from its immutable resolution/i
+  );
+  assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), readme);
 });
 
 test('initiative start requires configured local authority membership', async () => {

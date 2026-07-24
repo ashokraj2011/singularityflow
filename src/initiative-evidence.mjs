@@ -5,11 +5,11 @@ import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
 import {
-  initiativeDir, loadInitiative, saveInitiative, verifyInitiativePhaseInputs
+  loadInitiative, saveInitiative, secureInitiativePath, verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
 import { identity } from './git.mjs';
 import {
-  SingularityFlowError, exists, nowIso, posix, repoRelative, snapshot, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
 } from './util.mjs';
 
 const RECORD_CATEGORIES = new Set(['evidence', 'approvals', 'invalidations']);
@@ -31,34 +31,44 @@ export function recordSha256(value) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
-function recordDirectory(root, portfolio, initiativeId, category) {
+async function recordDirectory(root, portfolio, initiativeId, category) {
   if (!RECORD_CATEGORIES.has(category)) throw new SingularityFlowError(`Unsupported initiative record category '${category}'.`);
-  return path.join(initiativeDir(root, portfolio, initiativeId), category, 'records');
+  return secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records'), {
+    label: `Initiative '${initiativeId}' ${category} record directory`,
+    type: 'directory'
+  });
 }
 
 export async function appendInitiativeRecord(root, portfolio, initiativeId, category, record) {
   const sha256 = recordSha256(record);
-  const directory = recordDirectory(root, portfolio, initiativeId, category);
-  const absolute = path.join(directory, `${sha256}.json`);
-  if (!(await exists(absolute))) await writeText(absolute, canonicalJson(record));
-  return { sha256, path: posix(path.relative(root, absolute)), record };
+  await recordDirectory(root, portfolio, initiativeId, category);
+  const target = await secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records', `${sha256}.json`), {
+    label: `Initiative '${initiativeId}' ${category} record`,
+    type: 'file'
+  });
+  if (!target.exists) await writeText(target.absolute, canonicalJson(record));
+  return { sha256, path: target.relative, record };
 }
 
 export async function readInitiativeRecords(root, portfolio, initiativeId, category) {
-  const directory = recordDirectory(root, portfolio, initiativeId, category);
-  if (!(await exists(directory))) return [];
+  const directory = await recordDirectory(root, portfolio, initiativeId, category);
+  if (!directory.exists) return [];
   const records = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  for (const entry of await readdir(directory.absolute, { withFileTypes: true })) {
     if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name)) continue;
-    const absolute = path.join(directory, entry.name);
-    const raw = await readFile(absolute, 'utf8');
+    const target = await secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records', entry.name), {
+      label: `Initiative '${initiativeId}' ${category} record`,
+      mustExist: true,
+      type: 'file'
+    });
+    const raw = await readFile(target.absolute, 'utf8');
     let record;
     try { record = JSON.parse(raw); }
     catch (error) { throw new SingularityFlowError(`Invalid initiative ${category} record ${entry.name}: ${error.message}`); }
     const expected = entry.name.slice(0, -5);
     const actual = recordSha256(record);
     if (actual !== expected) throw new SingularityFlowError(`Initiative ${category} record ${entry.name} was modified after creation.`);
-    records.push({ sha256: actual, path: posix(path.relative(root, absolute)), record });
+    records.push({ sha256: actual, path: target.relative, record });
   }
   return records.sort((left, right) => String(left.record.at ?? left.record.observedAt ?? '').localeCompare(String(right.record.at ?? right.record.observedAt ?? '')));
 }
@@ -148,15 +158,24 @@ export async function registerInitiativeEvidence(root, {
   const normalizedSource = sourceRecord(root, source);
   let sourceSnapshot = { exists: false, size: 0, sha256: null };
   if (normalizedSource.path) {
-    const absolute = path.join(root, normalizedSource.path);
-    sourceSnapshot = await snapshot(absolute);
-    if (!sourceSnapshot.exists) throw new SingularityFlowError(`Evidence source does not exist: ${normalizedSource.path}`);
+    const sourceFile = await secureRepositoryPath(root, normalizedSource.path, {
+      label: 'Initiative evidence source',
+      mustExist: true,
+      type: 'file'
+    });
+    sourceSnapshot = await snapshot(sourceFile.absolute);
     const originalPath = normalizedSource.path;
-    const destination = path.join(initiativeDir(root, portfolio, initiative.initiative.id), 'evidence', 'files', `${sourceSnapshot.sha256}-${path.basename(originalPath)}`);
-    await mkdir(path.dirname(destination), { recursive: true });
-    if (!(await exists(destination))) await copyFile(absolute, destination);
+    const destination = await secureInitiativePath(
+      root,
+      portfolio,
+      initiative.initiative.id,
+      path.join('evidence', 'files', `${sourceSnapshot.sha256}-${path.basename(originalPath)}`),
+      { label: `Initiative evidence snapshot for '${phaseId}/${checkId}'`, type: 'file' }
+    );
+    await mkdir(path.dirname(destination.absolute), { recursive: true });
+    if (!destination.exists) await copyFile(sourceFile.absolute, destination.absolute);
     normalizedSource.originalPath = originalPath;
-    normalizedSource.path = posix(path.relative(root, destination));
+    normalizedSource.path = destination.relative;
   } else if (!normalizedSource.url && !normalizedSource.externalId && !normalizedSource.observedState) {
     throw new SingularityFlowError('Evidence requires a repository path, URL, external ID, or observed state.');
   }
@@ -206,7 +225,17 @@ async function evidenceState(root, entry, now) {
   const record = entry.record;
   if (record.expiresAt && Date.parse(record.expiresAt) <= now.getTime()) return { ...entry, status: 'stale', reason: `expired ${record.expiresAt}` };
   if (record.source.path) {
-    const current = await snapshot(path.join(root, record.source.path));
+    let source;
+    try {
+      source = await secureRepositoryPath(root, record.source.path, {
+        label: 'Registered initiative evidence',
+        mustExist: true,
+        type: 'file'
+      });
+    } catch (error) {
+      return { ...entry, status: 'stale', reason: `source is no longer safe: ${error.message}` };
+    }
+    const current = await snapshot(source.absolute);
     if (!current.exists || current.sha256 !== record.sourceSha256) return { ...entry, status: 'stale', reason: 'source changed after evidence registration' };
   }
   return { ...entry, status: 'active', reason: null };
@@ -333,8 +362,11 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
     const output = phase.outputs[outputDefinitionValue.id];
     if (outputDefinitionValue.required && (!output.sha256 || !['published', 'approved'].includes(output.status))) errors.push(`required output ${phaseId}/${output.id} is not published`);
     if (!output.sha256) continue;
-    const absolute = path.join(initiativeDir(root, portfolio, initiative.initiative.id), output.path);
-    const current = await snapshot(absolute);
+    const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
+      label: `Initiative output '${phaseId}/${output.id}'`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== output.sha256) errors.push(`output ${phaseId}/${output.id} changed after publication`);
     const policy = outputDefinitionValue.approval;
     if (policy.mode === 'individual') {
@@ -366,9 +398,12 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   const missing = [];
   for (const definition of phaseDefinition(initiative, phaseId).outputs) {
     const output = phase.outputs[definition.id];
-    const absolute = path.join(initiativeDir(root, portfolio, initiativeId), output.path);
-    const current = await snapshot(absolute);
-    if (definition.required && !current.exists) missing.push(definition.id);
+    const target = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
+      label: `Initiative output '${phaseId}/${output.id}'`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
+    if (definition.required && !current.exists) missing.push(`${definition.id} (${output.path})`);
     if (!current.exists) continue;
     Object.assign(output, {
       status: 'published',

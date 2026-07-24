@@ -36,16 +36,13 @@ import {
 
 const navSections = [
   {
-    label: 'Delivery',
+    label: 'Epic flow',
     items: [
       ['dashboard', 'Overview'],
       ['documents', 'Requirements'],
       ['planning', 'Planning Copilot'],
       ['studio', 'Artifact Studio'],
-      ['impact', 'Impact analysis'],
-      ['workspaces', 'Project workspaces'],
-      ['initiatives', 'Initiatives'],
-      ['jira', 'Jira workspace']
+      ['impact', 'Impact analysis']
     ]
   },
   {
@@ -56,7 +53,15 @@ const navSections = [
     ]
   },
   {
-    label: 'Studio',
+    label: 'Advanced',
+    items: [
+      ['workspaces', 'Local workspaces'],
+      ['initiatives', 'Initiative governance'],
+      ['jira', 'Jira connection']
+    ]
+  },
+  {
+    label: 'Configuration',
     items: [
       ['workflow', 'Workflow designer'],
       ['templates', 'Artifact designer'],
@@ -173,7 +178,12 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const steps = ['Your name', 'Your role', 'Local workspace', 'Repositories', 'Jira & ready'];
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(
+    initial.workspacePath
+    || initial.repositories?.length
+    || jira?.connected
+    || jira?.recovery?.required
+  ));
   const roleLabel = onboardingRoles.find(([id]) => id === draft.role)?.[1] ?? 'Not selected';
 
   function update(field, value) {
@@ -197,19 +207,6 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     } finally {
       setWorking(false);
     }
-  }
-
-  async function next() {
-    if (draft.step === 0 && !draft.name.trim()) return setError('Enter your name to continue.');
-    if (draft.step === 1 && !draft.role) return setError('Choose the role you want to use for this desktop profile.');
-    if (draft.step === 2 && !draft.workspacePath) return setError('Choose a local workspace directory.');
-    const nextStep = Math.min(4, draft.step + 1);
-    await persist(nextStep);
-  }
-
-  async function back() {
-    const nextStep = Math.max(0, draft.step - 1);
-    await persist(nextStep);
   }
 
   async function chooseWorkspace() {
@@ -274,54 +271,76 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     }
   }
 
-  const canFinish = Boolean(
-    draft.name.trim()
-    && draft.role
-    && draft.workspacePath
-    && ['connected', 'not-used'].includes(draft.jiraChoice)
-    && (!jiraStatus.recovery?.required)
-  );
+  const canFinish = Boolean(draft.name.trim() && draft.role);
+  const advancedCount = [
+    draft.workspacePath,
+    draft.repositories.length,
+    jiraStatus.connected || draft.jiraChoice === 'connected'
+  ].filter(Boolean).length;
   return <div className="onboarding-shell">
     <aside className="onboarding-rail">
       <div className="brand onboarding-brand"><span>S</span><div><strong>Singularity</strong><small>Desktop setup</small></div></div>
-      <div className="onboarding-progress">{steps.map((label, index) => <button key={label} className={`${index === draft.step ? 'active' : ''} ${index < draft.step ? 'complete' : ''}`} disabled={working || index > draft.step} onClick={() => index < draft.step && persist(index)}><span>{index < draft.step ? '✓' : index + 1}</span><div><strong>{label}</strong><small>{index === draft.step ? 'Current step' : index < draft.step ? 'Complete' : 'Up next'}</small></div></button>)}</div>
-      <div className="onboarding-promise"><span>Private by design</span><p>Your profile and workspace location stay on this computer. Only governed repository configuration enters Git.</p></div>
+      <div className="onboarding-journey">
+        <span className="eyebrow">Your first outcome</span>
+        <h2>Start with the work.</h2>
+        <ol>
+          <li className="active"><span>1</span><div><strong>Personalize</strong><small>Name and working role</small></div></li>
+          <li><span>2</span><div><strong>Open an Epic</strong><small>Bring requirements and sources</small></div></li>
+          <li><span>3</span><div><strong>Plan Stories</strong><small>Review, approve, and publish</small></div></li>
+        </ol>
+      </div>
+      <div className="onboarding-promise"><span>Connections come later</span><p>Local workspaces, GitHub, and Jira are available under Advanced. None of them block this welcome setup.</p></div>
     </aside>
     <main className="onboarding-main">
-      <header className="onboarding-topbar"><span>First-time setup</span><button className="ghost" onClick={onHelp}>Why Singularity?</button></header>
+      <header className="onboarding-topbar"><span>Quick start · about one minute</span><button className="ghost" onClick={onHelp}>Why Singularity?</button></header>
       <section className="onboarding-stage">
-        <div className="onboarding-step-count">Step {draft.step + 1} of 5</div>
         {draft.recovery && <div className="onboarding-recovery" role="status"><strong>Local setup recovered</strong><span>{draft.recovery.message}</span></div>}
-        {draft.step === 0 && <div className="onboarding-card"><span className="onboarding-symbol">01</span><div className="onboarding-copy"><span className="eyebrow">Welcome</span><h1>What should we call you?</h1><p>This name identifies your local desktop profile. Git identity still remains the authority recorded for governed approvals.</p></div><label className="onboarding-field"><span>Your name</span><input autoFocus value={draft.name} placeholder="Ashok Raj" onChange={(event) => update('name', event.target.value)} /><small>Stored locally, never written to a repository by onboarding.</small></label></div>}
-        {draft.step === 1 && <div className="onboarding-card"><span className="onboarding-symbol">02</span><div className="onboarding-copy"><span className="eyebrow">Working perspective</span><h1>How will you use Singularity?</h1><p>Your role personalizes guidance and recommended personas. It never restricts what work you can perform.</p></div><label className="onboarding-field"><span>Primary role</span><select autoFocus value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Anyone can still assume any repository-configured persona during a session.</small></label></div>}
-        {draft.step === 2 && <div className="onboarding-card"><span className="onboarding-symbol">03</span><div className="onboarding-copy"><span className="eyebrow">Local isolation</span><h1>Choose your workspace home.</h1><p>Singularity uses this folder for project workspaces, repository clones, staged documents, caches, and local planning context.</p></div><div className={`onboarding-picker ${draft.workspacePath ? 'selected' : ''}`}><span className="onboarding-picker-icon">⌂</span><div><strong>{draft.workspacePath ? 'Workspace selected' : 'No folder selected'}</strong><small>{draft.workspacePath ?? 'Choose a corporate-approved local directory.'}</small></div><button className={draft.workspacePath ? 'secondary' : 'primary'} onClick={chooseWorkspace} disabled={working}>{draft.workspacePath ? 'Change' : 'Choose folder'}</button></div><div className="onboarding-note"><strong>No new hierarchy</strong><span>This is a local storage boundary, not another Jira or delivery concept.</span></div></div>}
-        {draft.step === 3 && <div className="onboarding-card"><span className="onboarding-symbol">04</span><div className="onboarding-copy"><span className="eyebrow">Optional starting points</span><h1>Add repositories now—or later.</h1><p>Select existing Git repositories already initialized with a visible <code>singularity/</code> folder. They become quick-access locations after setup.</p></div><div className="onboarding-repositories">{draft.repositories.map((repository) => <div key={repository.path}><span>{repository.name.slice(0, 1).toUpperCase()}</span><div><strong>{repository.name}</strong><small>{repository.path}</small></div><button className="ghost" aria-label={`Remove ${repository.name}`} onClick={() => update('repositories', draft.repositories.filter((item) => item.path !== repository.path))}>×</button></div>)}<button className="onboarding-add-repository" onClick={addRepositories} disabled={working}><span>＋</span><div><strong>Add local repositories</strong><small>Optional · up to 20 locations</small></div></button></div></div>}
-        {draft.step === 4 && <div className="onboarding-card onboarding-jira-card">
-          <span className="onboarding-symbol">05</span>
-          <div className="onboarding-copy"><span className="eyebrow">Corporate integration</span><h1>Connect Jira, then you’re ready.</h1><p>The token is validated and encrypted by the operating-system credential store. Repository policies still control which Jira hosts and projects each project may use.</p></div>
-          {jiraStatus.recovery?.required ? <div className="onboarding-jira-recovery" role="alert">
-            <span>!</span>
-            <div><strong>Jira credentials need attention</strong><small>{jiraStatus.recovery.message}</small></div>
-            <div><button className="secondary compact" disabled={working} onClick={() => resetJiraCredentials('later')}>Reset Jira setup</button><button className="ghost compact" disabled={working} onClick={() => resetJiraCredentials('not-used')}>Reset & continue without Jira</button></div>
-          </div> : jiraStatus.connected || draft.jiraChoice === 'connected' ? <div className="onboarding-jira-connected">
-            <span>✓</span><div><strong>Jira connected securely</strong><small>{jiraStatus.connection?.baseUrl ?? 'Credential available in this OS account'} · {jiraStatus.connection?.account?.displayName ?? jiraStatus.connection?.email ?? 'authenticated user'}</small></div><Pill tone="good">Ready</Pill>
-          </div> : draft.jiraChoice === 'not-used' ? <div className="onboarding-jira-connected neutral">
-            <span>—</span><div><strong>Jira is not used</strong><small>You can connect it later from a repository’s Jira workspace.</small></div><button className="secondary compact" onClick={() => update('jiraChoice', 'later')}>Configure instead</button>
-          </div> : <>
-            <div className="onboarding-jira-form">
-              <label><span>Deployment</span><select value={connection.deployment} onChange={(event) => setConnection((current) => ({ ...current, deployment: event.target.value, authMode: event.target.value === 'data-center' ? 'pat' : 'user-token' }))}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label>
-              <label className="wide"><span>Jira HTTPS URL</span><input value={connection.baseUrl} placeholder="https://company.atlassian.net" onChange={(event) => setConnection((current) => ({ ...current, baseUrl: event.target.value }))} /></label>
-              {connection.deployment === 'cloud' && <label><span>Email</span><input type="email" value={connection.email} placeholder="you@company.com" onChange={(event) => setConnection((current) => ({ ...current, email: event.target.value }))} /></label>}
-              <label><span>{connection.deployment === 'cloud' ? 'API token' : 'Personal access token'}</span><input type="password" value={connection.token} placeholder="Stored in OS keychain" onChange={(event) => setConnection((current) => ({ ...current, token: event.target.value }))} /></label>
-            </div>
-            <div className="onboarding-jira-actions"><button className="primary" disabled={working || !connection.baseUrl || !connection.token || (connection.deployment === 'cloud' && !connection.email)} onClick={connectJira}>{working ? 'Verifying…' : 'Verify & connect Jira'}</button><button className="ghost" onClick={() => update('jiraChoice', 'not-used')}>We do not use Jira</button></div>
-          </>}
-          <div className="onboarding-ready-summary"><div><span>✓</span><strong>{draft.name}</strong><small>{roleLabel}</small></div><div><span>✓</span><strong>Workspace</strong><small>{draft.workspacePath}</small></div><div><span>{draft.repositories.length ? '✓' : '○'}</span><strong>{draft.repositories.length} repositories</strong><small>{draft.repositories.length ? 'Ready for quick access' : 'Optional—add later'}</small></div><div><span>{['connected', 'not-used'].includes(draft.jiraChoice) && !jiraStatus.recovery?.required ? '✓' : '○'}</span><strong>Jira decision</strong><small>{draft.jiraChoice === 'connected' && !jiraStatus.recovery?.required ? 'Securely connected' : draft.jiraChoice === 'not-used' && !jiraStatus.recovery?.required ? 'Not used' : 'Action required'}</small></div></div>
-        </div>}
+        <div className="onboarding-card onboarding-quick-card">
+          <div className="onboarding-copy"><span className="eyebrow">Welcome to Singularity</span><h1>Set your working perspective.</h1><p>Two details personalize the experience. Connections and storage are optional, project-specific tools that can wait until you need them.</p></div>
+          <div className="onboarding-core-fields">
+            <label className="onboarding-field"><span>Your name</span><input autoFocus value={draft.name} placeholder="Ashok Raj" onChange={(event) => update('name', event.target.value)} /><small>Local display name; Git identity remains the approval authority.</small></label>
+            <label className="onboarding-field"><span>Primary role</span><select value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Guidance only—you may use any configured persona.</small></label>
+          </div>
+          <button type="button" className={`onboarding-advanced-trigger ${advancedOpen ? 'open' : ''}`} aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>
+            <span className="onboarding-advanced-icon">⌘</span>
+            <span><strong>Advanced setup</strong><small>Local workspace, repositories, GitHub, and Jira</small></span>
+            {advancedCount > 0 && <Pill tone="good">{advancedCount} configured</Pill>}
+            <b>{advancedOpen ? '−' : '+'}</b>
+          </button>
+          {advancedOpen && <div className="onboarding-advanced-grid">
+            <section className="advanced-setup-card workspace">
+              <header><span>01</span><div><strong>Local workspace</strong><small>Clone and cache boundary</small></div></header>
+              <p>Choose a corporate-approved folder only when you want managed multi-repository workspaces.</p>
+              <div className="advanced-setup-value"><code>{draft.workspacePath ?? 'Not configured'}</code><button className="secondary compact" onClick={chooseWorkspace} disabled={working}>{draft.workspacePath ? 'Change' : 'Choose folder'}</button></div>
+            </section>
+            <section className="advanced-setup-card github">
+              <header><span>02</span><div><strong>Git & GitHub</strong><small>Repository and CI evidence</small></div></header>
+              <p>Singularity uses each repository’s Git identity and the existing authenticated <code>gh</code> CLI session.</p>
+              <div className="onboarding-repositories compact-list">{draft.repositories.map((repository) => <div key={repository.path}><span>{repository.name.slice(0, 1).toUpperCase()}</span><div><strong>{repository.name}</strong><small>{repository.path}</small></div><button className="ghost" aria-label={`Remove ${repository.name}`} onClick={() => update('repositories', draft.repositories.filter((item) => item.path !== repository.path))}>×</button></div>)}<button className="onboarding-add-repository" onClick={addRepositories} disabled={working}><span>＋</span><div><strong>Add repositories</strong><small>Optional · GitHub is detected after opening</small></div></button></div>
+            </section>
+            <section className="advanced-setup-card jira">
+              <header><span>03</span><div><strong>Jira connection</strong><small>Import Epics and publish Stories</small></div></header>
+              {jiraStatus.recovery?.required ? <div className="onboarding-jira-recovery" role="alert">
+                <span>!</span><div><strong>Saved credentials need attention</strong><small>{jiraStatus.recovery.message}</small></div><button className="secondary compact" disabled={working} onClick={() => resetJiraCredentials('later')}>Reset</button>
+              </div> : jiraStatus.connected || draft.jiraChoice === 'connected' ? <div className="onboarding-jira-connected">
+                <span>✓</span><div><strong>Connected securely</strong><small>{jiraStatus.connection?.baseUrl ?? 'Credential available in this OS account'}</small></div><Pill tone="good">Ready</Pill>
+              </div> : <>
+                <div className="onboarding-jira-form">
+                  <label><span>Deployment</span><select value={connection.deployment} onChange={(event) => setConnection((current) => ({ ...current, deployment: event.target.value, authMode: event.target.value === 'data-center' ? 'pat' : 'user-token' }))}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label>
+                  <label className="wide"><span>Jira HTTPS URL</span><input value={connection.baseUrl} placeholder="https://company.atlassian.net" onChange={(event) => setConnection((current) => ({ ...current, baseUrl: event.target.value }))} /></label>
+                  {connection.deployment === 'cloud' && <label><span>Email</span><input type="email" value={connection.email} placeholder="you@company.com" onChange={(event) => setConnection((current) => ({ ...current, email: event.target.value }))} /></label>}
+                  <label><span>{connection.deployment === 'cloud' ? 'API token' : 'Personal access token'}</span><input type="password" value={connection.token} placeholder="Stored in OS keychain" onChange={(event) => setConnection((current) => ({ ...current, token: event.target.value }))} /></label>
+                </div>
+                <div className="onboarding-jira-actions"><button className="primary compact" disabled={working || !connection.baseUrl || !connection.token || (connection.deployment === 'cloud' && !connection.email)} onClick={connectJira}>{working ? 'Verifying…' : 'Verify Jira'}</button><button className="ghost compact" onClick={() => update('jiraChoice', 'not-used')}>Skip</button></div>
+              </>}
+            </section>
+          </div>}
+          <div className="onboarding-ready-strip"><span>✓</span><div><strong>{draft.name || 'Your local profile'}</strong><small>{draft.role ? `${roleLabel} · ready to start` : 'Choose a role to continue'}</small></div><em>Advanced setup remains available later</em></div>
+        </div>
         {notice && <div className="onboarding-warning" role="status">{notice}</div>}
         {error && <div className="onboarding-error" role="alert">{error}</div>}
       </section>
-      <footer className="onboarding-footer"><button className="ghost" disabled={working || draft.step === 0} onClick={back}>Back</button><span>Your setup is saved locally after each step.</span>{draft.step < 4 ? <button className="primary" disabled={working} onClick={next}>{working ? 'Saving…' : draft.step === 3 ? 'Continue to Jira' : 'Continue'}</button> : <button className="primary onboarding-finish" disabled={working || !canFinish} onClick={() => persist(4, true)}>{working ? 'Finishing…' : 'Finish setup & start'}</button>}</footer>
+      <footer className="onboarding-footer"><span /><span>Name and role stay local. Advanced connections are configured only when opened.</span><button className="primary onboarding-finish" disabled={working || !canFinish} onClick={() => persist(4, true)}>{working ? 'Finishing…' : 'Continue to Singularity'}</button></footer>
     </main>
   </div>;
 }
@@ -729,20 +748,20 @@ function PortfolioSetup({ data, action, onCreated, jiraFirst = false }) {
         writeMode: values.jiraWriteMode,
         connection: 'corporate-jira'
       }
-    }), 'Portfolio configuration created and validated');
+    }), 'Epic governance created and validated');
     if (result) onCreated(result);
   }
   return <div className="portfolio-setup">
-    <section className="portfolio-setup-intro"><span className="jira-mark">S</span><span className="eyebrow">Guided repository setup</span><h1>Create the initiative portfolio</h1><p>This creates the editable enterprise and lightweight profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</p><div className="portfolio-setup-steps"><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></div></section>
+    <section className="portfolio-setup-intro"><span className="jira-mark">S</span><span className="eyebrow">Advanced governance setup</span><h1>Set up your Epic workspace</h1><p>This creates the governed profiles, approval groups, repository registry, and optional Jira policy under <code>singularity/portfolio.yml</code>. It remains an uncommitted configuration change until you use <strong>Commit & push</strong>.</p><div className="portfolio-setup-steps"><span><b>1</b>Identity</span><span><b>2</b>Repositories</span><span><b>3</b>Jira policy</span></div></section>
     <section className="portfolio-setup-form panel">
       <header><span className="eyebrow">Approval identity</span><h2>Who owns the initial gates?</h2><p>Leave these blank to use the repository’s configured Git name and email.</p></header>
       <div className="control-grid"><label><span>Display name</span><input value={values.approvalName} placeholder="Use Git user.name" onChange={(event) => set('approvalName', event.target.value)} /></label><label><span>Email</span><input type="email" value={values.approvalEmail} placeholder="Use Git user.email" onChange={(event) => set('approvalEmail', event.target.value)} /></label></div>
-      <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Portfolio designer.</p></header>
+      <header><span className="eyebrow">Participating repository</span><h2>Add the first delivery repository</h2><p>Optional now. More repositories can be added later in Advanced governance.</p></header>
       <div className="control-grid expanded"><label><span>Repository ID</span><input value={values.repositoryId} placeholder="mobile" onChange={(event) => set('repositoryId', event.target.value)} /></label><label><span>Application ID</span><input value={values.repositoryAppId} placeholder="APP-1001" onChange={(event) => set('repositoryAppId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={values.repositoryName} placeholder="Mobile application" onChange={(event) => set('repositoryName', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={values.repositoryUrl} placeholder="git@github.com:company/mobile.git" onChange={(event) => set('repositoryUrl', event.target.value)} /></label><label><span>Default branch</span><input value={values.defaultBranch} onChange={(event) => set('defaultBranch', event.target.value)} /></label></div>
       <div className="repository-metadata-fields"><header><div><strong>Additional metadata</strong><span>Optional key/value pairs are committed under this repository in <code>singularity/portfolio.yml</code>.</span></div><button type="button" className="ghost compact" onClick={() => set('repositoryMetadata', [...values.repositoryMetadata, { key: '', value: '' }])}>＋ Add field</button></header>{values.repositoryMetadata.map((entry, index) => <div key={index}><input aria-label={`Metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => setMetadata(index, 'key', event.target.value)} /><input aria-label={`Metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => setMetadata(index, 'value', event.target.value)} />{values.repositoryMetadata.length > 1 && <button type="button" className="ghost compact" aria-label={`Remove metadata field ${index + 1}`} onClick={() => set('repositoryMetadata', values.repositoryMetadata.filter((_, entryIndex) => entryIndex !== index))}>×</button>}</div>)}</div>
       <header className="portfolio-jira-toggle"><div><span className="eyebrow">Corporate integration</span><h2>Configure Jira now</h2></div><label className="switch"><input type="checkbox" checked={values.jiraEnabled} onChange={(event) => set('jiraEnabled', event.target.checked)} /><span /></label></header>
       {values.jiraEnabled && <div className="control-grid expanded"><label><span>Deployment</span><select value={values.jiraDeployment} onChange={(event) => set('jiraDeployment', event.target.value)}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="full"><span>Jira HTTPS URL</span><input value={values.jiraBaseUrl} placeholder="https://company.atlassian.net" onChange={(event) => set('jiraBaseUrl', event.target.value)} /></label><label><span>Project key</span><input value={values.jiraProjectKey} placeholder="APP" onChange={(event) => set('jiraProjectKey', event.target.value.toUpperCase())} /></label><label><span>Write policy</span><select value={values.jiraWriteMode} onChange={(event) => set('jiraWriteMode', event.target.value)}><option value="off">Off · browse/adopt only</option><option value="preview">Preview · commit plans only</option><option value="approved">Approved · guarded apply</option></select></label></div>}
-      <div className="portfolio-setup-action"><div><strong>No credentials are stored in YAML</strong><span>The API token/PAT is requested separately after the portfolio is created.</span></div><button className="primary" disabled={(repositoryPartial && (!values.repositoryId || !values.repositoryUrl)) || !jiraReady} onClick={create}>Create & validate portfolio</button></div>
+      <div className="portfolio-setup-action"><div><strong>No credentials are stored in YAML</strong><span>The API token/PAT is requested separately after governance is configured.</span></div><button className="primary" disabled={(repositoryPartial && (!values.repositoryId || !values.repositoryUrl)) || !jiraReady} onClick={create}>Create & validate governance</button></div>
     </section>
   </div>;
 }
@@ -891,8 +910,8 @@ function WorkspaceStudio({ data, action, onOpened, onConfigureJira, defaultBaseD
 
     <section className="workspace-create panel">
       <header className="panel-heading"><div><span className="eyebrow">Create from existing Jira hierarchy</span><h2>New isolated workspace</h2></div><Pill>Epic or higher</Pill></header>
-      {!data.portfolio && <Empty title="Configure the portfolio first" detail="The lead repository must define repository URLs and Jira policy before a workspace can clone governed project repositories." />}
-      {data.portfolio && !policy?.enabled && <Empty title="Enable Jira in portfolio configuration" detail="Workspace creation follows Jira hierarchy and therefore requires an enabled Jira policy. Existing repository-open behavior remains available." action={<button className="primary" onClick={onConfigureJira}>Configure Jira</button>} />}
+      {!data.portfolio && <Empty title="Configure Epic governance first" detail="The lead repository must define repository URLs and Jira policy before a workspace can clone governed project repositories." />}
+      {data.portfolio && !policy?.enabled && <Empty title="Enable Jira in advanced governance" detail="Workspace creation follows Jira hierarchy and therefore requires an enabled Jira policy. Existing repository-open behavior remains available." action={<button className="primary" onClick={onConfigureJira}>Configure Jira</button>} />}
       {data.portfolio && policy?.enabled && !credentialReady && <div className="workspace-prerequisite"><div><strong>Connect Jira before choosing the anchor</strong><span>{jira?.error ?? 'Credentials remain encrypted in the operating-system account and never enter workspace.json.'}</span></div><button className="primary" onClick={onConfigureJira}>Open Jira connection</button></div>}
       {data.portfolio && policy?.enabled && credentialReady && <div className="workspace-wizard">
         <div className="workspace-step"><span>1</span><div><strong>Storage</strong><small>Choose a corporate-approved local directory.</small></div><button className="secondary" onClick={chooseBase}>{baseDirectory ? 'Change folder' : 'Choose folder'}</button>{baseDirectory && <code>{baseDirectory}</code>}</div>
@@ -1841,7 +1860,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     if (result) await reload(null, initiativeId);
   }
   return <div className="page initiative-page">
-    <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and portfolio progress.</p></div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
+    <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p></div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
     {selected?.state.initiative.profile === 'epic-planning' ? <nav className="epic-lifecycle-wizard" aria-label="Epic lifecycle wizard">{wizardSteps.map((step, index) => <React.Fragment key={step.id}><button className={`${tab === step.id ? 'active' : ''} ${step.status === 'approved' ? 'complete' : ''}`} onClick={() => setTab(step.id)}><span>{step.status === 'approved' ? '✓' : index + 1}</span><small>Step {index + 1}</small><strong>{step.label}</strong></button>{index < wizardSteps.length - 1 && <i>→</i>}</React.Fragment>)}<button className={`wizard-config ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab('configuration')}><span>⚙</span><small>Manage</small><strong>Configuration</strong></button></nav> : <nav className="epic-workspace-nav" aria-label="Initiative workspace">{[['delivery', 'Overview'], ['requirements', 'Documents'], ['configuration', 'Configuration']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>}
     {['delivery', 'publish'].includes(tab) && selected && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Epic and Story branches receive their own commits; Singularity never merges them into a default branch automatically. Accepted canonical Story results alone advance Epic progress.</p></div></div>}
     {tab === 'configuration' ? <div className="initiative-config-layout">
@@ -2539,9 +2558,30 @@ export default function App() {
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;
   if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
-  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}><header className="welcome-nav"><div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div><nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open or create workspace</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav></header><main className="welcome-hero"><section><Pill tone="accent">Plan · govern · deliver</Pill><h1>The Git-backed<br /><em>delivery engine.</em></h1><p>Turn requirements into approved artifacts, executable plans, and cross-repository delivery—without losing human judgment or audit history.</p><div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening…' : 'Open or create a project workspace'}</button><button className="secondary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open one repository'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>Open help</button></div>{busy && <p className="opening-state" role="status">Finding an existing workspace or preparing workspace creation…</p>}</section><section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Workspace</span><span>Artifacts</span><span>Planning Copilot</span><span>Impact analysis</span></aside><main><span className="eyebrow">Jira-anchored delivery</span><h3>Initiative across repositories</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section></main><section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section><Toast toast={toast} onClose={() => setToast(null)} /></div>;
+  if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}>
+    <header className="welcome-nav">
+      <div className="brand large"><span>S</span><div><strong>Singularity</strong><small>Git-native delivery</small></div></div>
+      <nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openRepository()} disabled={busy}>Open repository</button></nav>
+    </header>
+    <main className="welcome-hero">
+      <section>
+        <Pill tone="accent">Plan · govern · deliver</Pill>
+        <h1>Start with your<br /><em>Epic and requirements.</em></h1>
+        <p>Open a project repository, bring in the Epic and source documents, then move through requirements, Story planning, specification, and governed publication.</p>
+        <div className="welcome-actions"><button className="primary large-button" onClick={() => openRepository()} disabled={busy}>{busy ? 'Opening repository…' : 'Open project repository'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>See the workflow</button></div>
+        <details className="welcome-advanced">
+          <summary><span><strong>Advanced setup & connections</strong><small>Local workspace · GitHub · Jira</small></span><b>＋</b></summary>
+          <div><p>Use a managed workspace for multi-repository cloning. GitHub and Jira connection controls appear under <strong>Advanced</strong> after a governed repository is open.</p><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open or create local workspace</button></div>
+        </details>
+        {busy && <p className="opening-state" role="status">Opening the selected project context…</p>}
+      </section>
+      <section className="welcome-visual" aria-label="Singularity workflow preview"><div className="visual-glow" /><div className="visual-window"><header><span>SINGULARITY</span><i /><i /><i /></header><div className="visual-body"><aside><span className="active">Epic intake</span><span>Requirements</span><span>Story plan</span><span>Specification</span></aside><main><span className="eyebrow">Governed planning</span><h3>Epic to approved Stories</h3><div className="visual-flow"><b className="done">✓</b><i /><b className="done">✓</b><i /><b>3</b><i /><b>4</b></div><div className="visual-cards"><span /><span /><span /></div></main></div></div></section>
+    </main>
+    <section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><RecentRepositories items={recentRepositories} busy={busy} onOpen={openRepository} onForget={forgetRepository} /></section>
+    <Toast toast={toast} onClose={() => setToast(null)} />
+  </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
+    <aside className="sidebar"><div className="brand"><span>S</span><div><strong>Singularity</strong><small>{data.workspace ? data.workspace.workspace.anchor.key : 'Flow workspace'}</small></div></div><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{repoName?.slice(0, 1).toUpperCase()}</span><div><strong>{data.workspace?.workspace.name ?? repoName}</strong><small>{repoName} · {data.repository.branch} · singularity/</small></div><button title="Switch workspace or repository" aria-label="Switch workspace or repository" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu"><RecentWorkspaces items={recentWorkspaces} currentPath={data.workspace?.workspace.path} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} compact /><RecentRepositories items={recentRepositories} currentPath={data.repository.root} busy={busy} onOpen={openRepository} onForget={forgetRepository} compact /><button className="secondary repository-browse" onClick={() => openWorkspace()} disabled={busy}>＋ Open workspace</button><button className="secondary repository-browse" onClick={() => openRepository()} disabled={busy}>＋ Open another repository</button></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Working tree clean'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Initiative" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Initiative</option>{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit & push</span></button></div></header>
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentRepositories(); void refreshRecentWorkspaces(); }} onConfigureJira={() => setPage('jira')} />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} />}{page === 'jira' && <JiraWorkspace data={data} action={action} reload={reload} onConfigure={initiativePage} bootstrapPortfolio={acceptPortfolioBootstrap} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main><Toast toast={toast} onClose={() => setToast(null)} />

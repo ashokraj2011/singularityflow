@@ -11,50 +11,40 @@ import {
   validateOnboardingWorkspace
 } from '../apps/desktop/electron/onboarding-profile.mjs';
 
-test('onboarding profile validates the minimum ready state while keeping repositories optional', () => {
+test('onboarding profile requires only a local name and role while keeping integrations optional', () => {
   const draft = normalizeOnboardingProfile({
     name: 'Ashok Raj',
     role: 'architect',
-    step: 3,
-    workspacePath: '/tmp/singularity-workspaces',
-    repositories: [],
-    jiraChoice: 'not-used'
+    repositories: []
   });
   assert.equal(draft.completed, false);
-  assert.equal(draft.step, 3);
+  assert.equal(draft.step, 0);
   assert.deepEqual(draft.repositories, []);
   const completed = normalizeOnboardingProfile(draft, { complete: true });
   assert.equal(completed.completed, true);
   assert.equal(completed.step, 4);
-  assert.equal(completed.jiraChoice, 'not-used');
+  assert.equal(completed.workspacePath, null);
+  assert.equal(completed.jiraChoice, 'later');
 });
 
-test('onboarding completion requires name, role, workspace, and a Jira decision', () => {
+test('onboarding completion validates name and role without forcing advanced setup', () => {
   const base = {
     name: 'Delivery User',
     role: 'developer',
-    workspacePath: '/tmp/workspaces',
     repositories: []
   };
   assert.throws(() => normalizeOnboardingProfile({ ...base, name: '' }, { complete: true }), /name/);
   assert.throws(() => normalizeOnboardingProfile({ ...base, role: '' }, { complete: true }), /role/);
-  assert.throws(() => normalizeOnboardingProfile({ ...base, workspacePath: '' }, { complete: true }), /workspace/);
-  assert.throws(() => normalizeOnboardingProfile(base, { complete: true }), /Connect Jira or confirm/);
+  const minimal = normalizeOnboardingProfile(base, { complete: true });
+  assert.equal(minimal.workspacePath, null);
+  assert.equal(minimal.jiraChoice, 'later');
   assert.equal(
     normalizeOnboardingProfile({ ...base, jiraChoice: 'connected' }, { complete: true, jiraConnected: true }).jiraChoice,
     'connected'
   );
-  assert.throws(
-    () => normalizeOnboardingProfile({ ...base, jiraChoice: 'connected' }, { complete: true, jiraConnected: false }),
-    /Reconnect Jira or explicitly confirm/
-  );
-  assert.throws(
-    () => normalizeOnboardingProfile({ ...base, jiraChoice: 'disconnected' }, { complete: true }),
-    /Reconnect Jira or explicitly confirm/
-  );
-  assert.throws(
-    () => normalizeOnboardingProfile({ ...base, completed: true, jiraChoice: 'disconnected' }, { complete: true }),
-    /Reconnect Jira or explicitly confirm/
+  assert.equal(
+    normalizeOnboardingProfile({ ...base, jiraChoice: 'connected' }, { complete: true, jiraConnected: false }).jiraChoice,
+    'disconnected'
   );
 });
 
@@ -165,7 +155,7 @@ test('incomplete onboarding recovers a stale workspace and removes unavailable o
   assert.match(prepared.notices[1].message, /Unavailable/);
 });
 
-test('completed onboarding fails closed when its required workspace is unavailable', async () => {
+test('completed onboarding validates an explicitly selected advanced workspace', async () => {
   await assert.rejects(
     () => prepareOnboardingProfile({
       name: 'Recovery User',

@@ -64,7 +64,7 @@ function hostname(value, label) {
   return parsed.hostname.toLowerCase();
 }
 
-function normalizeStorage(value = {}) {
+export function normalizeStorage(value = {}) {
   object(value, 'storage');
   const providers = object(value.providers ?? {}, 'storage.providers');
   const normalized = {};

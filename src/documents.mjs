@@ -1,9 +1,10 @@
-import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
+import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
 
 const TEXT_EXTENSIONS = new Set([
   '.adoc', '.c', '.cc', '.clj', '.cljs', '.cmake', '.cpp', '.cs', '.css', '.dart', '.go', '.gradle', '.graphql', '.groovy',
@@ -147,6 +148,67 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, persona: session.persona, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
   await saveWorkflow(root, config, workflow); return added;
+}
+
+function resolveStorageProvider(config, providerId) {
+  const storage = config.storage;
+  const selectedId = providerId ?? storage?.defaultProvider ?? null;
+  const provider = storage?.providers?.[selectedId];
+  if (!provider) throw new SingularityFlowError(`Unknown or unconfigured storage provider '${selectedId ?? ''}'. Declare it under storage.providers in singularity/workflow.yml.`);
+  return { selectedId, provider, storage };
+}
+
+// Fetch a governed document from a configured storage provider (OneDrive/SharePoint, Artifactory,
+// S3, …) and materialize its bytes into the work item, exactly like an uploaded local file. The
+// bytes land in inputs/DOC-nnn/, so the document remains Git-transferable — a resumed checkout on
+// another machine has the content, not just a link. The caller commits/pushes the result.
+export async function fetchRemoteDocument(root, config, workflow, { providerId = null, remoteRef = null, name = null, label = null, kind = null, runtime = {} } = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'fetch documents');
+  const phase = await assertPhaseSequence(root, workflow, 'fetch documents');
+  const policy = documentPolicy(workflow, config); const allowed = policy.allowedPhases ?? ['intake'];
+  if (!allowed.includes(phase.id)) await enforceSequenceGate(root, workflow, 'documentPhase', 'fetch documents', {
+    requestedPhase: phase.id,
+    reason: `Documents may be added only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
+  });
+  if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
+  const { selectedId, provider } = resolveStorageProvider(config, providerId);
+  const session = await loadSession(root);
+  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active persona session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
+  const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
+  const reference = { objectId: remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
+  let headMeta = null;
+  if ((!name || !label) && typeof adapter.head === 'function') {
+    try { headMeta = await adapter.head(reference); } catch { headMeta = null; }
+  }
+  const maxBytes = policy.maxFileBytes ?? 26214400;
+  const result = await adapter.get(reference, { maxBytes });
+  if (!result?.bytes) throw new SingularityFlowError(`Provider '${selectedId}' returned no bytes for '${remoteRef}'.`);
+  if (result.bytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
+  const filename = safeName(name ?? headMeta?.name ?? label ?? String(remoteRef));
+  const manifest = await loadManifest(root, config, workflow);
+  const id = nextId(manifest.documents);
+  const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
+  const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, result.bytes);
+  const fileSnapshot = await snapshot(destination);
+  const record = {
+    id, type: 'file', label: label ?? headMeta?.name ?? filename, kind: kind ?? 'provider-fetch', sourceName: filename,
+    path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
+    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona,
+    remote: { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) }
+  };
+  manifest.documents.push(record);
+  manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
+  workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
+  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, persona: session.persona, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
+  await saveWorkflow(root, config, workflow); return [record];
+}
+
+// Browse a configured storage provider so a picker can list selectable documents.
+export async function listRemoteDocuments(config, { providerId = null, path: subPath = '', runtime = {} } = {}) {
+  const { selectedId, provider } = resolveStorageProvider(config, providerId);
+  const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
+  if (typeof adapter.list !== 'function') throw new SingularityFlowError(`Storage provider '${selectedId}' (${provider.type}) does not support browsing.`);
+  return { providerId: selectedId, providerType: provider.type, entries: await adapter.list({ path: subPath }) };
 }
 
 async function systemDocument(root, config, workflow, id, label, relative) {

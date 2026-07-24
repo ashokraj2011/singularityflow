@@ -130,5 +130,8 @@ contextBridge.exposeInMainWorld('singularity', {
   uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),
   addDocumentUrl: (repository, url, label) => ipcRenderer.invoke('documents:add-url', { repository, url, label }),
   previewDocument: (repository, workId, reference) => ipcRenderer.invoke('documents:preview', { repository, workId, reference }),
-  openDocument: (repository, workId, record) => ipcRenderer.invoke('documents:open', { repository, workId, record })
+  openDocument: (repository, workId, record) => ipcRenderer.invoke('documents:open', { repository, workId, record }),
+  connectDocumentSharePoint: (repository, providerId) => ipcRenderer.invoke('documents:sharepoint-connect', { repository, providerId }),
+  listSharePointDocuments: (repository, providerId, path) => ipcRenderer.invoke('documents:sharepoint-list', { repository, providerId, path }),
+  fetchSharePointDocument: (repository, providerId, remoteRef, name, label) => ipcRenderer.invoke('documents:sharepoint-fetch', { repository, providerId, remoteRef, name, label })
 });

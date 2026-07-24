@@ -536,6 +536,31 @@ singularity-flow documents upload \
 
 Each uploaded file receives a stable ID, content hash, MIME type, actor, persona, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
 
+### Fetch documents from a storage provider (OneDrive/SharePoint)
+
+When `singularity/workflow.yml` declares `storage.providers`, documents can be fetched directly from a configured provider and materialized into the work item. OneDrive for Business is a SharePoint document library under Microsoft Graph, so it uses the `sharepoint` provider type.
+
+```yaml
+# singularity/workflow.yml
+storage:
+  defaultProvider: onedrive
+  providers:
+    onedrive:
+      type: sharepoint
+      tenantId: <azure-tenant-guid>
+      clientId: <app-registration-guid>
+      siteId: <graph-site-id>
+      driveId: <graph-drive-id>
+      # scopes default to: [offline_access, User.Read, Files.ReadWrite.All]
+```
+
+```bash
+singularity-flow documents browse --provider onedrive          # list drive items
+singularity-flow documents fetch  --provider onedrive --ref <drive-item-id>
+```
+
+`fetch` downloads the bytes into `inputs/DOC-nnn/`, hashes them, records provider provenance (`providerId`, `objectId`, version), and commits/pushes like any other document — so a resumed checkout on another machine has the content, not just a link. In the CLI the bearer token is read from `SINGULARITY_FLOW_STORAGE_TOKEN_ONEDRIVE`; in Singularity Desktop the **Documents** page provides **Connect OneDrive**, **Browse OneDrive**, and per-item **Fetch** using the same delegated OAuth (auto-refreshing) as Epic sources.
+
 For a tab-like browser inside a canvas-capable Copilot host, enable experimental features, start a fresh session, and invoke the bundled extension:
 
 ```text

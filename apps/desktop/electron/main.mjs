@@ -1428,6 +1428,51 @@ function registerHandlers() {
     ['documents', 'preview', reference, '--work-id', workId, '--json'],
     { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS }
   ));
+  // Per-work-item document providers (OneDrive/SharePoint) live in workflow.yml, not portfolio.yml.
+  // These call the CLI modules in-process (like Epic sources) so the refreshing OAuth token can be
+  // passed as runtime — the spawned `documents upload` path above cannot carry a token object.
+  async function workItemStorageRuntime(config, providerId = null) {
+    const storage = config.storage;
+    const selectedId = providerId ?? storage?.defaultProvider ?? null;
+    const provider = storage?.providers?.[selectedId];
+    if (!provider) throw new Error(`Unknown or unconfigured storage provider '${selectedId ?? ''}'. Declare it under storage.providers in singularity/workflow.yml.`);
+    const runtime = {};
+    if (provider.type === 'sharepoint') runtime.token = await sharePointAccessToken(selectedId, provider, storageCredentialStore());
+    else if (provider.type === 'artifactory') runtime.token = (await storageCredentialStore().load(selectedId)).token;
+    return { selectedId, provider, runtime };
+  }
+  trustedHandle('documents:sharepoint-connect', async (_event, { repository, providerId = null }) => {
+    const root = assertRepository(repository);
+    const { loadConfig } = await importCliModule('state.mjs');
+    const config = await loadConfig(root);
+    const storage = config.storage;
+    const selectedId = providerId ?? storage?.defaultProvider ?? null;
+    const provider = storage?.providers?.[selectedId];
+    if (provider?.type !== 'sharepoint') throw new Error(`Storage provider '${selectedId ?? ''}' is not a configured SharePoint provider in singularity/workflow.yml.`);
+    const credential = await authorizeSharePoint(provider, { openExternal: (url) => shell.openExternal(url) });
+    return storageCredentialStore().saveOAuth(selectedId, credential);
+  });
+  trustedHandle('documents:sharepoint-list', async (_event, { repository, providerId = null, path: subPath = '' }) => {
+    const root = assertRepository(repository);
+    const [{ loadConfig }, { listRemoteDocuments }] = await Promise.all([
+      importCliModule('state.mjs'), importCliModule('documents.mjs')
+    ]);
+    const config = await loadConfig(root);
+    const { selectedId, runtime } = await workItemStorageRuntime(config, providerId);
+    return listRemoteDocuments(config, { providerId: selectedId, path: subPath, runtime });
+  });
+  trustedHandle('documents:sharepoint-fetch', async (_event, { repository, providerId = null, remoteRef, name = null, label = null }) => {
+    const root = assertRepository(repository);
+    const [{ loadConfig, loadWorkflow, commitAndPublish }, { fetchRemoteDocument }] = await Promise.all([
+      importCliModule('state.mjs'), importCliModule('documents.mjs')
+    ]);
+    const config = await loadConfig(root);
+    const workflow = await loadWorkflow(root, config);
+    const { selectedId, runtime } = await workItemStorageRuntime(config, providerId);
+    const records = await fetchRemoteDocument(root, config, workflow, { providerId: selectedId, remoteRef, name, label, runtime });
+    const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][fetch] ${records.map((record) => record.id).join(',')}`);
+    return { records, publication };
+  });
   trustedHandle('documents:open', async (_event, { repository, workId, record }) => {
     const root = assertRepository(repository);
     const resolved = await invokeCli(root, ['documents', 'view', record.id, '--work-id', workId, '--json']);

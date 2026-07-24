@@ -59,6 +59,20 @@ documents:
   maxFileBytes: 26214400
   maxPreviewBytes: 1048576
 
+# Optional storage providers let `documents fetch` pull governed bytes from shared
+# corporate storage. OneDrive for Business is a SharePoint library under Microsoft
+# Graph. Bytes are materialized into inputs/DOC-nnn/ and committed, so the document
+# stays Git-transferable. See HELP.md → "Fetch documents from a storage provider".
+# storage:
+#   defaultProvider: onedrive
+#   providers:
+#     onedrive:
+#       type: sharepoint
+#       tenantId: <azure-tenant-guid>
+#       clientId: <app-registration-guid>
+#       siteId: <graph-site-id>
+#       driveId: <graph-drive-id>
+
 collaboration:
   # Assignments coordinate people but never restrict who may select a persona.
   assignmentMode: suggested

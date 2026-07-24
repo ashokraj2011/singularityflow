@@ -1566,12 +1566,6 @@ input, select, textarea { border-radius: 11px !important; }
 .portfolio-setup-steps { display: grid; gap: 13px; margin-top: 38px; }
 .portfolio-setup-steps span { display: flex; align-items: center; gap: 12px; color: rgba(255,255,255,.78); font-size: 13px; }
 .portfolio-setup-steps b { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; color: #c8f1d9; background: rgba(255,255,255,.06); }
-.portfolio-setup.compact { display: block; overflow: visible; border-radius: 18px; box-shadow: var(--shadow); }
-.portfolio-setup.compact .portfolio-setup-form { padding: 26px 30px 30px; }
-.portfolio-setup-compact-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 0 0 22px; border-bottom: 1px solid var(--line); }
-.portfolio-setup-compact-head > div { max-width: 760px; }
-.portfolio-setup-compact-head h1 { margin: 4px 0 6px; font: 680 25px/1.15 var(--font-display); letter-spacing: -.025em; }
-.portfolio-setup-compact-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .portfolio-setup-form { display: grid; gap: 22px; padding: 38px 42px; border: 0; border-radius: 0; box-shadow: none; }
 .portfolio-setup-form > header { padding-top: 3px; }
 .portfolio-setup-form > header:not(:first-child) { padding-top: 20px; border-top: 1px solid var(--line); }
@@ -2519,6 +2513,21 @@ label > span,
 .epic-workspace-nav button.active { color: #075f39; font-weight: 640; }
 .epic-workspace-nav button.active::after { background: #07834f; transform: scaleX(1); }
 .epic-workspace-view { display: grid; gap: 18px; animation: pageIn .24s ease both; }
+.epic-requirements-context { display: grid; grid-template-columns: minmax(320px,.85fr) minmax(520px,1.15fr); align-items: center; gap: 28px; padding: 22px 25px; }
+.epic-requirements-context h2 { margin: 4px 0 6px; color: #173b28; font-size: 22px; font-weight: 610; letter-spacing: -.025em; }
+.epic-requirements-context p { margin: 0; color: #69776e; font-size: 11px; line-height: 1.55; }
+.requirements-output-map { display: grid; grid-template-columns: auto 24px auto 24px auto; align-items: center; justify-content: end; gap: 7px; color: #7b877f; font-size: 9px; }
+.requirements-output-map span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.requirements-output-map span b { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid #ced8d1; border-radius: 50%; color: #6c7971; background: #fff; }
+.requirements-output-map span.active { color: #0e6f43; font-weight: 650; }
+.requirements-output-map span.active b { border-color: #70b88d; color: #fff; background: #168052; }
+.requirements-output-map span.complete { color: #0e6f43; }
+.requirements-output-map span.complete b { border-color: #168052; color: #fff; background: #168052; }
+.requirements-output-map i { height: 1px; background: #cad5ce; }
+.requirements-ready-note { display: flex; align-items: center; gap: 13px; border: 1px solid #9dccaf; border-radius: 13px; padding: 15px 18px; color: #174b31; background: #eef9f2; }
+.requirements-ready-note > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #168052; font-weight: 700; }
+.requirements-ready-note strong { font-size: 13px; font-weight: 650; }
+.requirements-ready-note p { margin: 3px 0 0; color: #5f7466; font-size: 10px; line-height: 1.45; }
 .epic-source-hero,.epic-artifact-hero {
   display: flex;
   align-items: center;
@@ -2618,6 +2627,15 @@ label > span,
 .epic-start-step p { margin: 0; color: #748178; font-size: 11px; line-height: 1.5; }
 .epic-start-controls { display: grid; grid-template-columns: repeat(2,minmax(170px,1fr)) auto; gap: 8px; margin-top: 13px; }
 .epic-start-controls select { min-width: 0; height: 40px; border: 1px solid #d7dfd9; border-radius: 9px; padding: 0 11px; color: #2f4939; background: #fff; font: inherit; font-size: 11px; }
+.epic-key-fetch { max-width: 720px; display: grid; grid-template-columns: minmax(240px,1fr) auto; align-items: end; gap: 10px; margin-top: 14px; }
+.epic-key-fetch label { display: grid; gap: 6px; }
+.epic-key-fetch label > span { color: #607067; font-size: 9px; font-weight: 680; letter-spacing: .08em; text-transform: uppercase; }
+.epic-key-fetch input { min-height: 42px; font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; }
+.fetched-epic-card { max-width: 880px; display: grid; gap: 7px; margin-top: 14px; border: 1px solid #a9d1b8; border-radius: 13px; padding: 15px 17px; background: #f2faf5; }
+.fetched-epic-card > div { display: flex; align-items: center; gap: 9px; }
+.fetched-epic-card h4 { margin: 0; color: #183d29; font-size: 16px; font-weight: 620; }
+.fetched-epic-card p { max-width: 780px; color: #52675a; font-size: 11px; }
+.fetched-epic-card small { color: #718078; font-size: 9px; }
 .epic-start-form > footer { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding-top: 22px; }
 .epic-start-form > footer strong,.epic-start-form > footer span { display: block; }
 .epic-start-form > footer strong { color: #344a3d; font-size: 11px; font-weight: 620; }
@@ -3264,6 +3282,8 @@ label > span,
   .business-stage-intro > .pill { grid-column: 1/-1; justify-self: start; }
   .business-lineage-handoff { overflow-x: auto; }
   .business-lineage-handoff span { min-width: max-content; }
+  .epic-requirements-context { grid-template-columns: 1fr; }
+  .requirements-output-map { justify-content: start; }
   .epic-lifecycle-wizard > button { min-width: 118px; flex-basis: 118px; }
   .phase-governance { grid-template-columns: 1fr 1fr; }
   .stage-primary-action { grid-column: 2; }

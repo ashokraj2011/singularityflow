@@ -6,6 +6,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
+import {
+  assertWorkspaceEpicKey,
+  workspaceJiraRouting,
+  workspacePortfolioConfiguration
+} from '../apps/desktop/electron/workspace-epic.mjs';
 import { workspaceLandingPage } from '../apps/desktop/src/workspace-routing.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,6 +95,46 @@ test('Electron routes new workspace selections to configuration before Epic inta
   assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'engineer'), 'workspaces');
 });
 
+test('workspace Epic intake scopes Jira and derives portfolio configuration from the selected workspace', () => {
+  const workspace = {
+    leadRepository: 'lead',
+    repositories: {
+      lead: {
+        url: 'https://github.com/company/lead.git',
+        defaultBranch: 'main',
+        required: true,
+        jira: { board: 'KAN' },
+        metadata: { name: 'Lead', appId: 'APP-1' }
+      },
+      mobile: {
+        url: 'https://github.com/company/mobile.git',
+        defaultBranch: 'main',
+        required: true,
+        jira: { board: 'MOB' },
+        metadata: { name: 'Mobile', appId: 'APP-2' }
+      }
+    }
+  };
+  const credentials = {
+    connected: true,
+    connection: {
+      name: 'corporate-jira',
+      deployment: 'cloud',
+      baseUrl: 'https://company.atlassian.net'
+    }
+  };
+  const routing = workspaceJiraRouting(workspace, credentials);
+  assert.deepEqual(routing.projectKeys, ['KAN', 'MOB']);
+  assert.equal(routing.leadProjectKey, 'KAN');
+  assert.equal(assertWorkspaceEpicKey(routing, 'kan-8'), 'KAN-8');
+  assert.throws(() => assertWorkspaceEpicKey(routing, 'OTHER-2'), /outside this workspace/);
+  const configuration = workspacePortfolioConfiguration(workspace, credentials);
+  assert.deepEqual(Object.keys(configuration.repositories), ['lead', 'mobile']);
+  assert.deepEqual(configuration.jira.allowedProjects, ['KAN', 'MOB']);
+  assert.equal(configuration.jira.projectKey, 'KAN');
+  assert.equal(configuration.jira.writeMode, 'approved');
+});
+
 test('Electron Epic start remains usable without an existing portfolio and renderer failures stay recoverable', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const entrypoint = await readFile(path.join(packageRoot, 'apps/desktop/src/main.jsx'), 'utf8');
@@ -159,11 +204,14 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Advanced governance/);
   assert.match(source, /Cross-repository control plane/);
   assert.match(source, /Set up your Epic workspace/);
-  assert.match(source, /compact=\{\['requirements', 'planning'\]\.includes\(entryTab\)\}/);
-  assert.match(source, /One-time planning setup/);
-  assert.match(source, /\{!compact && <section className="portfolio-setup-intro"/);
-  assert.match(styles, /\.portfolio-setup\.compact/);
-  assert.match(styles, /\.portfolio-setup-compact-head/);
+  assert.doesNotMatch(source, /if \(!portfolio\) return <div className="page"><PortfolioSetup/);
+  assert.match(source, /workspaceJiraContext/);
+  assert.match(source, /workspaceJiraEpic/);
+  assert.match(source, /bootstrapWorkspacePortfolio/);
+  assert.match(source, /Fetch the Epic by ID/);
+  assert.match(source, /Generate the formatted requirements artifact/);
+  assert.match(source, /function EpicRequirementsView/);
+  assert.match(styles, /\.requirements-output-map/);
   assert.match(source, /Create & validate governance/);
   assert.match(source, /Set your working perspective/);
   assert.match(source, /Advanced setup/);
@@ -492,6 +540,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /initiativeId/);
   assert.match(preload, /answerPlanningQuestion/);
   assert.match(preload, /bootstrapPortfolio/);
+  assert.match(preload, /bootstrapWorkspacePortfolio/);
+  assert.match(preload, /workspaceJiraContext/);
+  assert.match(preload, /workspaceJiraEpic/);
   assert.match(preload, /startCopilotService/);
   assert.match(preload, /setCopilotServiceModel/);
   assert.match(preload, /stopCopilotService/);
@@ -501,6 +552,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /--initiative/);
   assert.match(main, /planning:answer/);
   assert.match(main, /configuration:bootstrap-portfolio/);
+  assert.match(main, /configuration:bootstrap-workspace-portfolio/);
+  assert.match(main, /workspace:jira-context/);
+  assert.match(main, /workspace:jira-epic/);
   assert.match(main, /copilot-service:start/);
   assert.match(main, /copilot-service:model/);
   assert.match(await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8'), /session:\s*\{\s*configOptions:\s*\{\}\s*\}/);

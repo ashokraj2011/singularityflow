@@ -178,6 +178,43 @@ test('desktop bootstraps governed portfolio and Jira policy without storing cred
   await assert.rejects(() => bootstrapDesktopPortfolio(root), /already exists/i);
 });
 
+test('desktop bootstraps all workspace repositories and Jira project routes together', async () => {
+  const root = await repository();
+  await unlink(path.join(root, 'singularity/portfolio.yml'));
+  const created = await bootstrapDesktopPortfolio(root, {
+    repositories: {
+      lead: {
+        url: 'https://github.com/company/lead.git',
+        defaultBranch: 'main',
+        required: true,
+        metadata: { appId: 'APP-1', name: 'Lead' }
+      },
+      mobile: {
+        url: 'https://github.com/company/mobile.git',
+        defaultBranch: 'develop',
+        required: true,
+        metadata: { appId: 'APP-2', name: 'Mobile' }
+      }
+    },
+    jira: {
+      enabled: true,
+      connection: 'corporate-jira',
+      deployment: 'cloud',
+      baseUrl: 'https://company.atlassian.net',
+      projectKey: 'KAN',
+      allowedProjects: ['KAN', 'MOB'],
+      writeMode: 'approved'
+    }
+  });
+  assert.equal(created.repositoryConfigured, true);
+  const portfolio = YAML.parse(await readFile(path.join(root, created.path), 'utf8'));
+  assert.deepEqual(Object.keys(portfolio.repositories), ['lead', 'mobile']);
+  assert.deepEqual(portfolio.jira.allowedProjects, ['KAN', 'MOB']);
+  assert.equal(portfolio.jira.projectKey, 'KAN');
+  assert.equal(portfolio.jira.writeMode, 'approved');
+  assert.equal(portfolio.jira.write, true);
+});
+
 test('desktop snapshot exposes initiative phases, assurance, documents, telemetry, and configuration', async () => {
   const root = await repository();
   run(process.execPath, [bin, 'initiative', 'start', 'INIT-DESK', '--title', 'Mobile experience'], root);

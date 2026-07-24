@@ -322,6 +322,7 @@ export async function bootstrapDesktopPortfolio(root, {
   approvalName = null,
   approvalEmail = null,
   repository = null,
+  repositories = null,
   jira = {}
 } = {}) {
   const target = path.join(root, PORTFOLIO_PATH);
@@ -335,7 +336,12 @@ export async function bootstrapDesktopPortfolio(root, {
   for (const authority of Object.values(starter.approvalAuthorities)) {
     authority.members = [{ name: name || email, email }];
   }
-  if (repository?.id || repository?.url) {
+  if (repositories) {
+    if (typeof repositories !== 'object' || Array.isArray(repositories) || !Object.keys(repositories).length) {
+      throw new SingularityFlowError('Workspace portfolio setup requires at least one repository.');
+    }
+    starter.repositories = structuredClone(repositories);
+  } else if (repository?.id || repository?.url) {
     if (!repository.id || !repository.url) throw new SingularityFlowError('A participating repository requires both an ID and URL.');
     starter.repositories = {
       [repository.id]: {
@@ -357,13 +363,17 @@ export async function bootstrapDesktopPortfolio(root, {
     }
     const deployment = jira.deployment ?? 'cloud';
     const projectKey = String(jira.projectKey ?? '').trim().toUpperCase();
+    const allowedProjects = [...new Set([
+      ...(Array.isArray(jira.allowedProjects) ? jira.allowedProjects : []),
+      projectKey
+    ].map((value) => String(value ?? '').trim().toUpperCase()).filter(Boolean))];
     starter.jira = {
       ...starter.jira,
       enabled: true,
       connection: jira.connection || 'corporate-jira',
       deployment,
       allowedHosts: [hostname],
-      allowedProjects: projectKey ? [projectKey] : [],
+      allowedProjects,
       authentication: {
         permitted: deployment === 'data-center' ? ['pat'] : ['user-token', 'service-account'],
         tokenExpiryWarningDays: 14

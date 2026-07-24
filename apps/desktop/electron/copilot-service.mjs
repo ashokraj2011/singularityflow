@@ -34,13 +34,13 @@ export class CopilotBackendController {
     service.logs.push(normalized);
     service.logs = service.logs.slice(-this.maxLogs);
     service.lastEvent = normalized;
-    if (event.type === 'ready') {
+    if (event.type === 'ready' && !service.stopRequested) {
       service.state = 'ready';
       service.version = event.version ?? service.version;
       service.mode = event.modes?.currentModeId ?? 'plan';
       service.sessionId = event.sessionId ?? service.sessionId;
     }
-    if (event.type === 'turn-started') service.state = 'busy';
+    if (event.type === 'turn-started' && !service.stopRequested) service.state = 'busy';
     if (event.type === 'turn-complete' || event.type === 'error') service.state = 'ready';
     if (event.type === 'process-exit') {
       service.state = 'stopped';
@@ -57,7 +57,7 @@ export class CopilotBackendController {
     if (!service) return {
       state: 'stopped', running: false, startedAt: null, stoppedAt: null,
       version: null, mode: null, processId: null, activePlanningSessionId: null,
-      lastEvent: null
+      lastEvent: null, canStop: false
     };
     return {
       state: service.state,
@@ -68,7 +68,8 @@ export class CopilotBackendController {
       mode: service.mode ?? null,
       processId: service.bridge?.process?.pid ?? null,
       activePlanningSessionId: service.activePlanningSessionId ?? null,
-      lastEvent: service.lastEvent ?? null
+      lastEvent: service.lastEvent ?? null,
+      canStop: Boolean(service.bridge && service.state !== 'stopped')
     };
   }
 
@@ -85,8 +86,12 @@ export class CopilotBackendController {
   async start(repository, { model = null } = {}) {
     const key = this.#key(repository);
     const current = this.services.get(key);
-    if (current && ['starting', 'ready', 'busy'].includes(current.state)) return this.status(key);
+    if (current?.startPromise) return current.startPromise;
+    if (current && ['ready', 'busy'].includes(current.state)) return this.status(key);
     if (current?.state === 'stopping') throw new Error('Copilot backend is still stopping. Wait for it to finish before starting again.');
+    if (current?.state === 'error' && current.bridge) {
+      throw new Error('The previous Copilot backend did not stop cleanly. Retry Stop or restart Singularity Desktop before starting another backend.');
+    }
     const check = this.preflight();
     if (!check.ready) throw new Error(check.message);
     const service = {
@@ -100,7 +105,9 @@ export class CopilotBackendController {
       activePlanningSessionId: null,
       lastEvent: null,
       logs: current?.logs ?? [],
-      bridge: null
+      bridge: null,
+      startPromise: null,
+      stopRequested: false
     };
     const bridge = this.bridgeFactory({
       repository: key,
@@ -109,18 +116,32 @@ export class CopilotBackendController {
     service.bridge = bridge;
     this.services.set(key, service);
     this.#record(key, { type: 'service-starting', message: 'Starting Copilot ACP in native Plan mode.' });
+    service.startPromise = (async () => {
+      try {
+        const result = await bridge.start({ model });
+        if (service.stopRequested) return this.status(key);
+        service.state = 'ready';
+        service.version = result.version ?? service.version;
+        service.mode = result.mode ?? 'plan';
+        service.sessionId = result.sessionId ?? service.sessionId;
+        return this.status(key);
+      } catch (error) {
+        if (service.stopRequested) return this.status(key);
+        service.state = 'error';
+        this.#record(key, { type: 'service-start-error', message: `Copilot backend could not start: ${error.message}` });
+        try {
+          await bridge.stop();
+          service.bridge = null;
+        } catch (cleanupError) {
+          this.#record(key, { type: 'service-cleanup-error', message: `Copilot startup cleanup failed: ${cleanupError.message}` });
+        }
+        throw error;
+      }
+    })();
     try {
-      const result = await bridge.start({ model });
-      service.state = 'ready';
-      service.version = result.version ?? service.version;
-      service.mode = result.mode ?? 'plan';
-      service.sessionId = result.sessionId ?? service.sessionId;
-      return this.status(key);
-    } catch (error) {
-      service.state = 'error';
-      service.lastEvent = { at: this.now(), type: 'error', message: error.message };
-      try { await bridge.stop(); } catch {}
-      throw error;
+      return await service.startPromise;
+    } finally {
+      service.startPromise = null;
     }
   }
 
@@ -131,6 +152,7 @@ export class CopilotBackendController {
     if (service.activePlanningSessionId && service.activePlanningSessionId !== planningSessionId) {
       throw new Error(`Copilot is already attached to planning session ${service.activePlanningSessionId}. Stop or finish it before starting another.`);
     }
+    if (!prompt?.trim()) throw new Error('The initial planning prompt cannot be empty.');
     if (service.bridge.running) throw new Error('Copilot is still finishing the previous planning turn. Wait for it to become ready.');
     service.activePlanningSessionId = planningSessionId;
     this.emit('planning:event', {
@@ -150,6 +172,8 @@ export class CopilotBackendController {
     const service = this.services.get(key);
     if (!service?.bridge || ['stopped', 'stopping', 'error'].includes(service.state)) throw new Error('Copilot backend service is not running.');
     if (service.activePlanningSessionId !== planningSessionId) throw new Error('This planning context is not attached to the active Copilot backend.');
+    if (!text?.trim()) throw new Error('Planning follow-up cannot be empty.');
+    if (service.bridge.running) throw new Error('Copilot is still finishing the previous planning turn. Wait for it to become ready.');
     void service.bridge.prompt(text).catch(() => {});
     return { accepted: true };
   }
@@ -163,7 +187,10 @@ export class CopilotBackendController {
   async releasePlanning(repository, planningSessionId) {
     const service = this.services.get(this.#key(repository));
     if (!service?.bridge || service.activePlanningSessionId !== planningSessionId) return { released: false, service: this.status(repository) };
-    await service.bridge.cancelCurrentTurn();
+    const cancellation = await service.bridge.cancelCurrentTurn();
+    if (service.bridge.running && !cancellation?.cancelled) {
+      throw new Error('The active Copilot planning turn could not be cancelled. Wait for it to finish or stop the backend before releasing this context.');
+    }
     service.activePlanningSessionId = null;
     if (service.state !== 'stopped') service.state = 'ready';
     this.#record(repository, { type: 'planning-released', message: `Released planning context ${planningSessionId}; backend remains ready.` });
@@ -175,8 +202,26 @@ export class CopilotBackendController {
     const service = this.services.get(key);
     if (!service?.bridge || service.state === 'stopped') return this.status(key);
     const activePlanningSessionId = service.activePlanningSessionId;
+    service.stopRequested = true;
     service.state = 'stopping';
     this.#record(key, { type: 'service-stopping', message: 'Stopping Copilot ACP backend.' });
+    try {
+      await service.bridge.stop();
+    } catch (error) {
+      service.state = 'error';
+      this.#record(key, { type: 'service-stop-error', message: `Copilot backend could not be stopped cleanly: ${error.message}` });
+      if (activePlanningSessionId) {
+        this.emit('planning:event', {
+          planningSessionId: activePlanningSessionId,
+          type: 'error',
+          message: `Copilot backend could not be stopped cleanly: ${error.message}`
+        });
+      }
+      throw error;
+    }
+    service.activePlanningSessionId = null;
+    service.state = 'stopped';
+    service.stoppedAt = this.now();
     if (activePlanningSessionId) {
       this.emit('planning:event', {
         planningSessionId: activePlanningSessionId,
@@ -186,10 +231,6 @@ export class CopilotBackendController {
         message: 'The Copilot backend was stopped from the desktop service control.'
       });
     }
-    service.activePlanningSessionId = null;
-    await service.bridge.stop();
-    service.state = 'stopped';
-    service.stoppedAt = this.now();
     this.#record(key, { type: 'service-stopped', message: 'Copilot ACP backend stopped.' });
     return this.status(key);
   }

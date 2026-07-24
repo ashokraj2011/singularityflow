@@ -288,3 +288,38 @@ test('ACP form elicitation pauses for an inline answer and cancels unsupported m
   assert.deepEqual(await bridge.requestInput({ mode: 'url', message: 'Open external input', url: 'https://example.com' }), { action: 'cancel' });
   assert.equal(events.at(-1).type, 'question-unsupported');
 });
+
+test('ACP shutdown always cancels questions and terminates the process after partial cleanup failures', async () => {
+  const events = [];
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });
+  const question = bridge.requestInput({
+    mode: 'form',
+    message: 'Choose a repository',
+    requestedSchema: { type: 'object' }
+  });
+  let connectionClosed = false;
+  let processKilled = false;
+  bridge.running = true;
+  bridge.session = {
+    sessionId: 'session-cleanup',
+    dispose: () => { throw new Error('dispose failed'); }
+  };
+  bridge.connection = {
+    agent: { request: async () => { throw new Error('cancel failed'); } },
+    close: () => { connectionClosed = true; }
+  };
+  bridge.process = {
+    killed: false,
+    kill: () => { processKilled = true; return true; }
+  };
+  const result = await bridge.stop();
+  assert.equal((await question).action, 'cancel');
+  assert.equal(connectionClosed, true);
+  assert.equal(processKilled, true);
+  assert.equal(bridge.closed, true);
+  assert.equal(bridge.running, false);
+  assert.equal(bridge.session, null);
+  assert.equal(bridge.connection, null);
+  assert.ok(result.warnings.some((warning) => /session disposal failed/.test(warning)));
+  assert.ok(events.some((event) => event.type === 'diagnostic' && /cleanup warning/.test(event.text)));
+});

@@ -407,6 +407,7 @@ function CopilotServiceControl({ repository, notify }) {
   }
 
   const tone = status.state === 'error' || status.preflight?.ready === false ? 'bad' : status.state === 'busy' ? 'busy' : status.running ? 'ready' : 'stopped';
+  const canStop = status.running || status.canStop;
   return <div className="copilot-service-control" ref={controlRef}>
     <button className={`copilot-service-trigger ${tone}`} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((current) => !current)} title="Manage the local Copilot ACP backend"><span className="copilot-service-orb">✦</span><span><strong>Copilot</strong><small>{status.state === 'loading' ? 'checking' : status.state}</small></span><i /></button>
     {open && <section className="copilot-service-popover" role="dialog" aria-label="Copilot backend service">
@@ -415,7 +416,7 @@ function CopilotServiceControl({ repository, notify }) {
       <div className="copilot-service-facts"><div><span>Mode</span><strong>{status.mode ?? 'plan'}</strong></div><div><span>Version</span><strong>{status.version ?? status.preflight?.version ?? '—'}</strong></div><div><span>Process</span><strong>{status.processId ?? '—'}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
       {!status.running && <label><span>Model <em>optional</em></span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Copilot auto selection" /></label>}
       {status.preflight?.ready === false && <div className="copilot-service-warning">{status.preflight.message}</div>}
-      <div className="copilot-service-actions">{status.running ? <button className="danger-button" disabled={working} onClick={stop}>{working ? 'Stopping…' : 'Stop backend'}</button> : <button className="primary" disabled={working || status.preflight?.ready === false} onClick={start}>{working ? 'Starting…' : 'Start backend'}</button>}<button className="ghost" onClick={() => setOpen(false)}>Close</button></div>
+      <div className="copilot-service-actions">{canStop ? <button className="danger-button" disabled={working} onClick={stop}>{working ? 'Stopping…' : status.state === 'error' ? 'Retry stop' : 'Stop backend'}</button> : <button className="primary" disabled={working || status.preflight?.ready === false} onClick={start}>{working ? 'Starting…' : 'Start backend'}</button>}<button className="ghost" onClick={() => setOpen(false)}>Close</button></div>
       <details className="copilot-service-log"><summary>Service log <span>{logs.length}</span></summary><div>{logs.length ? logs.slice(-80).map((entry, index) => <p key={`${entry.at}:${entry.type}:${index}`}><time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><span>{entry.message ?? entry.detail ?? entry.state ?? ''}</span></p>) : <p className="empty-log">No backend events yet.</p>}</div></details>
     </section>}
   </div>;

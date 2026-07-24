@@ -951,6 +951,7 @@ function WorkspaceStudio({
   const [preview, setPreview] = useState(null);
   const [confirmation, setConfirmation] = useState('');
   const [health, setHealth] = useState(current ?? null);
+  const saveActions = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -1079,7 +1080,10 @@ function WorkspaceStudio({
       repositories: repositoryConfiguration(),
       leadRepository: repositories[leadIndex]?.id.trim()
     }));
-    if (result) setPreview(result);
+    if (result) {
+      setPreview(result);
+      requestAnimationFrame(() => saveActions.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    }
   }
 
   async function create() {
@@ -1161,6 +1165,12 @@ function WorkspaceStudio({
     && validRepositories
     && repositories[leadIndex]
   );
+  const missingWorkspaceFields = [
+    !workspaceName.trim() && 'workspace name',
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workspaceId.trim()) && 'valid workspace ID',
+    !baseDirectory && 'local working directory',
+    !validRepositories && 'complete repository details'
+  ].filter(Boolean);
 
   return <div className="page workspace-page">
     <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy ? 'good' : 'warn'}>{health.healthy ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
@@ -1181,13 +1191,17 @@ function WorkspaceStudio({
 
     <section className="workspace-create panel">
       <header className="panel-heading"><div><span className="eyebrow">New workspace</span><h2>Define the project boundary once</h2><p>Jira connection and initiative governance are not separate setup steps. Repository routing lives here.</p></div><Pill>{repositories.length} repositories</Pill></header>
+      <div className={`workspace-save-callout ${formReady ? 'ready' : ''}`}>
+        <div><span className="eyebrow">Workspace action</span><strong>Save workspace</strong><small>{formReady ? 'All required details are ready. Review the clone plan, confirm the workspace ID, and save.' : `Complete: ${missingWorkspaceFields.join(', ')}.`}</small></div>
+        <button className="primary" disabled={!formReady} onClick={buildPreview}>{preview ? 'Refresh save plan' : 'Review & save workspace'}</button>
+      </div>
       <div className="workspace-identity-grid">
         <label><span>Workspace name</span><input value={workspaceName} placeholder="Payments modernization" onChange={(event) => { setWorkspaceName(event.target.value); resetPreview(); }} /></label>
         <label><span>Workspace ID</span><input value={workspaceId} placeholder="payments-modernization" onChange={(event) => { setWorkspaceId(event.target.value); resetPreview(); }} /></label>
         <label className="workspace-directory-field"><span>Local working directory</span><div><input readOnly value={baseDirectory} placeholder="Choose a parent folder" /><button className="secondary" onClick={chooseBase}>{baseDirectory ? 'Change' : 'Choose'}</button></div></label>
       </div>
       <div className="workspace-repository-config">
-        <header><div><span className="eyebrow">Repository registry</span><h3>Add delivery repositories</h3><p>Every repository requires its Jira board, application identity, and exactly one lead designation.</p></div><div className="row"><button className="ghost compact" onClick={addRepositoryManually}>＋ Enter URL</button><button className="secondary compact" onClick={addRepositories}>＋ Add local repos</button></div></header>
+        <header><div><span className="eyebrow">Repository registry</span><h3>Add delivery repositories</h3><p>Every repository requires its Jira project key, application identity, and exactly one lead designation.</p></div><div className="row"><button className="ghost compact" onClick={addRepositoryManually}>＋ Enter URL</button><button className="secondary compact" onClick={addRepositories}>＋ Add local repos</button></div></header>
         {repositories.map((repository, index) => <article className={`workspace-repository-editor ${leadIndex === index ? 'lead' : ''}`} key={`${index}-${repository.localPath}`}>
           <header><label className="workspace-lead-choice"><input type="radio" name="lead-repository" checked={leadIndex === index} onChange={() => { setLeadIndex(index); resetPreview(); }} /><span><strong>{leadIndex === index ? 'Lead repository' : 'Make lead'}</strong><small>{leadIndex === index ? 'Epic-level artifacts are committed here' : 'Participates in this workspace'}</small></span></label>{repositories.length > 1 && <button className="ghost compact" onClick={() => removeRepository(index)}>Remove</button>}</header>
           <div className="workspace-repository-fields">
@@ -1195,14 +1209,14 @@ function WorkspaceStudio({
             <label><span>Display name</span><input value={repository.name} placeholder="Mobile application" onChange={(event) => updateRepository(index, 'name', event.target.value)} /></label>
             <label className="wide"><span>Git clone URL</span><input value={repository.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => updateRepository(index, 'url', event.target.value)} /></label>
             <label><span>Default branch</span><input value={repository.defaultBranch} placeholder="main" onChange={(event) => updateRepository(index, 'defaultBranch', event.target.value)} /></label>
-            <label><span>Jira board / project key</span><input value={repository.jiraBoard} placeholder="MOB" onChange={(event) => updateRepository(index, 'jiraBoard', event.target.value)} /></label>
+            <label><span>Jira project key</span><input value={repository.jiraBoard} placeholder="MOB" onChange={(event) => updateRepository(index, 'jiraBoard', event.target.value.toUpperCase())} /><small>For example, KAN from KAN-8—not the board name.</small></label>
             <label><span>Application ID</span><input value={repository.appId} placeholder="APP-1001" onChange={(event) => updateRepository(index, 'appId', event.target.value)} /></label>
           </div>
           <div className="workspace-metadata-editor"><header><div><strong>Additional metadata</strong><span>Optional repository-specific key/value pairs.</span></div><button className="ghost compact" onClick={() => addMetadata(index)}>＋ Add field</button></header>{repository.metadata.map((entry, metadataIndex) => <div key={metadataIndex}><input aria-label={`Repository ${index + 1} metadata key ${metadataIndex + 1}`} value={entry.key} placeholder="owner" onChange={(event) => updateMetadata(index, metadataIndex, 'key', event.target.value)} /><input aria-label={`Repository ${index + 1} metadata value ${metadataIndex + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => updateMetadata(index, metadataIndex, 'value', event.target.value)} /><button className="ghost compact" aria-label={`Remove metadata ${metadataIndex + 1}`} onClick={() => removeMetadata(index, metadataIndex)}>×</button></div>)}</div>
         </article>)}
       </div>
-      {!validRepositories && <div className="workspace-form-note">Complete a unique repository ID, display name, Git URL, Jira board/project key, and Application ID for every repository.</div>}
-      <div className="workspace-preview-actions"><button className="secondary" disabled={!formReady} onClick={buildPreview}>Preview clone plan</button>{preview && <><code>{preview.root}</code><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`Type ${workspaceId}`} /><button className="primary" disabled={confirmation !== workspaceId.trim()} onClick={create}>Create workspace</button></>}</div>
+      {!validRepositories && <div className="workspace-form-note">Complete a unique repository ID, display name, Git URL, Jira project key, and Application ID for every repository.</div>}
+      <div className="workspace-preview-actions" ref={saveActions}>{preview ? <><div className="workspace-save-plan"><strong>Save plan ready</strong><small>Clones will be created under this workspace only after exact confirmation.</small></div><code>{preview.root}</code><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`Type ${workspaceId}`} /><button className="primary" disabled={confirmation !== workspaceId.trim()} onClick={create}>Confirm & save workspace</button></> : <div className="workspace-save-plan"><strong>No save plan yet</strong><small>Complete the required fields, then use Review & save workspace above.</small></div>}</div>
       {preview && <div className="workspace-operation-list">{preview.operations.map((operation) => <div key={operation.repository}><Pill tone={operation.repository === repositories[leadIndex]?.id.trim() ? 'accent' : 'neutral'}>{operation.repository === repositories[leadIndex]?.id.trim() ? 'Epic lead' : 'clone'}</Pill><strong>{operation.repository}</strong><code>{operation.url}</code><span>{operation.target}</span></div>)}</div>}
     </section>
   </div>;

@@ -16,8 +16,15 @@ export function groundingMode(definition, workflow = null) {
 function excludedSourcePath(file, definition = {}) {
   const outputDir = posix(definition.worldModel?.outputDir ?? definition.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
   const workItemRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
+  // Initiative state belongs with work-item state: it is per-work governance, not application
+  // source. Counting it meant every governed commit — starting an Epic, publishing a phase,
+  // recording evidence — changed the source-tree hash and marked the world model stale, so the
+  // staleness signal was permanently on and told you nothing about the code it describes. On this
+  // repository it was 48 of 70 files.
+  const initiativeRoot = posix(definition.initiativeRoot ?? 'singularity/initiatives').replace(/\/$/, '');
   return file === outputDir || file.startsWith(`${outputDir}/`)
     || file === workItemRoot || file.startsWith(`${workItemRoot}/`)
+    || file === initiativeRoot || file.startsWith(`${initiativeRoot}/`)
     || file.startsWith('.git/') || file.startsWith('node_modules/');
 }
 

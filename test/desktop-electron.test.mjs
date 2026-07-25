@@ -412,8 +412,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   // Requirements is no longer a tab of the Epic workspace: sources, the Copilot conversation, and
   // the artifacts it produces are one phase, so they are one screen.
   assert.doesNotMatch(source, /entryTab="requirements"/);
-  assert.match(source, /<RequirementsWorkspace data=\{data\}/);
-  assert.match(source, /entryTab="planning"/);
+  assert.match(source, /<PhaseWorkspace data=\{data\}/);
+  // Planning is no longer a tab of the Epic workspace either: it uses the same sources /
+  // conversation / artifacts workspace as Requirements.
+  assert.doesNotMatch(source, /entryTab="planning"/);
   assert.match(source, /entryTab="publish"/);
   assert.match(source, /Approved Story plan/);
   assert.match(source, /Jira Story key/);
@@ -672,9 +674,10 @@ test('a hand-off frames Copilot Studio on the phase it came from, and the sideba
   assert.match(source, /function openStudio\(phase = null, target = null\)/);
   assert.match(source, /setPlanningFocus\(phase \? \{ phase, target \} : null\)/);
   assert.match(source, /focus=\{planningFocus\}/);
-  assert.match(source, /openStudio\(phase \?\? 'epic-plan'\)/);
-  // Requirements owns its own session, framed on whatever phase the initiative is actually on.
+  // Requirements and Planning both own the shared workspace, framed on whatever phase the
+  // initiative is actually on, rather than handing off to the studio.
   assert.match(source, /focus: \{ phase: activePhaseId \}/);
+  assert.match(source, /openPlanning\('epic-plan'\)/);
   assert.match(source, /openPlanning\('epic-plan'\)/);
   assert.match(source, /openPlanning\(phases\[0\]\)/);
 
@@ -721,7 +724,7 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
 
 test('the Requirements workspace follows the initiative phase and shows what blocks approval', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  const workspace = source.slice(source.indexOf('function RequirementsWorkspace('), source.indexOf('function EpicRequirementsView('));
+  const workspace = source.slice(source.indexOf('function PhaseWorkspace('), source.indexOf('function EpicRequirementsView('));
 
   // The engine is sequence-aware: a context for any phase other than the current one is refused.
   // Naming a fixed phase here broke the screen for every Epic that had not reached it yet.

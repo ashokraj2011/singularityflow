@@ -1138,3 +1138,14 @@ test('one Requirements screen, reachable the same way from either route', async 
   assert.match(app, /<EpicSourcesView data=\{data\} selected=\{selected\} action=\{action\} reload=\{reload\} \/>\s*<\/details>/);
   assert.match(app, /Imported Jira Epic — the source these requirements derive from/);
 });
+
+test('the Requirements workspace layout does not depend on how many children it has', async () => {
+  // It was a two-row grid rendering six children, so everything after the second landed in an
+  // implicit row. That was invisible while height:100% resolved to auto against an auto-height
+  // parent; closing the height chain made the rows collapse and draw over one another — the rail,
+  // the next-action strip and the gate all overlapped. A column cannot regress that way.
+  const styles = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'styles.css'), 'utf8');
+  assert.match(styles, /\.requirements-workspace \{ display: flex; flex-direction: column;/);
+  assert.doesNotMatch(styles, /\.requirements-workspace \{ display: grid; grid-template-rows/);
+  assert.match(styles, /\.requirements-workspace > \.requirements-panes \{ flex: 1 1 auto; min-height:/);
+});

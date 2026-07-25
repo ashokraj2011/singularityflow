@@ -3330,7 +3330,16 @@ input:disabled, select:disabled, textarea:disabled {
 }
 
 /* Requirements workspace: sources, conversation, artifacts. One phase, one screen. */
-.requirements-workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 16px; height: 100%; min-height: 0; }
+/* Six children — heading, rail, next action, gate, origin, panes, governance — in a two-row grid
+   put everything after the second into implicit rows. While height:100% resolved to auto that was
+   invisible; once the height chain was closed the rows collapsed and drew over one another. A
+   column that does not care how many children there are cannot regress that way again. */
+.requirements-workspace { display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; }
+.requirements-workspace > * { flex: 0 0 auto; }
+/* The panes take the remaining height, but never less than a working area: the conversation needs
+   a bounded box for its scroll anchoring to mean anything, and 360px left the artifact list clipped
+   at its first card. */
+.requirements-workspace > .requirements-panes { flex: 1 1 auto; min-height: min(640px, 64vh); }
 .requirements-heading { align-items: start; }
 .requirements-panes {
   min-height: 0;

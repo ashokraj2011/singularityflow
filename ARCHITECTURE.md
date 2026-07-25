@@ -1,4 +1,4 @@
-# Singularity Flow Lite 0.8.0 architecture
+# Singularity Flow Lite 0.9.0 architecture
 
 ## Initiative layer
 
@@ -21,6 +21,8 @@ flowchart TB
 Evidence, approvals, and invalidations are canonical JSON named by SHA-256. A justification graph links outputs, checks, evidence, approvals, contracts, and story dependencies. Regeneration, rejection, expired evidence, contract changes, and child regression invalidate only the transitive consumer cone.
 
 Cross-repository materialization uses managed clones under the lead repository’s Git directory, safe branch attachment, committed story seeds, normal fast-forward pushes, and a resumable journal. Jira creation is optional; Git remains canonical.
+
+Story branch ancestry is decided per repository. In the initiative’s own repository a story is cut from the initiative branch, because that is the only branch on which the approved artifacts its seed cites by hash exist; elsewhere it is cut from that repository’s configured default branch, and no initiative branch is created there. The seed records `parentBranch` and `baseCommit`, so the choice is reproducible from a fresh clone rather than inferred. The merge order over those branches is derived from the `dependsOn` graph already committed in `breakdown.yml` — proven acyclic at authoring time — so ordering introduces no new mutable state.
 
 See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 

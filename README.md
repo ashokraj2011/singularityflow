@@ -132,6 +132,23 @@ use the five-phase `epic-planning` profile:
 /sflow-epic-status
 ```
 
+Stories in the Epic's own repository are branched from the **Epic branch**, which
+is the only branch carrying the approved Epic artifacts their seeds cite by hash:
+
+```text
+main
+└── MOB-100          Epic branch: requirements, Story plan, specification
+      ├── MOB-123    Story branches, cut from the Epic branch
+      └── MOB-124
+```
+
+Story pull requests target the Epic branch and merge in dependency order
+(`singularity-flow epic merge-plan`); one final pull request `MOB-100 → main`
+lands the Epic once every blocking Story has merged. Stories in other
+repositories keep branching from that repository's own default branch — an Epic
+branch is never created where one does not already exist. See
+[INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the full topology.
+
 The Electron **Business experience** owns the planning journey through dedicated
 `Epics`, `Requirements`, `Planning`, `Artifact templates`, and `Create Stories`
 destinations, followed by `Reviews` and `Help`. Product Owners and Business
@@ -705,6 +722,11 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow reject [ID] --fetch --to PHASE --reason TEXT` | Reject, reopen, invalidate downstream state, commit, and push. |
 | `singularity-flow sync` | Retry a pending publication without rewriting the commit. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
+| `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
+| `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |
+| `singularity-flow wm build [--local]` | Build the repository world model; `--local` commits it to the current branch without pushing. |
+| `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
+| `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow migrate-config` | Convert legacy JSON configuration and work-item state without rewriting history. |
 
 An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.

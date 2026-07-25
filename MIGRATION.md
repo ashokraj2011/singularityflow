@@ -7,7 +7,7 @@ The canonical repository-owned control folder is now the visible `singularity/` 
 Commit or stash unrelated changes and ensure the normal Git remote is reachable. Upgrade the CLI, but do not delete the JSON configuration or rewrite work-item history.
 
 ```bash
-npm install --global ./singularity-flow-0.8.0.tgz
+npm install --global ./singularity-flow-0.9.0.tgz
 singularity-flow migrate-config
 ```
 
@@ -66,7 +66,7 @@ Version 0.6.1 replaces generic Copilot skill names with collision-safe commands 
 
 Version 0.7 adds a Jira-or-manual intake picker before workflow-template selection, structured manual stories through `--story-file`, repeatable document and URL imports, a committed `USER-STORY.md` for both sources, and the read-only `/sflow-help` template guide.
 
-Version 0.8.0 keeps existing repositories and in-flight work items compatible:
+Version 0.9.0 keeps existing repositories and in-flight work items compatible:
 
 - Missing `inputsMode` resolves to `off`, so phase-input declarations have no runtime effect until enabled. New `singularity-flow init` repositories start in `record` mode.
 - Existing schema-v2 work items without input fields resolve to `off`; their immutable configuration snapshot is not rewritten.

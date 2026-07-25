@@ -1,4 +1,4 @@
-# Singularity Flow 0.8.0 — Visual How-To Guide
+# Singularity Flow 0.9.0 — Visual How-To Guide
 
 This guide shows how Singularity Flow turns a Jira story or manual request into approved, Git-transferable artifacts, implementation evidence, and a final specification-to-code comparison.
 
@@ -62,6 +62,22 @@ flowchart TB
 
 Run `/sflow-initiative-start <INIT-ID>` in GitHub Copilot, then use `/sflow-initiative-next` for deterministic guidance. Before repository changes, `/sflow-initiative-materialize` shows the full dry-run and requires exact initiative-ID confirmation. Flow Studio’s **Initiatives** workspace displays the four- or seven-phase flow, three discipline lanes, evidence assurance/freshness, repository stories, contracts, time, models, tokens, and cost.
 
+When the initiative and its stories share one repository — the common single-repository Epic — the stories branch from the initiative branch and land through it:
+
+```mermaid
+flowchart TB
+  Main["main"] --> Epic["INIT-2026-001 · approved epic artifacts"]
+  Epic --> S1["Story API-201"]
+  Epic --> S2["Story MOB-101"]
+  Epic --> S3["Story WEB-301"]
+  S1 -->|"1st"| EpicMerge["Merge in dependsOn order"]
+  S2 -->|"2nd"| EpicMerge
+  S3 -->|"3rd"| EpicMerge
+  EpicMerge --> Land["One pull request: INIT-2026-001 → main"]
+```
+
+`singularity-flow epic merge-plan` shows that order and the next story to merge; `singularity-flow pr` previews each story's pull request. Stories in other repositories keep branching from their own default branch.
+
 The complete guide is [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 
 ## Lifecycle and Git state transfer
@@ -121,7 +137,7 @@ copilot plugin list
 copilot skill list
 ```
 
-Expected version: `0.8.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.
+Expected version: `0.9.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.
 
 ## 2. Initialize an application repository
 
@@ -475,6 +491,10 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Reject | `/sflow-reject` | `singularity-flow reject WORK-123 --fetch --to <phase> --reason <reason>` |
 | Check completion | `/sflow-progress` | `singularity-flow progress WORK-123` |
 | View performance | `/sflow-report` | `singularity-flow report WORK-123` |
+| See the story merge order | — | `singularity-flow epic merge-plan --epic <EPIC-ID>` |
+| Preview a story pull request | — | `singularity-flow pr WORK-123` |
+| Open a story pull request | — | `singularity-flow pr WORK-123 --create` |
+| Build the world model locally | — | `singularity-flow wm build --local` |
 | Read full help | `/sflow-help` | `singularity-flow help` |
 
 ## Operational checklist

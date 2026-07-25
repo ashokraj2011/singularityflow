@@ -225,9 +225,58 @@ singularity-flow epic create-stories --artifact epic-requirements/requirements-s
 singularity-flow epic create-stories --plan <exact-sha256>
 singularity-flow epic review MOB-123
 singularity-flow epic checks MOB-123 --packet <exact-sha256>
+singularity-flow epic merge-plan --epic MOB-100
 singularity-flow epic complete MOB-100 --dry-run
 singularity-flow epic complete MOB-100
 ```
+
+### Where Story branches come from, and how they land
+
+When the Story's repository is the Epic's own repository — always the case for a
+single-repository Epic — the Story branch is cut from the **Epic branch**, not
+from the default branch:
+
+```text
+main
+└── MOB-100                Epic branch: requirements, Story plan, specification
+      ├── MOB-123          Story branches, cut from the Epic branch
+      ├── MOB-124
+      └── MOB-125
+```
+
+The Epic branch is the only branch carrying the approved Epic artifacts. A Story
+seed cites `approvedArtifacts[]` by path and hash; cut from `main`, those paths
+would not exist and the approved specification could not be read or verified
+from the Story. A shared ancestor also moves conflicts into the Epic's own
+integration instead of N separate pull requests.
+
+A Story in **any other** repository is cut from that repository's `defaultBranch`
+exactly as before. An Epic branch is never created in a repository that does not
+already have one. The seed records `story.parentBranch` and `story.baseCommit`,
+and `singularity-flow start <STORY-ID>` follows `parentBranch` so a fresh clone
+forks from the same commit.
+
+Story pull requests therefore target the Epic branch, and one final pull request
+`MOB-100 → main` lands the Epic once every blocking Story has merged:
+
+```bash
+singularity-flow epic merge-plan --epic MOB-100    # ordered sequence and next action
+singularity-flow pr MOB-123                        # preview the Story pull request
+singularity-flow pr MOB-123 --create               # open it, after typed confirmation
+```
+
+`epic merge-plan` derives the order from the `dependsOn` graph already committed
+in `breakdown.yml`; it reads Git and changes nothing. Each Story reports
+`merged`, `ready`, `blocked` (naming its blockers), or `in-progress`. After each
+merge, sync the remaining Story branches from the Epic branch before continuing.
+
+`pr` previews by default. `--create` additionally requires typing the exact Work
+ID, refuses a Story whose dependencies have not merged, reports an existing pull
+request instead of opening a duplicate, honours a `direct` `branchCompletionPolicy`,
+and prints the body for manual use when the GitHub CLI is unavailable. The body
+is built only from committed governed state: identity, lineage, acceptance
+criteria, approved artifacts with approval-time hashes, required checks, and
+merge position.
 
 Source bytes are uploaded through a configured Jira attachment, Artifactory,
 SharePoint, S3, or HTTPS-reference adapter. Git stores only immutable provider
@@ -1343,6 +1392,29 @@ Run `singularity-flow agents status <AGENT>`. If the agent Markdown or a remote 
 
 Review the local artifact first. `singularity-flow agents refresh-output <RESOURCE-ID>` will preserve conflicting local edits and explain the conflict. Add `--replace` only when you intentionally want the newly fetched Markdown to overwrite them.
 
+### An initiative template does not exist
+
+A repository initialized before the `initiatives/` template subtree shipped does
+not have it, and template installation never overwrites local edits. Starting an
+initiative and preparing a phase both install any **packaged** template the
+repository is missing, into the templates root the portfolio declares, and commit
+what they installed with the phase — so this normally resolves itself.
+
+If the error persists, the template is not one Singularity Flow ships. The
+message names every unresolved output at once, for example:
+
+```text
+Profile 'epic-planning' references 2 initiative templates that do not exist
+and are not packaged with Singularity Flow:
+  - discover-define/business-case → singularity/templates/initiatives/generic-output.md
+  - discover-define/scope → singularity/templates/initiatives/custom-scope.md
+```
+
+Add each file under the portfolio's `templatesRoot`, or point the output at a
+template that exists. A template that changed after the initiative was created
+reports a hash mismatch instead: restore the exact recorded content or start a
+new initiative, because the resolution is immutable by design.
+
 ## CLI command reference
 
 ```text
@@ -1380,6 +1452,8 @@ singularity-flow telemetry reconcile [PHASE] [--json]
 singularity-flow documents list [WORK-ID] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID]
 singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
+singularity-flow documents browse --provider <ID> [--path FOLDER] [--json]
+singularity-flow documents fetch --provider <ID> --ref <ITEM> [--name NAME] [--label TEXT] [--kind KIND]
 singularity-flow prepare [PHASE]
 singularity-flow phase show [PHASE] [--json]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
@@ -1388,13 +1462,27 @@ singularity-flow artifact scan [--phase PHASE]
 singularity-flow submit [--phase PHASE]
 singularity-flow approve [WORK-ID] [--fetch]
 singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build|context|inject|check
+singularity-flow wm build [--local] [--views LIST] [--focus TEXT]
+singularity-flow wm context|inject|check
 singularity-flow jira list|pull|fields
+singularity-flow jira status|projects|epics|children|permissions
 singularity-flow plugin install|uninstall|list|path
 singularity-flow desktop snapshot|validate|save|delete-template|publish|session
+singularity-flow migrate-config
+singularity-flow home [--json]
+singularity-flow workspace list|add|remove|use
+singularity-flow story branch create|attach|status|promote
+singularity-flow story submit
+singularity-flow initiative start|resume|phase|context|documents|checklist
+singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync
+singularity-flow initiative jira-adopt|jira-plan|jira-apply
+singularity-flow epic start|sources|generate|submit|create-stories
+singularity-flow epic review|checks|status|complete
+singularity-flow epic merge-plan [--epic INIT-ID] [--json]
 ```
 
 Run `singularity-flow --help` for the current terse usage list and `singularity-flow help <topic>` for one section of this manual.

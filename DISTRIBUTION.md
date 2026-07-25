@@ -70,15 +70,15 @@ Add the signing values above as GitHub Actions secrets. The workflow `.github/wo
 Example release:
 
 ```bash
-git tag -a v0.8.0 -m "Singularity Flow 0.8.0"
-git push origin v0.8.0
+git tag -a v0.9.0 -m "Singularity Flow 0.9.0"
+git push origin v0.9.0
 ```
 
 The workflow tests the source, builds on native macOS and Windows runners, signs and verifies the packages, validates the universal Mac binary, performs a silent Windows install/launch/uninstall smoke test, and combines both manifests. It creates a **draft** GitHub Release so a maintainer can inspect the assets before publication:
 
 ```bash
-gh release view v0.8.0
-gh release edit v0.8.0 --draft=false
+gh release view v0.9.0
+gh release edit v0.9.0 --draft=false
 ```
 
 Official output contains:
@@ -108,7 +108,7 @@ Preview every destination without contacting Artifactory:
 
 ```bash
 npm run desktop:publish:artifactory -- \
-  --dir apps/desktop/release/official/0.8.0 \
+  --dir apps/desktop/release/official/0.9.0 \
   --dry-run
 ```
 
@@ -116,7 +116,7 @@ Publish after verification:
 
 ```bash
 npm run desktop:publish:artifactory -- \
-  --dir apps/desktop/release/official/0.8.0
+  --dir apps/desktop/release/official/0.9.0
 ```
 
 Files are uploaded with HTTPS PUT to `<repository>/singularity-flow-desktop/<version>/`. Existing files are never overwritten unless `--replace` is supplied explicitly. The manual GitHub workflow also has an optional **Publish Artifactory** input; its URL, repository, and optional username come from repository variables and its token comes from a secret.
@@ -134,7 +134,7 @@ The desktop does not currently auto-update. Install a newer signed package over 
 Verify metadata and platform signatures from the producing host:
 
 ```bash
-npm run desktop:verify -- --dir apps/desktop/release/official/0.8.0 --release-mode official
+npm run desktop:verify -- --dir apps/desktop/release/official/0.9.0 --release-mode official
 ```
 
 macOS verification includes `hdiutil`, `lipo`, `codesign`, `spctl`, and `xcrun stapler`. Windows verification uses `Get-AuthenticodeSignature`. The release manifest records the source commit, package version, Electron and Node versions, build time, platform, architecture, byte size, SHA-256, signature status, and notarization status.

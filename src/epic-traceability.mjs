@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { listEpicSources } from './epic-sources.mjs';
+import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { secureInitiativePath } from './initiative-state.mjs';
 
@@ -53,6 +53,8 @@ export async function verifyEpicTraceability(root, portfolio, initiative) {
   if (initiative.resolution.profile !== 'epic-planning') return { errors, warnings, passes };
   const sources = await listEpicSources(root, initiative.initiative.id);
   const knownSources = new Set(sources.manifest.sources.map((entry) => entry.sourceId));
+  const jiraSnapshot = jiraSnapshotSource(initiative);
+  if (jiraSnapshot) knownSources.add(jiraSnapshot.sourceId);
   const requirementsPhase = initiative.phases['epic-requirements'];
   const requirementsPrepared = requirementsPhase?.generation > 0
     || Object.values(requirementsPhase?.outputs ?? {}).some((output) => (output.generation ?? 0) > requirementsPhase.generation);

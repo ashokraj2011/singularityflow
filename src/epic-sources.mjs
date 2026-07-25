@@ -16,6 +16,29 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/**
+ * Jira's imported Epic is already a committed, immutable snapshot. Treat it as a
+ * first-class source when no external documents were uploaded so Requirements can
+ * cite the Jira data instead of being forced to invent a document.
+ */
+export function jiraSnapshotSource(initiative) {
+  const source = initiative?.initiative?.source;
+  if (source?.type !== 'jira') return null;
+  const content = JSON.stringify(source, null, 2);
+  const digest = sha256(content);
+  return {
+    sourceId: `SRC-${digest.slice(0, 12).toUpperCase()}`,
+    name: `Jira Epic ${source.key ?? initiative.initiative.id} snapshot`,
+    provider: 'jira-snapshot',
+    version: source.updatedAt ?? source.id ?? null,
+    sha256: digest,
+    bytes: Buffer.byteLength(content),
+    mimeType: 'application/json',
+    status: 'pinned',
+    content
+  };
+}
+
 function safeSegment(value, label) {
   const text = String(value ?? '').trim();
   if (!text || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(text)) throw new SingularityFlowError(`${label} must be a portable filename or identifier.`);

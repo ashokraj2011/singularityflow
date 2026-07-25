@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { renderAgentSkills } from './agents.mjs';
-import { verifyEpicSources } from './epic-sources.mjs';
+import { jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
 import {
   resolveWorldModelContext,
@@ -104,6 +104,16 @@ async function epicSourceSections(root, initiative, phase) {
     mimeType: entry.record?.mimeType ?? 'application/octet-stream',
     name: entry.record?.name ?? entry.sourceId
   }));
+  const jiraSnapshot = jiraSnapshotSource(initiative);
+  if (jiraSnapshot) sections.unshift({
+    sourceId: jiraSnapshot.sourceId,
+    name: jiraSnapshot.name,
+    path: null,
+    sha256: jiraSnapshot.sha256,
+    version: jiraSnapshot.version,
+    mimeType: jiraSnapshot.mimeType,
+    content: jiraSnapshot.content
+  });
   return {
     sections,
     warnings: failures.map((entry) => `Epic source ${entry.sourceId} is ${entry.status}.`)
@@ -256,12 +266,15 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const sourceText = epicSources.sections.map((source) => [
     `## Pinned Epic source: ${source.sourceId} — ${source.name}`,
     '',
-    `- Local verified cache: \`${source.path}\``,
+    source.path ? `- Local verified cache: \`${source.path}\`` : '- Stored in the committed Jira Epic snapshot',
     `- SHA-256: \`${source.sha256}\``,
     `- Provider version: \`${source.version ?? 'unavailable'}\``,
     `- MIME type: \`${source.mimeType}\``,
+    source.content ? `\n\`\`\`json\n${source.content}\n\`\`\`` : '',
     '',
-    'Read the exact cached file through the local filesystem. Cite this source ID plus page, frame, or section in every derived requirement and acceptance criterion.'
+    source.path
+      ? 'Read the exact cached file through the local filesystem. Cite this source ID plus page, frame, or section in every derived requirement and acceptance criterion.'
+      : 'Use the exact Jira Epic snapshot above as the source. Cite this source ID plus field or section in every derived requirement and acceptance criterion.'
   ].join('\n')).join('\n\n');
   const rendered = [
     `# Governed Copilot prompt — ${initiativeId}/${phaseId} generation ${generation}`,

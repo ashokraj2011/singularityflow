@@ -271,7 +271,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Epic-level story progress/);
-  assert.match(source, /Epic lifecycle wizard/);
+  // Was 'Epic lifecycle wizard' — that rail was a duplicate of the engine-driven journey rail.
+  assert.match(source, /Epic journey progress/);
   assert.match(source, /Turn an Epic into delivery-ready Stories/);
   assert.match(source, /className="epic-start-intro-copy"/);
   assert.match(source, /aria-label="Epic planning workflow"/);
@@ -280,7 +281,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /<EpicJourneyDiagram activeStep=\{businessStage\.activeStep\} \/>/);
   assert.match(source, /activeStep: 1/);
   assert.match(source, /activeStep: 2/);
-  assert.match(source, /!entryTab && <nav className="epic-lifecycle-wizard"/);
+  // The wizard nav is gone; an epic-planning workspace now renders no second nav at all, and the
+  // non-epic-planning profiles keep their own tab strip.
+  assert.match(source, /selected\?\.state\.initiative\.profile !== 'epic-planning' && <nav className="epic-workspace-nav"/);
   assert.match(source, /Bring from Jira/);
   assert.match(source, /Set up Jira →/);
   assert.match(source, /Connect Jira to bring in Epics/);
@@ -810,4 +813,29 @@ test('the reason a phase cannot be approved renders beside the field it refers t
   const field = app.indexOf('Type the confirmation phrase');
   const blocker = app.indexOf('field-error', field);
   assert.ok(blocker > field && blocker - field < 800, 'blocker must render inside the confirmation label');
+});
+
+test('the Epic journey is drawn once, from the engine resolution', async () => {
+  // Three components each rendered Intake → Requirements → Planning, two of them re-deriving phase
+  // status inline. That is how the same stage came to be called "Intake" in one rail and "Sources"
+  // in the next. Only EpicJourneyRail, fed by the engine's own journey, survives.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.doesNotMatch(app, /epic-lifecycle-wizard/);
+  assert.doesNotMatch(app, /requirements-output-map/);
+  assert.doesNotMatch(app, /wizardSteps/);
+  assert.equal([...app.matchAll(/<EpicJourneyRail/g)].length, 2, 'one rail per workspace, no more');
+  // Removing the wizard removed the only route to Configuration; it must still be reachable.
+  assert.match(app, /⚙ Configuration/);
+});
+
+test('the Epic workspace rail dispatches on the same vocabulary as the phase workspace', async () => {
+  // This was a second copy of the dispatch defect: it compared legacy ids, so canonical 'publish'
+  // and 'approve' matched nothing and fell through to a fallback that navigated to the stage
+  // already open — a button that changed nothing, exactly as before.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const fn = app.slice(app.indexOf('function continueJourney('), app.indexOf('function continueJourney(') + 1400);
+  assert.match(fn, /normalizeNextActionId\(next\?\.action \?\? next\?\.id\)/);
+  assert.doesNotMatch(fn, /'author-and-publish'/);
+  assert.doesNotMatch(fn, /'prepare'/);
+  assert.match(fn, /No action is wired for/);
 });

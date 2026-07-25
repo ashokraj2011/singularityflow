@@ -1938,7 +1938,7 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       target: target.id,
       objective
     }), 'Governed planning context built');
-    if (!result) return;
+    if (!result) return null;
     setContextPack(result);
     setMessages([]);
     setPlan('');
@@ -1949,6 +1949,23 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     setQuestions([]);
     setLogs([]);
     setActivity(`${result.manifest.sources.length} hashed sources ready for Copilot.`);
+    // Returned so a caller can start the session on the same pack without waiting for the state
+    // round-trip — the two-step existed partly because contextPack was only readable next render.
+    return result;
+  }
+
+  // One action. The prompt stays inspectable afterwards — reviewing it was always optional, but the
+  // two-step made it feel mandatory and left the screen with two "start" buttons in different places.
+  async function beginSession() {
+    const pack = await buildContext();
+    if (!pack?.sessionId) return null;
+    setRunning(true);
+    const result = await action(
+      () => window.singularity.startPlanningSession(data.repository.root, pack.sessionId, model),
+      'Copilot received the governed context'
+    );
+    if (!result) setRunning(false);
+    return result;
   }
 
   async function startCopilot() {
@@ -1978,6 +1995,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         'accept'
       ), 'Answer sent to Copilot');
       if (!result) return;
+      questionsRef.current = questionsRef.current.map((item) => item.id === question.id ? { ...item, status: 'accept' } : item);
+      setQuestions(questionsRef.current);
       setMessages((current) => [...current, {
         role: 'user',
         id: `answer-${question.id}`,
@@ -2067,13 +2086,13 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   }, [data.repository.root]);
 
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
 function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
@@ -2330,6 +2349,50 @@ function formatBytes(bytes = 0) {
  * The preflight already distinguishes "not installed" from "installed but the wrong build", so the
  * banner states which, rather than a single unhelpful "unavailable".
  */
+/**
+ * What a phase session is usually asked to do, phrased once.
+ *
+ * The composer was an empty box, so each turn started by re-inventing the request for work the
+ * phase contract already describes. `outputs` comes from the built context, so the wording names
+ * the artifacts this phase actually owes rather than a generic list.
+ */
+function phaseCommands(outputs = []) {
+  const names = outputs.map((output) => output.label).filter(Boolean);
+  const list = names.length ? names.join(', ') : 'the configured artifacts';
+  return [
+    {
+      id: 'draft',
+      label: 'Draft every artifact',
+      hint: 'Produce the full set from the pinned sources',
+      prompt: `Produce ${list}. Use only the pinned sources, cite the source id in every derived requirement and acceptance criterion, and wrap each artifact in its own promotion fence.`
+    },
+    {
+      id: 'gaps',
+      label: 'What the sources do not answer',
+      hint: 'Find the holes before drafting',
+      prompt: 'List everything this phase needs that the pinned sources do not answer. Do not guess at any of it — record each as an open question with the decision it blocks.'
+    },
+    {
+      id: 'trace',
+      label: 'Check traceability',
+      hint: 'Every REQ and AC back to a pinned source',
+      prompt: 'Check that every REQ and AC traces to a pinned source id, and list any that do not along with what evidence they would need.'
+    },
+    {
+      id: 'challenge',
+      label: 'Challenge the assumptions',
+      hint: 'Argue against the current draft',
+      prompt: 'Challenge the assumptions in the current draft. Name each one, say what it would take to be wrong, and what would change if it were.'
+    },
+    {
+      id: 'tighten',
+      label: 'Tighten acceptance criteria',
+      hint: 'Make each one testable',
+      prompt: 'Rewrite the acceptance criteria so each is independently testable, with an unambiguous pass condition. Flag any that cannot be made testable from the pinned sources.'
+    }
+  ];
+}
+
 function CopilotUnavailable({ health, onRetry = null, action = 'this' }) {
   if (!health || health.ready !== false) return null;
   const cause = health.installed === false
@@ -2409,8 +2472,12 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
   </section>;
 }
 
-function EpicJourneyRail({ journey, onSelect, onNext }) {
+function EpicJourneyRail({ journey, onSelect, onNext, ownsPhase = null }) {
   if (!journey) return null;
+  // A screen that already owns this phase's work offers it directly — the next-action strip and the
+  // governance panel are right below. Repeating it in the rail produced "Open Requirements
+  // workspace" for someone standing in the Requirements workspace: the dead-button pattern again.
+  const ownedHere = Boolean(ownsPhase && journey.nextAction?.phaseId === ownsPhase);
   return <section className="epic-journey-rail" aria-label="Epic journey progress">
     <div className="epic-journey-steps">
       {journey.stages.map((stage, index) => <React.Fragment key={stage.id}>
@@ -2428,8 +2495,8 @@ function EpicJourneyRail({ journey, onSelect, onNext }) {
       </React.Fragment>)}
     </div>
     <div className="epic-journey-next">
-      <span><small>{journey.completionPercent}% complete</small><strong>{journey.nextAction.label}</strong></span>
-      {onNext && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
+      <span><small>{journey.completionPercent}% complete</small><strong>{ownedHere ? `You are here · ${journey.stageLabel ?? 'this phase'}` : journey.nextAction.label}</strong></span>
+      {onNext && !ownedHere && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
     </div>
   </section>;
 }
@@ -2446,7 +2513,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const {
     contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
-    buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
+    buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
   const messageRef = useRef(null);
@@ -2570,6 +2637,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (result) await reload(undefined, state.initiative.id);
   }
 
+  const phaseOutputs = useMemo(
+    () => selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [],
+    [selected.state.resolution, activePhaseId]
+  );
   const requiredOutputIds = useMemo(() => new Set(
     (selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [])
       .filter((output) => output.required)
@@ -2634,7 +2705,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </div>
     </header>
 
-    <EpicJourneyRail journey={selected.journey} onSelect={onJourneyStage} onNext={nextAction} />
+    <EpicJourneyRail journey={selected.journey} onSelect={onJourneyStage} onNext={nextAction} ownsPhase={phaseId} />
 
     <NextActionStrip
       initiative={state}
@@ -2728,11 +2799,21 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             onChange={(event) => setObjective(event.target.value)}
             placeholder={`What must ${phase?.label ?? 'this phase'} settle? For example: turn the pinned specification into REQ/AC records, and flag anything the sources do not answer.`}
           />
+          <div className="composer-commands start-commands">
+            {phaseCommands(phaseOutputs).map((command) => <button
+              key={command.id}
+              type="button"
+              className="composer-command"
+              disabled={!ready || running}
+              title={command.hint}
+              onClick={() => setObjective(command.prompt)}
+            >{command.label}</button>)}
+          </div>
           <div className="row">
             <select aria-label="Persona" value={persona} onChange={(event) => setPersona(event.target.value)}>
               {Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}
             </select>
-            <button className="primary" disabled={!ready || running || !group} onClick={buildContext}>Start with Copilot</button>
+            <button className="primary" disabled={!ready || running || !group} onClick={beginSession}>Start with Copilot</button>
           </div>
           {!ready && <CopilotUnavailable health={preflight} action="a planning session" onRetry={onCopilotRetry} />}
         </div> : <>
@@ -2751,7 +2832,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
-            {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Start Copilot with this context</button>}
+            {!started && !running && <button className="ghost compact" disabled={running} onClick={startCopilot} title="The session did not start — send this context again">Retry send</button>}
           </div>
           <div className="copilot-identity">
             <span className="copilot-avatar" aria-hidden="true">✦</span>
@@ -2764,9 +2845,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             </Pill>
           </div>
           <div className="requirements-activity">{activity}</div>
-          {pendingQuestions.length > 0 && <div className="copilot-question-stack">
-            {pendingQuestions.map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}
-          </div>}
+          {pendingQuestions.length > 1 && <p className="requirements-hint">{pendingQuestions.length} questions are waiting.</p>}
           <div
             className="requirements-messages"
             ref={messageRef}
@@ -2807,6 +2886,16 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
                   : <div className="inline-empty">Tool calls, thinking and diagnostics appear here.</div>}
               </div>
             </details>
+          </div>
+          <div className="composer-commands">
+            {phaseCommands(outputs).map((command) => <button
+              key={command.id}
+              type="button"
+              className="composer-command"
+              disabled={!started || running}
+              title={command.hint}
+              onClick={() => { setFollowup(command.prompt); }}
+            >{command.label}</button>)}
           </div>
           {/* Enter sends and Shift+Enter breaks the line, the convention every chat surface uses.
               The hint under the box is only honest if the keys actually behave that way. */}
@@ -2884,6 +2973,22 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </aside>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
+    {pendingQuestions[0] && <div className="modal-backdrop copilot-ask" role="dialog" aria-modal="true">
+      <div className="preview-modal question-modal">
+        <header>
+          <div>
+            <strong>Copilot needs an answer to continue</strong>
+            <small>{pendingQuestions.length > 1 ? `${pendingQuestions.length} waiting · answering one at a time` : 'The turn is paused until you answer or skip'}</small>
+          </div>
+        </header>
+        <CopilotQuestionCard
+          question={pendingQuestions[0]}
+          disabled={!started}
+          onAnswer={answerQuestion}
+          onDismiss={dismissQuestion}
+        />
+      </div>
+    </div>}
     {fullView && (() => {
       const output = outputs.find((item) => item.id === fullView);
       const committed = selected.documents.find((document) => document.id === fullView && document.phase === phaseId);

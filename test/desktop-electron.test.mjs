@@ -980,7 +980,8 @@ test('starting a session and sending a message are not both called Send', async 
   // the session, the other was an ordinary chat send. The chat pair was also rendered disabled
   // before a session existed, so the screen offered a Stop with nothing to stop.
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  assert.match(app, /Start Copilot with this context/);
+  // Was "Start Copilot with this context" — the second of two start buttons, now collapsed into one.
+  assert.match(app, /Start with Copilot/);
   assert.doesNotMatch(app, />Send to Copilot</);
   // The chat controls exist only once there is a session to talk to, and Stop now halts the turn
   // rather than discarding the session — those are different intents with different buttons.
@@ -1179,4 +1180,50 @@ test('a Copilot session that dies mid-turn says so', async () => {
   assert.match(app, /Copilot stopped unexpectedly \(exit/);
   assert.match(app, /The conversation is kept; start again to continue/);
   assert.match(app, /onCopilotLost\?\.\(\)/);
+});
+
+test('starting a Copilot session is one action', async () => {
+  // Building the context and starting the session were two clicks on two differently-named buttons
+  // in two places, and the second appeared above the first after the first was pressed. Nothing
+  // useful happened between them.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /async function beginSession\(\)/);
+  assert.match(app, /const pack = await buildContext\(\);/);
+  assert.doesNotMatch(app, /Start Copilot with this context/);
+  // buildContext returned nothing, so a caller had to wait a render for contextPack.
+  assert.match(app, /\s+return result;\n  \}/);
+});
+
+test('the journey rail does not offer the screen the user is standing on', async () => {
+  // It rendered "Open Requirements workspace" inside the Requirements workspace, duplicating the
+  // next-action strip directly beneath it.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /const ownedHere = Boolean\(ownsPhase && journey\.nextAction\?\.phaseId === ownsPhase\)/);
+  assert.match(app, /ownedHere \? `You are here/);
+  assert.match(app, /ownsPhase=\{phaseId\}/);
+});
+
+test('a question from Copilot takes over, and answering always releases it', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Inline in a scrolling transcript, the one thing blocking the turn was the easiest to miss.
+  assert.match(app, /className="modal-backdrop copilot-ask"/);
+  assert.match(app, /Copilot needs an answer to continue/);
+  const workspace = app.slice(app.indexOf('function PhaseWorkspace('), app.indexOf('function PhaseGovernance('));
+  assert.doesNotMatch(workspace, /className="copilot-question-stack"/);
+  // The native branch left status pending and waited for a question-answered event. As a blocking
+  // modal, a dropped event would leave an un-dismissable dialog over the whole screen.
+  const answer = app.slice(app.indexOf('async function answerQuestion('), app.indexOf('async function dismissQuestion('));
+  assert.match(answer, /item\.id === question\.id \? \{ \.\.\.item, status: 'accept' \}/);
+});
+
+test('the composer offers the work this phase actually asks for', async () => {
+  // A blank box meant every turn began by inventing wording for work the phase contract already
+  // describes; the command names the artifacts this phase owes rather than a generic list.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /function phaseCommands\(outputs = \[\]\)/);
+  for (const id of ['draft', 'gaps', 'trace', 'challenge', 'tighten']) {
+    assert.ok(app.includes(`id: '${id}'`), `command '${id}' missing`);
+  }
+  // Choosing one fills the box so it can be edited, rather than firing text the user never read.
+  assert.match(app, /onClick=\{\(\) => \{ setFollowup\(command\.prompt\); \}\}/);
 });

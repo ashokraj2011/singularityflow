@@ -3616,3 +3616,22 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .copilot-down p { margin: 3px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--muted); max-width: 78ch; }
 .copilot-down-detail { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; }
 .world-model-prompt-stack { display: grid; gap: 10px; }
+
+/* Copilot is blocked on this answer, so it is the one thing on screen */
+.copilot-ask { z-index: 60; }
+/* .preview-modal fixes a height for document viewing; a question is as tall as it is. */
+.question-modal { width: min(680px, 92vw); height: auto; max-height: 86vh; overflow: auto; }
+.question-modal > header { margin-bottom: 14px; }
+.question-modal > header strong { display: block; font-size: 14px; font-weight: 660; color: var(--ink); }
+.question-modal > header small { font-size: 11px; color: var(--muted); }
+
+/* Command picker — the work this phase actually asks for */
+.composer-commands { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.composer-commands.start-commands { margin: 4px 0 12px; }
+.composer-command {
+  padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 11px;
+  cursor: pointer; transition: border-color .12s ease, background .12s ease;
+}
+.composer-command:hover:not(:disabled) { border-color: var(--brand, #2f6d4f); background: rgba(47,109,79,.06); }
+.composer-command:disabled { opacity: .45; cursor: default; }

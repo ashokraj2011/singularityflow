@@ -114,6 +114,11 @@ function isPersonaToolCall(payload) {
     && /(?:^|\s)--selection-receipt\s+[0-9a-f-]{36}(?:\s|$)/.test(command)
     && !/[;&|`$<>\n]/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) inbox(?:(?: --json| --offline)){0,2}(?: 2>&1)?$/.test(command)) return true;
+  // Reading the activity log is read-only diagnostics and must survive the gate: a blocked session
+  // is exactly when Copilot needs to explain why it is blocked. Values admit no shell
+  // metacharacters, so this cannot be used to smuggle a command past the guard.
+  if (/^(?:singularity-flow|sflow) logs(?: (?:path|level))?(?:(?: --json| --tail [0-9]{1,6}| --level [a-z]+| --event [A-Za-z0-9._:-]+| --since [0-9A-Za-z:.+-]+)){0,5}(?: 2>&1)?$/.test(command)) return true;
+
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session attach [A-Za-z0-9._-]+(?: 2>&1)?$/.test(command)) return true;

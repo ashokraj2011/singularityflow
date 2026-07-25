@@ -13,3 +13,4 @@ description: Generate the current Epic intake, requirements, Story-planning, or 
 6. The `spec` phase must bind each Story to its REQ/AC scope, repository/component boundary, interfaces, security, observability, test expectations, and Product Owner validation evidence.
 7. Publish with `singularity-flow epic submit [PHASE]`, then print every generated text artifact in full and show all hashes.
 8. Stop at the approval boundary.
+9. If a generation produces nothing, `singularity-flow logs --event copilot --level warn` shows the turn's stop reason and any refused permission or error. A turn that completed without a proposal is a real outcome; report it as such instead of retrying silently.

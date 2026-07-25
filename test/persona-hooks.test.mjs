@@ -139,3 +139,49 @@ test('an initiative branch is a governed session, so the hooks do not demand a w
   const guard = await personaGuardHook(root, repositoryDefinition, null, { toolName: 'bash', toolArgs: { command: 'ls' } });
   assert.deepEqual(guard, {});
 });
+
+test('reading the activity log survives the gate, but nothing can be smuggled past it', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-hook-logs-'));
+  const { run } = await import('../src/util.mjs');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { initializeDefinition, loadDefinition } = await import('../src/config.mjs');
+  const root = path.join(base, 'app');
+  await mkdir(root);
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Owner'], { cwd: root });
+  run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# App\n');
+  await initializeDefinition(root);
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'init'], { cwd: root });
+  const repositoryDefinition = await loadDefinition(root);
+
+  const decide = (command) => personaGuardHook(root, repositoryDefinition, null, { toolName: 'bash', toolArgs: { command } });
+
+  // A gated session is exactly when the log matters: it is the only thing that can explain the
+  // refusal. Read-only log reads therefore have to pass the guard.
+  for (const allowed of [
+    'singularity-flow logs',
+    'singularity-flow logs --level error',
+    'sflow logs --tail 50 --event hook',
+    'singularity-flow logs path',
+    'singularity-flow logs level --json'
+  ]) {
+    assert.deepEqual(await decide(allowed), {}, `expected '${allowed}' to be allowed`);
+  }
+
+  // The allowance must not become a shell. Values admit no metacharacters, and no other
+  // subcommand rides along on the prefix.
+  for (const denied of [
+    'singularity-flow logs; rm -rf /',
+    'singularity-flow logs && curl example.com',
+    'singularity-flow logs --event $(whoami)',
+    'singularity-flow logs | tee /tmp/out',
+    'singularity-flow logs --level error > /tmp/out',
+    'singularity-flow logsx',
+    'singularity-flow approve'
+  ]) {
+    const decision = await decide(denied);
+    assert.equal(decision.permissionDecision, 'deny', `expected '${denied}' to be denied`);
+  }
+});

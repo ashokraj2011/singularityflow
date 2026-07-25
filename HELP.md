@@ -1360,6 +1360,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session persona |
 | `/sflow-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
+| `/sflow-logs` | Read the activity log to explain what a command, hook, or Copilot Studio turn actually did; works while a session is gated |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sflow-next` | Execute exactly one next valid lifecycle action |
 | `/sflow-inputs` | Preview or render approved upstream artifact inputs |

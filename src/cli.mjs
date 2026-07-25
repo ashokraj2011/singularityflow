@@ -148,6 +148,7 @@ What it provides:
   - Atomic Git commit/push state transfer, including every approval decision
   - Remote agent Markdown dependencies and an Electron configuration desktop
   - Per-phase token and model usage reporting when the provider exposes it
+  - A redacted, machine-local activity log readable from the CLI and Copilot
 
 Command namespace:
   Copilot: /sflow-<action>     Example: /sflow-start, /sflow-next, /sflow-about

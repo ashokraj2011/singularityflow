@@ -754,3 +754,24 @@ test('publication waits on required outputs only, and says which ones', async ()
   assert.match(governance, /Waiting on \$\{pendingRequired\.length\}/);
   assert.match(governance, /title=\{!persona \? 'Select a persona first\.'/);
 });
+
+test('a blocked approval says which field is missing, and the strip does not mislabel navigation', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const governance = source.slice(source.indexOf('function PhaseGovernance('), source.indexOf('function EpicsHome('));
+
+  // A disabled primary button with its reason in help text above reads as "nothing works". Publish
+  // already explained itself; approval did not, which is what made intake look broken.
+  assert.match(governance, /const approvalBlocker =/);
+  assert.match(governance, /Select your review persona first/);
+  assert.match(governance, /in the confirmation field to approve this exact document set/);
+  // A typo and an empty field are different user problems and must not share one message.
+  assert.match(governance, /The confirmation phrase does not match/);
+  assert.match(governance, /disabled=\{Boolean\(approvalBlocker\)\}/);
+  assert.match(governance, /title=\{approvalBlocker \?\? undefined\}/);
+  assert.match(governance, /className="stage-blocker"/);
+
+  // The strip's approve and evidence actions scroll to the governance panel; labelling them
+  // "Approve" claimed they decided something.
+  assert.match(source, /\[NEXT_ACTIONS\.APPROVE\]: 'Go to approval'/);
+  assert.match(source, /\[NEXT_ACTIONS\.EVIDENCE\]: 'Go to evidence'/);
+});

@@ -2263,8 +2263,10 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
     [NEXT_ACTIONS.AUTHOR]: 'Compose',
     [NEXT_ACTIONS.PUBLISH]: 'Publish',
     'author-and-publish': 'Publish',
-    [NEXT_ACTIONS.APPROVE]: 'Approve',
-    [NEXT_ACTIONS.EVIDENCE]: 'Record evidence'
+    // These two scroll to the governance panel rather than deciding anything. A button labelled
+    // "Approve" that only moves the page is the same defect this strip exists to remove.
+    [NEXT_ACTIONS.APPROVE]: 'Go to approval',
+    [NEXT_ACTIONS.EVIDENCE]: 'Go to evidence'
   }[next.action] ?? null;
   return <section className={`next-action next-action-${next.action}`} role="status">
     <span className="next-action-mark" aria-hidden="true">→</span>
@@ -2575,6 +2577,14 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       ?? ''
   );
   const [confirmation, setConfirmation] = useState('');
+  // Why the approve action is unavailable, in the words of what to do about it.
+  const approvalBlocker = !persona
+    ? 'Select your review persona first.'
+    : confirmation.trim() === ''
+      ? `Type ${phaseId}:phase in the confirmation field to approve this exact document set.`
+      : confirmation !== `${phaseId}:phase`
+        ? `The confirmation phrase does not match. Type exactly ${phaseId}:phase.`
+        : null;
   const [selfApproval, setSelfApproval] = useState(false);
   if (!phase) return null;
   const outputs = Object.values(phase.outputs ?? {});
@@ -2631,7 +2641,8 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     </div>
     <label><span>Your review persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></label>
     {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`${phaseId}:phase`} /></label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
-    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={!persona || confirmation !== `${phaseId}:phase`} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
+    {awaitingApproval && approvalBlocker && <p className="stage-blocker">{approvalBlocker}</p>}
+    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={Boolean(approvalBlocker)} title={approvalBlocker ?? undefined} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
     {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}
   </section>;
 }

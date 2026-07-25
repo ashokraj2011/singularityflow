@@ -3219,6 +3219,10 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   function continueJourney(next) {
     if (next.id === 'materialize') return void previewMaterialization();
     if (next.id === 'report') return setTab('complete');
+    if (['prepare', 'author'].includes(next.id)) {
+      const phase = next.phaseId ?? selected?.state.currentPhase ?? 'epic-intake';
+      return void openPlanning?.(phase);
+    }
     selectJourneyStage(selected?.journey?.stage ?? 'intake');
   }
   return <div className="page initiative-page">

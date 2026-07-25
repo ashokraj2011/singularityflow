@@ -14,8 +14,11 @@ import {
 } from '../apps/desktop/electron/copilot-acp.mjs';
 import {
   createPlanningContext,
+  parseArtifactBlocks,
+  PHASE_SCOPE,
   planningTargetCatalog,
-  promotePlanningArtifact
+  promotePlanningArtifact,
+  promotePlanningArtifacts
 } from '../src/planning.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -356,4 +359,80 @@ test('ACP shutdown always cancels questions and terminates the process after par
   assert.equal(bridge.connection, null);
   assert.ok(result.warnings.some((warning) => /session disposal failed/.test(warning)));
   assert.ok(events.some((event) => event.type === 'diagnostic' && /cleanup warning/.test(event.text)));
+});
+
+test('a phase-scoped session produces the whole artifact set from one conversation', async () => {
+  const root = await repository();
+  run(root, process.execPath, [bin, 'initiative', 'start', 'INIT-SET', '--title', 'Phase scoped planning']);
+
+  const context = await createPlanningContext(root, {
+    scope: 'initiative',
+    id: 'INIT-SET',
+    phase: 'define',
+    persona: 'product-owner',
+    target: PHASE_SCOPE,
+    objective: 'Produce the complete define set.'
+  });
+
+  // The contract has to name every promotable output with its destination, otherwise Copilot has
+  // no way to know which artifacts it owes or where each one is filed.
+  assert.equal(context.target.id, PHASE_SCOPE);
+  assert.ok(context.outputs.length > 1, 'expected several promotable outputs');
+  for (const output of context.outputs) {
+    assert.match(context.context, new RegExp(`SFLOW-ARTIFACT:${output.id}`));
+    assert.match(context.context, new RegExp(output.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+
+  // One reply carrying several fenced artifacts, with ordinary conversation around them.
+  const ids = context.outputs.map((output) => output.id);
+  const reply = [
+    'Here is the set. One open question is noted inside the artifacts.',
+    ...ids.map((id) => `<<<SFLOW-ARTIFACT:${id}\n# ${id}\n\nGoverned body for ${id}.\nSFLOW-ARTIFACT:${id}>>>`)
+  ].join('\n\n');
+  const blocks = parseArtifactBlocks(reply, ids);
+  assert.equal(blocks.size, ids.length);
+
+  const promoted = await promotePlanningArtifacts(root, {
+    sessionId: context.sessionId,
+    artifacts: [...blocks].map(([outputId, content]) => ({ outputId, content }))
+  });
+
+  // The set is one decision, so it lands as one commit: a matrix that cites requirements must
+  // never be committed a step apart from the requirements themselves.
+  assert.equal(promoted.artifacts.length, ids.length);
+  const committed = git(root, ['show', '--name-only', '--format=', 'HEAD']);
+  for (const artifact of promoted.artifacts) {
+    assert.ok(committed.includes(artifact.path), `${artifact.target} missing from the promotion commit`);
+    assert.match(await readFile(path.join(root, artifact.path), 'utf8'), /Governed body/);
+  }
+  // Every artifact keeps its own audit copy under the generation.
+  assert.match(committed, /context\/planning\/define-gen1\/plan-/);
+});
+
+test('a phase-scoped promotion refuses anything outside the phase resolution', async () => {
+  const root = await repository();
+  run(root, process.execPath, [bin, 'initiative', 'start', 'INIT-GUARD', '--title', 'Guarded promotion']);
+  const context = await createPlanningContext(root, {
+    scope: 'initiative', id: 'INIT-GUARD', phase: 'define', persona: 'product-owner', target: PHASE_SCOPE
+  });
+  const [first] = context.outputs;
+
+  // An artifact ID Copilot invented must never be filed anywhere.
+  assert.throws(() => parseArtifactBlocks('<<<SFLOW-ARTIFACT:invented\nbody\nSFLOW-ARTIFACT:invented>>>', context.outputs.map((o) => o.id)), /not an output of this phase/);
+  await assert.rejects(
+    () => promotePlanningArtifacts(root, { sessionId: context.sessionId, artifacts: [{ outputId: 'invented', content: 'x' }] }),
+    /no longer part of the immutable phase resolution/
+  );
+  // The set is validated before anything is written, so a partial set cannot half-apply.
+  await assert.rejects(
+    () => promotePlanningArtifacts(root, {
+      sessionId: context.sessionId,
+      artifacts: [{ outputId: first.id, content: '# ok' }, { outputId: first.id, content: '# duplicate' }]
+    }),
+    /supplied more than once/
+  );
+  await assert.rejects(
+    () => promotePlanningArtifacts(root, { sessionId: context.sessionId, artifacts: [] }),
+    /No reviewed artifacts/
+  );
 });

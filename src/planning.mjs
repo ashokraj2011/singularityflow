@@ -111,6 +111,54 @@ function renderTemplate(template, replacements) {
   return rendered.endsWith('\n') ? rendered : `${rendered}\n`;
 }
 
+// A session may target one output, or the whole phase. Phase scope is what lets a single
+// conversation produce a complete artifact set.
+export const PHASE_SCOPE = '*';
+const PROMOTABLE_KINDS = ['markdown', 'yaml', 'interface-contract'];
+
+// When one conversation produces several artifacts they have to be separable without guesswork,
+// so each is fenced by its output ID. Parsing is exact: an unrecognised or duplicated ID is an
+// error rather than a silent mis-file into the wrong governed path.
+export function artifactBlockMarkers(outputId) {
+  return { start: `<<<SFLOW-ARTIFACT:${outputId}`, end: `SFLOW-ARTIFACT:${outputId}>>>` };
+}
+
+export function parseArtifactBlocks(text, allowedIds) {
+  const found = new Map();
+  const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n([\s\S]*?)\r?\nSFLOW-ARTIFACT:\1>>>/g;
+  for (const match of String(text ?? '').matchAll(pattern)) {
+    const [, id, body] = match;
+    if (!allowedIds.includes(id)) throw new SingularityFlowError(`Proposed artifact '${id}' is not an output of this phase.`);
+    if (found.has(id)) throw new SingularityFlowError(`Proposed artifact '${id}' appears more than once.`);
+    if (!body.trim()) throw new SingularityFlowError(`Proposed artifact '${id}' is empty.`);
+    found.set(id, body.trim());
+  }
+  return found;
+}
+
+function phaseTargetInstructions(outputs) {
+  return [
+    `This phase promotes ${outputs.length} artifact${outputs.length === 1 ? '' : 's'}. Produce every one of them.`,
+    'Wrap each artifact in its own fence so they can be filed separately, using exactly this form:',
+    '',
+    ...outputs.flatMap((output) => {
+      const { start, end } = artifactBlockMarkers(output.id);
+      return [
+        `${start}`,
+        `<the complete ${output.label} as ${output.kind}>`,
+        `${end}`,
+        ''
+      ];
+    }),
+    'Emit nothing between the fences except the artifact content itself, and do not wrap a fenced artifact in a Markdown code fence.',
+    'Each artifact must be complete rather than a summary or a patch, and must preserve stable IDs, evidence, decisions, risks, dependencies, owners, and open questions.',
+    'Discuss and ask questions freely outside the fences; only fenced content is promoted.',
+    '',
+    'Artifacts and their governed destinations:',
+    ...outputs.map((output) => `- ${output.id} (${output.kind}) → ${output.path}`)
+  ].join('\n');
+}
+
 function targetInstructions(target) {
   if (target.kind === 'yaml') {
     return [
@@ -205,20 +253,43 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
   const phase = initiative.resolution.phases.find((candidate) => candidate.id === selectedPhase);
   const phaseState = initiative.phases[selectedPhase];
   if (!phase || phaseState.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${selectedPhase}' must be in_progress to start a planning session.`);
-  const target = phase.outputs.find((output) => output.id === (targetId ?? phase.outputs[0]?.id));
+  // `targetId: '*'` scopes the session to the whole phase. The contract then describes every
+  // promotable output, so a single conversation can produce the complete set — a requirements
+  // phase yields a specification, a traceability matrix and an open-questions log together, and
+  // splitting that across three sessions would mean three disconnected contexts.
+  const phaseScoped = targetId === PHASE_SCOPE;
+  const promotable = phase.outputs.filter((output) => PROMOTABLE_KINDS.includes(output.kind));
+  if (phaseScoped && !promotable.length) throw new SingularityFlowError(`Initiative phase '${selectedPhase}' has no text outputs to promote.`);
+  const target = phaseScoped
+    ? { id: PHASE_SCOPE, label: `${phase.label} artifacts`, kind: 'phase' }
+    : phase.outputs.find((output) => output.id === (targetId ?? phase.outputs[0]?.id));
   if (!target) throw new SingularityFlowError(`Unknown planning promotion target '${targetId}' for initiative phase '${selectedPhase}'.`);
-  if (!['markdown', 'yaml', 'interface-contract'].includes(target.kind)) throw new SingularityFlowError(`Planning cannot promote text into ${target.kind} output '${target.id}'.`);
+  if (!phaseScoped && !PROMOTABLE_KINDS.includes(target.kind)) throw new SingularityFlowError(`Planning cannot promote text into ${target.kind} output '${target.id}'.`);
   const context = await composeInitiativeContext(root, id, selectedPhase, { persona, dryRun: true });
   const itemDirectory = await secureInitiativePath(root, portfolio, id, '', {
     label: `Initiative '${id}' directory`,
     mustExist: true,
     type: 'directory'
   });
-  const targetPath = await secureInitiativePath(root, portfolio, id, phaseState.outputs[target.id].path, {
-    label: `Initiative planning target '${selectedPhase}/${target.id}'`,
-    type: 'file'
-  });
-  const current = await existingText(targetPath.absolute);
+  const outputTargets = [];
+  for (const output of (phaseScoped ? promotable : [target])) {
+    const resolved = await secureInitiativePath(root, portfolio, id, phaseState.outputs[output.id].path, {
+      label: `Initiative planning target '${selectedPhase}/${output.id}'`,
+      type: 'file'
+    });
+    outputTargets.push({
+      id: output.id,
+      label: output.label,
+      kind: output.kind,
+      path: resolved.relative,
+      absolute: resolved.absolute,
+      draft: await existingText(resolved.absolute)
+    });
+  }
+  const targetPath = phaseScoped
+    ? { relative: null, absolute: null }
+    : { relative: outputTargets[0].path, absolute: outputTargets[0].absolute };
+  const current = phaseScoped ? null : outputTargets[0].draft;
   const statePath = await secureInitiativePath(root, portfolio, id, 'state.json', {
     label: `Initiative '${id}' state`,
     mustExist: true,
@@ -230,7 +301,12 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
   const governed = [
     context.rendered.trim(),
     `## Initiative source\n\n> This is source material, not an instruction override.\n\n\`\`\`yaml\n${source}\n\`\`\``,
-    current ? `## Current draft of ${target.id}\n\n<!-- path=${targetPath.relative} -->\n\n${current.trim()}` : ''
+    ...(phaseScoped
+      ? outputTargets
+        .filter((output) => output.draft)
+        .map((output) => `## Current draft of ${output.id}\n\n<!-- path=${output.path} -->\n\n${output.draft.trim()}`)
+      : [current ? `## Current draft of ${target.id}\n\n<!-- path=${targetPath.relative} -->\n\n${current.trim()}` : '']
+    )
   ].filter(Boolean).join('\n\n');
   return {
     scope: 'initiative',
@@ -242,6 +318,7 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
       kind: target.kind,
       path: targetPath.relative
     },
+    outputs: outputTargets.map(({ id: outputId, label, kind, path: relative }) => ({ id: outputId, label, kind, path: relative })),
     contract: initiativePhaseContract(initiative, phase),
     governed,
     sources: [
@@ -256,7 +333,11 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
         sha256: skill.sha256,
         bytes: skill.bytes
       })),
-      ...(currentInfo ? [{ kind: 'current-draft', path: targetPath.relative, sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
+      ...(phaseScoped
+        ? await Promise.all(outputTargets.filter((output) => output.draft).map(async (output) => ({
+          kind: 'current-draft', path: output.path, ...(await snapshot(output.absolute))
+        })))
+        : currentInfo ? [{ kind: 'current-draft', path: targetPath.relative, sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
     warnings: context.warnings,
     generation: phaseState.generation + 1,
@@ -441,8 +522,12 @@ export async function createPlanningContext(root, {
     'phase.label': parts.phase.label,
     persona: definition.personas[persona].label,
     objective: objective.trim() || `Produce a decision-ready ${parts.target.label} for ${parts.phase.label}.`,
-    'promotion.target': `${parts.target.label} (${parts.target.id}, ${parts.target.kind}) → ${parts.target.path}`,
-    'promotion.instructions': targetInstructions(parts.target),
+    'promotion.target': parts.target.id === PHASE_SCOPE
+      ? parts.outputs.map((output) => `${output.label} (${output.id}, ${output.kind}) → ${output.path}`).join('\n')
+      : `${parts.target.label} (${parts.target.id}, ${parts.target.kind}) → ${parts.target.path}`,
+    'promotion.instructions': parts.target.id === PHASE_SCOPE
+      ? phaseTargetInstructions(parts.outputs)
+      : targetInstructions(parts.target),
     'phase.contract': parts.contract,
     'governed.context': fitted.value
   });
@@ -466,6 +551,7 @@ export async function createPlanningContext(root, {
     persona,
     objective: objective.trim() || null,
     target: parts.target,
+    outputs: parts.outputs ?? [],
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.size },
     context: { path: contextPath, sha256: contextInfo.sha256, bytes: contextInfo.size, truncated: fitted.truncated, governedBytes: Buffer.byteLength(parts.governed) },
     sources: parts.sources,
@@ -481,6 +567,7 @@ export async function createPlanningContext(root, {
     manifest,
     phase: parts.phase,
     target: parts.target,
+    outputs: parts.outputs ?? [],
     warnings: manifest.warnings
   };
 }
@@ -538,12 +625,25 @@ function parsePromotedYaml(text, label) {
   return parsed;
 }
 
-export async function promotePlanningArtifact(root, {
-  sessionId,
-  content,
-  persona = null
-} = {}) {
+// Promote one artifact. Kept as the narrow entry point for single-target sessions.
+export async function promotePlanningArtifact(root, { sessionId, content, persona = null } = {}) {
   if (!content?.trim()) throw new SingularityFlowError('Reviewed planning output is empty.');
+  return promotePlanningArtifacts(root, { sessionId, persona, artifacts: [{ outputId: null, content }] });
+}
+
+/**
+ * Promote a reviewed artifact set into governed state as one commit.
+ *
+ * A phase-scoped session produces several artifacts from one conversation, and they only make
+ * sense together — a requirements specification, its traceability matrix, and its open questions
+ * are one decision. Writing them in separate commits would leave the repository in states where
+ * the matrix cites requirements that are not there yet.
+ *
+ * Every artifact is validated against the immutable phase resolution before anything is written,
+ * so a bad set fails whole rather than half-applying.
+ */
+export async function promotePlanningArtifacts(root, { sessionId, artifacts = [], persona = null } = {}) {
+  if (!Array.isArray(artifacts) || !artifacts.length) throw new SingularityFlowError('No reviewed artifacts were supplied.');
   const pack = await loadPlanningPack(root, sessionId);
   const actor = identity(root);
   if (persona && persona !== pack.manifest.persona) {
@@ -551,55 +651,95 @@ export async function promotePlanningArtifact(root, {
   }
   const selectedPersona = pack.manifest.persona;
   const promotedAt = nowIso();
+
   if (pack.manifest.scope === 'initiative') {
     const { portfolio, initiative } = await loadInitiative(root, pack.manifest.id);
     if (initiative.currentPhase !== pack.manifest.phase.id) throw new SingularityFlowError(`Initiative advanced to '${initiative.currentPhase ?? 'complete'}'; rebuild the planning context.`);
     const definition = initiative.resolution.phases.find((phase) => phase.id === pack.manifest.phase.id);
-    const targetDefinition = definition.outputs.find((output) => output.id === pack.manifest.target.id);
-    if (!targetDefinition) throw new SingularityFlowError(`Promotion target '${pack.manifest.target.id}' is no longer part of the immutable phase resolution.`);
-    if (targetDefinition.kind === 'yaml') parsePromotedYaml(content, `Planning output '${targetDefinition.id}'`);
+
+    // Resolve and validate the whole set first: nothing is written until every artifact is known
+    // to belong to this phase, to be a promotable kind, and to parse.
+    const resolved = artifacts.map(({ outputId, content }) => {
+      if (!content?.trim()) throw new SingularityFlowError(`Reviewed artifact '${outputId ?? pack.manifest.target.id}' is empty.`);
+      const id = outputId ?? pack.manifest.target.id;
+      const output = definition.outputs.find((candidate) => candidate.id === id);
+      if (!output) throw new SingularityFlowError(`Promotion target '${id}' is no longer part of the immutable phase resolution.`);
+      if (!['markdown', 'yaml', 'interface-contract'].includes(output.kind)) {
+        throw new SingularityFlowError(`Planning cannot promote text into ${output.kind} output '${output.id}'.`);
+      }
+      if (output.kind === 'yaml') parsePromotedYaml(content, `Planning output '${output.id}'`);
+      return { definition: output, content: content.trim() };
+    });
+    const duplicate = resolved.map((item) => item.definition.id).find((id, index, all) => all.indexOf(id) !== index);
+    if (duplicate) throw new SingularityFlowError(`Artifact '${duplicate}' was supplied more than once.`);
+
     const prepared = await prepareInitiativePhase(root, initiative.initiative.id, definition.id, { persona: selectedPersona });
     const fresh = prepared.initiative;
-    const output = fresh.phases[definition.id].outputs[targetDefinition.id];
-    const target = await secureInitiativePath(root, portfolio, fresh.initiative.id, output.path, {
-      label: `Initiative planning target '${definition.id}/${targetDefinition.id}'`,
-      type: 'file'
-    });
-    const previous = await existingText(target.absolute);
-    const authored = targetDefinition.kind === 'markdown' || targetDefinition.kind === 'interface-contract'
-      ? preserveManagedMetadata(previous, content, INITIATIVE_METADATA)
-      : content;
-    await writeText(target.absolute, authored);
-    const current = await snapshot(target.absolute);
-    Object.assign(output, {
-      status: 'draft',
-      generation: fresh.phases[definition.id].generation + 1,
-      sha256: current.sha256,
-      bytes: current.size,
-      generatedBy: actor,
-      generatedPersona: selectedPersona
-    });
+    const generation = fresh.phases[definition.id].generation + 1;
+    const auditRelative = path.join('context', 'planning', `${definition.id}-gen${generation}`, sessionId);
+    const promoted = [];
     let breakdownPath = null;
-    if (targetDefinition.id === 'story-plan' && targetDefinition.kind === 'yaml') {
-      const parsed = parsePromotedYaml(content, 'Story plan');
-      const breakdown = assignLocalStoryIds(
-        validateInitiativeBreakdown(parsed, portfolio),
-        fresh,
-        portfolio
-      );
-      breakdown.initiativeId = fresh.initiative.id;
-      breakdownPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, 'breakdown.yml', {
-        label: `Initiative '${fresh.initiative.id}' breakdown`,
-        mustExist: true,
+
+    for (const { definition: targetDefinition, content } of resolved) {
+      const output = fresh.phases[definition.id].outputs[targetDefinition.id];
+      const target = await secureInitiativePath(root, portfolio, fresh.initiative.id, output.path, {
+        label: `Initiative planning target '${definition.id}/${targetDefinition.id}'`,
         type: 'file'
       });
-      await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
+      const previous = await existingText(target.absolute);
+      const authored = targetDefinition.kind === 'markdown' || targetDefinition.kind === 'interface-contract'
+        ? preserveManagedMetadata(previous, content, INITIATIVE_METADATA)
+        : content;
+      await writeText(target.absolute, authored);
+      const current = await snapshot(target.absolute);
+      Object.assign(output, {
+        status: 'draft',
+        generation,
+        sha256: current.sha256,
+        bytes: current.size,
+        generatedBy: actor,
+        generatedPersona: selectedPersona
+      });
+
+      // A promoted story plan also drives materialization, so its executable form is written too.
+      if (targetDefinition.id === 'story-plan' && targetDefinition.kind === 'yaml') {
+        const breakdown = assignLocalStoryIds(
+          validateInitiativeBreakdown(parsePromotedYaml(content, 'Story plan'), portfolio),
+          fresh,
+          portfolio
+        );
+        breakdown.initiativeId = fresh.initiative.id;
+        breakdownPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, 'breakdown.yml', {
+          label: `Initiative '${fresh.initiative.id}' breakdown`,
+          mustExist: true,
+          type: 'file'
+        });
+        await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
+      }
+
+      const planPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, path.join(auditRelative, `${targetDefinition.id}.${targetDefinition.kind === 'yaml' ? 'yml' : 'md'}`), {
+        label: `Initiative planning artifact '${sessionId}/${targetDefinition.id}'`,
+        type: 'file'
+      });
+      await writeText(planPath.absolute, authored);
+      const planInfo = await snapshot(planPath.absolute);
+      promoted.push({
+        target: targetDefinition.id,
+        path: target.relative,
+        sha256: current.sha256,
+        planningArtifact: planPath.relative,
+        planningArtifactSha256: planInfo.sha256
+      });
+      fresh.history.push({
+        at: promotedAt,
+        actor: actorKey(actor),
+        persona: selectedPersona,
+        event: 'planning_artifact_promoted',
+        phase: definition.id,
+        detail: `${targetDefinition.id}@${current.sha256.slice(0, 12)}`
+      });
     }
-    const auditRelative = path.join('context', 'planning', `${definition.id}-gen${fresh.phases[definition.id].generation + 1}`, sessionId);
-    const planPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, path.join(auditRelative, targetDefinition.kind === 'yaml' ? 'plan.yml' : 'plan.md'), {
-      label: `Initiative planning artifact '${sessionId}'`,
-      type: 'file'
-    });
+
     const committedContextPath = await secureInitiativePath(root, portfolio, fresh.initiative.id, path.join(auditRelative, 'context.md'), {
       label: `Initiative planning context '${sessionId}'`,
       type: 'file'
@@ -608,45 +748,30 @@ export async function promotePlanningArtifact(root, {
       label: `Initiative planning audit '${sessionId}'`,
       type: 'file'
     });
-    await writeText(planPath.absolute, authored);
-    const planInfo = await snapshot(planPath.absolute);
     await writeText(committedContextPath.absolute, await readFile(pack.contextPath, 'utf8'));
-    const audit = {
+    await writeJson(auditManifestPath.absolute, {
       ...portableAuditManifest(pack.manifest, committedContextPath.relative),
-      promotion: {
-        at: promotedAt,
-        actor,
-        persona: selectedPersona,
-        target: target.relative,
-        sha256: current.sha256,
-        planningArtifact: planPath.relative,
-        planningArtifactSha256: planInfo.sha256,
-        breakdown: breakdownPath?.relative ?? null
-      }
-    };
-    await writeJson(auditManifestPath.absolute, audit);
-    fresh.history.push({
-      at: promotedAt,
-      actor: actorKey(actor),
-      persona: selectedPersona,
-      event: 'planning_artifact_promoted',
-      phase: definition.id,
-      detail: `${targetDefinition.id}@${current.sha256.slice(0, 12)}`
+      promotion: { at: promotedAt, actor, persona: selectedPersona, artifacts: promoted, breakdown: breakdownPath?.relative ?? null }
     });
     await saveInitiative(root, portfolio, fresh);
-    const publication = await commitInitiativeChange(root, portfolio, fresh, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${targetDefinition.id}`);
+    const summary = promoted.map((item) => item.target).join(', ');
+    const publication = await commitInitiativeChange(root, portfolio, fresh, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
     return {
       scope: 'initiative',
       id: fresh.initiative.id,
       phase: definition.id,
-      target: targetDefinition.id,
-      path: target.relative,
-      sha256: current.sha256,
+      target: promoted[0]?.target ?? null,
+      artifacts: promoted,
+      path: promoted[0]?.path ?? null,
+      sha256: promoted[0]?.sha256 ?? null,
       publication,
       next: `singularity-flow initiative phase publish ${definition.id}`
     };
   }
 
+  // A work item has exactly one required artifact per phase, so a set is not meaningful there.
+  if (artifacts.length > 1) throw new SingularityFlowError('A work-item phase promotes exactly one artifact.');
+  const content = artifacts[0].content;
   const definition = await loadDefinition(root);
   const workflow = await loadWorkflow(root, definition, pack.manifest.id);
   const phase = workflow.phases[pack.manifest.phase.id];

@@ -1672,8 +1672,10 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
     const selectedPhase = selected.phases.find((item) => item.id === selected.currentPhase) ?? selected.phases[0];
     setPhaseId(selectedPhase?.id ?? '');
     setTargetId(selectedPhase?.targets[0]?.id ?? '');
-    setContextPack(null);
-    setStarted(false);
+    // Full reset, not just contextPack + started: switching work while a turn was in flight left
+    // running=true with no session to clear it, and running gates every control here — including
+    // the build button — so the studio locked up completely.
+    resetSession();
   }, [data.selectedWorkId, data.selectedInitiativeId]);
 
   useEffect(() => {
@@ -1808,6 +1810,21 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
   }
 
   async function buildContext() {
+    // Rebuilding mints a new planning session, so the previous one has to be released and the
+    // connection state cleared. Without this the studio kept started=true while contextPack moved
+    // to a session that was never started: 'Start Copilot Plan mode' stayed disabled because it is
+    // gated on started, the Frame stayed locked for the same reason, and every incoming event was
+    // dropped by the `event.planningSessionId !== contextPack.sessionId` guard. The pill still read
+    // 'connected' and follow-ups posted to a dead session, so the screen looked live and did nothing.
+    const previousSession = (started || running) ? contextPack?.sessionId : null;
+    if (previousSession) {
+      // Best effort: a session that already exited must not block the rebuild.
+      try { await window.singularity.stopPlanningSession(data.repository.root, previousSession); }
+      catch { /* already gone */ }
+    }
+    setStarted(false);
+    setRunning(false);
+    setUsage(null);
     const result = await action(() => window.singularity.buildPlanningContext(data.repository.root, {
       scope: group.scope,
       id: group.id,

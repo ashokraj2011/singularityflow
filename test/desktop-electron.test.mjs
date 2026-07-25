@@ -643,3 +643,21 @@ test('epic start offers world-model generation instead of blocking on it', async
   // Generation is pushed with the epic branch, so it must not use the local-only path.
   assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
 });
+
+test('Planning Studio releases the previous session when the governed context is rebuilt', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const build = source.slice(source.indexOf('async function buildContext()'), source.indexOf('async function startCopilot()'));
+
+  // Rebuilding mints a new sessionId. If the connection state survives it, 'Start Copilot Plan
+  // mode' stays disabled (it is gated on started), the Frame stays locked, and the session-id
+  // guard drops every event — the studio reads 'connected' and does nothing at all.
+  assert.match(build, /stopPlanningSession/);
+  assert.match(build, /setStarted\(false\)/);
+  assert.match(build, /setRunning\(false\)/);
+
+  // Switching the selected work item must clear running too: it gates the build button, so a
+  // turn in flight at that moment would otherwise lock every control on the page.
+  const switchEffect = source.slice(source.indexOf("const selectedPhase = selected.phases.find"), source.indexOf('[data.selectedWorkId, data.selectedInitiativeId]'));
+  assert.match(switchEffect, /resetSession\(\)/);
+  assert.doesNotMatch(switchEffect, /setStarted\(false\);\s*\}/);
+});

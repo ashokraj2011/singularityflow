@@ -155,34 +155,41 @@ Sources → Requirements → Planning → Stories → Complete
 
 Planning groups the underlying User Story Plan and High-level Specification
 phases into one reviewable workspace; their hashes and approvals remain
-separate. Product Owner and Business Analyst onboarding roles default to the
-Business experience:
+separate.
+
+There is **one navigation for every role**. Singularity Desktop previously split
+into a Business experience and an Engineer experience with separate menus, which
+meant the Epic planning journey was reachable only from one and the configuration
+tools only from the other. Both are now the same sidebar:
 
 ```text
-Epics → Requirements → Planning → Artifact templates → Create Stories → Reviews
+Epic planning   Epics · Requirements · Planning · Create Stories ·
+                Planning Copilot · Artifact templates
+Delivery        Overview · Artifact studio · Impact analysis · Documents
+Decisions       Approval inbox · Review bundle
+Configuration   Workspace configuration · Portfolio designer · Workflow designer ·
+                Personas & approvals · Prompts & skills · Repository model · Remote agents
+Learn           Help & guides
 ```
 
-Requirements generation, Story decomposition, high-level specification, and
-artifact-template authoring are therefore available without switching to the
-Engineer experience. The Planning screen shows every generated Story with its
-repository, `REQ-nnn`/`AC-nnn` lineage, and dependencies. **Create Stories**
-requires the Story plan and high-level specification to be approved, previews
-the exact Jira and Git operations, and then:
+The role chosen during onboarding still suggests an initial planning persona; it
+no longer routes to a different shell, and there is no experience to switch
+between. The active workspace and the Copilot service control sit together in the
+top bar, so both stay visible on every page. Collapse or expand the sidebar with
+⌘/Ctrl+B.
+
+The Planning screen shows every generated Story with its repository,
+`REQ-nnn`/`AC-nnn` lineage, and dependencies. **Create Stories** requires the
+Story plan and high-level specification to be approved, previews the exact Jira
+and Git operations, and then:
 
 1. Creates or attaches the Jira Story using the reviewed write-plan hash.
 2. Freezes the returned Jira key as the Story Work ID.
 3. Creates the canonical branch in the configured repository.
 4. Commits the governed seed, approved Epic inputs, and append-only receipts.
 
-Artifact-template edits remain ordinary repository changes until **Commit
-templates** validates, commits, and pushes them. Other roles default to the
-Engineer experience, and the user can switch at any time without changing
-repository state. Business mode places the journey in a compact horizontal bar
-and gives the Epic workspace the full window width. Use **Engineer tools** in
-that bar to open the full collapsible navigation for downstream delivery and
-configuration. The Engineer navigation does not duplicate Requirements,
-Planning, or Artifact templates; those Epic-level responsibilities remain in
-the Business experience.
+Artifact-template edits remain ordinary repository changes until **Commit & push**
+validates, commits, and pushes them.
 
 Start from Jira when it is available, or choose **Describe the work**. The
 local path atomically reserves a configurable Epic branch ID such as
@@ -1194,7 +1201,7 @@ Select a work item and open **Overview** to see total elapsed, active, and appro
 
 Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, personas, inputs, and approval capabilities atomically.
 
-Use **Artifact templates** in the Business experience to build the generated
+Use **Artifact templates** under Epic planning to build the generated
 document structure. The visual builder provides reusable Business content,
 Traceability, Solution, Assurance, and custom sections. Drag sections from the
 library onto the canvas, drag existing sections between drop zones to reorder
@@ -1216,7 +1223,7 @@ URL import:
 
 The imported bytes become an ordinary repository template. They are not fetched
 again during generation and do not change when the remote URL changes. Select
-**Commit templates** to validate, commit, and push the local snapshot. Return to
+**Commit & push** to validate, commit, and push the local snapshot. Return to
 **Workflow** to assign it to a stage. Template deletion is refused while any
 default or workflow override still references it.
 

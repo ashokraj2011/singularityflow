@@ -44,12 +44,29 @@ import {
   VisualComparisonReview
 } from './VisualReview.jsx';
 
-const engineerNavSections = [
+// One navigation for everyone. The Business and Engineer experiences used to be separate shells
+// with separate menus, which meant the Epic planning journey existed only in Business and the
+// configuration tools only in Engineer. This is the union, in the Engineer shell: every
+// destination is reachable from one sidebar regardless of role.
+const navSections = [
+  {
+    label: 'Epic planning',
+    items: [
+      ['epics', 'Epics'],
+      ['business-requirements', 'Requirements'],
+      ['business-planning', 'Planning'],
+      ['business-stories', 'Create Stories'],
+      ['planning', 'Planning Copilot'],
+      ['templates', 'Artifact templates']
+    ]
+  },
   {
     label: 'Delivery',
     items: [
       ['dashboard', 'Overview'],
-      ['impact', 'Impact analysis']
+      ['studio', 'Artifact studio'],
+      ['impact', 'Impact analysis'],
+      ['documents', 'Documents']
     ]
   },
   {
@@ -60,14 +77,10 @@ const engineerNavSections = [
     ]
   },
   {
-    label: 'Advanced',
-    items: [
-      ['workspaces', 'Workspace configuration']
-    ]
-  },
-  {
     label: 'Configuration',
     items: [
+      ['workspaces', 'Workspace configuration'],
+      ['initiatives', 'Portfolio designer'],
       ['workflow', 'Workflow designer'],
       ['personas', 'Personas & approvals'],
       ['resources', 'Prompts & skills'],
@@ -79,32 +92,6 @@ const engineerNavSections = [
     label: 'Learn',
     items: [['help', 'Help & guides']]
   }
-];
-
-const businessNavSections = [
-  {
-    label: 'Epic planning',
-    items: [
-      ['epics', 'Epics'],
-      ['business-requirements', 'Requirements'],
-      ['business-planning', 'Planning'],
-      ['templates', 'Artifact templates'],
-      ['business-stories', 'Create Stories']
-    ]
-  },
-  {
-    label: 'Decisions',
-    items: [['inbox', 'Reviews']]
-  },
-  {
-    label: 'Learn',
-    items: [['help', 'Help']]
-  }
-];
-
-const businessAuxiliaryNavigation = [
-  { id: 'planning', label: 'Planning Copilot', section: 'Epic planning' },
-  { id: 'workspaces', label: 'Workspace setup', section: 'Project setup' }
 ];
 
 const onboardingRoles = [
@@ -239,45 +226,28 @@ function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
   </section>;
 }
 
-function BusinessNavigation({
-  page,
-  data,
-  repoName,
-  repositoryMenu,
-  setRepositoryMenu,
-  recentWorkspaces,
-  busy,
-  openWorkspace,
-  onNavigate,
-  onEngineerMode
-}) {
-  const items = businessNavSections.flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label })));
-  const activeId = page === 'planning' ? 'business-planning' : page;
+// The workspace switcher lives in the top bar beside the Copilot control, so the current
+// workspace is visible from every page instead of being pinned to the bottom of the sidebar.
+function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, recentWorkspaces, busy, openWorkspace }) {
   const workspaceName = data.workspace?.workspace.name ?? repoName;
-  const workspaceContext = data.workspace?.workspace.anchor.key ?? data.selectedInitiativeId ?? data.repository.branch;
-  return <header className="business-navigation">
-    <FlowBrand className="business-brand flow-brand-business" context={workspaceContext} />
-    <nav id="primary-navigation" aria-label="Epic planning navigation">
-      {items.map(({ id, label, section }) => <button type="button" key={id} className={activeId === id ? 'active' : ''} aria-current={activeId === id ? 'page' : undefined} title={`${section}: ${label}`} onClick={() => onNavigate(id)}>
-        <i><NavIcon name={id} /></i>
-        <span>{label}</span>
-        {id === 'inbox' && data.approvalInbox.count > 0 && <b>{data.approvalInbox.count}</b>}
-      </button>)}
-    </nav>
-    <div className="business-navigation-tools">
-      <button className="business-engineer-link" type="button" onClick={onEngineerMode} title="Open workflow engineering and configuration tools">Engineer tools</button>
-      <div className="repo-switcher">
-        <button className="business-project-switcher" type="button" title="Switch workspace" aria-label="Switch workspace" aria-expanded={repositoryMenu} aria-haspopup="dialog" onClick={() => setRepositoryMenu(!repositoryMenu)}>
-          <span className="repo-icon">{workspaceName?.slice(0, 1).toUpperCase()}</span>
-          <span><strong>{workspaceName}</strong><small>{data.workspace ? `${repoName} · lead repository` : 'No workspace selected'}</small></span>
-          <i>⌄</i>
-        </button>
-        {repositoryMenu && <div className="repository-menu" role="dialog" aria-label="Switch workspace">
-          <WorkspaceSelector items={recentWorkspaces} currentWorkspace={data.workspace?.workspace} busy={busy} onOpen={openWorkspace} />
-        </div>}
-      </div>
-    </div>
-  </header>;
+  // The top bar truncates, so the full context — including which repository is the lead — stays
+  // available as the tooltip rather than being dropped along with the sidebar card.
+  const detail = data.workspace
+    ? `${workspaceName} · ${repoName} · ${data.repository.branch} · lead repository`
+    : 'No workspace selected';
+  return <div className="repo-switcher topbar-workspace">
+    <button className="topbar-workspace-button" type="button" title={`Switch workspace — ${detail}`} aria-label={`Switch workspace. Current: ${detail}`} aria-expanded={repositoryMenu} aria-haspopup="dialog" onClick={() => setRepositoryMenu(!repositoryMenu)}>
+      <span className="repo-icon">{workspaceName?.slice(0, 1).toUpperCase() ?? 'W'}</span>
+      <span className="topbar-workspace-text">
+        <strong>{workspaceName ?? 'No workspace'}</strong>
+        <small>{data.workspace ? `${repoName} · ${data.repository.branch}` : 'Choose a workspace'}</small>
+      </span>
+      <i aria-hidden="true">⌄</i>
+    </button>
+    {repositoryMenu && <div className="repository-menu" role="dialog" aria-label="Switch workspace">
+      <WorkspaceSelector items={recentWorkspaces} currentWorkspace={data.workspace?.workspace} busy={busy} onOpen={openWorkspace} />
+    </div>}
+  </div>;
 }
 
 function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
@@ -3289,18 +3259,7 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('singularity.sidebar.collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
-  const experienceMode = onboarding?.profile?.experienceMode ?? 'engineer';
-  const activeNavSections = experienceMode === 'business' ? businessNavSections : engineerNavSections;
   useEffect(() => {
-    if (!data || experienceMode !== 'business') return;
-    const allowed = new Set([
-      ...businessNavSections.flatMap((section) => section.items.map(([id]) => id)),
-      ...businessAuxiliaryNavigation.map((item) => item.id)
-    ]);
-    if (!allowed.has(page)) setPage('epics');
-  }, [data, experienceMode, page]);
-  useEffect(() => {
-    if (experienceMode === 'business') return undefined;
     const toggleNavigation = (event) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'b') return;
       const target = event.target;
@@ -3310,12 +3269,11 @@ export default function App() {
     };
     window.addEventListener('keydown', toggleNavigation);
     return () => window.removeEventListener('keydown', toggleNavigation);
-  }, [experienceMode]);
+  }, []);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
-  const activeNavigation = useMemo(() => [
-    ...activeNavSections.flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label }))),
-    ...(experienceMode === 'business' ? businessAuxiliaryNavigation : [])
-  ].find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [activeNavSections, experienceMode, page]);
+  const activeNavigation = useMemo(() => navSections
+    .flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label })))
+    .find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [page]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
@@ -3334,7 +3292,7 @@ export default function App() {
   async function openWorkspace(workspacePath = null) {
     const result = await action(() => workspacePath ? window.singularity.openWorkspace(workspacePath) : window.singularity.chooseWorkspace());
     if (!result) return;
-    acceptOpened(result, workspaceLandingPage(result, experienceMode));
+    acceptOpened(result, workspaceLandingPage(result));
     await refreshRecentWorkspaces();
     if (result.workspaceSetup?.message) setToast({ tone: 'good', text: result.workspaceSetup.message });
   }
@@ -3388,17 +3346,7 @@ export default function App() {
       ? await action(() => window.singularity.openInitiative(data.repository.root, initiativeId), `Opened latest ${initiativeId} branch`)
       : await reload(null, null);
     if (result) setData(result);
-    if (result && initiativeId) setPage(experienceMode === 'business' ? 'epics' : 'dashboard');
-  }
-  async function switchExperienceMode(nextMode) {
-    if (!['business', 'engineer'].includes(nextMode) || nextMode === experienceMode) return;
-    const result = await action(
-      () => window.singularity.setExperienceMode(nextMode),
-      `${nextMode === 'business' ? 'Business' : 'Engineer'} experience enabled`
-    );
-    if (!result) return;
-    setOnboarding((current) => ({ ...current, ...result, profile: result.profile }));
-    setPage(nextMode === 'business' ? 'epics' : 'dashboard');
+    if (result && initiativeId) setPage('epics');
   }
   async function openEpic(initiativeId) {
     const result = await action(
@@ -3646,9 +3594,9 @@ export default function App() {
     <section className="welcome-recent"><RecentWorkspaces items={recentWorkspaces} busy={busy} onOpen={openWorkspace} onForget={forgetWorkspace} /><ArchivedWorkspaces items={recentWorkspaces} busy={busy} onRestore={restoreWorkspace} /></section>
     <Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
-  return <div className={`shell ${experienceMode === 'business' ? 'business-shell' : sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    {experienceMode === 'engineer' && <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{activeNavSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className="experience-switcher"><span>Experience</span><div><button className={experienceMode === 'business' ? 'active' : ''} onClick={() => switchExperienceMode('business')}>Business</button><button className={experienceMode === 'engineer' ? 'active' : ''} onClick={() => switchExperienceMode('engineer')}>Engineer</button></div></div><div className="repo-switcher"><div className="repo-card"><span className="repo-icon">{data.workspace?.workspace.name?.slice(0, 1).toUpperCase() ?? 'W'}</span><div><strong>{data.workspace?.workspace.name ?? 'No workspace selected'}</strong><small>{data.workspace ? `${repoName} · ${data.repository.branch} · lead repository` : 'Choose a workspace to continue'}</small></div><button title="Switch workspace" aria-label="Switch workspace" onClick={() => setRepositoryMenu(!repositoryMenu)}>⋯</button></div>{repositoryMenu && <div className="repository-menu" role="dialog" aria-label="Switch workspace"><WorkspaceSelector items={recentWorkspaces} currentWorkspace={data.workspace?.workspace} busy={busy} onOpen={openWorkspace} /></div>}</div><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>}
-    <main className="content">{experienceMode === 'business' && <BusinessNavigation page={page} data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} onNavigate={setPage} onEngineerMode={() => switchExperienceMode('engineer')} />}<header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors">{experienceMode === 'engineer' && <select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{experienceMode === 'engineer' && data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button>{experienceMode === 'engineer' && <button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button>}{(experienceMode === 'engineer' || page === 'templates') && <><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>{experienceMode === 'business' ? 'Commit templates' : 'Commit & push'}</span></button></>}</div></header>
+  return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startEpic={() => setData((current) => ({ ...current, initiative: null, selectedInitiativeId: null }))} />)}{page === 'business-requirements' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} entryTab="requirements" />}{page === 'business-planning' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} entryTab="planning" />}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={() => setPage('planning')} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={() => setPage('planning')} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;

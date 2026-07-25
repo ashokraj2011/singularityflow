@@ -24,7 +24,7 @@ writes Jira. They never enter `workspace.json`.
 
 ## Manage an existing workspace
 
-Open **Engineer tools → Workspace configuration** for the active workspace:
+Open **Configuration → Workspace configuration** for the active workspace:
 
 - **Jira connection** opens the workspace-scoped sign-in screen. The repository
   project keys are reused automatically; only the Jira HTTPS URL, account, and

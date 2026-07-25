@@ -81,8 +81,8 @@ test('Electron welcome screen opens the workspace boundary and preserves loading
   assert.match(source, /Opening the selected project context/);
   assert.match(source, /Open or create workspace/);
   assert.match(source, /Workspace configuration/);
-  assert.match(source, /\{ id: 'workspaces', label: 'Workspace setup', section: 'Project setup' \}/);
-  assert.match(source, /acceptOpened\(result, workspaceLandingPage\(result, experienceMode\)\)/);
+  assert.match(source, /\['workspaces', 'Workspace configuration'\]/);
+  assert.match(source, /acceptOpened\(result, workspaceLandingPage\(result\)\)/);
   assert.match(source, /if \(result\.profile\.workspacePath\) await openWorkspace\(result\.profile\.workspacePath\)/);
   assert.doesNotMatch(source, /firstRepository/);
   assert.match(source, /defaultBaseDirectory=\{data\.workspaceSetup\?\.baseDirectory/);
@@ -91,11 +91,10 @@ test('Electron welcome screen opens the workspace boundary and preserves loading
 });
 
 test('Electron routes new workspace selections to configuration before Epic intake', () => {
-  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'business'), 'workspaces');
-  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }, 'engineer'), 'workspaces');
-  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-needs-repair' } }, 'business'), 'workspaces');
-  assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'business'), 'epics');
-  assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }, 'engineer'), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-needs-repair' } }), 'workspaces');
+  // One experience: an established workspace always lands on Epics, whatever the role.
+  assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }), 'epics');
 });
 
 test('workspace Epic intake scopes Jira and derives portfolio configuration from the selected workspace', () => {
@@ -294,9 +293,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /className="jira-setup-overlay"/);
   assert.doesNotMatch(source, /disabled=\{!data\.portfolio\?\.jira\?\.enabled\}/);
   assert.match(source, /Describe the work/);
-  assert.match(source, /const businessNavSections/);
+  assert.match(source, /const navSections/);
   assert.match(source, /\['epics', 'Epics'\]/);
-  assert.match(source, /\['inbox', 'Reviews'\]/);
+  assert.match(source, /\['inbox', 'Approval inbox'\]/);
   assert.match(source, /Sources/);
   assert.match(source, /PhaseGovernance/);
   assert.match(source, /generated User Stories/);
@@ -319,7 +318,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /completeEpicDelivery:/);
   assert.match(preload, /startEpicWizard:/);
   assert.match(preload, /startLocalEpic:/);
-  assert.match(preload, /setExperienceMode:/);
+  // The experience split is gone, so the bridge that persisted the chosen mode is gone with it.
+  assert.doesNotMatch(preload, /setExperienceMode:/);
   assert.match(preload, /openInitiative:/);
   assert.match(preload, /publishInitiativePhase:/);
   assert.match(preload, /approveInitiativePhase:/);
@@ -330,7 +330,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:complete/);
   assert.match(main, /epic:start/);
   assert.match(main, /epic:start-local/);
-  assert.match(main, /onboarding:experience/);
+  assert.doesNotMatch(main, /onboarding:experience/);
   assert.match(main, /initiative:open/);
   assert.match(main, /initiative:phase-publish/);
   assert.match(main, /initiative:phase-approve/);
@@ -398,10 +398,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Start with your/);
   assert.match(source, /label: 'Delivery'/);
   assert.match(source, /label: 'Decisions'/);
-  assert.match(source, /label: 'Advanced'/);
   assert.match(source, /label: 'Configuration'/);
   assert.match(source, /label: 'Learn'/);
   assert.match(source, /label: 'Epic planning'/);
+  // 'Advanced' held only Workspace configuration; it now sits under Configuration with the
+  // rest of the setup surfaces, so every destination is one grouping deep.
+  assert.doesNotMatch(source, /label: 'Advanced'/);
+  assert.match(source, /\['workspaces', 'Workspace configuration'\]/);
   assert.match(source, /\['business-requirements', 'Requirements'\]/);
   assert.match(source, /\['business-planning', 'Planning'\]/);
   assert.match(source, /\['templates', 'Artifact templates'\]/);
@@ -412,7 +415,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Approved Story plan/);
   assert.match(source, /Jira Story key/);
   assert.match(source, /Canonical Git branch/);
-  assert.match(source, /Commit templates/);
+  // One publish control for every page now that the experiences are merged: the Business-only
+  // 'Commit templates' wording is gone and 'Commit & push' covers templates too.
+  assert.doesNotMatch(source, /Commit templates/);
+  assert.match(source, /Commit &amp; push/);
   assert.match(source, /Artifact builder/);
   assert.match(source, /Section library/);
   assert.match(source, /Drag into artifact/);
@@ -430,17 +436,17 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /sidebar-collapsed/);
   assert.match(source, /sidebar-edge-toggle/);
   assert.match(source, /aria-controls="primary-navigation"/);
-  assert.match(source, /function BusinessNavigation/);
+  assert.match(source, /function TopbarWorkspace/);
   assert.match(source, /function WorkspaceSelector/);
   assert.match(source, /aria-label="Select current workspace"/);
   assert.match(source, /No workspace selected — choose one/);
   assert.match(source, /load its repositories, Jira routing, and complete project context/);
   assert.match(source, /Open or create workspace…/);
-  assert.match(source, /className="business-navigation"/);
-  assert.match(source, /aria-label="Epic planning navigation"/);
-  assert.match(source, /experienceMode === 'business' \? 'business-shell'/);
-  assert.match(source, /experienceMode === 'engineer' && <aside className="sidebar"/);
-  assert.match(source, /Engineer tools/);
+  // One shell for every role: the sidebar is unconditional and the split experiences are gone.
+  assert.match(source, /<aside className="sidebar">/);
+  assert.doesNotMatch(source, /experienceMode/);
+  assert.doesNotMatch(source, /businessNavSections|BusinessNavigation/);
+  assert.match(source, /<TopbarWorkspace data=\{data\}/);
   assert.match(source, /event\.metaKey \|\| event\.ctrlKey/);
   assert.match(source, /event\.key\.toLowerCase\(\) !== 'b'/);
   assert.match(source, /className="page-stage"/);
@@ -510,12 +516,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /--evergreen-950: #092d20/);
   assert.match(styles, /\.sidebar-edge-toggle/);
   assert.match(styles, /\.shell\.sidebar-collapsed \{ grid-template-columns: 72px/);
-  assert.match(styles, /\.shell\.business-shell \{ grid-template-columns: minmax\(0,1fr\)/);
-  assert.match(styles, /\.business-navigation/);
   assert.match(styles, /\.workspace-quick-selector/);
   assert.match(styles, /\.workspace-quick-control/);
-  assert.match(styles, /\.business-project-switcher/);
-  assert.match(styles, /\.business-shell \.topbar-title \{ display: none/);
+  // The unified shell drops the business-only chrome and moves the workspace into the top bar.
+  assert.doesNotMatch(styles, /business-shell|business-navigation|business-project-switcher/);
+  assert.match(styles, /\.topbar-workspace-button/);
+  assert.match(styles, /\.topbar-workspace \.repository-menu \{ top: calc\(100% \+ 9px\); right: 0/);
   assert.match(styles, /Operational enterprise workspace/);
   assert.match(styles, /\.topbar-title/);
   assert.match(source, /className="topbar-title"/);

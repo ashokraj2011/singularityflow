@@ -149,23 +149,21 @@ repositories keep branching from that repository's own default branch — an Epi
 branch is never created where one does not already exist. See
 [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the full topology.
 
-The Electron **Business experience** owns the planning journey through dedicated
-`Epics`, `Requirements`, `Planning`, `Artifact templates`, and `Create Stories`
-destinations, followed by `Reviews` and `Help`. Product Owners and Business
-Analysts enter this experience by default; anyone can switch between Business
-and Engineer experiences at any time. Business pages use a compact horizontal
-journey bar so the Epic, requirements, and Story content receives the full
-window width; the larger collapsible sidebar is reserved for Engineer tools.
+The Electron app presents **one navigation for every role**. An `Epic planning`
+section carries the journey — `Epics`, `Requirements`, `Planning`,
+`Create Stories`, `Planning Copilot`, and `Artifact templates` — alongside
+`Delivery`, `Decisions`, `Configuration`, and `Learn` in the same collapsible
+sidebar (⌘/Ctrl+B). The role chosen during onboarding suggests an initial
+planning persona; it does not route to a different shell, and there is no
+experience to switch between. The active workspace and the Copilot service
+control sit together in the top bar, visible from every page.
+
 Planning combines Story decomposition and the high-level specification without
-hiding either governed phase. The
-Business user reviews the generated Stories and their `REQ-nnn`/`AC-nnn`
-allocation before the publication screen creates or attaches each Jira Story,
-uses the returned Jira key as its stable Work ID, and creates the corresponding
-canonical Git branch with governed seed and receipt commits. Each stage exposes
-one primary action and keeps completed stages available for audit.
-These planning and artifact-template destinations are intentionally owned by
-the Business experience; the Engineer navigation stays focused on downstream
-delivery, impact, review, and advanced workflow controls.
+hiding either governed phase. Generated Stories and their `REQ-nnn`/`AC-nnn`
+allocation are reviewed before the publication screen creates or attaches each
+Jira Story, uses the returned Jira key as its stable Work ID, and creates the
+corresponding canonical Git branch with governed seed and receipt commits. Each
+stage exposes one primary action and keeps completed stages available for audit.
 
 Artifact templates include a visual drag-and-drop builder with a reusable
 section library, reorderable canvas, in-place guidance editing, live Markdown

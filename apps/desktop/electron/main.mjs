@@ -429,21 +429,6 @@ function registerHandlers() {
     }
     return { profile, jira, notices: prepared.notices };
   });
-  trustedHandle('onboarding:experience', async (event, { experienceMode }) => {
-    assertTrustedSender(event);
-    if (!['business', 'engineer'].includes(experienceMode)) throw new Error('Experience mode must be business or engineer.');
-    const jira = await jiraCredentialStore().safeStatus();
-    const current = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
-    if (!current.completed) throw new Error('Finish onboarding before switching the desktop experience.');
-    const profile = await saveOnboardingProfile(onboardingProfilePath(), {
-      ...current,
-      experienceMode
-    }, {
-      complete: true,
-      jiraConnected: jira.connected
-    });
-    return { profile, jira, notices: [] };
-  });
   trustedHandle('repository:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Open a Singularity Flow repository' });
     if (result.canceled || !result.filePaths[0]) return null;

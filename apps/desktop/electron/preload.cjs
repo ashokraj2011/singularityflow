@@ -3,7 +3,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('singularity', {
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
   saveOnboarding: (profile, complete = false) => ipcRenderer.invoke('onboarding:save', { profile, complete }),
-  setExperienceMode: (experienceMode) => ipcRenderer.invoke('onboarding:experience', { experienceMode }),
   chooseOnboardingWorkspace: () => ipcRenderer.invoke('onboarding:choose-workspace'),
   chooseOnboardingRepositories: () => ipcRenderer.invoke('onboarding:choose-repositories'),
   connectOnboardingJira: (connection) => ipcRenderer.invoke('onboarding:jira-connect', { connection }),

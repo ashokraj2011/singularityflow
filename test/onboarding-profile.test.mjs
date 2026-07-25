@@ -18,7 +18,6 @@ test('onboarding profile requires only a local name and role while keeping integ
     repositories: []
   });
   assert.equal(draft.completed, false);
-  assert.equal(draft.experienceMode, 'engineer');
   assert.equal(draft.step, 0);
   assert.deepEqual(draft.repositories, []);
   const completed = normalizeOnboardingProfile(draft, { complete: true });
@@ -28,15 +27,19 @@ test('onboarding profile requires only a local name and role while keeping integ
   assert.equal(completed.jiraChoice, 'later');
 });
 
-test('onboarding derives a role-aware experience and preserves an explicit mode switch', () => {
-  assert.equal(normalizeOnboardingProfile({ role: 'product-owner' }).experienceMode, 'business');
-  assert.equal(normalizeOnboardingProfile({ role: 'business-analyst' }).experienceMode, 'business');
-  assert.equal(normalizeOnboardingProfile({ role: 'developer' }).experienceMode, 'engineer');
+test('onboarding keeps the role but no longer derives a separate experience from it', () => {
+  // Business and Engineer were merged into one navigation, so the role selected during
+  // onboarding is recorded for persona suggestions and never routes to a different shell.
+  assert.equal(normalizeOnboardingProfile({ role: 'product-owner' }).role, 'product-owner');
+  assert.equal(normalizeOnboardingProfile({ role: 'developer' }).role, 'developer');
+  for (const role of ['product-owner', 'business-analyst', 'developer']) {
+    assert.equal(normalizeOnboardingProfile({ role }).experienceMode, undefined);
+  }
   assert.equal(normalizeOnboardingProfile({
     name: 'Hands-on Product Owner',
     role: 'product-owner',
     experienceMode: 'engineer'
-  }, { complete: true }).experienceMode, 'engineer');
+  }, { complete: true }).experienceMode, undefined);
 });
 
 test('onboarding completion validates name and role without forcing advanced setup', () => {

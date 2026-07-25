@@ -15,6 +15,7 @@ import {
   secureInitiativePath,
   verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
+import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 import { loadSession } from './session.mjs';
 import {
   secureRepositoryPath,
@@ -39,7 +40,7 @@ function recordRelative(phaseId, generation) {
   return posix(path.join('context', `prompt-context-${phaseId}-gen${generation}.json`));
 }
 
-function phaseContract(phase) {
+function phaseContract(initiative, phase) {
   const lines = [
     `# Initiative phase contract: ${phase.label}`,
     '',
@@ -48,11 +49,11 @@ function phaseContract(phase) {
     '- Outputs:'
   ];
   for (const output of phase.outputs) {
-    lines.push(`  - \`${output.id}\` (${output.kind}, ${output.required ? 'required' : 'optional'})${output.consumes.length ? ` consumes ${output.consumes.join(', ')}` : ''}`);
+    lines.push(`  - \`${output.id}\` (${output.kind}, ${initiativeOutputRequired(initiative, phase.id, output) ? 'required' : 'optional'})${output.consumes.length ? ` consumes ${output.consumes.join(', ')}` : ''}`);
   }
   lines.push('- Checklist:');
   for (const check of phase.checklist) {
-    lines.push(`  - \`${check.id}\` (${check.requirement}, gate=${check.gate}, assurance=${check.acceptedAssurance.join('|')})`);
+    lines.push(`  - \`${check.id}\` (${initiativeCheckRequirement(initiative, phase.id, check)}, gate=${check.gate}, assurance=${check.acceptedAssurance.join('|')})`);
   }
   return lines.join('\n');
 }
@@ -279,7 +280,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const rendered = [
     `# Governed Copilot prompt — ${initiativeId}/${phaseId} generation ${generation}`,
     '',
-    phaseContract(phase),
+    phaseContract(initiative, phase),
     '',
     `## Selected persona: ${definition.personas[selectedPersona].label}`,
     '',

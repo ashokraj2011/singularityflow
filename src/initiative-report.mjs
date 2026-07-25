@@ -15,6 +15,7 @@ import {
 } from './initiative-state.mjs';
 import { nowIso } from './util.mjs';
 import { listEpicSources } from './epic-sources.mjs';
+import { initiativeOutputRequired } from './initiative-policy.mjs';
 
 function milliseconds(start, end) {
   const from = Date.parse(start ?? '');
@@ -259,7 +260,7 @@ export async function initiativeNextActions(root, initiativeId) {
     const outputs = Object.values(phase.outputs);
     const phaseDefinition = initiative.resolution.phases.find((candidate) => candidate.id === phase.id);
     const requiredOutputIds = new Set((phaseDefinition?.outputs ?? [])
-      .filter((output) => output.required !== false)
+      .filter((output) => initiativeOutputRequired(initiative, phase.id, output))
       .map((output) => output.id));
     if (outputs.some((output) => requiredOutputIds.has(output.id) && output.status === 'not_generated')) return [{
       action: 'prepare',

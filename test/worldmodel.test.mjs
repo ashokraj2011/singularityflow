@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { verifyGroundingRecord, worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { validateWorldModelDirectory, verifyGroundingRecord, worldModelSourceSnapshot } from '../src/grounding.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -220,6 +220,40 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const stale = result(process.execPath, [bin, 'wm', 'check'], root);
   assert.equal(stale.status, 2);
   assert.match(`${stale.stdout}${stale.stderr}`, /World model is stale/);
+});
+
+test('world-model v2 manifests accept brief tiers and the path index', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-v2-'));
+  await mkdir(path.join(directory, 'core'), { recursive: true });
+  await mkdir(path.join(directory, 'views'), { recursive: true });
+  await mkdir(path.join(directory, 'index'), { recursive: true });
+  await mkdir(path.join(directory, 'evidence'), { recursive: true });
+  await writeFile(path.join(directory, 'core/summary.brief.md'), '# Core brief\n');
+  await writeFile(path.join(directory, 'core/summary.md'), '# Core summary\n');
+  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
+  await writeFile(path.join(directory, 'views/architecture.brief.md'), '# Architecture brief\n');
+  await writeFile(path.join(directory, 'views/architecture.md'), '# Architecture\n');
+  await writeFile(path.join(directory, 'index/path-map.json'), '{}\n');
+  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
+  await writeFile(path.join(directory, 'manifest.json'), JSON.stringify({
+    schema_version: '2.0',
+    generated_at: '2026-07-25T12:00:00.000Z',
+    generated_date: '25 July 2026',
+    builder_version: '2.0',
+    builder_prompt_sha256: 'a'.repeat(64),
+    analysis_depth: 'standard',
+    repository_commit: 'b'.repeat(40),
+    repository_branch: 'main',
+    working_tree_clean: true,
+    core: { brief: 'core/summary.brief.md', summary: 'core/summary.md', model: 'core/model.json' },
+    path_index: { path: 'index/path-map.json' },
+    views: { architecture: { path: 'views/architecture.md', brief_path: 'views/architecture.brief.md', generated: true } },
+    domains: [], task_guides: [], evidence: { path: 'evidence/evidence.jsonl' }
+  }));
+  const validated = await validateWorldModelDirectory(directory);
+  assert.equal(validated.manifest.schema_version, '2.0');
+  assert.ok(validated.registered.includes('index/path-map.json'));
+  assert.ok(validated.registered.includes('views/architecture.brief.md'));
 });
 
 test('wm build rejects generator writes outside the isolated output', async () => {

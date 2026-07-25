@@ -106,14 +106,22 @@ async function requireModelFile(directory, relative, label, { json = false, json
   return { path: posix(relative), absolute, ...info };
 }
 
-export async function validateWorldModelDirectory(directory, { expectedCommit = null, expectedTask = null, requiredViews = [], requireEvidence = true } = {}) {
+export async function validateWorldModelDirectory(directory, { expectedCommit = null, expectedTask = null, requiredViews = [], requireEvidence = true, allowIncompleteMetadata = false } = {}) {
   const manifestFile = path.join(directory, 'manifest.json');
   if (!(await exists(manifestFile))) throw new SingularityFlowError('World-model builder did not create manifest.json.');
   let manifest;
   try { manifest = JSON.parse(await readFile(manifestFile, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`World-model manifest is invalid JSON: ${error.message}`); }
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new SingularityFlowError('World-model manifest must be a JSON object.');
-  if (manifest.schema_version !== '1.0') throw new SingularityFlowError("World-model manifest schema_version must be '1.0'.");
+  if (!['1.0', '2.0'].includes(manifest.schema_version)) throw new SingularityFlowError("World-model manifest schema_version must be '1.0' or '2.0'.");
+  const modern = manifest.schema_version === '2.0';
+  if (modern && !allowIncompleteMetadata) {
+    for (const field of ['generated_at', 'generated_date', 'builder_version', 'builder_prompt_sha256', 'analysis_depth', 'repository_branch', 'working_tree_clean']) {
+      if (manifest[field] === undefined || manifest[field] === null || manifest[field] === '') throw new SingularityFlowError(`World-model manifest is missing required metadata '${field}'.`);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(String(manifest.generated_at))) throw new SingularityFlowError('World-model manifest generated_at must be an ISO 8601 UTC timestamp.');
+    if (typeof manifest.working_tree_clean !== 'boolean') throw new SingularityFlowError('World-model manifest working_tree_clean must be a boolean.');
+  }
   const repositoryCommit = manifest.repository_commit ?? manifest.repository?.commit;
   if (!/^[0-9a-f]{40}$/i.test(repositoryCommit ?? '')) throw new SingularityFlowError('World-model manifest requires a full repository_commit SHA.');
   if (expectedCommit && repositoryCommit !== expectedCommit) throw new SingularityFlowError(`World-model manifest inspected ${repositoryCommit}, expected ${expectedCommit}.`);
@@ -129,7 +137,11 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
   const coreSummary = manifest.core?.summary ?? 'core/summary.md';
   const coreModel = manifest.core?.model ?? 'core/model.json';
   await register(coreSummary, 'World-model core summary');
+  if (modern && !manifest.core?.brief) throw new SingularityFlowError('World-model v2 manifest requires core.brief for the progressive-disclosure core tier.');
+  if (manifest.core?.brief) await register(manifest.core.brief, 'World-model core brief');
   await register(coreModel, 'World-model core model', { json: true });
+  if (modern && !manifest.path_index?.path) throw new SingularityFlowError('World-model v2 manifest requires path_index.path.');
+  if (manifest.path_index?.path) await register(manifest.path_index.path, 'World-model path index', { json: true });
 
   if (!manifest.views || typeof manifest.views !== 'object' || Array.isArray(manifest.views)) throw new SingularityFlowError('World-model manifest views must be an object.');
   if (manifest.domains != null && !Array.isArray(manifest.domains)) throw new SingularityFlowError('World-model manifest domains must be an array.');
@@ -137,7 +149,9 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
   for (const [view, entry] of Object.entries(manifest.views)) {
     if (entry?.generated === false) continue;
     if (!entry?.path) throw new SingularityFlowError(`Generated world-model view '${view}' has no path.`);
+    if (modern && !entry.brief_path) throw new SingularityFlowError(`Generated world-model view '${view}' is missing its brief_path.`);
     await register(entry.path, `World-model view '${view}'`);
+    if (entry.brief_path) await register(entry.brief_path, `World-model brief view '${view}'`);
   }
   for (const view of requiredViews) {
     const entry = manifest.views?.[view];

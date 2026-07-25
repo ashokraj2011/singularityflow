@@ -425,7 +425,7 @@ export async function createPlanningContext(root, {
 } = {}) {
   const definition = await loadDefinition(root);
   const prompt = await planningPrompt(root, definition);
-  if (!prompt.config.enabled) throw new SingularityFlowError('Planning Studio is disabled by workflow.yml.');
+  if (!prompt.config.enabled) throw new SingularityFlowError('Copilot Studio is disabled by workflow.yml.');
   if (!definition.personas[persona]) throw new SingularityFlowError(`Unknown planning persona '${persona}'.`);
   const parts = scope === 'initiative'
     ? await initiativePlanningParts(root, definition, { id, phaseId, persona, targetId })

@@ -101,7 +101,7 @@ and freshness cannot be bypassed.
   pointer.
 - Opening another workspace or repository stops the previous Copilot backend
   and clears its pending planning handles before the new context becomes active.
-- Planning Copilot receives the ready clone roots as its explicit read-only
+- Copilot Studio receives the ready clone roots as its explicit read-only
   filesystem boundary. It is told to exclude staged documents until governance
   promotes or registers them.
 - A lost local workspace can be rebuilt from its saved configuration, lead Git

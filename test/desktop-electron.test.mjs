@@ -644,7 +644,7 @@ test('epic start offers world-model generation instead of blocking on it', async
   assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
 });
 
-test('Planning Studio releases the previous session when the governed context is rebuilt', async () => {
+test('Copilot Studio releases the previous session when the governed context is rebuilt', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   const build = source.slice(source.indexOf('async function buildContext()'), source.indexOf('async function startCopilot()'));
 
@@ -660,4 +660,31 @@ test('Planning Studio releases the previous session when the governed context is
   const switchEffect = source.slice(source.indexOf("const selectedPhase = selected.phases.find"), source.indexOf('[data.selectedWorkId, data.selectedInitiativeId]'));
   assert.match(switchEffect, /resetSession\(\)/);
   assert.doesNotMatch(switchEffect, /setStarted\(false\);\s*\}/);
+});
+
+test('a hand-off frames Copilot Studio on the phase it came from, and the sidebar does not', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+
+  // The studio serves every phase, so arriving from a phase screen must carry that phase across.
+  assert.match(source, /function openStudio\(phase = null, target = null\)/);
+  assert.match(source, /setPlanningFocus\(phase \? \{ phase, target \} : null\)/);
+  assert.match(source, /focus=\{planningFocus\}/);
+  assert.match(source, /openStudio\(phase \?\? 'epic-requirements'\)/);
+  assert.match(source, /openStudio\(phase \?\? 'epic-plan'\)/);
+  assert.match(source, /openPlanning\('epic-plan'\)/);
+  assert.match(source, /openPlanning\(phases\[0\]\)/);
+
+  // Reaching the studio from the sidebar clears a previous hand-off instead of re-framing it.
+  assert.match(source, /id === 'planning' \? openStudio\(\) :/);
+
+  // The work-selection effect also runs on mount, so it must resolve the focused phase rather
+  // than currentPhase — otherwise it immediately overwrites the framing the caller asked for.
+  const effect = source.slice(source.indexOf('const available = data.planning?.targets'), source.indexOf('[data.selectedWorkId, data.selectedInitiativeId]'));
+  assert.match(effect, /focusPhase \?\? selected\.currentPhase/);
+
+  // A stale link must not frame a phase this group does not have.
+  assert.match(source, /defaultGroup\?\.phases\.some\(\(item\) => item\.id === focus\.phase\)/);
+
+  // Buttons must pass a phase, never the click event.
+  assert.doesNotMatch(source, /onClick=\{openPlanning\}/);
 });

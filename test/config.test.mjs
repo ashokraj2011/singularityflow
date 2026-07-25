@@ -87,7 +87,7 @@ test('Copilot session persona policy is configurable and absent configuration st
   assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);
 });
 
-test('Copilot Planning Studio configuration has bounded, repository-safe defaults', () => {
+test('Copilot Studio configuration has bounded, repository-safe defaults', () => {
   assert.deepEqual(normalizePlanning(), {
     enabled: true,
     promptSource: 'singularity/prompts/copilot-planning.md',

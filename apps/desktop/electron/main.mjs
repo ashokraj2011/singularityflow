@@ -654,7 +654,7 @@ function registerHandlers() {
     if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
     return copilotBackend.beginPlanning(root, planningSessionId, {
       model: model?.trim() || null,
-      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Planning Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
+      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
     });
   });
   trustedHandle('planning:prompt', (event, { repository, planningSessionId, text }) => {

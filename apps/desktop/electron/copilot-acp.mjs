@@ -34,7 +34,7 @@ export function copilotPlanningPreflight({ env = process.env, spawnSyncImpl = sp
       planMode: false,
       executable: null,
       version: null,
-      message: 'GitHub Copilot CLI was not found. Install it and authenticate before starting Planning Studio.'
+      message: 'GitHub Copilot CLI was not found. Install it and authenticate before starting Copilot Studio.'
     };
   }
   const versionResult = spawnSyncImpl(executable, ['--version'], { encoding: 'utf8', env });
@@ -53,7 +53,7 @@ export function copilotPlanningPreflight({ env = process.env, spawnSyncImpl = sp
     message: versionResult.status !== 0
       ? 'GitHub Copilot CLI could not be started.'
       : !acpAvailable
-        ? 'This Copilot CLI does not expose the ACP server required by Planning Studio. Update Copilot CLI.'
+        ? 'This Copilot CLI does not expose the ACP server required by Copilot Studio. Update Copilot CLI.'
         : !planAvailable
           ? 'This Copilot CLI does not expose native Plan mode. Update Copilot CLI.'
           : 'Copilot ACP and native Plan mode are available.'
@@ -197,7 +197,7 @@ export class CopilotPlanningBridge {
         type: 'question-unsupported',
         message: params.message,
         mode: params.mode,
-        detail: 'Planning Studio supports inline form questions only; URL and custom elicitation were cancelled.'
+        detail: 'Copilot Studio supports inline form questions only; URL and custom elicitation were cancelled.'
       });
       return Promise.resolve({ action: 'cancel' });
     }
@@ -258,7 +258,7 @@ export class CopilotPlanningBridge {
         this.emit({
           type: 'permission-denied',
           title: ctx.params.toolCall?.title ?? 'Copilot tool request',
-          detail: 'Planning Studio runs in read-only Plan mode and denied this permission request.'
+          detail: 'Copilot Studio runs in read-only Plan mode and denied this permission request.'
         });
         return rejectPermission(ctx.params);
       })

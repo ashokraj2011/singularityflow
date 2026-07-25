@@ -21,7 +21,7 @@ The package contains:
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
-- A phase-aware Planning Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode, surfaces Copilot questions as answerable forms, keeps collapsible IDE-style logs, and promotes only a human-reviewed artifact into Git.
+- A phase-aware Copilot Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode, surfaces Copilot questions as answerable forms, keeps collapsible IDE-style logs, and promotes only a human-reviewed artifact into Git.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 
 ## Requirements
@@ -67,7 +67,7 @@ These files are ordinary reviewed repository files and remain fully editable.
 
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
-The Electron **Planning Studio** is a governed client for GitHub Copilot CLI's native Plan mode. It combines the selected phase contract, persona, repository world model, approved inputs, remote skills, requirements, and current draft into a hashed local context pack. Copilot can ask structured questions directly in the app and explore alternatives through persistent follow-up turns; only the artifact explicitly reviewed in the right-hand panel can be promoted, committed, and pushed. See [PLANNING-STUDIO.md](PLANNING-STUDIO.md).
+The Electron **Copilot Studio** is a governed client for GitHub Copilot CLI's native Plan mode. It combines the selected phase contract, persona, repository world model, approved inputs, remote skills, requirements, and current draft into a hashed local context pack. Copilot can ask structured questions directly in the app and explore alternatives through persistent follow-up turns; only the artifact explicitly reviewed in the right-hand panel can be promoted, committed, and pushed. See [COPILOT-STUDIO.md](COPILOT-STUDIO.md).
 
 The Electron **Workspace configuration** view creates a disposable local
 directory containing one isolated clone per participating repository, a clearly
@@ -151,7 +151,7 @@ branch is never created where one does not already exist. See
 
 The Electron app presents **one navigation for every role**. An `Epic planning`
 section carries the journey — `Epics`, `Requirements`, `Planning`,
-`Create Stories`, `Planning Copilot`, and `Artifact templates` — alongside
+`Create Stories`, `Copilot Studio`, and `Artifact templates` — alongside
 `Delivery`, `Decisions`, `Configuration`, and `Learn` in the same collapsible
 sidebar (⌘/Ctrl+B). The role chosen during onboarding suggests an initial
 planning persona; it does not route to a different shell, and there is no
@@ -801,7 +801,7 @@ Open an initialized repository from the app. The studio keeps up to ten recently
 
 The daily workspace uses the **Singularity** product identity throughout. **Artifact Studio** visualizes the complete phase sequence, generation state, approvals, governed deliverables, and shared artifact repository. **Requirements** provides a three-pane repository tree, full document preview, Git metadata, and Markdown outline. **Impact analysis** renders the current repository/initiative dependency topology and derives risk signals from committed story freshness and interface-contract integrity. These screens are projections of the same Git state; they do not create a parallel state store.
 
-**Planning Studio** adds an intentional reasoning workspace above those deterministic controls. It exposes every profile phase for orientation, allows planning only on the active in-progress phase, and adapts the prompt to discovery, design, inception, elaboration, construction, delivery, or story-level work. It invokes the locally authenticated `copilot` executable through ACP, explicitly switches the ACP session to native Plan mode, streams conversation and structured plan updates, renders ACP clarification forms inline, and rejects permission requests. A collapsed IDE-style console retains tool, status, and diagnostic events. Story-plan output receives a dedicated Epic/Story Work ID analysis before promotion. The context manifest stays private under `.git/singularity-flow/planning/`; a promoted artifact copies its exact context and provenance into the work item or initiative before one commit/push. Promotion never submits, approves, materializes stories, or merges a branch.
+**Copilot Studio** adds an intentional reasoning workspace above those deterministic controls. It exposes every profile phase for orientation, allows planning only on the active in-progress phase, and adapts the prompt to discovery, design, inception, elaboration, construction, delivery, or story-level work. It invokes the locally authenticated `copilot` executable through ACP, explicitly switches the ACP session to native Plan mode, streams conversation and structured plan updates, renders ACP clarification forms inline, and rejects permission requests. A collapsed IDE-style console retains tool, status, and diagnostic events. Story-plan output receives a dedicated Epic/Story Work ID analysis before promotion. The context manifest stays private under `.git/singularity-flow/planning/`; a promoted artifact copies its exact context and provenance into the work item or initiative before one commit/push. Promotion never submits, approves, materializes stories, or merges a branch.
 
 The desktop top bar includes a **Copilot backend** control. Start it once to keep one repository-scoped ACP process ready across multiple planning turns, inspect its process/version/mode and local event log, or stop it explicitly. Releasing or promoting a planning context leaves the backend ready; stopping the backend cancels any active turn. Starting a planning turn also starts the backend automatically when needed. Lifecycle operations are serialized: concurrent starts share one initialization, Stop cannot be undone by a late startup completion, overlapping prompts are rejected, and failed shutdowns remain recoverable through **Retry stop**.
 

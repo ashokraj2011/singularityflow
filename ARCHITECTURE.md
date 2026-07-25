@@ -144,11 +144,11 @@ Completion is the number of approved phases divided by the immutable total phase
 
 `apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, persona sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
 
-Planning Studio makes Electron an ACP client for the locally authenticated GitHub Copilot CLI:
+Copilot Studio makes Electron an ACP client for the locally authenticated GitHub Copilot CLI:
 
 ```mermaid
 flowchart LR
-    UI["Sandboxed Planning Studio"] --> IPC["Narrow planning IPC"]
+    UI["Sandboxed Copilot Studio"] --> IPC["Narrow planning IPC"]
     IPC --> CTX["Deterministic CLI context pack"]
     CTX --> ACP["Copilot ACP · native Plan mode"]
     ACP --> UI

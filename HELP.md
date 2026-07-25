@@ -164,7 +164,7 @@ tools only from the other. Both are now the same sidebar:
 
 ```text
 Epic planning   Epics · Requirements · Planning · Create Stories ·
-                Planning Copilot · Artifact templates
+                Copilot Studio · Artifact templates
 Delivery        Overview · Artifact studio · Impact analysis · Documents
 Decisions       Approval inbox · Review bundle
 Configuration   Workspace configuration · Portfolio designer · Workflow designer ·
@@ -368,9 +368,53 @@ ready. Local role, Jira account, configured Git identity, and GitHub login are
 displayed as separate identity domains; none is described as cryptographically
 equivalent.
 
-## Copilot Planning Studio
+## Epic artifact templates
 
-Open **Planning Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
+Each Epic phase output is generated from an editable repository template under
+`singularity/templates/initiatives/epic/`. The shipped templates follow
+recognised practice so the generated artifacts are review-ready rather than blank
+headings:
+
+| Artifact | Structure it follows |
+| --- | --- |
+| `intake-summary.md` | Epic charter: objective, measurable success criteria, stakeholder analysis, scope boundaries, readiness assessment |
+| `source-catalog.md` | Evidence register with authority, currency, coverage by scope area, and a recorded precedence ruling for conflicting sources |
+| `source-gaps.md` | Gap log separating blocking from non-blocking, with owners, working assumptions, and explicitly accepted unknowns |
+| `requirements.md` | Requirements specification structured after ISO/IEC/IEEE 29148: MoSCoW priority, the four verification methods, measurable non-functional requirements, data, integration, and compliance requirements, glossary, quality checklist |
+| `requirements-traceability.yml` | Requirements traceability matrix — the machine-checked citation graph |
+| `open-questions.md` | RAID log (Risks, Assumptions, Issues, Dependencies) plus a decision record and escalation trail |
+| `story-plan.yml` | Decomposition written to INVEST, carrying the `dependsOn` graph that later produces the merge order |
+| `repository-map.yml` | Impact analysis: change type, blast radius, interfaces crossed, migrations, and the world-model evidence for each claim — plus repositories examined and found unaffected |
+| `dependency-map.md` | Delivery sequence, dependency graph, critical path, repository boundaries, and integration strategy |
+| `high-level-specification.md` | Solution shape with a context view, component and interface tables, non-functional budgets allocated to components, and architecture decision records |
+| `materialization-report.md` | Handoff record: Jira and branch receipts, traceability confirmation, deviations, retries, outstanding work |
+
+Templates are ordinary repository files: edit them in **Artifact templates**, or
+directly, and commit. The resolved template hash is pinned into the initiative at
+start, so changing a template after an Epic begins does not silently alter that
+Epic's contract — it is reported as a changed template instead.
+
+Two templates are validated as well as generated. `requirements-traceability.yml`
+must cite pinned sources with a locator for every `REQ-nnn` and `AC-nnn`, and
+`repository-map.yml` must name only configured repositories and declared
+world-model views. Both ship with the live structure empty and the full schema in
+comments, so a freshly generated artifact passes the gates and fails only once it
+contains real content that does not hold up.
+
+## Copilot Studio
+
+Open **Copilot Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
+
+Copilot Studio serves **every phase**, not only Plan — it is where each phase's
+artifact is composed before it is governed. It was previously called Planning
+Copilot, which suggested it belonged to the Plan phase alone.
+
+Reaching it from a phase screen (**Compose in Copilot Studio** on Requirements,
+Planning, or Create Stories) pre-frames the phase and its first output, so the
+artifact is composed against the phase you came from. Opening it from the sidebar
+leaves the frame on the current phase instead. Always confirm the **Promotion
+target** before starting: the composed artifact is written to exactly that path,
+so a Story plan framed on Intake would be promoted into the source catalog.
 
 Use the **Copilot** control in the desktop top bar to start or stop the repository-scoped ACP backend and inspect its state, process ID, version, mode, active planning attachment, and transient local service log. Planning turns reuse the running backend. Releasing or promoting a planning context leaves it ready; stopping it cancels an active turn. **Start Copilot Plan mode** starts it automatically when needed.
 
@@ -391,7 +435,7 @@ planning:
   maxContextBytes: 1048576
 ```
 
-The prompt is editable in **Prompts & skills**. The context limit may be 16 KiB through 10 MiB. Tool permission requests are rejected, renderer sandboxing remains enabled, and a plan file is read only when it remains inside the open repository. ACP model/token usage is displayed only when Copilot supplies exact values. See `PLANNING-STUDIO.md` for the complete architecture and walkthrough.
+The prompt is editable in **Prompts & skills**. The context limit may be 16 KiB through 10 MiB. Tool permission requests are rejected, renderer sandboxing remains enabled, and a plan file is read only when it remains inside the open repository. ACP model/token usage is displayed only when Copilot supplies exact values. See `COPILOT-STUDIO.md` for the complete architecture and walkthrough.
 
 Singularity Desktop’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
 
@@ -399,7 +443,7 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 - **Artifact Studio** shows the phase sequence, generation and approval state, governed outputs, and the shared artifact repository.
 - **Requirements** shows a repository document tree, full Markdown preview, Git metadata, and section outline; uploaded design packages and reference links remain attached to the selected work item.
-- **Planning Copilot** builds a governed, hash-recorded context pack and invokes local GitHub Copilot in Plan mode before a reviewed artifact can be promoted.
+- **Copilot Studio** builds a governed, hash-recorded context pack and invokes local GitHub Copilot in Plan mode before a reviewed artifact can be promoted.
 - **Impact analysis** visualizes repositories and child stories, then reports committed context freshness and interface-contract integrity without inventing unobserved dependencies.
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.

@@ -1,19 +1,66 @@
+# Story Plan — {{workId}}
+#
+# The executable decomposition. Materialization reads this file to create Jira
+# Stories and canonical Git branches, so it is machine-validated:
+#
+#   - `repository` must be a repository ID declared in singularity/portfolio.yml
+#   - every `requirements` entry must be REQ-nnn and exist in the traceability matrix
+#   - every `acceptanceCriteria` entry must be AC-nnn and exist in that matrix
+#   - `dependsOn` must reference planIds in this file and must not form a cycle
+#   - planIds are immutable once approved; Jira keys are written back as `workId`
+#
+# The acyclic `dependsOn` graph is what later produces the merge order
+# (`singularity-flow epic merge-plan`), so model real sequencing here rather than
+# leaving it empty and discovering the order during integration.
+#
+# Write Stories to INVEST: Independent, Negotiable, Valuable, Estimable, Small,
+# Testable. A Story that cannot be demonstrated on its own is a task, not a Story.
+#
+# Every Must requirement must be allocated to at least one Story, and no Story
+# may exist without a requirement — planning is an allocation, not an invention.
+
 version: 2
 initiativeId: "{{workId}}"
+
 epics:
   - planId: EPIC-001
     jiraKey: "{{workId}}"
     title: ""
     description: ""
     acceptanceCriteria: []
+
     stories:
       - planId: STORY-001
         title: ""
+        # Recommended form: As a <role>, I want <capability>, so that <benefit>.
         description: ""
+
+        # Allocation from the approved requirements. These IDs are verified.
         requirements: [REQ-001]
         acceptanceCriteria: [AC-001]
+
+        # Must match a portfolio repository ID.
         repository: ""
+
+        # blocking: true means the Epic cannot land until this Story merges.
+        # Set false for follow-up work that may trail the Epic.
         blocking: true
+
+        # Selects the phase sequence the Story will follow.
         suggestedWorkType: feature
+
+        # Sequencing. requiredPhase names how far the dependency must progress
+        # before this Story may start — not merely that it exists.
         dependsOn: []
+        # dependsOn:
+        #   - story: STORY-002
+        #     requiredPhase: implementation-spec
+
+        # Interface contracts this Story consumes from another Story.
         consumesContracts: []
+        # consumesContracts:
+        #   - id: items-api
+        #     version: 2
+
+        # Optional relative size. Use the scale your team already uses.
+        # estimate: 3

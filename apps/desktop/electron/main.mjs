@@ -763,6 +763,40 @@ function registerHandlers() {
     });
     return result;
   });
+  trustedHandle('initiative:evidence-record', async (event, { repository, initiativeId, phaseId, checkId, reason, observedState }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    // Mirrors `initiative evidence add` exactly: register, reload, then commit append-only. The
+    // engine owns authorization — it refuses an actor outside the check's approval authority — so
+    // this handler must not pre-judge who may attest.
+    const [
+      { registerInitiativeEvidence },
+      { commitInitiativeChange, loadInitiative },
+      { loadSession }
+    ] = await Promise.all([
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('session.mjs')
+    ]);
+    const session = await loadSession(root, { required: false });
+    const appended = await registerInitiativeEvidence(root, {
+      initiativeId,
+      phaseId,
+      checkId,
+      assurance: 'human-approved',
+      verificationMethod: 'human-review',
+      source: { observedState: observedState?.trim() || null },
+      persona: session?.persona ?? null,
+      reason: reason?.trim() || null
+    });
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(
+      root, fresh.portfolio, fresh.initiative,
+      `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`,
+      { appendOnly: true }
+    );
+    return { checkId, sha256: appended.sha256, commit: publication.sha, pushed: publication.pushed };
+  });
   trustedHandle('planning:start', async (event, { repository, planningSessionId, model }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);

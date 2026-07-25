@@ -2669,7 +2669,32 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
         ? `The confirmation phrase does not match. Type exactly ${phaseId}:phase.`
         : null;
   const [selfApproval, setSelfApproval] = useState(false);
+  const [attesting, setAttesting] = useState(null);
+  const [attestation, setAttestation] = useState('');
+
   if (!phase) return null;
+  // A check whose acceptedAssurance includes human-approved is one a person may attest to; the rest
+  // can only be earned by a verifier at publish. Read it from the pinned resolution, which is the
+  // per-initiative source of truth — the phase-state projection does not carry it.
+  const checkDefinitions = selected.state.resolution?.phases?.find((item) => item.id === phaseId)?.checklist ?? [];
+  const attestable = Object.values(phase.checklist ?? {})
+    .filter((check) => check.status !== 'satisfied' && check.requirement !== 'optional')
+    .map((check) => ({ ...check, definition: checkDefinitions.find((item) => item.id === check.id) }))
+    .filter((check) => check.definition?.acceptedAssurance?.includes('human-approved'));
+
+  async function recordEvidence(checkId) {
+    const result = await action(
+      () => window.singularity.recordInitiativeEvidence(
+        data.repository.root, selected.state.initiative.id, phaseId, checkId, attestation, attestation
+      ),
+      `Evidence recorded for ${checkId}`
+    );
+    if (!result) return;
+    setAttesting(null);
+    setAttestation('');
+    await reload(null, selected.state.initiative.id);
+  }
+
   const outputs = Object.values(phase.outputs ?? {});
   // Publication needs every REQUIRED output authored. The engine already works this way
   // (verifyInitiativePhaseOutputs only reports a missing output when definition.required), so
@@ -2723,6 +2748,29 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       {!readyToPublish && !awaitingApproval && !approved && authoredOutputs.length > 0 && <p className="stage-progress">{authoredOutputs.length} of {effectiveRequiredOutputs.length} required outputs authored.</p>}
     </div>
     <label><span>Your review persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></label>
+    {attestable.length > 0 && <section className="evidence-attest">
+      <header><strong>Checks awaiting your judgement</strong><small>Recorded as human-approved evidence against your Git identity, committed append-only. The engine refuses an actor outside the check's approval authority.</small></header>
+      {attestable.map((check) => <div key={check.id} className="evidence-attest-row">
+        <div>
+          <code>{check.id}</code>
+          <span>{check.label}</span>
+          {check.definition?.acceptedAssurance?.includes('machine-verified') && <em>Normally earned automatically at publish — attest only if you are accepting it deliberately.</em>}
+        </div>
+        {attesting === check.id ? <div className="evidence-attest-form">
+          <textarea
+            rows="2"
+            value={attestation}
+            onChange={(event) => setAttestation(event.target.value)}
+            placeholder="What did you review, and what did you conclude? This is recorded with your name."
+          />
+          <div className="row">
+            <button className="ghost compact" onClick={() => { setAttesting(null); setAttestation(''); }}>Cancel</button>
+            <button className="primary compact" disabled={!attestation.trim()} onClick={() => void recordEvidence(check.id)}>Record evidence</button>
+          </div>
+          {!attestation.trim() && <small className="field-error">Say what you reviewed — an attestation with no reasoning is not evidence.</small>}
+        </div> : <button className="secondary compact" onClick={() => { setAttesting(check.id); setAttestation(''); }}>Record judgement</button>}
+      </div>)}
+    </section>}
     {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} className={confirmation.trim() && confirmation !== `${phaseId}:phase` ? 'confirmation-mismatch' : undefined} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Type the phrase here" />{approvalBlocker && <small className="field-error">{approvalBlocker}</small>}</label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
     <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={Boolean(approvalBlocker)} title={approvalBlocker ?? undefined} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
     {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}

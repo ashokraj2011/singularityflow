@@ -886,3 +886,32 @@ test('the governed contract is sent to Copilot, not pointed at', async () => {
   assert.match(acp, /fs: \{ readTextFile: false, writeTextFile: false \}/);
   assert.match(acp, /return rejectPermission\(ctx\.params\)/);
 });
+
+test('a human-approved check can be attested from the app', async () => {
+  // material-questions-resolved is human-approved only and had no recording path anywhere in the
+  // desktop: no IPC channel, no control. The phase could never be approved without the CLI.
+  const preload = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'preload.cjs'), 'utf8');
+  assert.match(preload, /recordInitiativeEvidence:/);
+  assert.match(preload, /'initiative:evidence-record'/);
+
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  const handler = main.slice(main.indexOf("trustedHandle('initiative:evidence-record'"));
+  // Same shape as `initiative evidence add`: register, reload, commit append-only.
+  assert.match(handler.slice(0, 1800), /assurance: 'human-approved'/);
+  assert.match(handler.slice(0, 1800), /appendOnly: true/);
+  // Authorization belongs to the engine; the handler must not decide who may attest.
+  assert.doesNotMatch(handler.slice(0, 1800), /isAuthorized|allowSelfApproval/);
+});
+
+test('only checks that accept a human judgement are offered for attestation', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // acceptedAssurance lives on the pinned per-initiative resolution, not the phase-state
+  // projection; reading it from state would have meant a second, drifting source of truth.
+  assert.match(app, /selected\.state\.resolution\?\.phases\?\.find\(\(item\) => item\.id === phaseId\)\?\.checklist/);
+  assert.match(app, /acceptedAssurance\?\.includes\('human-approved'\)/);
+  // An attestation with no reasoning is not evidence.
+  assert.match(app, /disabled=\{!attestation\.trim\(\)\}/);
+  // The phase guard must run before anything dereferences phase.checklist.
+  assert.ok(app.indexOf('if (!phase) return null;') < app.indexOf('Object.values(phase.checklist'),
+    'the !phase guard must precede the checklist read');
+});

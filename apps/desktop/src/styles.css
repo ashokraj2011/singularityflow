@@ -3521,3 +3521,17 @@ input:disabled, select:disabled, textarea:disabled {
 .chat-bubble pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; }
 .composer-bar small { font-size: 10px; color: var(--muted); }
+
+/* Human-approved evidence capture */
+.evidence-attest { grid-column: 1 / -1; margin-bottom: 14px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.evidence-attest > header { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.evidence-attest > header strong { font-size: 12px; font-weight: 640; color: var(--ink); }
+.evidence-attest > header small { font-size: 10px; color: var(--muted); line-height: 1.45; }
+.evidence-attest-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+.evidence-attest-row > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.evidence-attest-row code { font-size: 10.5px; color: var(--ink); }
+.evidence-attest-row span { font-size: 11px; color: var(--muted); }
+.evidence-attest-row em { font-size: 10px; color: #8a6d1f; font-style: normal; }
+.evidence-attest-form { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.evidence-attest-form textarea { width: 100%; }
+.evidence-attest-form .row { justify-content: flex-end; gap: 8px; }

@@ -244,6 +244,9 @@ export async function registerEpicSource(root, {
   url = null,
   label = null,
   mimeType = 'application/octet-stream',
+  // An object that already lives in the provider — a Jira attachment on the Epic, for example.
+  // Pinning it means fetching and hashing what is there, not uploading a copy.
+  remoteRef = null,
   runtime = {}
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -268,13 +271,23 @@ export async function registerEpicSource(root, {
     size = info.size;
     remote = await adapter.put({ initiativeId, filename, bytes, filePath: absolute, mimeType, sha256: contentSha });
   } else if (url) {
-    if (provider.type !== 'https-reference') throw new SingularityFlowError('URL-only source registration requires an https-reference provider.');
-    const fetched = await adapter.get({ url, mimeType, version: null }, { maxBytes });
+    // A plain URL is only trusted through the https-reference provider. A remoteRef is different:
+    // the caller is naming an object the provider already holds, so any provider that can fetch is
+    // acceptable — the bytes are still downloaded and hashed before anything is recorded.
+    if (provider.type !== 'https-reference' && !remoteRef) {
+      throw new SingularityFlowError('URL-only source registration requires an https-reference provider.');
+    }
+    const fetched = await adapter.get({ url, mimeType, version: remoteRef?.version ?? null }, { maxBytes });
     bytes = fetched.bytes;
-    filename = safeSegment(path.basename(new URL(url).pathname) || 'source', 'Epic source filename');
+    filename = safeSegment(remoteRef?.filename || path.basename(new URL(url).pathname) || 'source', 'Epic source filename');
     contentSha = sha256(bytes);
     size = bytes.length;
-    remote = { objectId: url, url, version: fetched.version ?? contentSha, etag: fetched.version ?? null };
+    remote = {
+      objectId: remoteRef?.objectId ?? url,
+      url,
+      version: fetched.version ?? remoteRef?.version ?? contentSha,
+      etag: fetched.version ?? null
+    };
   } else throw new SingularityFlowError('Epic source registration requires --file or --url.');
   const actor = identity(root);
   const observedAt = nowIso();
@@ -397,4 +410,45 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
   }
   const valid = results.every((entry) => entry.status === 'verified');
   return { initiativeId, valid, results };
+}
+
+/**
+ * Pin the Jira Epic's own attachments as governed sources.
+ *
+ * The Epic record already lists them, but a listed attachment is not evidence: requirements may
+ * only cite a source that has been fetched and hash-pinned. Doing that by hand for every Epic is
+ * the most common reason intake stalls, so it happens at start.
+ *
+ * Never throws. A failure to pin one attachment must not fail the Epic start — the user can pin it
+ * manually, and reporting the failure is more useful than losing the Epic.
+ */
+export async function pinJiraEpicAttachments(root, initiativeId, {
+  attachments = [],
+  providerId = null,
+  runtime = {},
+  maxAttachments = 25
+} = {}) {
+  const pinned = [];
+  const skipped = [];
+  const considered = attachments.filter((file) => file?.url && file?.filename);
+  if (considered.length > maxAttachments) {
+    skipped.push({ filename: `${considered.length - maxAttachments} further attachment(s)`, reason: `only the first ${maxAttachments} are pinned automatically` });
+  }
+  for (const file of considered.slice(0, maxAttachments)) {
+    try {
+      const result = await registerEpicSource(root, {
+        initiativeId,
+        providerId,
+        url: file.url,
+        label: file.filename,
+        mimeType: file.mimeType ?? 'application/octet-stream',
+        remoteRef: { objectId: file.id ?? file.url, filename: file.filename, version: file.id ?? null },
+        runtime
+      });
+      pinned.push({ filename: file.filename, sourceId: result.record?.sourceId ?? null, sha256: result.record?.sha256 ?? null });
+    } catch (error) {
+      skipped.push({ filename: file.filename, reason: error?.message ?? String(error) });
+    }
+  }
+  return { pinned, skipped };
 }

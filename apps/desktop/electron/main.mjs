@@ -1545,6 +1545,18 @@ function registerHandlers() {
         persona
       });
     }
+    // Pin the Epic's own attachments as governed sources. A listed attachment is not evidence
+    // until it has been fetched and hash-pinned, and doing that by hand is the most common reason
+    // intake stalls. Never fails the start: a pin that does not work is reported so the user can
+    // do it manually, which is far better than losing the Epic they just created.
+    let attachments = null;
+    if (portfolio.jira?.pinAttachments !== false && (source.attachments ?? []).length) {
+      const { pinJiraEpicAttachments } = await importCliModule('epic-sources.mjs');
+      attachments = await pinJiraEpicAttachments(root, epicKey, {
+        attachments: source.attachments,
+        runtime: { jiraConnection: connection }
+      });
+    }
     const started = await loadInitiative(root, epicKey, created.portfolio);
     const publication = await commitInitiativeChange(
       root,
@@ -1563,7 +1575,7 @@ function registerHandlers() {
     } catch (error) {
       worldModel = { reason: null, ready: false, error: error.message };
     }
-    return { initiativeId: epicKey, source, publication, worldModel };
+    return { initiativeId: epicKey, source, publication, worldModel, attachments };
   });
   trustedHandle('epic:local-id-preview', async (event, { repository }) => {
     assertTrustedSender(event);

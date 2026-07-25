@@ -145,10 +145,14 @@ export function normalizeJiraPolicy(value = {}) {
   if (!Number.isInteger(cacheMinutes) || cacheMinutes < 0 || cacheMinutes > 1440) throw new SingularityFlowError('jira.read.cacheMinutes must be an integer from 0 to 1440.');
   const attachmentPolicy = value.read?.attachmentPolicy ?? 'metadata-only';
   if (!['none', 'metadata-only'].includes(attachmentPolicy)) throw new SingularityFlowError('jira.read.attachmentPolicy must be none or metadata-only.');
+  // Pinning the Epic's own attachments at start is what makes "the details live in Jira" true:
+  // a listed attachment is not evidence until it has been fetched and hash-pinned.
+  const pinAttachments = value.pinAttachments !== false;
   const projectKey = value.projectKey ?? '';
   if (projectKey && !/^[A-Z][A-Z0-9_-]{0,31}$/.test(projectKey)) throw new SingularityFlowError(`Invalid Jira projectKey '${projectKey}'.`);
   return {
     enabled: value.enabled === true,
+    pinAttachments,
     connection: safeId(value.connection ?? 'corporate-jira', 'jira.connection'),
     deployment,
     allowedHosts,

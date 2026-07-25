@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
+import { listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
 import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
 import { createInitiative, loadInitiative, saveInitiative } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
@@ -190,4 +190,50 @@ test('Epic traceability requires pinned source locators and complete REQ/AC Stor
   await writeFile(tracePath, YAML.stringify(invalid));
   const failed = await verifyEpicTraceability(root, loaded.portfolio, initiative);
   assert.match(failed.errors.join('\n'), /source ID plus page, frame, or section locator/);
+});
+
+test('Jira Epic attachments are pinned as governed sources at start', async () => {
+  const root = await repository();
+  const bodies = {
+    'https://jira.example.com/attachment/1': Buffer.from('# Operator specification\n'),
+    'https://jira.example.com/attachment/2': Buffer.from('# Pricing examples\n')
+  };
+  const fetchImpl = async (url, init = {}) => response(bodies[String(url)] ?? Buffer.from(''), { method: init.method ?? 'GET' });
+
+  const result = await pinJiraEpicAttachments(root, 'MOB-100', {
+    providerId: 'reference',
+    runtime: { fetchImpl },
+    attachments: [
+      { id: '1', filename: 'operator-spec.md', mimeType: 'text/markdown', url: 'https://jira.example.com/attachment/1' },
+      { id: '2', filename: 'pricing.md', mimeType: 'text/markdown', url: 'https://jira.example.com/attachment/2' },
+      // No URL: nothing to fetch, so nothing can be hashed and it is not evidence.
+      { id: '3', filename: 'orphan.md', mimeType: 'text/markdown' }
+    ]
+  });
+
+  assert.equal(result.pinned.length, 2);
+  assert.equal(result.skipped.length, 0, 'an attachment with no URL is not considered, not failed');
+  // Each pinned attachment carries a content hash — that is what makes it citable evidence rather
+  // than a filename someone mentioned.
+  for (const entry of result.pinned) {
+    assert.match(entry.sourceId, /^SRC-[A-F0-9]{12}$/);
+    assert.match(entry.sha256, /^[a-f0-9]{64}$/);
+  }
+  const { manifest } = await listEpicSources(root, 'MOB-100');
+  assert.deepEqual(manifest.sources.map((entry) => entry.name).sort(), ['operator-spec.md', 'pricing.md']);
+});
+
+test('a failing attachment is reported without losing the Epic', async () => {
+  const root = await repository();
+  // Pinning happens during Epic start. A provider error there must never destroy the Epic the user
+  // just created — it is reported so they can pin by hand.
+  const fetchImpl = async () => { throw new Error('provider unavailable'); };
+  const result = await pinJiraEpicAttachments(root, 'MOB-100', {
+    providerId: 'reference',
+    runtime: { fetchImpl },
+    attachments: [{ id: '1', filename: 'spec.md', mimeType: 'text/markdown', url: 'https://jira.example.com/attachment/1' }]
+  });
+  assert.deepEqual(result.pinned, []);
+  assert.equal(result.skipped.length, 1);
+  assert.match(result.skipped[0].reason, /provider unavailable/);
 });

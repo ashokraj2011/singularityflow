@@ -23,6 +23,9 @@ identity:
 # CLI users may continue to use JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN, or
 # JIRA_BASE_URL/JIRA_PAT for Data Center.
 jira:
+  # Pin the Epic's own attachments as governed sources at start. A listed attachment is not
+  # evidence until it has been fetched and hash-pinned; set false to pin them by hand instead.
+  pinAttachments: true
   enabled: false
   connection: corporate-jira
   deployment: cloud

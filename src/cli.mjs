@@ -99,7 +99,7 @@ import {
 } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import {
-  initiativeBreakdownReview, materializeInitiative, syncInitiativeRepositories
+  initiativeBreakdownReview, initiativeMergeState, materializeInitiative, syncInitiativeRepositories
 } from './initiative-repositories.mjs';
 import {
   adoptJiraDrift, adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan,
@@ -2604,6 +2604,32 @@ async function epicCommand(positionals, options) {
     console.log(`Lineage: ${initiativeId} → ${result.story.planId ?? result.story.id} → ${result.story.jiraKey ?? 'not created'} → ${result.submittedBranch}`);
     console.log(`Exact source commit: ${result.packet.sourceCommit}`);
     process.stdout.write(`\n${result.review.markdown}`);
+    return;
+  }
+  if (subcommand === 'merge-plan') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const plan = await initiativeMergeState(root, initiativeId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    console.log(`Merge sequence for ${plan.initiativeId} into ${plan.epicBranch}\n`);
+    console.log(table(plan.stories.map((story) => ({
+      order: String(story.order),
+      story: story.workId,
+      repository: story.repository,
+      blocking: story.blocking ? 'yes' : 'no',
+      status: story.status === 'blocked' ? `blocked by ${story.blockedBy.join(', ')}` : story.status
+    })), [
+      { key: 'order', label: '#' }, { key: 'story', label: 'STORY' }, { key: 'repository', label: 'REPOSITORY' },
+      { key: 'blocking', label: 'BLOCKING' }, { key: 'status', label: 'STATUS' }
+    ]));
+    if (plan.unreachable.length) console.log(`\nUnreachable: ${plan.unreachable.join(', ')}`);
+    console.log(plan.nextToMerge
+      ? `\nNext to merge: ${plan.nextToMerge.workId} → ${plan.epicBranch}`
+      : '\nNext to merge: nothing is ready.');
+    console.log(plan.epicReady
+      ? `Every blocking story has merged. ${plan.epicBranch} is ready to land.`
+      : `${plan.epicBranch} is not ready: ${plan.outstanding.join(', ') || 'no stories'} still outstanding.`);
+    console.log('After each merge, sync the remaining story branches from the epic branch before continuing.');
     return;
   }
   if (subcommand === 'checks') {

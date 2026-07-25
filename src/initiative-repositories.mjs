@@ -124,6 +124,60 @@ export function validateInitiativeBreakdown(value, portfolio) {
   return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
 }
 
+// The order stories merge into the epic branch, derived from the dependsOn graph the breakdown
+// already declares. validateInitiativeBreakdown proves that graph acyclic, so a topological order
+// always exists; ties are broken by story ID so the sequence is deterministic.
+//
+// `merged`   story IDs whose branch is already merged into the epic branch
+// `complete` story IDs whose own workflow has finished and are therefore mergeable
+export function initiativeMergeSequence(breakdown, { merged = [], complete = [] } = {}) {
+  const mergedSet = new Set(merged);
+  const completeSet = new Set(complete);
+  const byId = new Map(breakdown.stories.map((story) => [story.id, story]));
+  const ordered = [];
+  const visited = new Set();
+
+  const visit = (id) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const story = byId.get(id);
+    if (!story) return;
+    for (const dependency of [...story.dependsOn].map((item) => item.story).sort()) visit(dependency);
+    ordered.push(story);
+  };
+  [...byId.keys()].sort().forEach(visit);
+
+  const stories = ordered.map((story, index) => {
+    const blockedBy = story.dependsOn
+      .map((dependency) => dependency.story)
+      .filter((dependency) => !mergedSet.has(dependency))
+      .sort();
+    let status;
+    if (mergedSet.has(story.id)) status = 'merged';
+    else if (blockedBy.length) status = 'blocked';
+    else if (!completeSet.has(story.id)) status = 'in-progress';
+    else status = 'ready';
+    return {
+      order: index + 1,
+      id: story.id,
+      workId: story.workId ?? story.id,
+      repository: story.repository,
+      blocking: story.blocking !== false,
+      status,
+      blockedBy
+    };
+  });
+
+  const outstanding = stories.filter((story) => story.blocking && story.status !== 'merged');
+  return {
+    stories,
+    nextToMerge: stories.find((story) => story.status === 'ready') ?? null,
+    // The epic may land on the default branch only once every blocking story has merged.
+    epicReady: outstanding.length === 0,
+    outstanding: outstanding.map((story) => story.id)
+  };
+}
+
 export function initiativeBreakdownDocument(breakdown) {
   const version = breakdown.version ?? 1;
   return {
@@ -621,6 +675,53 @@ function recordMilestoneRegressions(previous, current, storyId, regressions) {
   for (const [milestone, wasReached] of Object.entries(previous.milestones ?? {})) {
     if (wasReached && !current.milestones?.[milestone]) regressions.push({ storyId, milestone });
   }
+}
+
+// Observe, from Git, which stories have merged into their parent branch and which have finished
+// their own workflow, then derive the merge sequence. Read-only: it fetches into the managed
+// clones but changes no branch and commits nothing.
+export async function initiativeMergeState(root, initiativeId) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const epicBranch = initiative.initiative.branch ?? initiativeId;
+  const merged = [];
+  const complete = [];
+  const unreachable = [];
+
+  for (const story of breakdown.stories) {
+    const workId = story.workId ?? story.id;
+    const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
+    const cache = await managedClonePath(root, initiativeId, story.repository);
+    if (!(await exists(path.join(cache, '.git')))) {
+      if (run('git', ['clone', repository.url, cache], { cwd: root, allowFailure: true }).status !== 0) {
+        unreachable.push(story.id); continue;
+      }
+    }
+    if (run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true }).status !== 0) {
+      unreachable.push(story.id); continue;
+    }
+    const parentBranch = parentBranchFor(root, repository, initiative);
+    const storyRef = `origin/${workId}`;
+    const parentRef = `origin/${parentBranch}`;
+    const storyHead = run('git', ['rev-parse', '--verify', storyRef], { cwd: cache, allowFailure: true });
+    const parentHead = run('git', ['rev-parse', '--verify', parentRef], { cwd: cache, allowFailure: true });
+    if (storyHead.status !== 0 || parentHead.status !== 0) { unreachable.push(story.id); continue; }
+    if (run('git', ['merge-base', '--is-ancestor', storyRef, parentRef], { cwd: cache, allowFailure: true }).status === 0) {
+      merged.push(story.id);
+    }
+    const workflowText = run('git', ['show', `${storyHead.stdout.trim()}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
+    if (workflowText.status === 0) {
+      try { if (JSON.parse(workflowText.stdout)?.status === 'complete') complete.push(story.id); }
+      catch { /* an unreadable child workflow simply leaves the story not-complete */ }
+    }
+  }
+
+  return {
+    initiativeId,
+    epicBranch,
+    unreachable,
+    ...initiativeMergeSequence(breakdown, { merged, complete })
+  };
 }
 
 export async function syncInitiativeRepositories(root, initiativeId) {

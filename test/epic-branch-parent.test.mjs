@@ -182,3 +182,66 @@ test('stories in other repositories still branch from that repository default br
   assert.equal(seed.story.parentBranch, 'main');
   assert.equal(seed.story.baseCommit, mainHead);
 });
+
+test('merge sequence orders stories by dependency and gates the epic until all blocking stories merge', async () => {
+  const { initiativeMergeSequence, validateInitiativeBreakdown } = await import('../src/initiative-repositories.mjs');
+  const portfolio = { repositories: { app: { url: 'x', defaultBranch: 'main' } } };
+  // Diamond: A -> B, A -> C, then D depends on both B and C.
+  const breakdown = validateInitiativeBreakdown({
+    version: 1,
+    initiativeId: EPIC,
+    epics: [{
+      id: 'EPIC-1',
+      title: 'Diamond',
+      stories: [
+        { id: 'D', title: 'D', repository: 'app', dependsOn: [{ story: 'B' }, { story: 'C' }] },
+        { id: 'B', title: 'B', repository: 'app', dependsOn: [{ story: 'A' }] },
+        { id: 'C', title: 'C', repository: 'app', dependsOn: [{ story: 'A' }] },
+        { id: 'A', title: 'A', repository: 'app' }
+      ]
+    }]
+  }, portfolio);
+
+  const nothingDone = initiativeMergeSequence(breakdown);
+  assert.deepEqual(nothingDone.stories.map((story) => story.id), ['A', 'B', 'C', 'D']);
+  assert.equal(nothingDone.epicReady, false);
+  // A has no dependencies but its own work is unfinished.
+  assert.equal(nothingDone.stories[0].status, 'in-progress');
+  assert.equal(nothingDone.nextToMerge, null);
+  // D is blocked by both B and C.
+  assert.deepEqual(nothingDone.stories[3].blockedBy, ['B', 'C']);
+
+  // A is finished and mergeable; everything downstream is still blocked.
+  const aReady = initiativeMergeSequence(breakdown, { complete: ['A', 'D'] });
+  assert.equal(aReady.nextToMerge.id, 'A');
+  assert.equal(aReady.stories[3].status, 'blocked');
+
+  // With A merged, B and C unblock; D still waits on C.
+  const aMerged = initiativeMergeSequence(breakdown, { merged: ['A'], complete: ['B', 'C', 'D'] });
+  assert.equal(aMerged.stories[0].status, 'merged');
+  assert.equal(aMerged.nextToMerge.id, 'B');
+  assert.deepEqual(aMerged.stories[3].blockedBy, ['B', 'C']);
+
+  // Everything merged: the epic may land.
+  const allMerged = initiativeMergeSequence(breakdown, { merged: ['A', 'B', 'C', 'D'] });
+  assert.equal(allMerged.epicReady, true);
+  assert.deepEqual(allMerged.outstanding, []);
+  assert.equal(allMerged.nextToMerge, null);
+});
+
+test('epic merge-plan reports the live sequence from Git', async () => {
+  const stories = ['APP-1', 'APP-2'];
+  const { root } = await soloRepository(stories);
+  await materializeInitiative(root, EPIC, { confirmation: EPIC });
+
+  const { initiativeMergeState } = await import('../src/initiative-repositories.mjs');
+  const plan = await initiativeMergeState(root, EPIC);
+  assert.equal(plan.epicBranch, EPIC);
+  assert.deepEqual(plan.unreachable, []);
+  assert.deepEqual(plan.stories.map((story) => story.id), stories);
+  // Freshly materialized: branches exist and are ahead of the epic branch, so nothing has merged
+  // and no story has finished its own workflow yet.
+  assert.ok(plan.stories.every((story) => story.status === 'in-progress'));
+  assert.equal(plan.epicReady, false);
+  assert.deepEqual(plan.outstanding, stories);
+});

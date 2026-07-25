@@ -688,3 +688,29 @@ test('a hand-off frames Copilot Studio on the phase it came from, and the sideba
   // Buttons must pass a phase, never the click event.
   assert.doesNotMatch(source, /onClick=\{openPlanning\}/);
 });
+
+test('the Epic workspace can reach the Epic list, and an imported Jira Epic is visible', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+
+  // Selecting an Epic replaces EpicsHome with the workspace, so the list, "Fetch latest" and the
+  // start wizard were only reachable by blanking the top-bar Epic selector.
+  assert.match(source, /function showAllEpics\(intent = null\)/);
+  assert.match(source, /onAllEpics=\{showAllEpics\}/);
+  assert.match(source, /← All Epics/);
+  assert.match(source, /＋ New Epic/);
+  // "New Epic" must land on the wizard, not the list.
+  assert.match(source, /startNew=\{epicIntent === 'new'\}/);
+  assert.match(source, /useState\(Boolean\(startNew\)\)/);
+  // The old prop was passed but never accepted by EpicsHome.
+  assert.doesNotMatch(source, /startEpic=\{/);
+
+  // epic:start pins the whole Jira issue into initiative state; nothing rendered it, so an Epic
+  // imported from Jira appeared empty in the app while its content sat in governed state.
+  assert.match(source, /function ImportedEpicView/);
+  assert.match(source, /source\.type !== 'jira'/);
+  assert.match(source, /source\.description/);
+  assert.match(source, /source\.acceptanceCriteria/);
+  assert.match(source, /is not refreshed automatically/);
+  // Shown on both screens that precede requirements authoring.
+  assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);
+});

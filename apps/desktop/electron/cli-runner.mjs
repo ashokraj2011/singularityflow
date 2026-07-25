@@ -58,7 +58,7 @@ export async function validateRepositoryDirectory(repository) {
   return canonical;
 }
 
-export function invokeCliProcess({ executable, cli, repository, args, input = null, json = true, env = {}, timeoutMs = DESKTOP_CLI_TIMEOUT_MS, spawnImpl = spawn }) {
+export function invokeCliProcess({ executable, cli, repository, args, input = null, json = true, env = {}, timeoutMs = DESKTOP_CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput = null }) {
   return new Promise((resolve, reject) => {
     let child;
     let stdout = '';
@@ -74,14 +74,16 @@ export function invokeCliProcess({ executable, cli, repository, args, input = nu
       callback(value);
     };
     const fail = (error) => finish(reject, error instanceof Error ? error : new Error(String(error)));
-    const collect = (target, chunk) => {
+    const collect = (target, chunk, stream) => {
       outputBytes += chunk.length;
       if (outputBytes > MAX_OUTPUT_BYTES) {
         child?.kill('SIGTERM');
         fail(new Error('The Singularity Flow CLI returned too much data while opening the repository.'));
         return target;
       }
-      return target + chunk.toString('utf8');
+      const text = chunk.toString('utf8');
+      try { onOutput?.(text, stream); } catch { /* Progress observers must never break the CLI. */ }
+      return target + text;
     };
 
     try {
@@ -101,8 +103,8 @@ export function invokeCliProcess({ executable, cli, repository, args, input = nu
     }, timeoutMs);
     timer.unref?.();
 
-    child.stdout.on('data', (chunk) => { stdout = collect(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = collect(stderr, chunk); });
+    child.stdout.on('data', (chunk) => { stdout = collect(stdout, chunk, 'stdout'); });
+    child.stderr.on('data', (chunk) => { stderr = collect(stderr, chunk, 'stderr'); });
     child.on('error', fail);
     child.on('close', (code) => {
       if (settled) return;

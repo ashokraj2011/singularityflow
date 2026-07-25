@@ -1436,6 +1436,40 @@ body {
 .world-model-prompt p { margin: 3px 0 0; color: #7b6231; font-size: 10.5px; line-height: 1.5; }
 .world-model-prompt .row { flex: 0 0 auto; gap: 7px; }
 
+.world-model-run-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(13,28,21,.46); backdrop-filter: blur(7px); animation: pageIn .18s ease both; }
+.world-model-run-dialog { width: min(760px, 94vw); max-height: min(850px, 92vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(26,102,70,.25); border-radius: 22px; background: #fff; box-shadow: 0 30px 90px rgba(13,50,34,.3); }
+.world-model-run-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 25px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg,#f7fbf8,#fff); }
+.world-model-run-dialog > header h2 { margin: 4px 0 0; color: var(--navy-950); font-family: var(--font-sans); font-size: 25px; font-weight: 690; letter-spacing: -.035em; }
+.world-model-run-body { display: grid; gap: 16px; padding: 21px 25px; overflow: auto; }
+.world-model-run-status { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border: 1px solid rgba(31,126,82,.25); border-radius: 14px; padding: 13px 15px; background: #f1faf5; }
+.world-model-run-status.error { border-color: rgba(170,56,67,.28); background: #fff5f4; }
+.world-model-run-status.success { border-color: rgba(31,126,82,.34); background: #eef9f2; }
+.world-model-run-status strong { display: block; color: var(--ink); font-size: 13px; font-weight: 650; }
+.world-model-run-status small { display: block; max-width: 560px; margin-top: 4px; overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.world-model-run-status time { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+.world-model-run-pulse { width: 11px; height: 11px; border-radius: 50%; background: #d4a331; box-shadow: 0 0 0 5px rgba(212,163,49,.15); }
+.world-model-run-status.running .world-model-run-pulse { animation: worldModelPulse 1.2s ease-in-out infinite; }
+.world-model-run-status.success .world-model-run-pulse { background: #21804e; box-shadow: 0 0 0 5px rgba(33,128,78,.13); }
+.world-model-run-status.error .world-model-run-pulse { background: #ae3c49; box-shadow: 0 0 0 5px rgba(174,60,73,.12); }
+@keyframes worldModelPulse { 50% { transform: scale(.72); opacity: .55; } }
+.world-model-run-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.world-model-run-steps { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; }
+.world-model-run-steps span { display: grid; gap: 5px; justify-items: center; padding: 8px 5px; border: 1px solid var(--line); border-radius: 10px; color: var(--subtle); font-size: 10px; text-align: center; }
+.world-model-run-steps span b { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: #87918a; background: #eff2ef; font-size: 11px; }
+.world-model-run-steps span.active { border-color: rgba(31,126,82,.38); color: #176940; background: #f2faf5; }
+.world-model-run-steps span.active b, .world-model-run-steps span.done b { color: #fff; background: #21804e; }
+.world-model-run-prompt, .world-model-run-log { border: 1px solid var(--line); border-radius: 12px; background: #fbfcfb; }
+.world-model-run-prompt summary, .world-model-run-log summary { display: flex; align-items: center; gap: 9px; padding: 11px 13px; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 640; }
+.world-model-run-prompt summary code { overflow: hidden; color: var(--muted); font-family: var(--font-mono); font-size: 9px; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.world-model-run-prompt pre { max-height: 190px; overflow: auto; margin: 0; border-top: 1px solid var(--line); padding: 12px 13px; color: #43534b; background: #f4f8f5; font-family: var(--font-mono); font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
+.world-model-run-log summary span { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 9px; font-weight: 500; }
+.world-model-run-log > div { max-height: 170px; overflow: auto; border-top: 1px solid var(--line); padding: 7px 13px; }
+.world-model-run-log p { display: grid; grid-template-columns: 70px 1fr; gap: 9px; margin: 0; padding: 5px 0; color: #48554e; font-family: var(--font-mono); font-size: 10px; line-height: 1.45; }
+.world-model-run-log p + p { border-top: 1px solid #edf0ed; }
+.world-model-run-log time { color: var(--subtle); }
+.world-model-run-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 25px; border-top: 1px solid var(--line); background: #f7f8f6; }
+.world-model-run-dialog > footer .muted { max-width: 550px; font-size: 10px; line-height: 1.45; }
+
 /* Workspace switcher in the top bar, beside the Copilot control. The shared .repository-menu
    opens upward and left-aligned because it used to hang off the bottom of the sidebar; anchored
    in the top bar it has to drop downward and align right or it renders off-screen. */

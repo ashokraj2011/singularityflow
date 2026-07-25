@@ -3466,3 +3466,5 @@ input:disabled, select:disabled, textarea:disabled {
 .next-action-evidence, .next-action-blocked { border-color: rgba(203,150,42,.4); background: linear-gradient(120deg,rgba(252,246,232,.96),rgba(250,248,242,.96)); }
 .next-action-approve { border-color: rgba(101,183,131,.55); }
 .stage-blocker { margin: 0; color: #8a6d1f; font-size: 10.5px; line-height: 1.5; }
+.field-error { display: block; margin-top: 5px; color: #8a6d1f; font-size: 10px; line-height: 1.45; }
+.confirmation-mismatch { border-color: rgba(203,150,42,.6) !important; }

@@ -768,7 +768,7 @@ test('a blocked approval says which field is missing, and the strip does not mis
   assert.match(governance, /The confirmation phrase does not match/);
   assert.match(governance, /disabled=\{Boolean\(approvalBlocker\)\}/);
   assert.match(governance, /title=\{approvalBlocker \?\? undefined\}/);
-  assert.match(governance, /className="stage-blocker"/);
+  assert.match(governance, /className="field-error"/);
 
   // The strip's approve and evidence actions scroll to the governance panel; labelling them
   // "Approve" claimed they decided something.
@@ -791,4 +791,23 @@ test('journey actions dispatch on one vocabulary, and an unmapped action is repo
   assert.match(journey, /No action is wired for/);
   assert.match(journey, /Nothing was changed/);
   assert.doesNotMatch(journey, /next\?\.id === 'materialize'/);
+});
+
+test('the confirmation placeholder never impersonates the value it is asking for', async () => {
+  // A placeholder equal to the required phrase makes an empty field look correctly filled: the
+  // reviewer sees `epic-intake:phase` sitting in the box, believes the step is done, and reads the
+  // disabled button as a broken app. The phrase belongs in the help text only.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const placeholders = [...app.matchAll(/placeholder=\{`\$\{phaseId\}:phase`\}/g)];
+  assert.equal(placeholders.length, 0, 'the confirmation placeholder must not echo the required phrase');
+  // ...and the phrase must still be shown somewhere, or it is unguessable.
+  assert.match(app, /Enter <code>\{phaseId\}:phase<\/code>/);
+});
+
+test('the reason a phase cannot be approved renders beside the field it refers to', async () => {
+  // The blocker used to render in a column to the right of the button, far from the input it names.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const field = app.indexOf('Type the confirmation phrase');
+  const blocker = app.indexOf('field-error', field);
+  assert.ok(blocker > field && blocker - field < 800, 'blocker must render inside the confirmation label');
 });

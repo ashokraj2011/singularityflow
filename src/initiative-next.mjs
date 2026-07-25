@@ -46,7 +46,7 @@ function epicActionLabel(action, stage) {
   if (!action) return stage === 'complete' ? 'Review Epic report' : `Open ${stage}`;
   return {
     'add-sources': 'Add source documents',
-    prepare: `Start ${stage}`,
+    prepare: `Open ${stage} workspace`,
     author: `Compose ${stage}`,
     'author-and-publish': `Publish ${stage}`,
     'approve-phase': `Approve ${stage}`,

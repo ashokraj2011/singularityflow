@@ -266,6 +266,12 @@ export async function initiativeNextActions(root, initiativeId) {
       command: `singularity-flow initiative phase ${phase.id}`,
       reason: 'Create the configured output documents for the active phase.'
     }];
+    if (!requiredOutputIds.size && outputs.every((output) => output.status === 'not_generated')) return [{
+      action: 'prepare',
+      phaseId: phase.id,
+      command: `singularity-flow initiative phase ${phase.id}`,
+      reason: 'Open the phase workspace. Jira-backed Intake may proceed from its committed snapshot; additional artifacts are optional.'
+    }];
     return [{
       action: 'author-and-publish',
       command: `singularity-flow initiative phase publish ${phase.id}`,

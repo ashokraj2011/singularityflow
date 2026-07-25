@@ -77,7 +77,7 @@ import {
   selectDesktopPersona,
   validateDesktopConfiguration
 } from './desktop.mjs';
-import { verifyGroundingRecord, worldModelCommit, worldModelSourceSnapshot } from './grounding.mjs';
+import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -99,7 +99,7 @@ import {
 } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import {
-  initiativeBreakdownReview, materializeInitiative, syncInitiativeRepositories
+  initiativeBreakdownReview, initiativeMergeState, materializeInitiative, syncInitiativeRepositories
 } from './initiative-repositories.mjs';
 import {
   adoptJiraDrift, adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan,
@@ -117,6 +117,7 @@ import {
   attachStoryBranch, createStoryBranch, createStoryReviewPacket, promoteStoryBranch, storyBranchStatus
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
+import { createStoryPullRequest, storyPullRequestPlan } from './pull-request.mjs';
 import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
@@ -408,7 +409,8 @@ async function startCommand(positionals, options) {
   const selectedPersona = await selectPersona(root, config, actionActor(root), id, { selection: receipt?.answers.persona ?? null });
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
-  const base = optionString(options, 'base', config.defaultBaseBranch);
+  const explicitBase = optionString(options, 'base');
+  let base = explicitBase ?? config.defaultBaseBranch;
   checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
   const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
   if (existsSync(seedFile)) {
@@ -425,8 +427,13 @@ async function startCommand(positionals, options) {
       planId: seed.story.planId ?? null,
       branchCompletionPolicy: seed.story.branchCompletionPolicy ?? 'pr',
       requiredChecks: seed.story.requiredChecks ?? [],
+      parentBranch: seed.story.parentBranch ?? null,
       seed: posix(path.relative(root, seedFile))
     };
+    // Materialization records the branch this story was actually cut from. Use it as the work
+    // item's base so change detection (`<base>...HEAD`) sees only the story's own commits, not
+    // the epic branch's governance artifacts.
+    if (!explicitBase && seed.story.parentBranch) base = seed.story.parentBranch;
   }
   const workflow = await createWorkflow(root, config, {
     id,
@@ -644,21 +651,6 @@ async function nextStepsCommand(positionals, options) {
   }
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
   else process.stdout.write(nextStepsText(snapshot));
-}
-
-async function worldModelRebuildReason(root, config) {
-  const outputDir = config.worldModel?.outputDir ?? 'singularity/world-model';
-  const manifestPath = path.join(root, outputDir, 'manifest.json');
-  if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
-  try {
-    const manifest = await readJson(manifestPath);
-    const currentSource = await worldModelSourceSnapshot(root, config);
-    if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
-    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) return 'The repository world model is stale for the current source tree.';
-    return null;
-  } catch (error) {
-    return `The repository world model is invalid: ${error.message}`;
-  }
 }
 
 async function nextCommand(options) {
@@ -979,6 +971,36 @@ async function artifactCommand(positionals, options) {
     return;
   }
   throw new SingularityFlowError(`Unknown artifact subcommand: ${subcommand}`);
+}
+
+async function pullRequestCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const plan = await storyPullRequestPlan(root, config, workflow);
+
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
+  else {
+    console.log(`Pull request for ${plan.workId}\n`);
+    console.log(`  ${plan.head} → ${plan.base}   (policy: ${plan.policy})`);
+    if (plan.requiredChecks.length) console.log(`  Required checks: ${plan.requiredChecks.join(', ')}`);
+    if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
+    console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
+  }
+
+  // Opening a pull request is an outward action, so preview is the default: it requires an
+  // explicit --create plus a typed confirmation of the exact work ID.
+  if (!optionBoolean(options, 'create')) {
+    console.log('Preview only. Re-run with --create to open this pull request.');
+    return;
+  }
+  if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to open the pull request into ${plan.base}: `, plan.workId))) {
+    throw new SingularityFlowError('Pull request cancelled.');
+  }
+  const result = createStoryPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+  console.log(result.status === 'existing'
+    ? `A pull request already exists: ${result.url}`
+    : `Opened ${result.url}`);
 }
 
 async function submitCommand(options) {
@@ -2600,6 +2622,32 @@ async function epicCommand(positionals, options) {
     process.stdout.write(`\n${result.review.markdown}`);
     return;
   }
+  if (subcommand === 'merge-plan') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const plan = await initiativeMergeState(root, initiativeId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    console.log(`Merge sequence for ${plan.initiativeId} into ${plan.epicBranch}\n`);
+    console.log(table(plan.stories.map((story) => ({
+      order: String(story.order),
+      story: story.workId,
+      repository: story.repository,
+      blocking: story.blocking ? 'yes' : 'no',
+      status: story.status === 'blocked' ? `blocked by ${story.blockedBy.join(', ')}` : story.status
+    })), [
+      { key: 'order', label: '#' }, { key: 'story', label: 'STORY' }, { key: 'repository', label: 'REPOSITORY' },
+      { key: 'blocking', label: 'BLOCKING' }, { key: 'status', label: 'STATUS' }
+    ]));
+    if (plan.unreachable.length) console.log(`\nUnreachable: ${plan.unreachable.join(', ')}`);
+    console.log(plan.nextToMerge
+      ? `\nNext to merge: ${plan.nextToMerge.workId} → ${plan.epicBranch}`
+      : '\nNext to merge: nothing is ready.');
+    console.log(plan.epicReady
+      ? `Every blocking story has merged. ${plan.epicBranch} is ready to land.`
+      : `${plan.epicBranch} is not ready: ${plan.outstanding.join(', ') || 'no stories'} still outstanding.`);
+    console.log('After each merge, sync the remaining story branches from the epic branch before continuing.');
+    return;
+  }
   if (subcommand === 'checks') {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
@@ -2748,6 +2796,7 @@ export async function main(argv) {
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);
     case 'artifact': return artifactCommand(positionals, options);
+    case 'pr': return pullRequestCommand(positionals, options);
     case 'submit': return submitCommand(options);
     case 'approve': return approveCommand(positionals, options);
     case 'reject': return rejectCommand(positionals, options);

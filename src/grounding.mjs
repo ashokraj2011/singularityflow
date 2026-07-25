@@ -215,6 +215,23 @@ export async function resolveWorldModelContext(root, config, phase, { task = nul
   return { manifest, freshness, selected, directory };
 }
 
+// Why the repository world model needs (re)building, or null when it is present, committed, and
+// current. Read-only — callers decide whether to build, prompt, or ignore.
+export async function worldModelRebuildReason(root, config) {
+  const outputDir = config.worldModel?.outputDir ?? 'singularity/world-model';
+  const manifestPath = path.join(root, outputDir, 'manifest.json');
+  if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const currentSource = await worldModelSourceSnapshot(root, config);
+    if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
+    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) return 'The repository world model is stale for the current source tree.';
+    return null;
+  } catch (error) {
+    return `The repository world model is invalid: ${error.message}`;
+  }
+}
+
 export function worldModelCommit(root, outputDir) {
   return run('git', ['log', '-1', '--format=%H', '--', outputDir], { cwd: root, allowFailure: true }).stdout.trim() || null;
 }

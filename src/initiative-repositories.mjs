@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { gitDir, head, identity } from './git.mjs';
+import { gitDir, hasRemote, head, identity } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
   loadInitiative, saveInitiative, secureInitiativePath
@@ -122,6 +122,86 @@ export function validateInitiativeBreakdown(value, portfolio) {
   }
   storyIds.forEach((id) => visit(id));
   return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
+}
+
+// The epic-plan phase asks Copilot, grounded in the committed world model, which repositories and
+// which parts of the system an epic touches. The prompt is grounded but the answer is not checked,
+// so a hallucinated repository or view would flow straight into the breakdown. Every repository
+// named must exist in the portfolio, and every world-model view referenced must exist in the
+// committed manifest.
+export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = 'warn' } = {}) {
+  const problems = [];
+  const repositories = repositoryMap?.repositories ?? {};
+  if (repositories && typeof repositories === 'object' && !Array.isArray(repositories)) {
+    for (const [id, entry] of Object.entries(repositories)) {
+      if (!portfolio.repositories?.[id]) problems.push(`impact map names unknown repository '${id}'`);
+      const views = entry?.worldModelViews ?? entry?.views ?? [];
+      if (!Array.isArray(views)) { problems.push(`impact map repository '${id}' views must be a list`); continue; }
+      for (const view of views) {
+        if (!manifest?.views?.[view]) problems.push(`impact map repository '${id}' references undeclared world-model view '${view}'`);
+      }
+    }
+  } else if (repositories !== undefined && Object.keys(repositories ?? {}).length) {
+    problems.push('impact map repositories must be a mapping of repository ID to impact');
+  }
+
+  if (!problems.length) return { errors: [], warnings: [] };
+  // Fail closed only where grounding is enforced; elsewhere surface the same findings as warnings.
+  return mode === 'enforce' ? { errors: problems, warnings: [] } : { errors: [], warnings: problems };
+}
+
+// The order stories merge into the epic branch, derived from the dependsOn graph the breakdown
+// already declares. validateInitiativeBreakdown proves that graph acyclic, so a topological order
+// always exists; ties are broken by story ID so the sequence is deterministic.
+//
+// `merged`   story IDs whose branch is already merged into the epic branch
+// `complete` story IDs whose own workflow has finished and are therefore mergeable
+export function initiativeMergeSequence(breakdown, { merged = [], complete = [] } = {}) {
+  const mergedSet = new Set(merged);
+  const completeSet = new Set(complete);
+  const byId = new Map(breakdown.stories.map((story) => [story.id, story]));
+  const ordered = [];
+  const visited = new Set();
+
+  const visit = (id) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const story = byId.get(id);
+    if (!story) return;
+    for (const dependency of [...story.dependsOn].map((item) => item.story).sort()) visit(dependency);
+    ordered.push(story);
+  };
+  [...byId.keys()].sort().forEach(visit);
+
+  const stories = ordered.map((story, index) => {
+    const blockedBy = story.dependsOn
+      .map((dependency) => dependency.story)
+      .filter((dependency) => !mergedSet.has(dependency))
+      .sort();
+    let status;
+    if (mergedSet.has(story.id)) status = 'merged';
+    else if (blockedBy.length) status = 'blocked';
+    else if (!completeSet.has(story.id)) status = 'in-progress';
+    else status = 'ready';
+    return {
+      order: index + 1,
+      id: story.id,
+      workId: story.workId ?? story.id,
+      repository: story.repository,
+      blocking: story.blocking !== false,
+      status,
+      blockedBy
+    };
+  });
+
+  const outstanding = stories.filter((story) => story.blocking && story.status !== 'merged');
+  return {
+    stories,
+    nextToMerge: stories.find((story) => story.status === 'ready') ?? null,
+    // The epic may land on the default branch only once every blocking story has merged.
+    epicReady: outstanding.length === 0,
+    outstanding: outstanding.map((story) => story.id)
+  };
 }
 
 export function initiativeBreakdownDocument(breakdown) {
@@ -244,13 +324,44 @@ function configureCloneIdentity(clone, actor) {
   run('git', ['config', 'user.email', actor.email], { cwd: clone });
 }
 
+// Two remote URLs refer to the same repository when they differ only by transport, credentials,
+// a .git suffix, or a trailing slash. Used to decide whether a story lives in the repository the
+// epic branch itself is in.
+function normalizeRemoteUrl(value) {
+  let text = String(value ?? '').trim();
+  if (!text) return '';
+  const scp = text.match(/^[^/@]+@([^:]+):(.+)$/);          // git@host:owner/repo
+  if (scp) text = `ssh://${scp[1]}/${scp[2]}`;
+  try {
+    const url = new URL(text);
+    text = `${url.hostname.toLowerCase()}${url.pathname}`;   // drop scheme, port, credentials
+  } catch { /* a local filesystem path stays as-is */ }
+  return text.replace(/\.git$/, '').replace(/\/+$/, '');
+}
+
+// True when `repository` is the same repository the initiative (and so the epic branch) lives in.
+export function isLeadRepository(root, repository) {
+  if (!hasRemote(root, 'origin')) return false;
+  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
+  if (origin.status !== 0) return false;
+  const leadUrl = normalizeRemoteUrl(origin.stdout);
+  return Boolean(leadUrl) && leadUrl === normalizeRemoteUrl(repository?.url);
+}
+
 function remoteBranchHead(repositoryUrl, branchName, cwd) {
   const result = run('git', ['ls-remote', '--heads', repositoryUrl, `refs/heads/${branchName}`], { cwd, allowFailure: true });
   if (result.status !== 0) throw new SingularityFlowError(`Unable to read ${repositoryUrl}: ${(result.stderr || result.stdout).trim()}`);
   return result.stdout.trim().split(/\s+/)[0] || null;
 }
 
-function storySeed(root, initiative, story) {
+// The branch a story is cut from, and the branch its pull request targets.
+function parentBranchFor(root, repository, initiative) {
+  return isLeadRepository(root, repository)
+    ? (initiative.initiative.branch ?? initiative.initiative.id)
+    : repository.defaultBranch;
+}
+
+function storySeed(root, initiative, story, { parentBranch = null, baseCommit = null } = {}) {
   const artifacts = [];
   for (const phaseId of initiative.phaseOrder) {
     for (const output of Object.values(initiative.phases[phaseId].outputs)) {
@@ -291,6 +402,9 @@ function storySeed(root, initiative, story) {
       jiraAliases: story.jiraAliases ?? [],
       idAuthority: story.idAuthority ?? initiative.lineage?.idAuthority ?? null,
       repository: story.repository,
+      // Lineage: the branch this story was cut from, and that its pull request targets.
+      parentBranch,
+      baseCommit,
       repositoryMetadata: structuredClone(initiative.resolution.repositories?.[story.repository]?.metadata ?? {}),
       branchCompletionPolicy: initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy ?? 'pr',
       requiredChecks: structuredClone(initiative.resolution.repositories?.[story.repository]?.requiredChecks ?? []),
@@ -320,8 +434,17 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     const switched = run('git', ['switch', '-C', branchName, `origin/${branchName}`], { cwd: target, allowFailure: true });
     if (switched.status !== 0) throw new SingularityFlowError(`Unable to attach branch ${branchName}: ${(switched.stderr || switched.stdout).trim()}`);
   } else {
-    const base = `origin/${repository.defaultBranch}`;
-    if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) throw new SingularityFlowError(`Repository '${story.repository}' has no default branch '${repository.defaultBranch}'.`);
+    // Stories in the epic's own repository branch from the epic branch, so they inherit the
+    // approved artifacts (their recorded paths and hashes resolve) and share an ancestor for
+    // integration. Stories in other repositories keep branching from that repository's default
+    // branch — an epic branch is never fabricated in a repository that has none.
+    const parentBranch = parentBranchFor(root, repository, initiative);
+    const base = `origin/${parentBranch}`;
+    if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) {
+      throw new SingularityFlowError(parentBranch === repository.defaultBranch
+        ? `Repository '${story.repository}' has no default branch '${repository.defaultBranch}'.`
+        : `Repository '${story.repository}' has no published epic branch '${parentBranch}'. Push the initiative branch before materializing stories.`);
+    }
     run('git', ['switch', '-C', branchName, base], { cwd: target });
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
@@ -330,7 +453,12 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     label: `Story '${branchName}' seed`,
     type: 'file'
   });
-  const seed = storySeed(root, initiative, story);
+  const parentBranch = parentBranchFor(root, repository, initiative);
+  const baseCommit = run('git', ['rev-parse', `origin/${parentBranch}`], { cwd: target, allowFailure: true });
+  const seed = storySeed(root, initiative, story, {
+    parentBranch,
+    baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null
+  });
   if (seedPath.exists) {
     const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
     if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== branchName) throw new SingularityFlowError(`Existing branch '${branchName}' contains an unrelated Singularity Flow seed.`);
@@ -573,6 +701,53 @@ function recordMilestoneRegressions(previous, current, storyId, regressions) {
   for (const [milestone, wasReached] of Object.entries(previous.milestones ?? {})) {
     if (wasReached && !current.milestones?.[milestone]) regressions.push({ storyId, milestone });
   }
+}
+
+// Observe, from Git, which stories have merged into their parent branch and which have finished
+// their own workflow, then derive the merge sequence. Read-only: it fetches into the managed
+// clones but changes no branch and commits nothing.
+export async function initiativeMergeState(root, initiativeId) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const epicBranch = initiative.initiative.branch ?? initiativeId;
+  const merged = [];
+  const complete = [];
+  const unreachable = [];
+
+  for (const story of breakdown.stories) {
+    const workId = story.workId ?? story.id;
+    const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
+    const cache = await managedClonePath(root, initiativeId, story.repository);
+    if (!(await exists(path.join(cache, '.git')))) {
+      if (run('git', ['clone', repository.url, cache], { cwd: root, allowFailure: true }).status !== 0) {
+        unreachable.push(story.id); continue;
+      }
+    }
+    if (run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true }).status !== 0) {
+      unreachable.push(story.id); continue;
+    }
+    const parentBranch = parentBranchFor(root, repository, initiative);
+    const storyRef = `origin/${workId}`;
+    const parentRef = `origin/${parentBranch}`;
+    const storyHead = run('git', ['rev-parse', '--verify', storyRef], { cwd: cache, allowFailure: true });
+    const parentHead = run('git', ['rev-parse', '--verify', parentRef], { cwd: cache, allowFailure: true });
+    if (storyHead.status !== 0 || parentHead.status !== 0) { unreachable.push(story.id); continue; }
+    if (run('git', ['merge-base', '--is-ancestor', storyRef, parentRef], { cwd: cache, allowFailure: true }).status === 0) {
+      merged.push(story.id);
+    }
+    const workflowText = run('git', ['show', `${storyHead.stdout.trim()}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
+    if (workflowText.status === 0) {
+      try { if (JSON.parse(workflowText.stdout)?.status === 'complete') complete.push(story.id); }
+      catch { /* an unreadable child workflow simply leaves the story not-complete */ }
+    }
+  }
+
+  return {
+    initiativeId,
+    epicBranch,
+    unreachable,
+    ...initiativeMergeSequence(breakdown, { merged, complete })
+  };
 }
 
 export async function syncInitiativeRepositories(root, initiativeId) {

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
+import { validateImpactMap } from './initiative-repositories.mjs';
 import {
   loadInitiative, saveInitiative, secureInitiativePath, verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
@@ -416,6 +418,38 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
   return { ready: errors.length === 0, errors, warnings, passes, bundleSha256: bundle.sha256, checklist: bundle.checklist };
 }
 
+// A phase that publishes an impact map (the repository/world-model areas an epic touches) has it
+// checked against ground truth before it can be approved: repositories must exist in the portfolio
+// and views must exist in the committed world model. Phases without such an output are unaffected.
+async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
+  const definition = phaseDefinition(initiative, phaseId).outputs.find((output) => output.id === 'repository-map');
+  if (!definition) return { errors: [], warnings: [] };
+  const output = initiative.phases[phaseId].outputs[definition.id];
+  const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
+    label: `Initiative output '${phaseId}/${output.id}'`,
+    type: 'file'
+  });
+  if (!target.exists) return { errors: [], warnings: [] };
+
+  let impact;
+  try { impact = YAML.parse(await readFile(target.absolute, 'utf8')) ?? {}; }
+  catch (error) { return { errors: [`impact map ${output.path} is not valid YAML: ${error.message}`], warnings: [] }; }
+  if (!impact.repositories || !Object.keys(impact.repositories).length) return { errors: [], warnings: [] };
+
+  const outputDir = initiative.resolution?.worldModelOutputDir ?? 'singularity/world-model';
+  let manifest = null;
+  try { manifest = JSON.parse(await readFile(path.join(root, outputDir, 'manifest.json'), 'utf8')); }
+  catch { manifest = null; }
+  const mode = initiative.resolution?.worldModelGrounding ?? 'off';
+  if (!manifest) {
+    const message = `impact map references world-model views but no committed world model exists in ${outputDir}`;
+    const referencesViews = Object.values(impact.repositories).some((entry) => (entry?.worldModelViews ?? entry?.views ?? []).length);
+    if (!referencesViews) return { errors: [], warnings: [] };
+    return mode === 'enforce' ? { errors: [message], warnings: [] } : { errors: [], warnings: [message] };
+  }
+  return validateImpactMap(portfolio, manifest, impact, { mode });
+}
+
 export async function publishInitiativePhase(root, initiativeId, phaseId, { persona = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
@@ -445,6 +479,9 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
     });
   }
   if (missing.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' is missing required outputs: ${missing.join(', ')}.`);
+  const impact = await verifyInitiativeImpactMap(root, portfolio, initiative, phaseId);
+  if (impact.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' impact map is not grounded:\n- ${impact.errors.join('\n- ')}`);
+  impact.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   phase.generation = nextGeneration;
   phase.status = 'awaiting_approval';
   phase.submittedAt = nowIso();

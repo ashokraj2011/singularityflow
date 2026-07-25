@@ -1075,3 +1075,30 @@ test('the contract says what Copilot can actually read', async () => {
   const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
   assert.match(main, /await writeSourceRenditions\(root, initiativeId, records\)/);
 });
+
+test('the conversation is readable, anchored, and shows its own diagnostics', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Copilot's replies were raw <pre>; the renderer already had a markdown renderer used elsewhere.
+  assert.match(app, /\? <TemplatePreview content=\{visible\.text\} \/>/);
+  // A whole fenced specification inside the transcript buries the reasoning it exists to capture.
+  assert.match(app, /function stripArtifactFences/);
+  assert.match(app, /artifacts? proposed — review them in Artifacts|artifact\{visible\.stripped === 1/);
+  // Streamed text scrolled out of view and never came back; anchoring must yield to a reader.
+  assert.match(app, /stickToBottom\.current = node\.scrollHeight - node\.scrollTop - node\.clientHeight < 40/);
+  // The turn-complete fallback told the user to open a log panel this screen did not render.
+  assert.match(app, /usage, logs, setLogs,/);
+  assert.match(app, /Copilot activity \(\{logs\.length\}\)/);
+});
+
+test('chat styling is not defeated by the rules it replaced', async () => {
+  const styles = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'styles.css'), 'utf8');
+  // .requirements-messages > div (0,1,1) out-specified .chat-turn (0,1,0), so every turn rendered
+  // as a grid and the avatar stacked above the bubble.
+  assert.doesNotMatch(styles, /\.requirements-messages > div \{/);
+  // The role-label rule, unscoped, turned every bold word in a rendered message into a block.
+  assert.doesNotMatch(styles, /^\.chat-bubble strong \{ display: block/m);
+  assert.match(styles, /\.chat-bubble > header strong \{ display: block/);
+  // .requirements-workspace{height:100%} against an auto-height parent resolved to auto, so the
+  // panes never scrolled independently.
+  assert.match(styles, /\.page-stage:has\(> \.requirements-workspace\) \{ height: 100%; \}/);
+});

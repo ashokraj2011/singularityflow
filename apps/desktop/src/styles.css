@@ -1520,6 +1520,7 @@ body {
   transition: opacity .2s;
 }
 .page-stage { min-height: 100%; animation: page-arrive .42s var(--ease-out) both; }
+.page-stage:has(> .requirements-workspace) { height: 100%; }
 .page {
   max-width: 1620px;
   padding: 44px 52px 72px;
@@ -3386,10 +3387,6 @@ input:disabled, select:disabled, textarea:disabled {
 .requirements-context-bar pre { max-height: 240px; overflow: auto; margin: 6px 0 0; border-radius: 8px; padding: 10px; background: #f6f8f7; font-size: 10px; white-space: pre-wrap; }
 .requirements-activity { color: var(--ink); font-size: 11px; }
 .requirements-messages { min-height: 0; overflow: auto; display: grid; gap: 10px; align-content: start; }
-.requirements-messages > div { display: grid; gap: 3px; }
-.requirements-messages strong { color: var(--muted); font-size: 9px; font-weight: 720; letter-spacing: .1em; text-transform: uppercase; }
-.requirements-messages pre { margin: 0; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
-.requirements-messages .user pre { border-left: 2px solid #65b783; padding-left: 10px; }
 .requirements-composer { display: grid; gap: 8px; }
 .requirements-composer .row { justify-content: flex-end; }
 
@@ -3517,7 +3514,11 @@ input:disabled, select:disabled, textarea:disabled {
   border: 1px solid var(--line); background: var(--surface);
 }
 .chat-turn.user .chat-bubble { background: rgba(47,109,79,.06); }
-.chat-bubble strong { display: block; font-size: 9px; font-weight: 720; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+/* Scoped to the role label. Unscoped, this turned every bold word inside a rendered Copilot
+   message into its own block, breaking sentences apart mid-line. */
+.chat-bubble > header strong { display: block; font-size: 9px; font-weight: 720; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.chat-bubble .markdown-preview strong { font-weight: 660; color: var(--ink); }
+.chat-bubble .markdown-preview code { font-size: 11px; padding: 1px 4px; border-radius: 4px; background: rgba(16,74,48,.06); }
 .chat-bubble pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 7px; }
 .composer-bar small { font-size: 10px; color: var(--muted); }
@@ -3562,3 +3563,24 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .preview-modal > header small { font-size: 10px; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); }
 .preview-modal iframe { width: 100%; height: min(620px, 70vh); border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .preview-modal img { max-width: 100%; max-height: min(620px, 70vh); object-fit: contain; border-radius: 8px; }
+
+/* Conversation: readable turns, telemetry, activity log */
+.chat-bubble > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.chat-bubble > header strong { margin: 0; }
+.chat-bubble > header button { opacity: 0; transition: opacity .12s ease; }
+.chat-turn:hover .chat-bubble > header button { opacity: 1; }
+.chat-fenced { display: block; margin-top: 6px; font-size: 10px; color: var(--brand, #2f6d4f); font-weight: 600; }
+.chat-bubble p { margin: 0 0 8px; font-size: 12px; line-height: 1.55; }
+.chat-bubble p:last-child { margin-bottom: 0; }
+.chat-bubble h1, .chat-bubble h2, .chat-bubble h3 { margin: 10px 0 6px; font-size: 12.5px; font-weight: 660; color: var(--ink); }
+.chat-bubble ul, .chat-bubble ol { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.55; }
+.chat-bubble table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
+.chat-bubble th, .chat-bubble td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; }
+.requirements-telemetry { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; font-size: 10px; color: var(--muted); }
+.requirements-console summary { cursor: pointer; font-size: 10px; color: var(--muted); }
+.requirements-console-lines { max-height: 200px; overflow: auto; margin-top: 6px; display: grid; gap: 3px; }
+.requirements-console-lines > div { display: grid; grid-template-columns: 62px 130px 1fr; gap: 8px; font-size: 9.5px; align-items: baseline; }
+.requirements-console-lines time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.requirements-console-lines code { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.requirements-console-lines span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.requirements-console-lines .error code, .requirements-console-lines .warn code { color: #8a6d1f; }

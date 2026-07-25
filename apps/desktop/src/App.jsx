@@ -2284,6 +2284,19 @@ function kindTag(nameOrKind = '') {
   }[documentKind(nameOrKind)] ?? documentKind(nameOrKind).slice(0, 3).toUpperCase();
 }
 
+// Fenced artifacts are promoted, not read: leaving a whole requirements specification inline
+// buries the reasoning the conversation exists to capture.
+function stripArtifactFences(text) {
+  const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n[\s\S]*?\r?\nSFLOW-ARTIFACT:\1>>>/g;
+  let stripped = 0;
+  const value = String(text ?? '').replace(pattern, () => { stripped += 1; return ''; });
+  return { text: value.replace(/\n{3,}/g, '\n\n').trim(), stripped };
+}
+
+function copyText(value) {
+  try { void navigator.clipboard?.writeText(String(value ?? '')); } catch { /* Clipboard access is a convenience, never load-bearing. */ }
+}
+
 function formatBytes(bytes = 0) {
   if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
@@ -2389,10 +2402,17 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId } });
   const {
     contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
-    objective, setObjective, persona, setPersona, preflight, phase, group,
+    objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
     buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
+  const messageRef = useRef(null);
+  const stickToBottom = useRef(true);
+  useEffect(() => {
+    const node = messageRef.current;
+    if (!node || !stickToBottom.current) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, activity]);
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState(null);
   const [localNote, setLocalNote] = useState(null);
@@ -2677,14 +2697,46 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           {pendingQuestions.length > 0 && <div className="copilot-question-stack">
             {pendingQuestions.map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}
           </div>}
-          <div className="requirements-messages">
-            {messages.length ? messages.map((message, index) => <div className={`chat-turn ${message.role}`} key={`${message.id}:${index}`}>
-              <span className="chat-avatar" aria-hidden="true">{message.role === 'user' ? '·' : '✦'}</span>
-              <div className="chat-bubble">
-                <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
-                <pre>{message.text}</pre>
+          <div
+            className="requirements-messages"
+            ref={messageRef}
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              // Yield to a reader who has scrolled up; resume when they return to the bottom.
+              stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
+            }}
+          >
+            {messages.length ? messages.map((message, index) => {
+              // Artifact fences belong in the Artifacts pane; repeating a whole specification inside
+              // the transcript buries the reasoning the conversation is actually for.
+              const visible = stripArtifactFences(message.text);
+              return <div className={`chat-turn ${message.role}`} key={`${message.id}:${index}`}>
+                <span className="chat-avatar" aria-hidden="true">{message.role === 'user' ? '·' : '✦'}</span>
+                <div className="chat-bubble">
+                  <header>
+                    <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
+                    <button className="ghost compact" title="Copy this message" onClick={() => copyText(message.text)}>Copy</button>
+                  </header>
+                  {message.role === 'assistant'
+                    ? <TemplatePreview content={visible.text} />
+                    : <pre>{visible.text}</pre>}
+                  {visible.stripped > 0 && <small className="chat-fenced">{visible.stripped} artifact{visible.stripped === 1 ? '' : 's'} proposed — review them in Artifacts</small>}
+                </div>
+              </div>;
+            }) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
+          </div>
+          <div className="requirements-telemetry">
+            <span>{usage?.contextTokens ? `${formatTokens(usage.contextTokens)} context tokens` : 'Usage appears once Copilot reports it'}{usage?.contextWindow ? ` of ${formatTokens(usage.contextWindow)}` : ''}</span>
+            <details className="requirements-console">
+              <summary>Copilot activity ({logs.length})</summary>
+              <div className="requirements-console-lines">
+                {logs.length
+                  ? logs.slice(-80).map((entry, index) => <div className={entry.level} key={`${entry.id}:${index}`}>
+                    <time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><span>{entry.detail}</span>
+                  </div>)
+                  : <div className="inline-empty">Tool calls, thinking and diagnostics appear here.</div>}
               </div>
-            </div>) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
+            </details>
           </div>
           {/* Enter sends and Shift+Enter breaks the line, the convention every chat surface uses.
               The hint under the box is only honest if the keys actually behave that way. */}

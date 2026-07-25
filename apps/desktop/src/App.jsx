@@ -2233,6 +2233,39 @@ function readArtifactBlocks(text, allowedIds) {
   return found;
 }
 
+// A short badge for the icon tile. documentKind returns prose ("Markdown"), which truncates to
+// "Mar"; and an output's kind is a type name rather than a file name, so neither works alone.
+function kindTag(nameOrKind = '') {
+  const value = String(nameOrKind).toLowerCase();
+  const byKind = {
+    markdown: 'MD', yaml: 'YML', 'interface-contract': 'API', json: 'JSN', text: 'TXT'
+  }[value];
+  if (byKind) return byKind;
+  return {
+    Markdown: 'MD', YAML: 'YML', JSON: 'JSN', Text: 'TXT', Image: 'IMG',
+    PDF: 'PDF', DOC: 'DOC', DOCX: 'DOC', XLS: 'XLS', XLSX: 'XLS', CSV: 'CSV', Figma: 'FIG'
+  }[documentKind(nameOrKind)] ?? documentKind(nameOrKind).slice(0, 3).toUpperCase();
+}
+
+function formatBytes(bytes = 0) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// One row shape for every kind of source, so a pinned upload and a Jira attachment are told apart
+// by their stated status rather than by which list they happen to sit in.
+function SourceCard({ name, detail, title = undefined, state = 'ready' }) {
+  return <div className={`source-card ${state}`} title={title}>
+    <span className="source-icon" aria-hidden="true">{kindTag(name)}</span>
+    <span className="source-body">
+      <strong>{name}</strong>
+      <small>{detail}</small>
+    </span>
+    <span className={`source-state ${state}`} aria-hidden="true">{state === 'ready' ? '✓' : '○'}</span>
+  </div>;
+}
+
 function documentKind(name = '') {
   const extension = String(name).split('.').pop()?.toLowerCase() ?? '';
   return {
@@ -2341,7 +2374,11 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const requirements = state.phases['epic-requirements'];
   const intakeApproved = intake?.status === 'approved';
   const phaseId = activePhaseId;
-  const outputs = contextPack?.outputs ?? [];
+  // The phase's outputs are known from its pinned resolution, so the pane can show what this phase
+  // owes from the moment it opens. Waiting for a session made it read as "nothing to produce".
+  const outputs = contextPack?.outputs
+    ?? selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs
+    ?? [];
   const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
 
   const sources = selected.sources?.sources ?? [];
@@ -2365,6 +2402,20 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     setPromoting(false);
     if (result) await reload(null, state.initiative.id);
   }
+
+  const artifactGroups = useMemo(() => {
+    const rows = outputs.map((output) => ({
+      output,
+      content: proposed.get(output.id),
+      committed: selected.documents.find((document) => document.id === output.id && document.phase === phaseId)
+    }));
+    return [
+      { id: 'proposed', label: 'Proposed in this session', items: rows.filter((row) => row.content) },
+      { id: 'draft', label: 'Draft', items: rows.filter((row) => !row.content && row.committed?.sha256 && row.committed.status !== 'approved') },
+      { id: 'approved', label: 'Approved', items: rows.filter((row) => !row.content && row.committed?.status === 'approved') },
+      { id: 'awaiting', label: 'Not generated yet', items: rows.filter((row) => !row.content && !row.committed?.sha256) }
+    ];
+  }, [outputs, proposed, selected.documents, phaseId]);
 
   const intakeIsNonBlocking = state.initiative?.profile === 'epic-planning' && phaseId === 'epic-intake';
   const blockingChecks = Object.values(state.phases[phaseId]?.checklist ?? {})
@@ -2436,36 +2487,32 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <aside className="requirements-sources">
         <header><h2>Sources</h2><Pill>{sources.length}</Pill></header>
         <p className="requirements-hint">Everything pinned here is hashed and becomes part of the governed prompt. Requirements may only cite what is listed.</p>
-        <div className="requirements-source-actions">
-          <select aria-label="Storage provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
-            {providers.map(([id, provider]) => <option key={id} value={id}>{id} · {provider.type}</option>)}
-          </select>
-          <button className="secondary compact" disabled={!providers.length} onClick={addSources}>＋ Add files</button>
-        </div>
+
         {!sources.length
           ? <p className="requirements-hint">Nothing pinned yet. Upload the specification, research, designs, or spreadsheets this phase must be based on.</p>
-          : sources.map((source) => <div key={source.sourceId} className="requirements-source-row">
-            <span className="requirements-kind">{documentKind(source.name ?? source.path)}</span>
-            <strong title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}>{source.name ?? source.path}</strong>
-            <small>{source.bytes ? `${Math.ceil(source.bytes / 1024)} KB` : ''}</small>
-          </div>)}
+          : sources.map((source) => <SourceCard
+            key={source.sourceId}
+            name={source.name ?? source.path}
+            detail={`Pinned${source.bytes ? ` · ${formatBytes(source.bytes)}` : ''}`}
+            title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}
+            state="ready"
+          />)}
         {jiraAttachments.length > 0 && <section className="requirements-jira-attachments">
           <h3>From Jira ({jiraAttachments.length})</h3>
           <p className="requirements-hint">Listed from the Epic import. Pin one above to make it citable evidence with its own hash.</p>
-          {jiraAttachments.map((file) => <div key={file.id ?? file.filename} className="requirements-source-row">
-            <span className="requirements-kind">{documentKind(file.filename)}</span>
-            <strong title={file.filename}>{file.filename}</strong>
-            <small>{file.size ? `${Math.ceil(file.size / 1024)} KB` : ''}</small>
-          </div>)}
+          {jiraAttachments.map((file) => <SourceCard
+            key={file.id ?? file.filename}
+            name={file.filename}
+            detail={`Jira attachment${file.size ? ` · ${formatBytes(file.size)}` : ''} · not pinned`}
+            state="pending"
+          />)}
         </section>}
-        {documents.length > 0 && <section>
-          <h3>Generated ({documents.length})</h3>
-          {documents.map((document) => <div key={document.id} className="requirements-source-row">
-            <span className="requirements-kind">{document.status}</span>
-            <strong title={document.label}>{document.label}</strong>
-            <button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Preview</button>
-          </div>)}
-        </section>}
+        <footer className="requirements-source-actions">
+          <select aria-label="Storage provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+            {providers.map(([id, provider]) => <option key={id} value={id}>{id} · {provider.type}</option>)}
+          </select>
+          <button className="secondary full" disabled={!providers.length} onClick={addSources}>＋ Add source</button>
+        </footer>
       </aside>
 
       <section className="requirements-conversation">
@@ -2491,27 +2538,50 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
             {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Send to Copilot</button>}
           </div>
+          <div className="copilot-identity">
+            <span className="copilot-avatar" aria-hidden="true">✦</span>
+            <div>
+              <strong>Copilot</strong>
+              <small>{data.definition.personas[persona]?.label ?? persona}</small>
+            </div>
+            <Pill tone={running ? 'accent' : started ? 'good' : 'neutral'}>
+              {running ? 'Working' : started ? 'Ready for input' : 'Not started'}
+            </Pill>
+          </div>
           <div className="requirements-activity">{activity}</div>
           {pendingQuestions.length > 0 && <div className="copilot-question-stack">
             {pendingQuestions.map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}
           </div>}
           <div className="requirements-messages">
-            {messages.length ? messages.map((message, index) => <div className={message.role} key={`${message.id}:${index}`}>
-              <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
-              <pre>{message.text}</pre>
+            {messages.length ? messages.map((message, index) => <div className={`chat-turn ${message.role}`} key={`${message.id}:${index}`}>
+              <span className="chat-avatar" aria-hidden="true">{message.role === 'user' ? '·' : '✦'}</span>
+              <div className="chat-bubble">
+                <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
+                <pre>{message.text}</pre>
+              </div>
             </div>) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
           </div>
+          {/* Enter sends and Shift+Enter breaks the line, the convention every chat surface uses.
+              The hint under the box is only honest if the keys actually behave that way. */}
           <div className="requirements-composer">
             <textarea
               rows="3"
               value={followup}
               disabled={!started || running}
               onChange={(event) => setFollowup(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.shiftKey) return;
+                event.preventDefault();
+                if (started && !running && followup.trim()) void sendFollowup();
+              }}
               placeholder="Add an instruction, answer a question, or ask for a revision…"
             />
-            <div className="row">
-              <button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button>
-              <button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send</button>
+            <div className="composer-bar">
+              <small>Shift + Enter for a new line</small>
+              <div className="row">
+                <button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button>
+                <button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send ➤</button>
+              </div>
             </div>
           </div>
         </>}
@@ -2520,20 +2590,28 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <aside className="requirements-artifacts">
         <header><h2>Artifacts</h2><Pill tone={proposed.size ? 'accent' : 'neutral'}>{proposed.size}/{outputs.length || '—'}</Pill></header>
         {!outputs.length ? <p className="requirements-hint">Start a session to see what this phase must produce.</p> : <>
-          {outputs.map((output) => {
-            const content = proposed.get(output.id);
-            const committed = selected.documents.find((document) => document.id === output.id);
-            return <button
+          {artifactGroups.map((group) => group.items.length > 0 && <section key={group.id} className="artifact-group">
+            <h3>{group.label}</h3>
+            {group.items.map(({ output, content, committed }) => <button
               key={output.id}
               type="button"
               className={`requirements-artifact ${selectedArtifact === output.id ? 'active' : ''} ${content ? 'proposed' : ''}`}
               onClick={() => setSelectedArtifact(selectedArtifact === output.id ? null : output.id)}
             >
-              <span className="requirements-kind">{output.kind}</span>
-              <strong>{output.label}</strong>
-              <small>{content ? `proposed · ${Math.ceil(content.length / 1024) || 1} KB` : committed?.sha256 ? `committed · ${committed.status}` : 'not proposed yet'}</small>
-            </button>;
-          })}
+              <span className="artifact-icon" aria-hidden="true">{kindTag(committed?.path ?? output.kind)}</span>
+              <span className="artifact-body">
+                <strong>{output.label}</strong>
+                <small className="artifact-id">{output.id}{committed?.generation ? ` · v${committed.generation}` : ''}</small>
+                <small>{content
+                  ? `Proposed in this session · ${formatBytes(content.length)}`
+                  : committed?.sha256
+                    ? `${committed.status.replaceAll('_', ' ')}${committed.bytes ? ` · ${formatBytes(committed.bytes)}` : ''}${committed.generatedPersona ? ` · ${committed.generatedPersona}` : ''}`
+                    : output.required ? 'Required · not generated yet' : 'Optional · not generated yet'}</small>
+              </span>
+              {content && <span className="artifact-state proposed" title="Proposed, not yet written">●</span>}
+              {!content && committed?.status === 'approved' && <span className="artifact-state approved" title="Approved">✓</span>}
+            </button>)}
+          </section>)}
           {selectedArtifact && proposed.get(selectedArtifact) && <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>}
           <div className="requirements-approval">
             <p className="requirements-hint">

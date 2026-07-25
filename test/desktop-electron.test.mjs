@@ -839,3 +839,34 @@ test('the Epic workspace rail dispatches on the same vocabulary as the phase wor
   assert.doesNotMatch(fn, /'prepare'/);
   assert.match(fn, /No action is wired for/);
 });
+
+test('the phase workbench shows what the phase owes before any session starts', async () => {
+  // outputs came only from a built context pack, so the artifacts pane read "nothing to produce"
+  // until Copilot had already been engaged. The phase resolution knows them from the start.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /contextPack\?\.outputs\s*\n\s*\?\? selected\.state\.resolution\?\.phases/);
+  // Cards are grouped by the states the engine records, never by an invented one.
+  assert.match(app, /const artifactGroups = useMemo/);
+  for (const label of ['Proposed in this session', 'Draft', 'Approved', 'Not generated yet']) {
+    assert.ok(app.includes(label), `artifact group '${label}' must exist`);
+  }
+});
+
+test('the composer honours the shortcut it advertises', async () => {
+  // A hint that says "Shift + Enter for a new line" is a lie unless plain Enter actually sends.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /Shift \+ Enter for a new line/);
+  assert.match(app, /if \(event\.key !== 'Enter' \|\| event\.shiftKey\) return;/);
+  assert.match(app, /if \(started && !running && followup\.trim\(\)\) void sendFollowup\(\);/);
+});
+
+test('icon tiles use a short type tag, not truncated prose', async () => {
+  // documentKind returns "Markdown", which truncates to "Mar"; an output's kind is a type name and
+  // not a file name, so neither source works on its own.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /function kindTag\(/);
+  // The tiles themselves must go through kindTag; kindTag's own last-resort truncation is fine.
+  assert.match(app, /className="source-icon"[^>]*>\{kindTag\(/);
+  assert.match(app, /className="artifact-icon"[^>]*>\{kindTag\(/);
+  assert.equal([...app.matchAll(/documentKind\([^)]*\)\.slice\(0, 3\)/g)].length, 1, 'only kindTag may truncate');
+});

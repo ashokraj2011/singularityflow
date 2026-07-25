@@ -2205,7 +2205,11 @@ function documentKind(name = '') {
 // governance screen and Copilot Studio, re-framing the phase by hand, and promoting one artifact at
 // a time; the phase is one piece of work, so it gets one workspace.
 function RequirementsWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt }) {
-  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: 'epic-requirements' } });
+  // Follow the phase the initiative is actually on. The engine is sequence-aware and will refuse a
+  // context for any other phase, so naming a fixed one here breaks the screen for every Epic that
+  // has not reached it yet.
+  const activePhaseId = selected.state.currentPhase ?? 'epic-intake';
+  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId } });
   const {
     contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group,
@@ -2231,7 +2235,7 @@ function RequirementsWorkspace({ data, selected, action, reload, downloadFile, p
   const intake = state.phases['epic-intake'];
   const requirements = state.phases['epic-requirements'];
   const intakeApproved = intake?.status === 'approved';
-  const phaseId = intakeApproved ? 'epic-requirements' : 'epic-intake';
+  const phaseId = activePhaseId;
   const outputs = contextPack?.outputs ?? [];
   const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
 
@@ -2257,6 +2261,8 @@ function RequirementsWorkspace({ data, selected, action, reload, downloadFile, p
     if (result) await reload(null, state.initiative.id);
   }
 
+  const blockingChecks = Object.values(state.phases[phaseId]?.checklist ?? {})
+    .filter((check) => check.requirement === 'must' && check.status !== 'satisfied');
   const pendingQuestions = questions.filter((question) => question.status === 'pending');
   const ready = preflight?.ready;
 
@@ -2272,6 +2278,17 @@ function RequirementsWorkspace({ data, selected, action, reload, downloadFile, p
         <Pill tone={ready ? 'good' : 'warn'}>{ready ? 'Copilot ready' : 'Copilot setup needed'}</Pill>
       </div>
     </header>
+
+    {blockingChecks.length > 0 && <section className="requirements-gate">
+      <div>
+        <strong>{phaseId} cannot be approved yet</strong>
+        <p>
+          {blockingChecks.length} required check{blockingChecks.length === 1 ? '' : 's'} still {blockingChecks.length === 1 ? 'has' : 'have'} no evidence.
+          You can author artifacts now, but the phase will not advance — and the next phase cannot be planned — until {blockingChecks.length === 1 ? 'it is' : 'they are'} satisfied.
+        </p>
+      </div>
+      <ul>{blockingChecks.map((check) => <li key={check.id}><code>{check.id}</code> — {check.label}</li>)}</ul>
+    </section>}
 
     <div className="requirements-panes">
       <aside className="requirements-sources">

@@ -673,8 +673,8 @@ test('a hand-off frames Copilot Studio on the phase it came from, and the sideba
   assert.match(source, /setPlanningFocus\(phase \? \{ phase, target \} : null\)/);
   assert.match(source, /focus=\{planningFocus\}/);
   assert.match(source, /openStudio\(phase \?\? 'epic-plan'\)/);
-  // Requirements now owns its own phase-scoped session rather than handing off to the studio.
-  assert.match(source, /focus: \{ phase: 'epic-requirements' \}/);
+  // Requirements owns its own session, framed on whatever phase the initiative is actually on.
+  assert.match(source, /focus: \{ phase: activePhaseId \}/);
   assert.match(source, /openPlanning\('epic-plan'\)/);
   assert.match(source, /openPlanning\(phases\[0\]\)/);
 
@@ -717,4 +717,21 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.match(source, /is not refreshed automatically/);
   // Shown on both screens that precede requirements authoring.
   assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);
+});
+
+test('the Requirements workspace follows the initiative phase and shows what blocks approval', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const workspace = source.slice(source.indexOf('function RequirementsWorkspace('), source.indexOf('function EpicRequirementsView('));
+
+  // The engine is sequence-aware: a context for any phase other than the current one is refused.
+  // Naming a fixed phase here broke the screen for every Epic that had not reached it yet.
+  assert.match(workspace, /const activePhaseId = selected\.state\.currentPhase \?\? 'epic-intake'/);
+  assert.match(workspace, /focus: \{ phase: activePhaseId \}/);
+  assert.doesNotMatch(workspace, /focus: \{ phase: 'epic-requirements' \}/);
+
+  // A blocking checklist item stops the phase advancing, so it belongs on the screen rather than
+  // in the error of whatever command the user tries next.
+  assert.match(workspace, /blockingChecks/);
+  assert.match(workspace, /check\.requirement === 'must' && check\.status !== 'satisfied'/);
+  assert.match(workspace, /cannot be approved yet/);
 });

@@ -3375,3 +3375,15 @@ input:disabled, select:disabled, textarea:disabled {
 }
 .requirements-source-actions { display: grid; gap: 7px; margin-bottom: 10px; }
 .requirements-source-actions select { width: 100%; }
+.requirements-gate {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(203,150,42,.34);
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(120deg,rgba(252,246,232,.96),rgba(250,248,242,.96));
+}
+.requirements-gate strong { display: block; color: #5d4310; font-size: 12px; font-weight: 640; }
+.requirements-gate p { margin: 3px 0 0; color: #7b6231; font-size: 10.5px; line-height: 1.5; }
+.requirements-gate ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: #7b6231; font-size: 10.5px; }
+.requirements-gate code { color: #5d4310; font-size: 10px; }

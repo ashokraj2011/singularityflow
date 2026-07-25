@@ -141,11 +141,47 @@ function assertTrustedSender(event) {
   }
 }
 
+// Every IPC handler runs in the main process, so a failure here never touched the CLI's command
+// logging and left no trace anywhere — a click that "does nothing" was genuinely unobservable.
+// Wrapping the dispatcher records the outcome of each channel against the repository being acted on.
 function trustedHandle(channel, listener) {
-  ipcMain.handle(channel, (event, ...args) => {
+  ipcMain.handle(channel, async (event, ...args) => {
     assertTrustedSender(event);
-    return listener(event, ...args);
+    const repository = args.find((value) => value && typeof value === 'object' && typeof value.repository === 'string')?.repository ?? null;
+    const started = Date.now();
+    try {
+      const result = await listener(event, ...args);
+      void ipcLogger(repository).then((log) => log?.debug(`ipc.${channel}.ok`, null, { durationMs: Date.now() - started })).catch(() => {});
+      return result;
+    } catch (error) {
+      // Logged before rethrowing so the renderer still receives the rejection it expects.
+      void ipcLogger(repository).then((log) => log?.error(`ipc.${channel}.failed`, error?.message, {
+        durationMs: Date.now() - started, error
+      })).catch(() => {});
+      throw error;
+    }
   });
+}
+
+// One logger per repository, reused across channels.
+const ipcLoggers = new Map();
+function ipcLogger(repository) {
+  if (!repository) return Promise.resolve(null);
+  if (!ipcLoggers.has(repository)) {
+    ipcLoggers.set(repository, (async () => {
+      try {
+        const [{ repositoryLogger }, { loadDefinition }] = await Promise.all([
+          importCliModule('logging.mjs'),
+          importCliModule('config.mjs')
+        ]);
+        const definition = await loadDefinition(repository).catch(() => null);
+        return repositoryLogger(repository, definition, { context: { surface: 'desktop', pid: process.pid } });
+      } catch {
+        return null;
+      }
+    })());
+  }
+  return ipcLoggers.get(repository);
 }
 
 async function jiraPolicy(repository) {

@@ -419,7 +419,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   // Requirements is no longer a tab of the Epic workspace: sources, the Copilot conversation, and
   // the artifacts it produces are one phase, so they are one screen.
   assert.doesNotMatch(source, /entryTab="requirements"/);
-  assert.match(source, /<PhaseWorkspace data=\{data\}/);
+  // Asserted on the tag, not on prop order — adding a prop is not a regression.
+  assert.match(source, /<PhaseWorkspace [^>]*data=\{data\}/);
   // Planning is no longer a tab of the Epic workspace either: it uses the same sources /
   // conversation / artifacts workspace as Requirements.
   assert.doesNotMatch(source, /entryTab="planning"/);
@@ -1148,4 +1149,34 @@ test('the Requirements workspace layout does not depend on how many children it 
   assert.match(styles, /\.requirements-workspace \{ display: flex; flex-direction: column;/);
   assert.doesNotMatch(styles, /\.requirements-workspace \{ display: grid; grid-template-rows/);
   assert.match(styles, /\.requirements-workspace > \.requirements-panes \{ flex: 1 1 auto; min-height:/);
+});
+
+test('every surface that starts Copilot work warns when Copilot cannot run it', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Preflight was read separately by each component and only at mount, so Copilot dying while the
+  // app was open went unnoticed. One check, refreshed when the window regains focus.
+  assert.match(app, /const refreshCopilotHealth = React\.useCallback/);
+  assert.match(app, /window\.addEventListener\('focus', onFocus\)/);
+
+  // The world-model build shells out to `copilot` for minutes and never consulted preflight at all;
+  // it failed at the end for a reason knowable at the start.
+  const generate = app.slice(app.indexOf('async function generateWorldModel(repositoryOrLocal'));
+  assert.match(generate.slice(0, 1200), /const health = await refreshCopilotHealth\(\)/);
+  assert.match(generate.slice(0, 1200), /Copilot is not available/);
+
+  // One banner, worded once, on each surface where Copilot work can start.
+  assert.match(app, /function CopilotUnavailable\(/);
+  assert.equal([...app.matchAll(/<CopilotUnavailable/g)].length, 4);
+  // It distinguishes "not installed" from "installed but the wrong build" instead of one vague line.
+  assert.match(app, /health\.installed === false/);
+  assert.match(app, /health\.acp === false \|\| health\.planMode === false/);
+});
+
+test('a Copilot session that dies mid-turn says so', async () => {
+  // process-exit set started=false and said nothing, so the screen reverted to "Not started" with
+  // no reason and no way to tell it from never having begun.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /Copilot stopped unexpectedly \(exit/);
+  assert.match(app, /The conversation is kept; start again to continue/);
+  assert.match(app, /onCopilotLost\?\.\(\)/);
 });

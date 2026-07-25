@@ -236,7 +236,21 @@ function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
 // it has never seen. A freshly cloned or newly onboarded repository always starts in that state,
 // so this asks on open — wherever the user is — instead of waiting for a phase to silently produce
 // ungrounded work or for a grounding gate to fail much later.
-function WorldModelPrompt({ reason, busy, onGenerate, onDismiss }) {
+function WorldModelPrompt({ reason, busy, onGenerate, onDismiss, copilotHealth = null, onCopilotRetry = null }) {
+  const down = copilotHealth?.ready === false;
+  if (down) {
+    return <div className="world-model-prompt-stack">
+      <CopilotUnavailable health={copilotHealth} action="building the world model" onRetry={onCopilotRetry} />
+      <section className="world-model-prompt" role="status">
+        <span className="world-model-prompt-mark" aria-hidden="true">◈</span>
+        <div>
+          <strong>Ground this repository before planning</strong>
+          <p>{reason} The build runs Copilot for several minutes, so it is not offered until Copilot can answer.</p>
+        </div>
+        <div className="row"><button className="ghost compact" onClick={onDismiss} disabled={busy}>Not now</button></div>
+      </section>
+    </div>;
+  }
   return <section className="world-model-prompt" role="status">
     <span className="world-model-prompt-mark" aria-hidden="true">◈</span>
     <div>
@@ -1682,7 +1696,7 @@ function ApprovalInbox({ data, busy, refresh, attach }) {
 // Extracted so more than one screen can present it — Copilot Studio shows it phase-by-phase,
 // while the Requirements workspace wraps the same session in a sources/chat/artifacts layout.
 // One implementation, because the ACP event handling here is subtle and must not drift.
-function useCopilotPlanningSession({ data, action, reload, profileRole = null, focus = null }) {
+function useCopilotPlanningSession({ data, action, reload, profileRole = null, focus = null, onCopilotLost = null }) {
   const groups = data.planning?.targets ?? [];
   const defaultGroup = groups.find((item) => item.scope === 'initiative') ?? groups[0] ?? null;
   // A hand-off from a phase screen names the phase and output it wants. Honour it only when that
@@ -1861,6 +1875,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       } else if (event.type === 'process-exit' && started) {
         setRunning(false);
         setStarted(false);
+        setActivity(event.code === 0
+          ? 'Copilot ended the session. Start it again to continue.'
+          : `Copilot stopped unexpectedly (exit ${event.code ?? 'unknown'}${event.signal ? `, ${event.signal}` : ''}). The conversation is kept; start again to continue.`);
+        onCopilotLost?.();
       }
     });
   }, [contextPack?.sessionId, started]);
@@ -2053,13 +2071,14 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   };
 }
 
-function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null }) {
+function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
     groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
     <header className="page-heading planning-heading"><div><span className="eyebrow">Copilot-native decision workspace</span><h1>Copilot Studio</h1><p>Move from business intent to a reviewable, phase-specific plan without allowing the planning session to mutate source or lifecycle state.</p></div><div className="row"><Pill tone={preflight?.ready ? 'good' : 'warn'}>{preflight?.ready ? 'Copilot Plan mode ready' : 'Copilot setup needed'}</Pill><button className="secondary" onClick={openPlanningPrompt}>Edit planning prompt</button></div></header>
+    {preflight?.ready === false && <CopilotUnavailable health={preflight} action="Copilot Studio" onRetry={onCopilotRetry} />}
     <section className="planning-safety">
       <span>◈</span><div><strong>Read-only reasoning; explicit Git-backed promotion</strong><p>Copilot receives the selected phase context through ACP in native Plan mode. The chat stays local. Only the reviewed artifact you promote is written, audited, committed, and pushed.</p></div>
     </section>
@@ -2305,6 +2324,30 @@ function formatBytes(bytes = 0) {
 
 // One row shape for every kind of source, so a pinned upload and a Jira attachment are told apart
 // by their stated status rather than by which list they happen to sit in.
+/**
+ * Shown wherever Copilot work can be started and Copilot cannot do it.
+ *
+ * The preflight already distinguishes "not installed" from "installed but the wrong build", so the
+ * banner states which, rather than a single unhelpful "unavailable".
+ */
+function CopilotUnavailable({ health, onRetry = null, action = 'this' }) {
+  if (!health || health.ready !== false) return null;
+  const cause = health.installed === false
+    ? 'The GitHub Copilot CLI was not found on your PATH.'
+    : health.acp === false || health.planMode === false
+      ? 'The installed Copilot CLI does not support the ACP Plan mode this needs.'
+      : 'Copilot is installed but did not respond.';
+  return <section className="copilot-down" role="alert">
+    <div>
+      <strong>Copilot is not available — {action} cannot run</strong>
+      <p>{cause}</p>
+      {health.message && <p className="copilot-down-detail">{health.message}</p>}
+      {health.version && <p className="copilot-down-detail">Detected: {health.version}</p>}
+    </div>
+    {onRetry && <button className="secondary compact" onClick={onRetry}>Check again</button>}
+  </section>;
+}
+
 function SourceCard({ name, detail, title = undefined, state = 'ready', onOpen = null }) {
   const body = <>
     <span className="source-icon" aria-hidden="true">{kindTag(name)}</span>
@@ -2394,12 +2437,12 @@ function EpicJourneyRail({ journey, onSelect, onNext }) {
 // One workspace for any authored phase: sources, the Copilot conversation, and the artifacts the
 // phase owes. The session and artifact panes were always driven by the initiative's current phase;
 // only the wording assumed Requirements.
-function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt, onJourneyStage, onJourneyNext }) {
+function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt, onJourneyStage, onJourneyNext, copilotHealth = null, onCopilotRetry = null, onCopilotLost = null }) {
   // Follow the phase the initiative is actually on. The engine is sequence-aware and will refuse a
   // context for any other phase, so naming a fixed one here breaks the screen for every Epic that
   // has not reached it yet.
   const activePhaseId = selected.state.currentPhase ?? 'epic-intake';
-  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId } });
+  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId }, onCopilotLost });
   const {
     contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
@@ -2613,6 +2656,8 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <ul>{blockingChecks.map((check) => <li key={check.id}><code>{check.id}</code> — {check.label}</li>)}</ul>
     </section>}
 
+    {copilotHealth?.ready === false && <CopilotUnavailable health={copilotHealth} action="Copilot work" onRetry={onCopilotRetry} />}
+
     {state.initiative.source?.type === 'jira' && <details className="requirements-origin">
       <summary>Imported Jira Epic — the source these requirements derive from</summary>
       <ImportedEpicView selected={selected} />
@@ -2689,7 +2734,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             </select>
             <button className="primary" disabled={!ready || running || !group} onClick={buildContext}>Start with Copilot</button>
           </div>
-          {!ready && <p className="requirements-hint">{preflight?.message ?? 'Copilot CLI is not available for Plan mode yet.'}</p>}
+          {!ready && <CopilotUnavailable health={preflight} action="a planning session" onRetry={onCopilotRetry} />}
         </div> : <>
           {contextStale && <div className="requirements-stale" role="status">
             <div>
@@ -4139,6 +4184,29 @@ export default function App() {
   // Dismissal is per repository, so opening a different clone asks again rather than inheriting
   // a "not now" from the previous one.
   const [worldModelDismissed, setWorldModelDismissed] = useState(null);
+  // Copilot can be missing, unauthenticated, or the wrong version, and it can stop while the app is
+  // open. Checked in one place and refreshed when the window regains focus, so every surface that
+  // starts Copilot work reads the same answer instead of each holding its own stale copy.
+  const [copilotHealth, setCopilotHealth] = useState(null);
+  const refreshCopilotHealth = React.useCallback(async () => {
+    if (!data?.repository?.root) return null;
+    try {
+      const result = await window.singularity.planningPreflight(data.repository.root);
+      setCopilotHealth(result);
+      return result;
+    } catch (error) {
+      const failed = { ready: false, message: error?.message || 'Copilot could not be reached.' };
+      setCopilotHealth(failed);
+      return failed;
+    }
+  }, [data?.repository?.root]);
+  useEffect(() => {
+    void refreshCopilotHealth();
+    const onFocus = () => void refreshCopilotHealth();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshCopilotHealth]);
+
   const [worldModelRun, setWorldModelRun] = useState(null);
   // Which phase/output a hand-off into Copilot Studio wants framed. Null means "decide from the
   // current phase", which is what reaching the studio from the sidebar should do.
@@ -4513,6 +4581,13 @@ export default function App() {
     const repository = typeof repositoryOrLocal === 'string' ? repositoryOrLocal : data?.repository?.root;
     const local = typeof repositoryOrLocal === 'string' ? (localArgument ?? true) : repositoryOrLocal;
     if (!repository || worldModelRun?.status === 'running') return null;
+    // Checked before anything is shown: `wm build` runs Copilot for minutes, and failing at the end
+    // for a reason that was knowable at the start is the worst possible ordering.
+    const health = await refreshCopilotHealth();
+    if (health && health.ready === false) {
+      setToast({ tone: 'bad', text: `Copilot is not available: ${health.message ?? 'unknown reason'}` });
+      return null;
+    }
     const prompt = data.worldModelPrompt ?? {};
     const startedAt = Date.now();
     setWorldModelRun({
@@ -4617,17 +4692,17 @@ export default function App() {
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
-      {data.worldModel?.rebuildReason && worldModelDismissed !== data.repository.root && page !== 'world-model' && <WorldModelPrompt
+      {data.worldModel?.rebuildReason && worldModelDismissed !== data.repository.root && page !== 'world-model' && <WorldModelPrompt copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth}
         reason={data.worldModel.rebuildReason}
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
         onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
+        ? <PhaseWorkspace copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} onCopilotLost={refreshCopilotHealth} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
+        ? <PhaseWorkspace copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} onCopilotLost={refreshCopilotHealth} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio onCopilotRetry={refreshCopilotHealth} data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

@@ -3605,3 +3605,14 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 
 .requirements-origin > summary { cursor: pointer; font-size: 11px; color: var(--muted); padding: 6px 0; }
 .requirements-origin > summary:hover { color: var(--ink); }
+
+/* Copilot unavailable — shown wherever Copilot work can be started */
+.copilot-down {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 13px 15px; border-radius: 10px;
+  border: 1px solid rgba(176, 74, 58, .45); background: rgba(176, 74, 58, .06);
+}
+.copilot-down strong { display: block; font-size: 12.5px; font-weight: 650; color: #8d3f30; }
+.copilot-down p { margin: 3px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--muted); max-width: 78ch; }
+.copilot-down-detail { font-family: var(--mono, ui-monospace, monospace); font-size: 10.5px; }
+.world-model-prompt-stack { display: grid; gap: 10px; }

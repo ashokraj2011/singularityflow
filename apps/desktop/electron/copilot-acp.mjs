@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 
 const MAX_PLAN_FILE_BYTES = 1024 * 1024;
+// A single governed read should never pull a lockfile-sized blob into the turn.
+const MAX_READ_FILE_BYTES = 2 * 1024 * 1024;
 
 function executableCandidates(env = process.env) {
   const configured = env.SINGULARITY_FLOW_COPILOT_PATH ? [env.SINGULARITY_FLOW_COPILOT_PATH] : [];
@@ -153,6 +155,25 @@ export async function normalizePlanningUpdate(update, { repository } = {}) {
   return base;
 }
 
+// Read-only means "cannot change anything", not "cannot look at anything". Denying reads as well
+// as writes left Copilot able to emit text and nothing else: every turn ended within seconds at its
+// first tool call, so no requirement could ever be grounded in the code it is meant to describe.
+// ACP names the kinds, so the policy evaluates them instead of ignoring them.
+const READ_ONLY_TOOL_KINDS = new Set(['read', 'search', 'think']);
+
+// The title is prose written by the agent and must never decide anything; only the declared kind
+// does. An absent or unrecognised kind is denied, so a new tool kind fails closed.
+function isReadOnlyToolCall(toolCall) {
+  return READ_ONLY_TOOL_KINDS.has(toolCall?.kind);
+}
+
+function allowPermission(params) {
+  const option = params.options.find((candidate) => candidate.kind === 'allow_once')
+    ?? params.options.find((candidate) => candidate.kind === 'allow_always');
+  // With no allow option offered, falling back to reject keeps the failure closed.
+  return option ? { outcome: { outcome: 'selected', optionId: option.optionId } } : rejectPermission(params);
+}
+
 function rejectPermission(params) {
   const option = params.options.find((candidate) => candidate.kind === 'reject_once')
     ?? params.options.find((candidate) => candidate.kind === 'reject_always');
@@ -255,20 +276,28 @@ export class CopilotPlanningBridge {
     const stream = acp.ndJsonStream(Writable.toWeb(this.process.stdin), Readable.toWeb(this.process.stdout));
     const client = acp.client({ name: 'singularity-flow-planning-studio' })
       .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
+        const toolCall = ctx.params.toolCall;
+        const title = toolCall?.title ?? 'Copilot tool request';
+        if (isReadOnlyToolCall(toolCall)) {
+          this.emit({ type: 'permission-allowed', title, kind: toolCall.kind });
+          return allowPermission(ctx.params);
+        }
         this.emit({
           type: 'permission-denied',
-          title: ctx.params.toolCall?.title ?? 'Copilot tool request',
-          detail: 'Copilot Studio runs in read-only Plan mode and denied this permission request.'
+          title,
+          kind: toolCall?.kind ?? null,
+          detail: `Copilot Studio is read-only: a '${toolCall?.kind ?? 'unknown'}' tool call cannot change the repository. Promotion is the only write path.`
         });
         return rejectPermission(ctx.params);
       })
+      .onRequest(acp.methods.client.fs.readTextFile, (ctx) => this.readRepositoryFile(ctx.params))
       .onRequest(acp.methods.client.elicitation.create, (ctx) => this.requestInput(ctx.params));
     this.connection = client.connect(stream);
     const initialized = await Promise.race([
       this.connection.agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
-          fs: { readTextFile: false, writeTextFile: false },
+          fs: { readTextFile: true, writeTextFile: false },
           session: { configOptions: {} },
           plan: {},
           elicitation: { form: {} }
@@ -333,6 +362,31 @@ export class CopilotPlanningBridge {
       models: next.available,
       modelSwitchSupported: next.switchSupported
     };
+  }
+
+  // Containment is decided on the REAL path, after symlinks resolve, so a link inside the repository
+  // cannot be used to read ~/.ssh or anything else outside it. The repository root is resolved the
+  // same way, because on macOS /tmp and /var are themselves symlinks and comparing unresolved paths
+  // would reject legitimate reads while a resolved attacker path slipped through.
+  async readRepositoryFile({ path: requested, line = null, limit = null }) {
+    if (!requested || !path.isAbsolute(requested)) throw new Error('Copilot may only read absolute paths inside the repository.');
+    const root = await realpath(this.repository);
+    const resolved = await realpath(requested).catch(() => null);
+    if (!resolved) throw new Error(`File not found: ${requested}`);
+    const relative = path.relative(root, resolved);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+      this.emit({ type: 'permission-denied', title: `Read outside the repository: ${requested}`, kind: 'read' });
+      throw new Error('Copilot may only read files inside the open repository.');
+    }
+    const info = await lstat(resolved);
+    if (!info.isFile()) throw new Error(`Not a readable file: ${requested}`);
+    if (info.size > MAX_READ_FILE_BYTES) throw new Error(`File is too large to read: ${requested}`);
+    const text = await readFile(resolved, 'utf8');
+    if (line == null && limit == null) return { content: text };
+    // ACP line numbers are 1-based.
+    const lines = text.split('\n');
+    const start = Math.max(0, (line ?? 1) - 1);
+    return { content: lines.slice(start, limit == null ? undefined : start + limit).join('\n') };
   }
 
   async prompt(text) {

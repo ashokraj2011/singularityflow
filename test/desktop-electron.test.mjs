@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
 import {
@@ -881,9 +881,10 @@ test('the governed contract is sent to Copilot, not pointed at', async () => {
   assert.match(main, /await readFile\(pack\.contextPath, 'utf8'\)/);
   assert.match(main, /Follow the governed planning contract above/);
 
-  // Read-only Plan mode must stay exactly as strict as it was.
+  // The guarantee that matters is that Copilot cannot change anything. Reads were later allowed
+  // deliberately — see 'read-only Plan mode denies writes, not reads' — but writing must stay shut.
   const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
-  assert.match(acp, /fs: \{ readTextFile: false, writeTextFile: false \}/);
+  assert.match(acp, /writeTextFile: false/);
   assert.match(acp, /return rejectPermission\(ctx\.params\)/);
 });
 
@@ -923,4 +924,47 @@ test('required artifacts are never labelled optional', async () => {
   assert.match(app, /const requiredOutputIds = useMemo/);
   assert.match(app, /requiredOutputIds\.has\(output\.id\) \? 'Required/);
   assert.doesNotMatch(app, /output\.required \? 'Required/);
+});
+
+test('read-only Plan mode denies writes, not reads', async () => {
+  // The handler used to reject every session/requestPermission without inspecting it, and declare
+  // fs.readTextFile: false. Copilot could emit text and nothing else: every turn ended within
+  // seconds at its first tool call, so no requirement could be grounded in the code it describes.
+  const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
+  assert.match(acp, /const READ_ONLY_TOOL_KINDS = new Set\(\['read', 'search', 'think'\]\)/);
+  assert.match(acp, /if \(isReadOnlyToolCall\(toolCall\)\)/);
+  // Writing stays impossible; promotion remains the only write path.
+  assert.match(acp, /fs: \{ readTextFile: true, writeTextFile: false \}/);
+  // The agent's own prose must never decide policy — only the declared kind does.
+  assert.match(acp, /return READ_ONLY_TOOL_KINDS\.has\(toolCall\?\.kind\)/);
+});
+
+test('a governed read cannot escape the repository', async () => {
+  // Containment is decided on the real path so a symlink inside the repository cannot be used to
+  // reach ~/.ssh. Verified behaviourally below; this pins the implementation choice.
+  const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
+  const fn = acp.slice(acp.indexOf('async readRepositoryFile('), acp.indexOf('async readRepositoryFile(') + 1400);
+  assert.match(fn, /const root = await realpath\(this\.repository\)/);
+  assert.match(fn, /const resolved = await realpath\(requested\)/);
+  assert.match(fn, /relative\.startsWith\('\.\.'\)/);
+  assert.match(fn, /path\.isAbsolute\(requested\)/);
+
+  const { CopilotPlanningBridge } = await import(pathToFileURL(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs')).href);
+  const base = await mkdtemp(path.join(await realpath(os.tmpdir()), 'acp-fs-'));
+  await mkdir(path.join(base, 'repo', 'sub'), { recursive: true });
+  await mkdir(path.join(base, 'outside'), { recursive: true });
+  await writeFile(path.join(base, 'repo', 'sub', 'ok.txt'), 'inside');
+  await writeFile(path.join(base, 'outside', 'secret.txt'), 'SECRET');
+  await symlink(path.join(base, 'outside', 'secret.txt'), path.join(base, 'repo', 'escape.txt'));
+  const bridge = new CopilotPlanningBridge({ repository: path.join(base, 'repo'), emit: () => {} });
+
+  assert.equal((await bridge.readRepositoryFile({ path: path.join(base, 'repo', 'sub', 'ok.txt') })).content, 'inside');
+  for (const escape of [
+    path.join(base, 'repo', 'escape.txt'),
+    path.join(base, 'repo', '..', 'outside', 'secret.txt'),
+    path.join(base, 'outside', 'secret.txt')
+  ]) {
+    await assert.rejects(() => bridge.readRepositoryFile({ path: escape }), /only read files inside the open repository/);
+  }
+  await assert.rejects(() => bridge.readRepositoryFile({ path: 'sub/ok.txt' }), /only read absolute paths/);
 });

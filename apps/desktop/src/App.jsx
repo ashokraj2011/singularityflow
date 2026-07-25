@@ -1814,8 +1814,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         setActivity('Copilot withdrew its structured plan; continue the conversation to produce a replacement.');
       } else if (event.type === 'tool_call') {
         setActivity(`${event.title} · ${event.status}`);
+      } else if (event.type === 'permission-allowed') {
+        setActivity(`${event.title} · reading`);
       } else if (event.type === 'permission-denied') {
-        setActivity(`${event.title} was blocked by Copilot Studio read-only policy.`);
+        setActivity(`${event.title} was blocked: Copilot Studio cannot change the repository.`);
       } else if (event.type === 'usage_update') {
         setUsage((current) => ({
           ...(current ?? {}),

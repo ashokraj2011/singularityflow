@@ -71,6 +71,7 @@ async function planningLogger(repository) {
 const PLANNING_EVENT_LEVEL = {
   error: 'error',
   'permission-denied': 'warn',
+  'permission-allowed': 'debug',
   'question-unsupported': 'warn',
   'process-exit': 'warn',
   ready: 'info',

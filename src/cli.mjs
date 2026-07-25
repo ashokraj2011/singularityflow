@@ -1772,32 +1772,10 @@ async function initiativeCommand(positionals, options) {
       const context = await verifyInitiativeContext(root, portfolio, initiative, phaseId);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       if (!context.valid) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${context.errors.join('\n- ')}`);
-      let traceability = null;
-      if (initiative.resolution.profile === 'epic-planning' && ['epic-requirements', 'epic-plan'].includes(phaseId)) {
-        traceability = await verifyEpicTraceability(root, portfolio, initiative);
-        if (traceability.errors.length) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
-      }
+      // Traceability verification and its evidence now live in publishInitiativePhase, so the CLI
+      // and the desktop record the same thing. They used to live here, which is why publishing
+      // from the app left blocking gates unsatisfied and the phase impossible to approve.
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
-      if (traceability) {
-        const checks = phaseId === 'epic-requirements'
-          ? ['requirements-traceable']
-          : ['stories-traceable', 'repositories-resolved', 'dependencies-acyclic'];
-        for (const checkId of checks) {
-          await registerInitiativeEvidence(root, {
-            initiativeId,
-            phaseId,
-            checkId,
-            assurance: 'machine-verified',
-            verificationMethod: 'singularity-epic-traceability',
-            source: {
-              externalId: result.initiative.resolution.resolutionSha256,
-              version: String(result.phase.generation),
-              observedState: traceability.passes.join('; ')
-            },
-            persona: session?.persona ?? null
-          });
-        }
-      }
       const publishState = await loadInitiative(root, initiativeId);
       const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);

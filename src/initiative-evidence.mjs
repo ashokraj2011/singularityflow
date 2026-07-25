@@ -6,6 +6,7 @@ import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
 import { validateImpactMap } from './initiative-repositories.mjs';
+import { verifyEpicTraceability } from './epic-traceability.mjs';
 import {
   loadInitiative, saveInitiative, secureInitiativePath, verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
@@ -450,6 +451,16 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   return validateImpactMap(portfolio, manifest, impact, { mode });
 }
 
+function declaresCheck(initiative, phaseId, checkId) {
+  return phaseDefinition(initiative, phaseId).checklist.some((check) => check.id === checkId);
+}
+
+const TRACEABLE_PHASES = ['epic-requirements', 'epic-plan'];
+const MACHINE_CHECKS = Object.freeze({
+  'epic-requirements': ['requirements-traceable'],
+  'epic-plan': ['stories-traceable', 'repositories-resolved', 'dependencies-acyclic']
+});
+
 export async function publishInitiativePhase(root, initiativeId, phaseId, { persona = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
@@ -482,12 +493,56 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   const impact = await verifyInitiativeImpactMap(root, portfolio, initiative, phaseId);
   if (impact.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' impact map is not grounded:\n- ${impact.errors.join('\n- ')}`);
   impact.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+
+  // Traceability is a publication gate, not a CLI courtesy. It used to live in the CLI's publish
+  // command, so publishing from the desktop skipped both the check and the evidence it produces —
+  // leaving blocking gates permanently unsatisfied and the phase impossible to approve. Verifying
+  // here means every surface behaves the same way.
+  const traceability = initiative.resolution.profile === 'epic-planning' && TRACEABLE_PHASES.includes(phaseId)
+    ? await verifyEpicTraceability(root, portfolio, initiative)
+    : null;
+  if (traceability?.errors.length) {
+    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
+  }
+
   phase.generation = nextGeneration;
   phase.status = 'awaiting_approval';
   phase.submittedAt = nowIso();
   initiative.history.push({ at: phase.submittedAt, actor: actorEmail(actor), persona, event: 'initiative_phase_published', phase: phaseId, detail: `generation ${nextGeneration}` });
   await saveInitiative(root, portfolio, initiative);
-  return { portfolio, initiative, phase };
+
+  // Evidence is recorded after the publication is saved: registerInitiativeEvidence reloads state
+  // from disk, so registering first would read a pre-publish copy and write it back over this one.
+  const machineChecks = [
+    ...(traceability ? (MACHINE_CHECKS[phaseId] ?? []).filter((id) => declaresCheck(initiative, phaseId, id)) : []),
+    // The impact map was just validated above; recording that result is what allows the phase to be
+    // approved at all. Without it the gate stays missing however many times the phase is published.
+    // Driven by the phase's own checklist rather than a phase name, so a custom profile that
+    // declares the gate gets the evidence too.
+    ...(declaresCheck(initiative, phaseId, 'impact-grounded') && !impact.errors.length ? ['impact-grounded'] : [])
+  ];
+  for (const checkId of machineChecks) {
+    await registerInitiativeEvidence(root, {
+      initiativeId,
+      phaseId,
+      checkId,
+      assurance: 'machine-verified',
+      verificationMethod: checkId === 'impact-grounded' ? 'singularity-impact-map' : 'singularity-epic-traceability',
+      source: {
+        externalId: initiative.resolution.resolutionSha256,
+        version: String(nextGeneration),
+        observedState: checkId === 'impact-grounded'
+          ? `Impact map resolved against the portfolio and committed world model${impact.warnings.length ? ` with ${impact.warnings.length} warning(s)` : ''}`
+          : (traceability?.passes ?? []).join('; ')
+      },
+      persona
+    });
+  }
+
+  // Return the state as it now stands on disk, so callers commit what was actually recorded rather
+  // than the pre-evidence snapshot.
+  const refreshed = await loadInitiative(root, initiativeId);
+  return { portfolio: refreshed.portfolio, initiative: refreshed.initiative, phase: refreshed.initiative.phases[phaseId], evidence: machineChecks };
 }
 
 function approvalSubject(initiative, phaseId, subject, bundle) {

@@ -269,3 +269,50 @@ test('initiative evidence rejects a repository path that is a symbolic link', as
     source: { path: 'linked-evidence.md' }
   }), /evidence source cannot be a symbolic link/i);
 });
+
+test('publication records its own machine evidence, so every surface can approve the phase', async () => {
+  // The gate lives in the engine, not in a CLI wrapper. This is what was broken: the desktop calls
+  // publishInitiativePhase directly, so evidence recorded only by the CLI left blocking gates
+  // permanently missing and the phase impossible to approve from the app.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-evidence-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Initiative\n');
+  await initializeDefinition(root);
+
+  // A profile whose single phase declares the impact gate: it exercises the same code path as
+  // epic-plan without needing the whole Epic chain approved first.
+  const file = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(file, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Initiative Owner', email: 'owner@example.com' }];
+  portfolio.initiativePhases['impact-phase'] = {
+    label: 'Impact',
+    worldModelViews: ['business'],
+    outputs: [{ id: 'repository-map', label: 'Impact map', kind: 'yaml', path: 'repository-map.yml', template: 'initiatives/epic/repository-map.yml' }],
+    checklist: [{ id: 'impact-grounded', label: 'Impact map is grounded', requirement: 'must', acceptedAssurance: ['machine-verified'], gate: 'block' }]
+  };
+  portfolio.initiativeProfiles['impact-only'] = {
+    label: 'Impact only', description: 'Single phase for gate verification', lifecycleMode: 'planning-only', phases: ['impact-phase']
+  };
+  await writeFile(file, YAML.stringify(portfolio));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Add impact profile'], { cwd: root });
+  run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
+
+  await createInitiative(root, { id: 'INIT-IMPACT', title: 'Impact gate', profile: 'impact-only', persona: 'product-owner' });
+  await prepareInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { persona: 'product-owner' });
+
+  const published = await publishInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { persona: 'product-owner' });
+
+  // The impact map is validated during publication; recording that result is what makes the phase
+  // approvable. Validating and discarding left the gate missing however often it was published.
+  assert.deepEqual(published.evidence, ['impact-grounded']);
+  // Checklist status is evaluated from the evidence records, which is what the approval gate reads.
+  const evaluated = await evaluateInitiativePhase(root, published.portfolio, published.initiative, 'impact-phase');
+  const gate = evaluated.checklist.find((check) => check.id === 'impact-grounded');
+  assert.equal(gate.status, 'satisfied', 'the impact gate must be satisfied by publication alone');
+  // The returned state must reflect what was written, not the pre-evidence snapshot, or callers
+  // commit a version of state.json that is missing the evidence they just recorded.
+  assert.equal(published.phase.status, 'awaiting_approval');
+});

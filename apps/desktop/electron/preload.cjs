@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('singularity', {
   startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
   promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
   answerPlanningQuestion: (repository, planningSessionId, questionId, content, action = 'accept') => ipcRenderer.invoke('planning:answer', { repository, planningSessionId, questionId, content, action }),
+  interruptPlanningTurn: (repository, planningSessionId) =>
+    ipcRenderer.invoke('planning:interrupt', { repository, planningSessionId }),
   stopPlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:stop', { repository, planningSessionId }),
   promotePlanningArtifact: (repository, planningSessionId, persona, content) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, content }),
   promotePlanningArtifacts: (repository, planningSessionId, persona, artifacts) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, artifacts }),

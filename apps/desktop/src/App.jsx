@@ -39,7 +39,7 @@ import {
 import { workspaceLandingPage } from './workspace-routing.mjs';
 // Shared with the CLI so the app and the terminal agree on what comes next.
 import { nextInitiativeAction, normalizeNextActionId, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
-import { PHASE_SCOPE } from '../../../src/planning.mjs';
+import { PHASE_SCOPE } from '../../../src/planning-scope.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -1998,6 +1998,15 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     if (!result) setRunning(false);
   }
 
+  // Halting a runaway answer and discarding the conversation are different intents. Stop used to
+  // do the second, and threw when the agent did not acknowledge — leaving the session unable to
+  // stop or start.
+  async function interruptTurn() {
+    if (!contextPack) return;
+    await action(() => window.singularity.interruptPlanningTurn(data.repository.root, contextPack.sessionId), 'Asked Copilot to stop the current turn');
+    setRunning(false);
+    setActivity('Turn interrupted. The session is still attached.');
+  }
   async function stopCopilot() {
     await action(() => window.singularity.stopPlanningSession(data.repository.root, contextPack.sessionId), 'Planning context released; the Copilot backend remains ready');
     setRunning(false);
@@ -2031,14 +2040,22 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     await reload(data.selectedWorkId, data.selectedInitiativeId);
   }
 
+  const releaseRef = useRef(null);
+  releaseRef.current = contextPack?.sessionId ?? null;
+  useEffect(() => () => {
+    const sessionId = releaseRef.current;
+    if (!sessionId) return;
+    void window.singularity?.stopPlanningSession?.(data.repository.root, sessionId).catch(() => {});
+  }, [data.repository.root]);
+
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
 function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
@@ -2369,7 +2386,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const {
     contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group,
-    buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot
+    buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
   const [selectedArtifact, setSelectedArtifact] = useState(null);
@@ -2384,7 +2401,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId),
       'Pinned source files uploaded and published'
     );
-    if (result && !result.canceled) await reload(null, selected.state.initiative.id);
+    if (result && !result.canceled) await reload(undefined, selected.state.initiative.id);
   }
 
   const state = selected.state;
@@ -2400,6 +2417,9 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     ?? selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs
     ?? [];
   const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+  // Compared here rather than at promotion time so the user learns while the conversation is still
+  // cheap to redo.
+  const contextStale = Boolean(contextPack && data.repository.head && contextPack.manifest.repository.head !== data.repository.head);
 
   const sources = selected.sources?.sources ?? [];
   const jiraAttachments = state.initiative.source?.type === 'jira' ? (state.initiative.source.attachments ?? []) : [];
@@ -2420,7 +2440,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       `Wrote and pushed ${proposed.size} artifact${proposed.size === 1 ? '' : 's'}`
     );
     setPromoting(false);
-    if (result) await reload(null, state.initiative.id);
+    if (result) await reload(undefined, state.initiative.id);
   }
 
   const requiredOutputIds = useMemo(() => new Set(
@@ -2454,7 +2474,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       () => window.singularity.publishInitiativePhase(data.repository.root, state.initiative.id, phaseId, persona),
       `${phaseLabel} published, committed, and pushed`
     );
-    if (result) await reload(null, state.initiative.id);
+    if (result) await reload(undefined, state.initiative.id);
   }
 
   // Dispatch on the canonical vocabulary only. Comparing against a mix of canonical and legacy
@@ -2559,6 +2579,18 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           </div>
           {!ready && <p className="requirements-hint">{preflight?.message ?? 'Copilot CLI is not available for Plan mode yet.'}</p>}
         </div> : <>
+          {contextStale && <div className="requirements-stale" role="status">
+            <div>
+              <strong>This context is out of date</strong>
+              <p>
+                The repository moved to <code>{data.repository.head?.slice(0, 10)}</code> since Copilot was given
+                this context at <code>{contextPack.manifest.repository.head.slice(0, 10)}</code> — pinning a source or
+                recording evidence both commit. Promotion will be refused until the context is rebuilt.
+                Rebuilding starts a fresh turn; this conversation is not carried over.
+              </p>
+            </div>
+            <button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button>
+          </div>}
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
@@ -2605,7 +2637,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             <div className="composer-bar">
               <small>{started ? 'Shift + Enter for a new line' : 'Start Copilot above to begin the conversation.'}</small>
               {started && <div className="row">
-                <button className="ghost compact" onClick={stopCopilot}>Stop</button>
+                {/* Stop halts the turn and keeps the conversation; ending the session is separate
+                    and explicit, because losing the transcript is not what "stop" means. */}
+                <button className="ghost compact" disabled={!running} onClick={interruptTurn} title="Halt the current turn; the conversation stays">Stop</button>
+                <button className="ghost compact" onClick={stopCopilot} title="Discard this session and release Copilot">End session</button>
                 <button className="secondary compact" disabled={running || !followup.trim()} onClick={sendFollowup}>Send ➤</button>
               </div>}
             </div>
@@ -2718,7 +2753,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     if (!result) return;
     setAttesting(null);
     setAttestation('');
-    await reload(null, selected.state.initiative.id);
+    await reload(undefined, selected.state.initiative.id);
   }
 
   const outputs = Object.values(phase.outputs ?? {});
@@ -2749,7 +2784,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       () => window.singularity.publishInitiativePhase(data.repository.root, selected.state.initiative.id, phaseId, persona),
       `${phase.label} generation published, committed, and pushed`
     );
-    if (result) await reload(null, selected.state.initiative.id);
+    if (result) await reload(undefined, selected.state.initiative.id);
   }
   async function approve() {
     const result = await action(
@@ -2766,7 +2801,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     if (result) {
       setConfirmation('');
       setSelfApproval(false);
-      await reload(null, selected.state.initiative.id);
+      await reload(undefined, selected.state.initiative.id);
     }
   }
   return <section className="panel phase-governance">

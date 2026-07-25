@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { add, branch, changedFiles, commit, identity, pushBranch } from './git.mjs';
+import { add, branch, changedFiles, commit, head, identity, pushBranch } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
   ensureRepositoryTemplates,
@@ -267,7 +267,10 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const portfolioText = portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null;
   return {
     schemaVersion: 1,
-    repository: { root, branch: currentBranch, controlRoot: 'singularity', changes, ...changeScope },
+    // HEAD is carried so a surface can tell that a planning context was built against a different
+    // commit. Promotion refuses a stale pack, and without this the only way to discover that was to
+    // have the promotion fail after the work was done.
+    repository: { root, branch: currentBranch, head: head(root), controlRoot: 'singularity', changes, ...changeScope },
     identities: {
       git: identity(root),
       github,

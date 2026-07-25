@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { artifactBlockMarkers, PHASE_SCOPE } from './planning-scope.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
@@ -111,18 +112,11 @@ function renderTemplate(template, replacements) {
   return rendered.endsWith('\n') ? rendered : `${rendered}\n`;
 }
 
-// A session may target one output, or the whole phase. Phase scope is what lets a single
-// conversation produce a complete artifact set.
-export const PHASE_SCOPE = '*';
 const PROMOTABLE_KINDS = ['markdown', 'yaml', 'interface-contract'];
 
-// When one conversation produces several artifacts they have to be separable without guesswork,
-// so each is fenced by its output ID. Parsing is exact: an unrecognised or duplicated ID is an
-// error rather than a silent mis-file into the wrong governed path.
-export function artifactBlockMarkers(outputId) {
-  return { start: `<<<SFLOW-ARTIFACT:${outputId}`, end: `SFLOW-ARTIFACT:${outputId}>>>` };
-}
-
+// Parsing is exact: an unrecognised or duplicated ID is an error rather than a silent mis-file
+// into the wrong governed path. The markers themselves live in planning-scope.mjs so the renderer
+// can share them without pulling node:crypto into the browser bundle.
 export function parseArtifactBlocks(text, allowedIds) {
   const found = new Map();
   const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n([\s\S]*?)\r?\nSFLOW-ARTIFACT:\1>>>/g;
@@ -863,3 +857,5 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     next: `singularity-flow phase publish ${phase.id}`
   };
 }
+
+export { artifactBlockMarkers, PHASE_SCOPE };

@@ -976,9 +976,46 @@ test('starting a session and sending a message are not both called Send', async 
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   assert.match(app, /Start Copilot with this context/);
   assert.doesNotMatch(app, />Send to Copilot</);
-  // The chat controls exist only once there is a session to talk to.
-  assert.match(app, /\{started && <div className="row">\s*<button className="ghost compact" onClick=\{stopCopilot\}>Stop<\/button>/);
+  // The chat controls exist only once there is a session to talk to, and Stop now halts the turn
+  // rather than discarding the session — those are different intents with different buttons.
+  assert.match(app, /\{started && <div className="row">/);
+  assert.match(app, /onClick=\{interruptTurn\} title="Halt the current turn; the conversation stays">Stop</);
+  assert.match(app, /onClick=\{stopCopilot\} title="Discard this session and release Copilot">End session</);
   // And the inert box says what to do instead of inviting typing that goes nowhere.
   assert.match(app, /Start Copilot above to begin the conversation/);
   assert.match(app, /Start Copilot with the governed context first/);
+});
+
+test('initiative-scoped actions do not clear the selected work item', async () => {
+  // reload(null, id) cleared data.selectedWorkId, which the session hook watches; the reset wiped
+  // contextPack, messages, plan and questions. So approving an artifact, pinning a source or
+  // publishing destroyed the conversation that produced them.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const workspace = app.slice(app.indexOf('function PhaseWorkspace('), app.indexOf('function EpicRequirementsView('));
+  assert.doesNotMatch(workspace, /reload\(null,/);
+  const governance = app.slice(app.indexOf('function PhaseGovernance('), app.indexOf('function EpicsHome('));
+  assert.doesNotMatch(governance, /reload\(null,/);
+});
+
+test('a planning context whose repository moved says so before promotion fails', async () => {
+  // Promotion refuses a pack whose HEAD has moved, and pinning a source or recording evidence both
+  // commit — so the conversation was silently unpromotable, discovered only after the work was done.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /const contextStale = Boolean\(contextPack && data\.repository\.head/);
+  assert.match(app, /This context is out of date/);
+  assert.match(app, /Rebuild context/);
+  // The comparison needs HEAD on the snapshot, which it did not carry.
+  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
+  assert.match(desktop, /head: head\(root\)/);
+});
+
+test('shared planning constants stay free of node built-ins', async () => {
+  // Importing src/planning.mjs into the renderer pulled node:crypto into the browser bundle; the
+  // production build passed and it broke only at runtime. The renderer shares the constants through
+  // a module with no imports at all.
+  const scope = await readFile(path.join(packageRoot, 'src', 'planning-scope.mjs'), 'utf8');
+  assert.doesNotMatch(scope, /^import /m);
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /from '\.\.\/\.\.\/\.\.\/src\/planning-scope\.mjs'/);
+  assert.doesNotMatch(app, /from '\.\.\/\.\.\/\.\.\/src\/planning\.mjs'/);
 });

@@ -828,6 +828,10 @@ Follow the governed planning contract above. Work only in native Plan mode. Befo
     assertTrustedSender(event);
     return copilotBackend.answer(assertRepository(repository), planningSessionId, questionId, { content, action });
   });
+  trustedHandle('planning:interrupt', async (event, { repository, planningSessionId }) => {
+    assertTrustedSender(event);
+    return copilotBackend.interruptPlanning(assertRepository(repository), planningSessionId);
+  });
   trustedHandle('planning:stop', async (event, { repository, planningSessionId }) => {
     assertTrustedSender(event);
     return copilotBackend.releasePlanning(assertRepository(repository), planningSessionId);

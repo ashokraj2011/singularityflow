@@ -3535,3 +3535,13 @@ input:disabled, select:disabled, textarea:disabled {
 .evidence-attest-form { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
 .evidence-attest-form textarea { width: 100%; }
 .evidence-attest-form .row { justify-content: flex-end; gap: 8px; }
+
+/* A planning context whose repository HEAD has moved can no longer be promoted */
+.requirements-stale {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+  padding: 11px 13px; margin-bottom: 10px; border-radius: 10px;
+  border: 1px solid rgba(203,150,42,.55); background: rgba(200,151,31,.07);
+}
+.requirements-stale strong { display: block; font-size: 12px; font-weight: 640; color: #7a5d12; }
+.requirements-stale p { margin: 3px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--muted); }
+.requirements-stale code { font-size: 10px; }

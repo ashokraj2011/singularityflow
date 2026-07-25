@@ -301,7 +301,13 @@ export class CopilotBackendController {
     await this.start(key, { model });
     const service = this.services.get(key);
     if (service.activePlanningSessionId && service.activePlanningSessionId !== planningSessionId) {
-      throw new Error(`Copilot is already attached to planning session ${service.activePlanningSessionId}. Stop or finish it before starting another.`);
+      // The previous renderer is gone — it was unmounted by navigation and never released this
+      // pointer. Cancel whatever it left running and take over, rather than naming a session id
+      // the user has no way to reach.
+      const superseded = service.activePlanningSessionId;
+      await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+      service.activePlanningSessionId = null;
+      this.#record(repository, { type: 'planning-released', message: `Superseded abandoned planning session ${superseded}.` });
     }
     if (!prompt?.trim()) throw new Error('The initial planning prompt cannot be empty.');
     if (service.bridge.running) throw new Error('Copilot is still finishing the previous planning turn. Wait for it to become ready.');
@@ -335,12 +341,40 @@ export class CopilotBackendController {
     return service.bridge.answerQuestion(questionId, answer);
   }
 
+  /**
+   * Interrupt the running turn and leave the session attached.
+   *
+   * Stop used to release the whole planning context, so a user who only wanted to halt a
+   * runaway answer lost the conversation — and if the cancel was not acknowledged, lost the
+   * ability to start a new one too.
+   */
+  async interruptPlanning(repository, planningSessionId) {
+    const service = this.services.get(this.#key(repository));
+    if (!service?.bridge || service.activePlanningSessionId !== planningSessionId) {
+      return { interrupted: false, service: this.status(repository) };
+    }
+    const cancellation = await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+    this.#record(repository, {
+      type: 'planning-interrupted',
+      message: cancellation?.cancelled
+        ? `Interrupted the running turn in ${planningSessionId}; the session stays attached.`
+        : `Asked Copilot to interrupt ${planningSessionId}; it did not acknowledge.`
+    });
+    return { interrupted: Boolean(cancellation?.cancelled), service: this.status(repository) };
+  }
+
   async releasePlanning(repository, planningSessionId) {
     const service = this.services.get(this.#key(repository));
     if (!service?.bridge || service.activePlanningSessionId !== planningSessionId) return { released: false, service: this.status(repository) };
-    const cancellation = await service.bridge.cancelCurrentTurn();
+    const cancellation = await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
     if (service.bridge.running && !cancellation?.cancelled) {
-      throw new Error('The active Copilot planning turn could not be cancelled. Wait for it to finish or stop the backend before releasing this context.');
+      // Refusing to release left the pointer set and `running` true, so neither stopping nor
+      // starting was possible. Report the un-acked turn and release anyway; the next session
+      // supersedes it rather than inheriting a deadlock.
+      this.#record(repository, {
+        type: 'planning-released',
+        message: `Released planning context ${planningSessionId} while Copilot had not acknowledged the cancellation.`
+      });
     }
     service.activePlanningSessionId = null;
     if (service.state !== 'stopped') service.state = 'ready';

@@ -1800,6 +1800,11 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
           planRef.current = transcriptRef.current.trim();
           setPlan(planRef.current);
           setActivity(`Planning turn completed: ${event.stopReason}.`);
+        } else if (!planRef.current.trim()) {
+          // Nothing came back at all: no proposal, no transcript, no questions. Reporting only the
+          // stop reason left both panels showing their placeholder text, which is indistinguishable
+          // from still waiting for Copilot. Say so, and point at the next useful step.
+          setActivity(`Copilot ended the turn (${event.stopReason}) without proposing anything. Send a follow-up with a more specific instruction, or open the Copilot logs below to see the tool activity and diagnostics for this turn.`);
         } else {
           setActivity(`Planning turn completed: ${event.stopReason}.`);
         }

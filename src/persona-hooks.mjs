@@ -1,8 +1,35 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { currentPhase } from './state.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
+import { branch } from './git.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
+import { initiativeRelative } from './initiative-state.mjs';
 import {
   bindPersonaToCopilotSession, loadCopilotSession, loadSession, personaSessionStatus, recordCopilotSession, validPersonaSession
 } from './session.mjs';
+
+// An initiative branch is a governed context in its own right: the branch name IS the initiative
+// ID, the profile and persona were pinned when it was started, and every phase output is
+// hash-bound. It has no work item and never will, so requiring a work-item selection there can
+// never be satisfied — it only starves the session. Copilot Studio composes exactly this kind of
+// context, so without this the studio was deadlocked on every Epic phase by Singularity Flow's own
+// session hook: Copilot was told a work ID was mandatory and correctly refused to proceed without
+// one, ending the turn with nothing.
+async function activeInitiative(root) {
+  try {
+    const id = branch(root);
+    if (!id) return null;
+    const portfolio = await loadPortfolio(root);
+    const state = path.join(root, initiativeRelative(portfolio, id), 'state.json');
+    if (!existsSync(state)) return null;
+    const parsed = JSON.parse(await readFile(state, 'utf8'));
+    return parsed?.initiative?.id === id ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 function sourceKind(value) { return ['startup', 'resume', 'new'].includes(value) ? value : 'startup'; }
 
@@ -14,6 +41,13 @@ function shouldPrompt(policy, source, valid) {
 }
 
 export async function sessionStartPersonaHook(root, definition, workflow, payload = {}) {
+  const initiative = workflow ? null : await activeInitiative(root);
+  if (initiative) {
+    const phase = initiative.currentPhase ?? 'complete';
+    return {
+      additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}). This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sflow-session is not required here. Compose only the artifact for the phase you were given, treat the supplied governed contract as authoritative, and never write outside the initiative's declared promotion target. Never approve a phase automatically.`
+    };
+  }
   const policy = normalizeSessionPolicy(workflow?.resolution?.session ?? definition.session ?? {});
   const phase = workflow ? currentPhase(workflow) : null;
   const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null;
@@ -85,6 +119,10 @@ function isPersonaToolCall(payload) {
 }
 
 export async function personaGuardHook(root, definition, workflow, payload = {}) {
+  // Work-item selection cannot be satisfied on an initiative branch, so denying tools there blocks
+  // governed initiative work permanently rather than protecting anything. Lifecycle mutation stays
+  // gated by the initiative's own phase, approval, and evidence checks.
+  if (!workflow && await activeInitiative(root)) return {};
   const status = await personaSessionStatus(root, definition, workflow);
   const blocked = status.workItemSelectionRequired || status.selectionRequired;
   if (!status.policy?.requireBeforeTools || !blocked || isPersonaToolCall(payload)) return {};

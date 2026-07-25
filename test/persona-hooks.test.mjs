@@ -91,3 +91,51 @@ test('absent session policy remains inert for existing repositories', async () =
   assert.doesNotMatch(result.additionalContext, /selection is required/);
   assert.deepEqual(await personaGuardHook(root, legacyDefinition, current, { toolName: 'edit', toolArgs: {} }), {});
 });
+
+test('an initiative branch is a governed session, so the hooks do not demand a work item', async () => {
+  const { initializeDefinition } = await import('../src/config.mjs');
+  const { createInitiative } = await import('../src/initiative-state.mjs');
+  const { run } = await import('../src/util.mjs');
+  const YAML = (await import('yaml')).default;
+  const { readFile, writeFile } = await import('node:fs/promises');
+
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-hook-initiative-'));
+  const root = path.join(base, 'app');
+  const { mkdir } = await import('node:fs/promises');
+  await mkdir(root);
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Owner'], { cwd: root });
+  run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# App\n');
+  await initializeDefinition(root);
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) {
+    authority.members = [{ name: 'Owner', email: 'owner@example.com' }];
+  }
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const definitionYaml = YAML.parse(await readFile(workflowFile, 'utf8'));
+  definitionYaml.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(definitionYaml));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'init'], { cwd: root });
+
+  const { loadDefinition } = await import('../src/config.mjs');
+  const repositoryDefinition = await loadDefinition(root);
+  run('git', ['checkout', '-b', 'SF-E900'], { cwd: root });
+  await createInitiative(root, { id: 'SF-E900', title: 'Governed epic', profile: 'initiative-lite', persona: 'product-owner' });
+
+  // The shipped policy is workItemSelection: prompt + requireBeforeTools: true. An initiative
+  // branch has no work item and never will, so demanding one there starved every governed
+  // initiative session — including Copilot Studio, whose whole purpose is composing these phases.
+  const started = await sessionStartPersonaHook(root, repositoryDefinition, null, { sessionId: 'sess-1', source: 'startup' });
+  assert.match(started.additionalContext, /initiative SF-E900 is active on this branch/);
+  assert.match(started.additionalContext, /not a work item/);
+  assert.doesNotMatch(started.additionalContext, /work-item selection is required/);
+
+  // Tools must not be denied: lifecycle mutation stays gated by the initiative's own phase,
+  // approval, and evidence checks rather than by a selection that cannot be made.
+  const guard = await personaGuardHook(root, repositoryDefinition, null, { toolName: 'bash', toolArgs: { command: 'ls' } });
+  assert.deepEqual(guard, {});
+});

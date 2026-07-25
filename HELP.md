@@ -368,6 +368,14 @@ ready. Local role, Jira account, configured Git identity, and GitHub login are
 displayed as separate identity domains; none is described as cryptographically
 equivalent.
 
+For a compact command-line view of the same business journey, use
+`singularity-flow epic journey [INIT-ID]`. It renders one progress rail —
+**Intake → Requirements → Planning → Stories → Complete** — and the single
+next governed action. The action is informational until the normal phase
+command, approval, or Story materialization is completed; it never skips a
+gate. Add `--json` when a Copilot skill or another UI needs the stage, exact
+phase, completion percentage, outputs, and checks as structured data.
+
 ## Epic artifact templates
 
 Each Epic phase output is generated from an editable repository template under
@@ -1606,6 +1614,7 @@ singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync
 singularity-flow initiative jira-adopt|jira-plan|jira-apply
 singularity-flow epic start|sources|generate|submit|create-stories
 singularity-flow epic review|checks|status|complete
+singularity-flow epic journey [INIT-ID] [--json]
 singularity-flow epic merge-plan [--epic INIT-ID] [--json]
 ```
 

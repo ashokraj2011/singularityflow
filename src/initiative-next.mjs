@@ -22,6 +22,86 @@ export const NEXT_ACTIONS = Object.freeze({
   BLOCKED: 'blocked'
 });
 
+export const EPIC_JOURNEY_STAGES = Object.freeze([
+  { id: 'intake', label: 'Intake', phase: 'epic-intake' },
+  { id: 'requirements', label: 'Requirements', phase: 'epic-requirements' },
+  { id: 'planning', label: 'Planning', phase: 'epic-plan' },
+  { id: 'stories', label: 'Stories', phase: 'epic-create' },
+  { id: 'complete', label: 'Complete', phase: null }
+]);
+
+function epicStageIndex(initiative) {
+  if (!initiative) return 0;
+  if (initiative.status === 'complete' || initiative.delivery?.status === 'complete') return 4;
+  const phase = initiative.currentPhase;
+  if (phase === 'epic-create') return 3;
+  if (phase === 'epic-plan' || phase === 'epic-spec') return 2;
+  if (phase === 'epic-requirements') return 1;
+  if (phase === 'epic-intake') return 0;
+  const approved = (initiative.phaseOrder ?? []).filter((id) => initiative.phases?.[id]?.status === 'approved');
+  return Math.min(4, Math.max(0, approved.length));
+}
+
+function epicActionLabel(action, stage) {
+  if (!action) return stage === 'complete' ? 'Review Epic report' : `Open ${stage}`;
+  return {
+    'add-sources': 'Add source documents',
+    prepare: `Start ${stage}`,
+    author: `Compose ${stage}`,
+    'author-and-publish': `Publish ${stage}`,
+    'approve-phase': `Approve ${stage}`,
+    materialize: 'Create Jira and Git Stories',
+    report: 'Open Epic report',
+    status: 'Refresh Epic status'
+  }[action.action] ?? action.action.replaceAll('-', ' ');
+}
+
+/**
+ * A compact business-facing projection of governed initiative state. It deliberately contains no
+ * new mutable state: the phase engine and initiativeNextActions remain the source of truth.
+ */
+export function epicJourney(initiative, nextActions = []) {
+  if (!initiative) return null;
+  const activeStep = epicStageIndex(initiative);
+  const current = EPIC_JOURNEY_STAGES[activeStep];
+  const next = nextActions[0] ?? null;
+  const approved = (initiative.phaseOrder ?? []).filter((id) => initiative.phases?.[id]?.status === 'approved').length;
+  const total = Math.max(1, initiative.phaseOrder?.length ?? 1);
+  const completionPercent = initiative.status === 'complete'
+    ? 100
+    : Math.min(99, Math.round((approved / total) * 100));
+  const stageStatus = EPIC_JOURNEY_STAGES.map((stage, index) => ({
+    ...stage,
+    status: index < activeStep ? 'complete' : index === activeStep ? 'current' : 'upcoming',
+    phaseStatus: stage.phase ? initiative.phases?.[stage.phase]?.status ?? 'not_started' : initiative.status
+  }));
+  return {
+    version: 1,
+    stage: current.id,
+    stageLabel: current.label,
+    activeStep,
+    completionPercent,
+    stages: stageStatus,
+    nextAction: next ? {
+      id: next.action,
+      label: epicActionLabel(next, current.label),
+      command: next.command ?? null,
+      reason: next.reason ?? next.detail ?? null,
+      phaseId: next.phaseId ?? initiative.currentPhase ?? null,
+      outputs: next.outputs ?? [],
+      checks: next.checks ?? []
+    } : {
+      id: activeStep === 4 ? 'report' : 'status',
+      label: epicActionLabel(null, current.label),
+      command: null,
+      reason: null,
+      phaseId: initiative.currentPhase ?? null,
+      outputs: [],
+      checks: []
+    }
+  };
+}
+
 function plural(count, singular, suffix = 's') {
   return `${count} ${singular}${count === 1 ? '' : suffix}`;
 }

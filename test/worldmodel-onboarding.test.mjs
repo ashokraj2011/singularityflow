@@ -4,13 +4,16 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { ensureRepositoryWorldModelViews, initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { portfolioWorldModelViews, validatePortfolio } from '../src/initiative-config.mjs';
 import { bootstrapDesktopPortfolio, desktopSnapshot } from '../src/desktop.mjs';
 
-const packageRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// URL.pathname leaves percent-encoded spaces in checkout paths (for example, "package 2").
+// Convert the module URL through the platform-aware helper so the suite is portable.
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function git(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });

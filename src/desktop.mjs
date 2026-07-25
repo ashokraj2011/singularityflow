@@ -47,6 +47,7 @@ import {
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
+import { epicJourney } from './initiative-next.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
 import { listEpicSources } from './epic-sources.mjs';
@@ -196,6 +197,7 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   const sources = initiative.resolution.profile === 'epic-planning'
     ? (await listEpicSources(root, initiativeId)).manifest
     : { version: 1, initiativeId, sources: [] };
+  const nextActions = await initiativeNextActions(root, initiativeId);
   return {
     state: initiative,
     progress: initiativeProgress(initiative),
@@ -204,7 +206,8 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     report: await deriveInitiativeReport(root, initiativeId),
     phaseGate,
     contracts: await interfaceContractStatus(root, initiativeId),
-    nextActions: await initiativeNextActions(root, initiativeId),
+    nextActions,
+    journey: initiative.resolution.profile === 'epic-planning' ? epicJourney(initiative, nextActions) : null,
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'

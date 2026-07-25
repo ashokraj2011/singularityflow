@@ -3589,3 +3589,10 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .artifact-modal { width: min(1180px, 92vw); height: min(780px, 86vh); display: flex; flex-direction: column; }
 .artifact-modal > header { flex: 0 0 auto; }
 .artifact-modal .row { gap: 8px; }
+
+.requirements-advanced { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.requirements-advanced > summary { cursor: pointer; font-size: 10px; color: var(--muted); }
+.requirements-advanced > summary:hover { color: var(--ink); }
+
+.requirements-origin > summary { cursor: pointer; font-size: 11px; color: var(--muted); padding: 6px 0; }
+.requirements-origin > summary:hover { color: var(--ink); }

@@ -251,8 +251,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Some configured Jira projects could not be loaded/);
   assert.match(source, /correctWorkspaceJiraRoute/);
   assert.match(source, /disabled=\{!connected \|\| !selectedEpicKey\}/);
-  assert.match(source, /Generate the formatted requirements artifact/);
-  assert.match(source, /function EpicRequirementsView/);
+  // Was copy from the deleted second Requirements screen; the surviving workspace owns artifacts.
+  assert.match(source, /Artifacts/);
+  // Was EpicRequirementsView — a second Requirements screen for the same phase, reached from the
+  // journey rail while the sidebar reached PhaseWorkspace. Only the workspace survives.
+  assert.match(source, /function PhaseWorkspace/);
+  assert.doesNotMatch(source, /function EpicRequirementsView/);
   assert.match(styles, /\.requirements-output-map/);
   assert.match(source, /Create & validate governance/);
   assert.match(source, /Set your working perspective/);
@@ -721,13 +725,14 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.match(source, /source\.description/);
   assert.match(source, /source\.acceptanceCriteria/);
   assert.match(source, /is not refreshed automatically/);
-  // Shown on both screens that precede requirements authoring.
+  // Intake shows it inline; the Requirements workspace keeps it collapsed above the panes, since
+  // requirements are derived from it and deleting the old screen would otherwise have lost it.
   assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);
 });
 
 test('the Requirements workspace follows the initiative phase and shows what blocks approval', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  const workspace = source.slice(source.indexOf('function PhaseWorkspace('), source.indexOf('function EpicRequirementsView('));
+  const workspace = source.slice(source.indexOf('function PhaseWorkspace('), source.indexOf('function PhaseGovernance('));
 
   // The engine is sequence-aware: a context for any phase other than the current one is refused.
   // Naming a fixed phase here broke the screen for every Epic that had not reached it yet.
@@ -991,7 +996,7 @@ test('initiative-scoped actions do not clear the selected work item', async () =
   // contextPack, messages, plan and questions. So approving an artifact, pinning a source or
   // publishing destroyed the conversation that produced them.
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  const workspace = app.slice(app.indexOf('function PhaseWorkspace('), app.indexOf('function EpicRequirementsView('));
+  const workspace = app.slice(app.indexOf('function PhaseWorkspace('), app.indexOf('function PhaseGovernance('));
   assert.doesNotMatch(workspace, /reload\(null,/);
   const governance = app.slice(app.indexOf('function PhaseGovernance('), app.indexOf('function EpicsHome('));
   assert.doesNotMatch(governance, /reload\(null,/);
@@ -1118,4 +1123,18 @@ test('a proposed artifact can be read in full, edited, and diffed before it is w
   // so no extra IPC was added for it.
   assert.match(app, /committed\?\.content\s*\n\s*\? <DiffEditor/);
   assert.match(app, /import Editor, \{ DiffEditor \} from '@monaco-editor\/react'/);
+});
+
+test('one Requirements screen, reachable the same way from either route', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Which UI you got depended on how you arrived: the journey rail set a tab and opened
+  // EpicRequirementsView, while the sidebar opened PhaseWorkspace — same phase, unrelated screens.
+  assert.doesNotMatch(app, /EpicRequirementsView/);
+  assert.match(app, /if \(onStagePage && \['requirements', 'planning', 'stories'\]\.includes\(stage\)\) return void onStagePage\(stage\)/);
+  assert.match(app, /onStagePage=\{openEpicJourneyStage\}/);
+  // Nothing the deleted screen uniquely offered may be lost: the full source surface and the
+  // imported Jira Epic both survive in the workspace.
+  assert.match(app, /Manage providers, credentials and URL sources/);
+  assert.match(app, /<EpicSourcesView data=\{data\} selected=\{selected\} action=\{action\} reload=\{reload\} \/>\s*<\/details>/);
+  assert.match(app, /Imported Jira Epic — the source these requirements derive from/);
 });

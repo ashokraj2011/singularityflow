@@ -2403,6 +2403,12 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (result) await reload(null, state.initiative.id);
   }
 
+  const requiredOutputIds = useMemo(() => new Set(
+    (selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [])
+      .filter((output) => output.required)
+      .map((output) => output.id)
+  ), [selected.state.resolution, activePhaseId]);
+
   const artifactGroups = useMemo(() => {
     const rows = outputs.map((output) => ({
       output,
@@ -2606,7 +2612,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
                   ? `Proposed in this session · ${formatBytes(content.length)}`
                   : committed?.sha256
                     ? `${committed.status.replaceAll('_', ' ')}${committed.bytes ? ` · ${formatBytes(committed.bytes)}` : ''}${committed.generatedPersona ? ` · ${committed.generatedPersona}` : ''}`
-                    : output.required ? 'Required · not generated yet' : 'Optional · not generated yet'}</small>
+                    : requiredOutputIds.has(output.id) ? 'Required · not generated yet' : 'Optional · not generated yet'}</small>
               </span>
               {content && <span className="artifact-state proposed" title="Proposed, not yet written">●</span>}
               {!content && committed?.status === 'approved' && <span className="artifact-state approved" title="Approved">✓</span>}

@@ -915,3 +915,12 @@ test('only checks that accept a human judgement are offered for attestation', as
   assert.ok(app.indexOf('if (!phase) return null;') < app.indexOf('Object.values(phase.checklist'),
     'the !phase guard must precede the checklist read');
 });
+
+test('required artifacts are never labelled optional', async () => {
+  // A planning context pack's outputs carry only id/label/kind/path. Reading `required` off them
+  // printed "Optional" for a required artifact — the phase resolution is the authority.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /const requiredOutputIds = useMemo/);
+  assert.match(app, /requiredOutputIds\.has\(output\.id\) \? 'Required/);
+  assert.doesNotMatch(app, /output\.required \? 'Required/);
+});

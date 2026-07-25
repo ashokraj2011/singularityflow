@@ -2292,15 +2292,19 @@ function formatBytes(bytes = 0) {
 
 // One row shape for every kind of source, so a pinned upload and a Jira attachment are told apart
 // by their stated status rather than by which list they happen to sit in.
-function SourceCard({ name, detail, title = undefined, state = 'ready' }) {
-  return <div className={`source-card ${state}`} title={title}>
+function SourceCard({ name, detail, title = undefined, state = 'ready', onOpen = null }) {
+  const body = <>
     <span className="source-icon" aria-hidden="true">{kindTag(name)}</span>
     <span className="source-body">
       <strong>{name}</strong>
       <small>{detail}</small>
     </span>
     <span className={`source-state ${state}`} aria-hidden="true">{state === 'ready' ? '✓' : '○'}</span>
-  </div>;
+  </>;
+  // A pinned source used to be a dead card: a name, a size and a hash, with no way to see what had
+  // actually been attached.
+  if (!onOpen) return <div className={`source-card ${state}`} title={title}>{body}</div>;
+  return <button type="button" className={`source-card ${state} openable`} title={title ?? 'Open this source'} onClick={onOpen}>{body}</button>;
 }
 
 function documentKind(name = '') {
@@ -2389,6 +2393,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [localNote, setLocalNote] = useState(null);
+  const setToastLocal = (text) => setLocalNote(text);
   const [selectedArtifact, setSelectedArtifact] = useState(null);
   const [promoting, setPromoting] = useState(false);
   const providers = Object.entries(selected.state.resolution.storage?.providers ?? {});
@@ -2396,12 +2404,44 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   // Same governed path as the full sources view: bytes go to the configured provider and Git keeps
   // the hash, so a pinned document is citable evidence rather than an attachment.
-  async function addSources() {
+  async function addSources(filePaths = null) {
     const result = await action(
-      () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId),
+      () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId, undefined, filePaths),
       'Pinned source files uploaded and published'
     );
     if (result && !result.canceled) await reload(undefined, selected.state.initiative.id);
+  }
+
+  // Electron removed File.path, so the location comes from the preload's webUtils bridge. Anything
+  // without a resolvable path (a browser-synthesised file, a dragged selection) is reported rather
+  // than silently dropped.
+  async function dropSources(event) {
+    event.preventDefault();
+    setDragging(false);
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    const paths = files.map((file) => window.singularity?.pathForFile?.(file)).filter(Boolean);
+    if (!paths.length) {
+      setToastLocal('Those files have no readable path. Use Add source instead.');
+      return;
+    }
+    await addSources(paths);
+  }
+
+  async function pinJiraAttachments() {
+    const result = await action(
+      () => window.singularity.pinJiraAttachments(data.repository.root, selected.state.initiative.id),
+      'Jira attachments pinned as citable evidence'
+    );
+    if (result) await reload(undefined, selected.state.initiative.id);
+  }
+
+  async function openSource(sourceId) {
+    setPreview({ loading: true, sourceId });
+    const result = await action(
+      () => window.singularity.previewEpicSource(data.repository.root, selected.state.initiative.id, sourceId)
+    );
+    setPreview(result ? { ...result, loading: false } : null);
   }
 
   const state = selected.state;
@@ -2423,6 +2463,14 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   const sources = selected.sources?.sources ?? [];
   const jiraAttachments = state.initiative.source?.type === 'jira' ? (state.initiative.source.attachments ?? []) : [];
+  const jiraSnapshot = useMemo(() => {
+    const source = state.initiative.source;
+    if (source?.type !== 'jira') return null;
+    // Mirrors jiraSnapshotSource in src/epic-sources.mjs; shown so the user can see the id that
+    // verifyEpicTraceability will accept in a citation.
+    return { sourceId: selected.sources?.jiraSnapshot?.sourceId ?? null, name: `Jira Epic ${source.key ?? state.initiative.id} snapshot` };
+  }, [state.initiative.source, state.initiative.id, selected.sources]);
+  const citableCount = sources.length + (jiraSnapshot ? 1 : 0);
   const documents = selected.documents.filter((document) => document.phase === phaseId);
 
   // The whole set lands as one commit: a traceability matrix and the requirements it cites are one
@@ -2530,22 +2578,41 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     </section>}
 
     <div className="requirements-panes">
-      <aside className="requirements-sources">
-        <header><h2>Sources</h2><Pill>{sources.length}</Pill></header>
+      <aside
+        className={`requirements-sources ${dragging ? 'dropping' : ''}`}
+        data-accepts-drop=""
+
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+        onDrop={dropSources}
+      >
+        <header><h2>Sources</h2><Pill tone={citableCount ? 'good' : 'neutral'}>{citableCount} citable</Pill></header>
+        {dragging && <div className="requirements-dropzone" aria-hidden="true">Drop files to pin them as evidence</div>}
+        {localNote && <p className="field-error" role="alert">{localNote}</p>}
         <p className="requirements-hint">Everything pinned here is hashed and becomes part of the governed prompt. Requirements may only cite what is listed.</p>
 
+        {jiraSnapshot && <SourceCard
+          name={jiraSnapshot.name}
+          detail={`${jiraSnapshot.sourceId} · imported Epic · citable`}
+          title="Requirements may cite this source id"
+          state="ready"
+        />}
         {!sources.length
-          ? <p className="requirements-hint">Nothing pinned yet. Upload the specification, research, designs, or spreadsheets this phase must be based on.</p>
+          ? <p className="requirements-hint">{jiraSnapshot
+            ? 'The imported Epic above is already citable. Drop a file here, or use Add source, to pin more evidence.'
+            : 'Nothing pinned yet. Drop the specification, research, designs, or spreadsheets this phase must be based on, or use Add source.'}</p>
           : sources.map((source) => <SourceCard
             key={source.sourceId}
             name={source.name ?? source.path}
-            detail={`Pinned${source.bytes ? ` · ${formatBytes(source.bytes)}` : ''}`}
+            detail={`${source.sourceId} · ${formatBytes(source.bytes ?? 0)}`}
             title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}
             state="ready"
+            onOpen={() => openSource(source.sourceId)}
           />)}
         {jiraAttachments.length > 0 && <section className="requirements-jira-attachments">
           <h3>From Jira ({jiraAttachments.length})</h3>
-          <p className="requirements-hint">Listed from the Epic import. Pin one above to make it citable evidence with its own hash.</p>
+          <p className="requirements-hint">Listed from the Epic import. Pinning fetches and hashes each one so requirements may cite it.</p>
+          <button className="secondary full compact" onClick={pinJiraAttachments}>Pin all as evidence</button>
           {jiraAttachments.map((file) => <SourceCard
             key={file.id ?? file.filename}
             name={file.filename}
@@ -2686,6 +2753,28 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </aside>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
+    {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPreview(null)}>
+      <div className="preview-modal" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <strong>{preview.name ?? 'Pinned source'}</strong>
+            <small>{preview.sourceId}{preview.bytes ? ` · ${formatBytes(preview.bytes)}` : ''}{preview.verified ? ' · hash verified' : ''}</small>
+          </div>
+          <button className="ghost compact" onClick={() => setPreview(null)}>Close</button>
+        </header>
+        {preview.loading
+          ? <p className="requirements-hint">Materialising the pinned bytes…</p>
+          : preview.tooLarge
+            ? <p className="requirements-hint">This source is {formatBytes(preview.bytes)} — too large to preview here. Its hash is still governed evidence.</p>
+            : preview.text != null
+              ? <TemplatePreview content={preview.text} />
+              : preview.dataUrl?.startsWith('data:application/pdf')
+                ? <iframe title={preview.name} src={preview.dataUrl} />
+                : preview.dataUrl?.startsWith('data:image/')
+                  ? <img alt={preview.name} src={preview.dataUrl} />
+                  : <p className="requirements-hint">No inline view for {preview.mimeType}. The bytes are pinned and hashed; open the cached file to inspect it.</p>}
+      </div>
+    </div>}
   </div>;
 }
 

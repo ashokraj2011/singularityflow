@@ -996,7 +996,42 @@ Follow the governed planning contract above. Work only in native Plan mode. Befo
     });
     return storageCredentialStore().saveOAuth(providerId, credential);
   });
-  async function epicSourceRuntime(root, initiativeId, providerId = null) {
+  function isTextualSource(mimeType, name = '') {
+  const mime = String(mimeType ?? '');
+  if (mime.startsWith('text/')) return true;
+  if (['application/json', 'application/yaml', 'application/xml'].includes(mime)) return true;
+  return ['.md', '.markdown', '.txt', '.csv', '.json', '.yml', '.yaml', '.xml'].includes(path.extname(String(name)).toLowerCase());
+}
+
+const SOURCE_MIME_TYPES = {
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown',
+  '.markdown': 'text/markdown',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.json': 'application/json',
+  '.yml': 'application/yaml',
+  '.yaml': 'application/yaml',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml'
+};
+
+// Recording everything as application/octet-stream defeats the storage MIME policy and leaves any
+// consumer unable to tell a specification from a screenshot.
+function mimeTypeForFile(filePath, fallback = 'application/octet-stream') {
+  return SOURCE_MIME_TYPES[path.extname(String(filePath)).toLowerCase()] ?? fallback;
+}
+
+async function epicSourceRuntime(root, initiativeId, providerId = null) {
     const { loadInitiative } = await importCliModule('initiative-state.mjs');
     const { portfolio, initiative } = await loadInitiative(root, initiativeId);
     const storage = initiative.resolution.storage ?? portfolio.storage;
@@ -1025,33 +1060,117 @@ Follow the governed planning contract above. Work only in native Plan mode. Befo
     return { selectedId, runtime };
   }
   trustedHandle('epic:sources-upload', async (event, {
-    repository, initiativeId, providerId = null, mimeType = 'application/octet-stream'
-  }) => {
+    repository, initiativeId, providerId = null, mimeType = 'application/octet-stream', filePaths = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
-    const selected = await dialog.showOpenDialog({
-      properties: ['openFile', 'multiSelections'],
-      title: `Add governed sources to ${initiativeId}`
-    });
-    if (selected.canceled) return { canceled: true, records: [] };
+    // Dropped files arrive with their paths already known, so the picker is only opened when the
+    // user asked for it.
+    const selected = Array.isArray(filePaths) && filePaths.length
+      ? { canceled: false, filePaths: filePaths.filter((item) => typeof item === 'string' && item.trim()) }
+      : await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        title: `Add governed sources to ${initiativeId}`
+      });
+    if (selected.canceled || !selected.filePaths.length) return { canceled: true, records: [] };
     const [{ registerEpicSource }, { commitInitiativeChange }] = await Promise.all([
       importCliModule('epic-sources.mjs'),
       importCliModule('initiative-state.mjs')
     ]);
     const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    // One commit for the whole selection. Committing per file produced a commit and a push each,
+    // and every commit moves HEAD — which invalidates any planning context already built, so
+    // attaching five files could invalidate the same conversation five times over.
     const records = [];
+    let last = null;
     for (const filePath of selected.filePaths) {
       const result = await registerEpicSource(root, {
         initiativeId,
         providerId: runtime.selectedId,
         filePath,
-        mimeType,
+        mimeType: mimeTypeForFile(filePath, mimeType),
         runtime: runtime.runtime
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
-      records.push({ ...result.record, publication });
+      records.push(result.record);
+      last = result;
     }
-    return { canceled: false, records };
+    if (!last) return { canceled: false, records: [] };
+    const ids = records.map((record) => record.sourceId).join(' ');
+    const publication = await commitInitiativeChange(
+      root, last.portfolio, last.initiative,
+      `[${initiativeId}][epic:source] ${ids}`,
+      { appendOnly: true }
+    );
+    return { canceled: false, records: records.map((record) => ({ ...record, publication })) };
+  });
+  // A pinned source was a name, a size and a hash: nothing could open it, so a user could never see
+  // what they had attached. verifyEpicSources already materialises the bytes into a cache under
+  // .git; this reads that cache rather than re-implementing every storage adapter.
+  // The sources pane listed the Epic's Jira attachments and told the user to "pin one above" — but
+  // the only control above was a disk file picker, so the instruction had no action behind it.
+  trustedHandle('epic:sources-pin-jira', async (event, { repository, initiativeId, providerId = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ pinJiraEpicAttachments }, { loadInitiative, commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-sources.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const loaded = await loadInitiative(root, initiativeId);
+    const source = loaded.initiative.initiative.source;
+    if (source?.type !== 'jira') throw new Error(`${initiativeId} was not imported from Jira, so it has no attachments to pin.`);
+    const attachments = source.attachments ?? [];
+    if (!attachments.length) throw new Error(`${initiativeId} has no Jira attachments.`);
+
+    const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    const result = await pinJiraEpicAttachments(root, initiativeId, {
+      attachments, providerId: runtime.selectedId, runtime: runtime.runtime
+    });
+    if (!result.pinned.length) return { pinned: [], skipped: result.skipped };
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(
+      root, fresh.portfolio, fresh.initiative,
+      `[${initiativeId}][epic:source] ${result.pinned.map((item) => item.sourceId).join(' ')}`,
+      { appendOnly: true }
+    );
+    return { pinned: result.pinned, skipped: result.skipped, publication };
+  });
+  trustedHandle('epic:sources-preview', async (event, { repository, initiativeId, sourceId, maxBytes = 25 * 1024 * 1024 }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { listEpicSources, verifyEpicSources } = await importCliModule('epic-sources.mjs');
+    const listed = await listEpicSources(root, initiativeId);
+    const entry = listed.manifest.sources.find((item) => item.sourceId === sourceId);
+    if (!entry) throw new Error(`Unknown pinned source '${sourceId}'.`);
+
+    const runtime = await epicSourceRuntime(root, initiativeId, entry.provider).catch(() => ({ runtime: {} }));
+    const verification = await verifyEpicSources(root, initiativeId, { materialize: true, runtime: runtime.runtime });
+    const result = verification.results?.find((item) => item.sourceId === sourceId);
+    if (!result?.cachePath) throw new Error(`Source '${sourceId}' could not be materialised: ${result?.error ?? result?.status ?? 'unavailable'}.`);
+
+    // Containment on the real path, as the ACP reader does: the cache lives inside the repository
+    // and a record must never be able to name something outside it.
+    const cacheRoot = await realpath(path.join(root, '.git', 'singularity-flow', 'epic-sources'));
+    const absolute = await realpath(path.resolve(root, result.cachePath));
+    const relative = path.relative(cacheRoot, absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Refusing to read a source outside the governed cache.');
+
+    const info = await lstat(absolute);
+    if (!info.isFile()) throw new Error(`Source '${sourceId}' is not a readable file.`);
+    if (info.size > maxBytes) {
+      return { sourceId, name: entry.name, mimeType: entry.mimeType, bytes: info.size, tooLarge: true, sha256: entry.sha256 };
+    }
+    const raw = await readFile(absolute);
+    return {
+      sourceId,
+      name: entry.name,
+      mimeType: entry.mimeType ?? 'application/octet-stream',
+      bytes: info.size,
+      sha256: entry.sha256,
+      verified: result.status === 'verified',
+      // Text is returned as text so it can be rendered; anything else as a data URL the existing
+      // media viewer already knows how to display.
+      text: isTextualSource(entry.mimeType, entry.name) ? raw.toString('utf8') : null,
+      dataUrl: isTextualSource(entry.mimeType, entry.name) ? null : `data:${entry.mimeType ?? 'application/octet-stream'};base64,${raw.toString('base64')}`
+    };
   });
   trustedHandle('epic:sources-add-url', async (event, {
     repository, initiativeId, providerId = null, url, label = null, mimeType = 'application/octet-stream'

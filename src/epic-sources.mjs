@@ -45,6 +45,23 @@ function safeSegment(value, label) {
   return text;
 }
 
+// Storage keys and cache paths must be portable, but a user's file is called what it is called.
+// Rejecting "Auth V2 PRD.pdf" outright turned an ordinary filename into an error; the object key is
+// normalised instead and the record keeps the original name for display and citation.
+function portableFilename(value, label) {
+  const text = String(value ?? '').trim();
+  if (!text) throw new SingularityFlowError(`${label} must be a filename.`);
+  const normalized = text
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 255);
+  if (!normalized || !/^[A-Za-z0-9]/.test(normalized)) throw new SingularityFlowError(`${label} has no portable characters: ${text}`);
+  return normalized;
+}
+
 function ensureMime(mimeType, policy, label) {
   const allowed = policy.allowedMimeTypes ?? [];
   if (allowed.length && !allowed.some((entry) => entry === mimeType || (entry.endsWith('/*') && mimeType.startsWith(entry.slice(0, -1))))) {
@@ -281,14 +298,15 @@ export async function registerEpicSource(root, {
   ensureMime(mimeType, storage, 'Epic source');
   ensureMime(mimeType, provider, `Storage provider '${selectedId}'`);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
-  let filename, bytes = null, contentSha = null, size = null, remote;
+  let filename, displayName = null, bytes = null, contentSha = null, size = null, remote;
   if (filePath) {
     const absolute = await realpath(path.resolve(filePath));
     const metadata = await lstat(absolute);
     if (!metadata.isFile()) throw new SingularityFlowError('Epic source upload must be a regular file.');
     const info = await snapshot(absolute);
     if (info.size > maxBytes) throw new SingularityFlowError(`Epic source exceeds the configured ${maxBytes} bytes limit.`);
-    filename = safeSegment(path.basename(absolute), 'Epic source filename');
+    displayName = path.basename(absolute);
+    filename = portableFilename(displayName, 'Epic source filename');
     bytes = await readFile(absolute);
     contentSha = info.sha256;
     size = info.size;
@@ -302,7 +320,8 @@ export async function registerEpicSource(root, {
     }
     const fetched = await adapter.get({ url, mimeType, version: remoteRef?.version ?? null }, { maxBytes });
     bytes = fetched.bytes;
-    filename = safeSegment(remoteRef?.filename || path.basename(new URL(url).pathname) || 'source', 'Epic source filename');
+    displayName = remoteRef?.filename || path.basename(new URL(url).pathname) || 'source';
+    filename = portableFilename(displayName, 'Epic source filename');
     contentSha = sha256(bytes);
     size = bytes.length;
     remote = {
@@ -318,7 +337,9 @@ export async function registerEpicSource(root, {
     schemaVersion: SOURCE_RECORD_VERSION,
     initiativeId,
     sourceId: `SRC-${contentSha.slice(0, 12).toUpperCase()}`,
-    name: label || filename,
+    // The name is what a person and a citation see, so it keeps the file's real title; `filename`
+    // is the normalised storage key.
+    name: label || displayName || filename,
     filename,
     provider: selectedId,
     providerType: provider.type,

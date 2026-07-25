@@ -50,7 +50,7 @@ import { deriveInitiativeReport, initiativeNextActions } from './initiative-repo
 import { epicJourney } from './initiative-next.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
-import { listEpicSources } from './epic-sources.mjs';
+import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -197,6 +197,19 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   const sources = initiative.resolution.profile === 'epic-planning'
     ? (await listEpicSources(root, initiativeId)).manifest
     : { version: 1, initiativeId, sources: [] };
+  // The imported Jira Epic is a hashed, citable source that verifyEpicTraceability accepts, but it
+  // is not in the uploaded manifest — so a surface counting only uploads reported "nothing pinned"
+  // while the contract was telling Copilot to cite this exact id. Derived here, once, by the same
+  // function the traceability check uses.
+  const snapshotSource = jiraSnapshotSource(initiative);
+  if (snapshotSource) {
+    sources.jiraSnapshot = {
+      sourceId: snapshotSource.sourceId,
+      name: snapshotSource.name,
+      sha256: snapshotSource.sha256,
+      bytes: snapshotSource.bytes
+    };
+  }
   const nextActions = await initiativeNextActions(root, initiativeId);
   return {
     state: initiative,

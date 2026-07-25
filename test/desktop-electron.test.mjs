@@ -1019,3 +1019,37 @@ test('shared planning constants stay free of node built-ins', async () => {
   assert.match(app, /from '\.\.\/\.\.\/\.\.\/src\/planning-scope\.mjs'/);
   assert.doesNotMatch(app, /from '\.\.\/\.\.\/\.\.\/src\/planning\.mjs'/);
 });
+
+test('the evidence pane can attach, open and count what is citable', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Files could only arrive through an OS dialog; nothing accepted a drop.
+  assert.match(app, /onDrop=\{dropSources\}/);
+  assert.match(app, /window\.singularity\?\.pathForFile/);
+  // A pinned source was a dead card — no way to see what had been attached.
+  assert.match(app, /onOpen=\{\(\) => openSource\(source\.sourceId\)\}/);
+  // The rail counted uploads only, so it read "nothing pinned" while the contract told Copilot to
+  // cite the imported Epic. The snapshot is now shown with the id traceability accepts.
+  assert.match(app, /\{citableCount\} citable/);
+  assert.match(app, /jiraSnapshot && <SourceCard/);
+  // "Pin one above" had no control behind it.
+  assert.match(app, /Pin all as evidence/);
+
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  // One commit for a whole selection: every commit moves HEAD, and a moved HEAD invalidates any
+  // planning context already built.
+  const upload = main.slice(main.indexOf("trustedHandle('epic:sources-upload'"), main.indexOf("trustedHandle('epic:sources-pin-jira'"));
+  assert.equal([...upload.matchAll(/commitInitiativeChange\(/g)].length, 1, 'a multi-file upload must be one commit');
+  assert.match(upload, /mimeTypeForFile\(filePath, mimeType\)/);
+  // Reading a source must be contained exactly as the ACP reader is.
+  const preview = main.slice(main.indexOf("trustedHandle('epic:sources-preview'"));
+  assert.match(preview.slice(0, 2200), /Refusing to read a source outside the governed cache/);
+  assert.match(preview.slice(0, 2200), /realpath/);
+});
+
+test('a stray file drop cannot navigate the app away', async () => {
+  // Electron replaces the renderer with a dropped file's contents, losing every bit of in-memory
+  // state. Adding a drop target makes a near-miss much more likely.
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'main.jsx'), 'utf8');
+  assert.match(main, /for \(const type of \['dragover', 'drop'\]\)/);
+  assert.match(main, /closest\('\[data-accepts-drop\]'\)/);
+});

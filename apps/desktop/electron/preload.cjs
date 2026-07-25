@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('singularity', {
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
@@ -96,8 +96,14 @@ contextBridge.exposeInMainWorld('singularity', {
     repository, initiativeId, providerId
   }),
   disconnectEpicStorage: (repository, providerId) => ipcRenderer.invoke('epic:storage-disconnect', { repository, providerId }),
-  uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-upload', {
-    repository, initiativeId, providerId, mimeType
+  previewEpicSource: (repository, initiativeId, sourceId) =>
+    ipcRenderer.invoke('epic:sources-preview', { repository, initiativeId, sourceId }),
+  pinJiraAttachments: (repository, initiativeId) =>
+    ipcRenderer.invoke('epic:sources-pin-jira', { repository, initiativeId }),
+  // Electron removed File.path in v32; a dropped file's location is only obtainable here.
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return null; } },
+  uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream', filePaths = null) => ipcRenderer.invoke('epic:sources-upload', {
+    repository, initiativeId, providerId, mimeType, filePaths
   }),
   addEpicSourceUrl: (repository, initiativeId, providerId, url, label, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-add-url', {
     repository, initiativeId, providerId, url, label, mimeType

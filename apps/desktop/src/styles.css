@@ -3545,3 +3545,20 @@ input:disabled, select:disabled, textarea:disabled {
 .requirements-stale strong { display: block; font-size: 12px; font-weight: 640; color: #7a5d12; }
 .requirements-stale p { margin: 3px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--muted); }
 .requirements-stale code { font-size: 10px; }
+
+/* Evidence pane: dropping, opening and previewing a pinned source */
+.requirements-sources { position: relative; }
+.requirements-sources.dropping { border-color: var(--brand, #2f6d4f); box-shadow: 0 0 0 2px rgba(47,109,79,.14); }
+.requirements-dropzone {
+  position: absolute; inset: 8px; z-index: 2; display: grid; place-items: center;
+  border: 2px dashed var(--brand, #2f6d4f); border-radius: 12px;
+  background: rgba(47,109,79,.06); color: var(--brand, #2f6d4f);
+  font-size: 12px; font-weight: 620; pointer-events: none;
+}
+button.source-card { cursor: pointer; font: inherit; }
+button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); background: rgba(47,109,79,.04); }
+.preview-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.preview-modal > header strong { display: block; font-size: 13px; font-weight: 640; color: var(--ink); }
+.preview-modal > header small { font-size: 10px; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); }
+.preview-modal iframe { width: 100%; height: min(620px, 70vh); border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.preview-modal img { max-width: 100%; max-height: min(620px, 70vh); object-fit: contain; border-radius: 8px; }

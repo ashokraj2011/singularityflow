@@ -3216,12 +3216,22 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   function selectJourneyStage(stage) {
     setTab({ intake: 'intake', requirements: 'requirements', planning: 'planning', stories: 'publish', complete: 'complete' }[stage] ?? 'intake');
   }
+  function focusJourneyPhase(phaseId) {
+    const stage = {
+      'epic-intake': 'intake',
+      'epic-requirements': 'requirements',
+      'epic-plan': 'planning',
+      'epic-spec': 'planning',
+      'epic-create': 'publish'
+    }[phaseId] ?? selected?.journey?.stage ?? 'intake';
+    setTab(stage);
+    window.setTimeout(() => document.querySelector('.epic-artifact-hero')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+  }
   function continueJourney(next) {
     if (next.id === 'materialize') return void previewMaterialization();
     if (next.id === 'report') return setTab('complete');
-    if (['prepare', 'author'].includes(next.id)) {
-      const phase = next.phaseId ?? selected?.state.currentPhase ?? 'epic-intake';
-      return void openPlanning?.(phase);
+    if (['prepare', 'author', 'author-and-publish'].includes(next.id)) {
+      return void focusJourneyPhase(next.phaseId ?? selected?.state.currentPhase ?? 'epic-intake');
     }
     selectJourneyStage(selected?.journey?.stage ?? 'intake');
   }

@@ -134,7 +134,7 @@ test('Jira Epic snapshot is available as a pinned source without uploaded docume
   assert.equal(source.provider, 'jira-snapshot');
   assert.match(source.content, /"key": "MOB-100"/);
   const actions = await initiativeNextActions(root, 'MOB-100');
-  assert.equal(actions[0].action, 'author-and-publish');
+  assert.equal(actions[0].action, 'prepare');
 });
 
 test('Epic traceability requires pinned source locators and complete REQ/AC Story allocation', async () => {

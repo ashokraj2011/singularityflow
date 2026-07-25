@@ -290,7 +290,7 @@ function cliPath() {
   return path.join(root, 'bin', 'singularity-flow.mjs');
 }
 
-function invokeCli(repository, args, { input = null, json = true, timeoutMs = undefined } = {}) {
+function invokeCli(repository, args, { input = null, json = true, timeoutMs = undefined, onOutput = null } = {}) {
   return invokeCliProcess({
     executable: process.execPath,
     cli: cliPath(),
@@ -299,6 +299,7 @@ function invokeCli(repository, args, { input = null, json = true, timeoutMs = un
     input,
     json,
     timeoutMs,
+    onOutput,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_DESKTOP: '1' }
   });
 }
@@ -653,10 +654,30 @@ function registerHandlers() {
   trustedHandle('worldmodel:generate', async (event, { repository, local = true }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
-    // Generation runs the world-model builder (Copilot) in an isolated worktree; allow up to 15
-    // minutes. --local commits into the working tree without pushing to the remote default branch.
-    await invokeCli(root, ['wm', 'build', ...(local ? ['--local'] : [])], { json: false, timeoutMs: 15 * 60 * 1000 });
-    return snapshot(root);
+    const send = (payload) => {
+      try { event.sender.send('worldmodel:progress', { repository: root, ...payload }); } catch { /* The renderer may close while Copilot is still running. */ }
+    };
+    send({ type: 'phase', phase: 'starting', message: 'Preparing the governed world-model prompt and repository snapshot.' });
+    try {
+      // Generation runs the world-model builder (Copilot) in an isolated worktree; allow up to 15
+      // minutes. --local commits into the working tree without pushing to the remote default branch.
+      send({ type: 'phase', phase: 'copilot', message: 'Copilot is inspecting the repository and generating Markdown views.' });
+      await invokeCli(root, ['wm', 'build', ...(local ? ['--local'] : [])], {
+        json: false,
+        timeoutMs: 15 * 60 * 1000,
+        onOutput: (text, stream) => {
+          const lines = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+          for (const line of lines.slice(-20)) send({ type: 'output', stream, message: line.slice(0, 1000) });
+        }
+      });
+      send({ type: 'phase', phase: 'finalizing', message: local ? 'Validating and committing the local world model.' : 'Validating, committing, and pushing the world model with the Epic branch.' });
+      const result = await snapshot(root);
+      send({ type: 'complete', phase: 'complete', message: 'World model generated and committed.', result });
+      return result;
+    } catch (error) {
+      send({ type: 'error', phase: 'error', message: error?.message || String(error) });
+      throw error;
+    }
   });
   trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
   trustedHandle('planning:preflight', (event, { repository }) => {

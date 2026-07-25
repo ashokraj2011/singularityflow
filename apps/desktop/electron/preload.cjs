@@ -47,6 +47,11 @@ contextBridge.exposeInMainWorld('singularity', {
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
   generateWorldModel: (repository, local = true) => ipcRenderer.invoke('worldmodel:generate', { repository, local }),
+  onWorldModelProgress: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('worldmodel:progress', handler);
+    return () => ipcRenderer.removeListener('worldmodel:progress', handler);
+  },
   deleteTemplate: (repository, filePath) => ipcRenderer.invoke('configuration:delete-template', { repository, filePath }),
   deleteFile: (repository, filePath) => ipcRenderer.invoke('configuration:delete-file', { repository, filePath }),
   previewTemplateUrl: (repository, url) => ipcRenderer.invoke('configuration:template-url-preview', { repository, url }),

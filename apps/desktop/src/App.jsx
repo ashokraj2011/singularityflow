@@ -249,6 +249,44 @@ function WorldModelPrompt({ reason, busy, onGenerate, onDismiss }) {
   </section>;
 }
 
+function WorldModelRunDialog({ run, onClose }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (run.status !== 'running') return undefined;
+    const timer = setInterval(() => tick((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [run.status]);
+  const elapsed = Math.max(0, (run.status === 'running' ? Date.now() : (run.finishedAt ?? Date.now())) - run.startedAt);
+  const seconds = Math.floor(elapsed / 1000);
+  const elapsedLabel = `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+  const statusLabel = run.status === 'running' ? 'Copilot is working' : run.status === 'success' ? 'World model ready' : 'World model build failed';
+  return <div className="world-model-run-backdrop" role="dialog" aria-modal="true" aria-label="World-model generation progress">
+    <section className="world-model-run-dialog">
+      <header>
+        <div><span className="eyebrow">Repository grounding</span><h2>{statusLabel}</h2></div>
+        <button className="icon-button" onClick={onClose} aria-label="Close progress window">×</button>
+      </header>
+      <div className="world-model-run-body">
+        <div className={`world-model-run-status ${run.status}`}><span className="world-model-run-pulse" /><div><strong>{run.phaseLabel}</strong><small>{run.repository}</small></div><time>{elapsedLabel}</time></div>
+        <p className="world-model-run-note">This window stays open while the builder runs. The desktop is not frozen; Copilot is inspecting the repository in an isolated process and will commit the generated views when validation finishes.</p>
+        <div className="world-model-run-steps" aria-label="World-model build steps">
+          {['starting', 'copilot', 'finalizing', 'complete'].map((step) => <span key={step} className={run.phase === step || (run.status === 'success' && step === 'complete') ? 'active' : run.steps?.includes(step) ? 'done' : ''}><b>{run.steps?.includes(step) || (run.status === 'success' && step === 'complete') ? '✓' : '·'}</b>{step === 'starting' ? 'Prepare prompt' : step === 'copilot' ? 'Copilot build' : step === 'finalizing' ? 'Validate & commit' : 'Complete'}</span>)}
+        </div>
+        <details className="world-model-run-prompt" open>
+          <summary>Prompt sent to Copilot <code>{run.promptPath}</code></summary>
+          <pre>{run.prompt || 'The configured repository builder prompt is unavailable in this snapshot.'}</pre>
+        </details>
+        <details className="world-model-run-log" open={run.status !== 'running'}>
+          <summary>Activity log <span>{run.logs.length}</span></summary>
+          <div>{run.logs.length ? run.logs.map((entry, index) => <p key={`${entry.time}-${index}`}><time>{new Date(entry.time).toLocaleTimeString()}</time><span>{entry.message}</span></p>) : <p className="muted">Waiting for Copilot output…</p>}</div>
+        </details>
+        {run.error && <div className="form-error" role="alert">{run.error}</div>}
+      </div>
+      <footer><span className="muted">{run.status === 'running' ? 'You can close this window; the build will continue.' : run.status === 'success' ? 'Generated Markdown is now part of the repository state.' : 'Fix the reported issue and run the builder again.'}</span><button className={run.status === 'running' ? 'ghost' : 'primary'} onClick={onClose}>{run.status === 'running' ? 'Hide progress' : 'Close'}</button></footer>
+    </section>
+  </div>;
+}
+
 function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, recentWorkspaces, busy, openWorkspace }) {
   const workspaceName = data.workspace?.workspace.name ?? repoName;
   // The top bar truncates, so the full context — including which repository is the lead — stays
@@ -2954,13 +2992,9 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
   }
   async function generateWorldModelForEpic() {
     // local=false: publish normally so the model is pushed with the epic branch.
-    const built = await action(
-      () => window.singularity.generateWorldModel(data.repository.root, false),
-      'World model generated and pushed with the epic branch'
-    );
+    const built = await generateWorldModel(data.repository.root, false);
     const target = worldModelOffer?.initiativeId;
-    setWorldModelOffer(null);
-    if (built) await reload(null, target);
+    if (built) { setWorldModelOffer(null); await reload(null, target); }
   }
   async function skipWorldModel() {
     const target = worldModelOffer?.initiativeId;
@@ -3706,6 +3740,7 @@ export default function App() {
   // Dismissal is per repository, so opening a different clone asks again rather than inheriting
   // a "not now" from the previous one.
   const [worldModelDismissed, setWorldModelDismissed] = useState(null);
+  const [worldModelRun, setWorldModelRun] = useState(null);
   // Which phase/output a hand-off into Copilot Studio wants framed. Null means "decide from the
   // current phase", which is what reaching the studio from the sidebar should do.
   const [planningFocus, setPlanningFocus] = useState(null);
@@ -3741,6 +3776,23 @@ export default function App() {
     window.addEventListener('singularity:setup-jira', openJiraSetup);
     return () => window.removeEventListener('singularity:setup-jira', openJiraSetup);
   }, []);
+  useEffect(() => {
+    if (!window.singularity?.onWorldModelProgress) return undefined;
+    return window.singularity.onWorldModelProgress((event) => {
+      if (!event || (event.repository && data?.repository?.root && event.repository !== data.repository.root)) return;
+      setWorldModelRun((current) => {
+        if (!current) return current;
+        const now = Date.now();
+        const next = { ...current, phase: event.phase ?? current.phase, phaseLabel: event.message ?? current.phaseLabel };
+        if (event.type === 'output' && event.message) next.logs = [...current.logs, { time: now, message: event.message }].slice(-80);
+        if (event.type === 'phase' && event.message) next.logs = [...current.logs, { time: now, message: event.message }].slice(-80);
+        if (event.type === 'phase' && event.phase && !next.steps.includes(event.phase)) next.steps = [...next.steps, event.phase];
+        if (event.type === 'complete') { next.status = 'success'; next.phase = 'complete'; next.phaseLabel = event.message || 'World model generated and committed'; next.finishedAt = now; next.steps = [...new Set([...next.steps, 'complete'])]; }
+        if (event.type === 'error') { next.status = 'error'; next.phase = 'error'; next.phaseLabel = 'Build failed'; next.error = event.message; next.finishedAt = now; next.logs = [...current.logs, { time: now, message: event.message }].slice(-80); }
+        return next;
+      });
+    });
+  }, [data?.repository?.root]);
   useEffect(() => {
     if (!window.singularity?.recentWorkspaces) return undefined;
     let current = true;
@@ -4043,10 +4095,37 @@ export default function App() {
     chooseResource(snapshot.worldModelPrompt, 'prompt');
     return result;
   }
-  async function generateWorldModel() {
-    const result = await action(() => window.singularity.generateWorldModel(data.repository.root, true), 'World model generated and committed locally (not pushed)');
-    if (result) await reload();
-    return result;
+  async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined) {
+    const repository = typeof repositoryOrLocal === 'string' ? repositoryOrLocal : data?.repository?.root;
+    const local = typeof repositoryOrLocal === 'string' ? (localArgument ?? true) : repositoryOrLocal;
+    if (!repository || worldModelRun?.status === 'running') return null;
+    const prompt = data.worldModelPrompt ?? {};
+    const startedAt = Date.now();
+    setWorldModelRun({
+      status: 'running',
+      phase: 'starting',
+      phaseLabel: 'Preparing the governed world-model prompt',
+      repository,
+      promptPath: prompt.path ?? 'singularity/prompts/worldmodel-builder.md',
+      prompt: prompt.content ?? '',
+      local,
+      startedAt,
+      steps: [],
+      logs: []
+    });
+    setBusy(true);
+    setToast(null);
+    try {
+      const result = await window.singularity.generateWorldModel(repository, local);
+      setWorldModelRun((current) => current ? { ...current, status: 'success', phase: 'complete', phaseLabel: local ? 'World model committed locally' : 'World model committed and pushed', finishedAt: Date.now(), steps: [...new Set([...(current.steps ?? []), 'complete'])] } : current);
+      setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Epic branch' });
+      await reload();
+      return result;
+    } catch (error) {
+      setWorldModelRun((current) => current ? { ...current, status: 'error', phase: 'error', phaseLabel: 'World-model build failed', error: error?.message || String(error), finishedAt: Date.now() } : current);
+      setToast({ tone: 'bad', text: error?.message || String(error) });
+      return null;
+    } finally { setBusy(false); }
   }
   async function materializePlanningPrompt(content = data.planning.prompt.content) {
     const prompt = data.planning.prompt;
@@ -4126,7 +4205,7 @@ export default function App() {
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       {data.worldModel?.rebuildReason && worldModelDismissed !== data.repository.root && page !== 'world-model' && <WorldModelPrompt
         reason={data.worldModel.rebuildReason}
-        busy={busy}
+        busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
         onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
@@ -4135,6 +4214,6 @@ export default function App() {
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
         ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
-    </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}<Toast toast={toast} onClose={() => setToast(null)} />
+    </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

@@ -1227,3 +1227,15 @@ test('the composer offers the work this phase actually asks for', async () => {
   // Choosing one fills the box so it can be edited, rather than firing text the user never read.
   assert.match(app, /onClick=\{\(\) => \{ setFollowup\(command\.prompt\); \}\}/);
 });
+
+test('a context that carries no world model says so', async () => {
+  // Grounding "off" returned an empty string and no warning, so Copilot was asked to write
+  // requirements about a repository it had been told nothing about — and then reached for shell
+  // tools to look, which read-only Plan mode denies. The denial was the symptom; the silence was
+  // the defect.
+  const context = await readFile(path.join(packageRoot, 'src', 'initiative-context.mjs'), 'utf8');
+  assert.match(context, /world-model grounding is off for this initiative/);
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /className="context-warnings"/);
+  assert.match(app, /contextPack\.warnings\.map/);
+});

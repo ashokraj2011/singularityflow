@@ -2829,6 +2829,9 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             </div>
             <button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button>
           </div>}
+          {(contextPack.warnings ?? []).length > 0 && <div className="context-warnings" role="status">
+            {contextPack.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+          </div>}
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>

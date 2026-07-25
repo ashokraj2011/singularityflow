@@ -142,7 +142,14 @@ async function epicSourceSections(root, initiative, phase) {
 
 async function repositoryGrounding(root, definition, phase, persona, mode) {
   const warnings = [];
-  if (mode === 'off') return { text: '', files: [], warnings, record: { mode, available: false } };
+  // Silence here means Copilot is asked to write requirements about a repository it has been told
+  // nothing about, with nothing in the pack or the app saying so — and it then reaches for shell
+  // tools to look, which read-only Plan mode denies. Off is a legitimate choice; being quiet about
+  // it is not.
+  if (mode === 'off') {
+    warnings.push('Repository world model is not sent: world-model grounding is off for this initiative, so Copilot has no description of the repository.');
+    return { text: '', files: [], warnings, record: { mode, available: false } };
+  }
   const requiredViews = unique([
     ...(phase.worldModelViews ?? []),
     ...(definition.personas[persona]?.worldModelViews ?? [])

@@ -3635,3 +3635,7 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 }
 .composer-command:hover:not(:disabled) { border-color: var(--brand, #2f6d4f); background: rgba(47,109,79,.06); }
 .composer-command:disabled { opacity: .45; cursor: default; }
+
+/* What the governed context could not include — a warning nobody sees is not a warning */
+.context-warnings { display: grid; gap: 5px; margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(203,150,42,.5); background: rgba(200,151,31,.06); }
+.context-warnings p { margin: 0; font-size: 11px; line-height: 1.5; color: #7a5d12; }

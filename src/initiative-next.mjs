@@ -51,7 +51,7 @@ function epicActionLabel(action, stage) {
     prepare: `Open ${stage} workspace`,
     author: `Compose ${stage}`,
     'author-and-publish': `Publish ${stage}`,
-    'approve-phase': `Approve ${stage}`,
+    'approve-phase': `Approve ${stage} & continue`,
     materialize: 'Create Jira and Git Stories',
     report: 'Open Epic report',
     status: 'Refresh Epic status'

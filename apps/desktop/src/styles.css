@@ -1469,6 +1469,8 @@ body {
 .world-model-run-log time { color: var(--subtle); }
 .world-model-run-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 25px; border-top: 1px solid var(--line); background: #f7f8f6; }
 .world-model-run-dialog > footer .muted { max-width: 550px; font-size: 10px; line-height: 1.45; }
+.field-help { color: var(--muted); font-size: 10px; font-weight: 450; line-height: 1.45; }
+.field-help code { color: var(--blue-700); font-family: var(--font-mono); font-size: 10px; }
 
 /* Workspace switcher in the top bar, beside the Copilot control. The shared .repository-menu
    opens upward and left-aligned because it used to hang off the bottom of the sidebar; anchored

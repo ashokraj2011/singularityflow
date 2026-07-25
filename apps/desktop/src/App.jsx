@@ -2544,7 +2544,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
-            {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Send to Copilot</button>}
+            {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Start Copilot with this context</button>}
           </div>
           <div className="copilot-identity">
             <span className="copilot-avatar" aria-hidden="true">✦</span>
@@ -2582,14 +2582,14 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
                 event.preventDefault();
                 if (started && !running && followup.trim()) void sendFollowup();
               }}
-              placeholder="Add an instruction, answer a question, or ask for a revision…"
+              placeholder={started ? 'Add an instruction, answer a question, or ask for a revision…' : 'Start Copilot with the governed context first.'}
             />
             <div className="composer-bar">
-              <small>Shift + Enter for a new line</small>
-              <div className="row">
-                <button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button>
-                <button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send ➤</button>
-              </div>
+              <small>{started ? 'Shift + Enter for a new line' : 'Start Copilot above to begin the conversation.'}</small>
+              {started && <div className="row">
+                <button className="ghost compact" onClick={stopCopilot}>Stop</button>
+                <button className="secondary compact" disabled={running || !followup.trim()} onClick={sendFollowup}>Send ➤</button>
+              </div>}
             </div>
           </div>
         </>}

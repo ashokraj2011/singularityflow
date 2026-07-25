@@ -968,3 +968,17 @@ test('a governed read cannot escape the repository', async () => {
   }
   await assert.rejects(() => bridge.readRepositoryFile({ path: 'sub/ok.txt' }), /only read absolute paths/);
 });
+
+test('starting a session and sending a message are not both called Send', async () => {
+  // Two buttons labelled "Send" sat on one screen: one handed the governed context over and started
+  // the session, the other was an ordinary chat send. The chat pair was also rendered disabled
+  // before a session existed, so the screen offered a Stop with nothing to stop.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  assert.match(app, /Start Copilot with this context/);
+  assert.doesNotMatch(app, />Send to Copilot</);
+  // The chat controls exist only once there is a session to talk to.
+  assert.match(app, /\{started && <div className="row">\s*<button className="ghost compact" onClick=\{stopCopilot\}>Stop<\/button>/);
+  // And the inert box says what to do instead of inviting typing that goes nowhere.
+  assert.match(app, /Start Copilot above to begin the conversation/);
+  assert.match(app, /Start Copilot with the governed context first/);
+});

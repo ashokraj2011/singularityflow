@@ -768,9 +768,19 @@ function registerHandlers() {
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
     if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
+    // The contract travels as content, not as a path. Plan mode declares fs.readTextFile: false and
+    // denies every session/requestPermission, so telling Copilot to "read the contract at <path>"
+    // asked it for something the client structurally forbids: the read was denied, and the turn ran
+    // with no contract, no pinned sources and no world model. The pack is already budgeted to
+    // maxContextBytes and already labels uploaded documents as source material rather than
+    // instructions, so it is built to be sent. Read-only Plan mode is unchanged.
     return copilotBackend.beginPlanning(root, planningSessionId, {
       model: model?.trim() || null,
-      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
+      prompt: `${await readFile(pack.contextPath, 'utf8')}
+
+---
+
+Follow the governed planning contract above. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
     });
   });
   trustedHandle('planning:prompt', (event, { repository, planningSessionId, text }) => {

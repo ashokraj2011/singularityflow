@@ -870,3 +870,19 @@ test('icon tiles use a short type tag, not truncated prose', async () => {
   assert.match(app, /className="artifact-icon"[^>]*>\{kindTag\(/);
   assert.equal([...app.matchAll(/documentKind\([^)]*\)\.slice\(0, 3\)/g)].length, 1, 'only kindTag may truncate');
 });
+
+test('the governed contract is sent to Copilot, not pointed at', async () => {
+  // Plan mode declares fs.readTextFile: false and denies every session/requestPermission, so a
+  // prompt saying "read the contract at <path>" asked Copilot for the one thing the client forbids.
+  // The observable symptom was a copilot.permission-denied for "Read governed planning contract"
+  // and a turn that ran with no contract, no pinned sources and no world model.
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  assert.doesNotMatch(main, /Read and follow the complete governed planning contract at/);
+  assert.match(main, /await readFile\(pack\.contextPath, 'utf8'\)/);
+  assert.match(main, /Follow the governed planning contract above/);
+
+  // Read-only Plan mode must stay exactly as strict as it was.
+  const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
+  assert.match(acp, /fs: \{ readTextFile: false, writeTextFile: false \}/);
+  assert.match(acp, /return rejectPermission\(ctx\.params\)/);
+});

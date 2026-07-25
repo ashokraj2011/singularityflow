@@ -73,13 +73,21 @@ function render(template, root, config, options) {
   const phase = optionString(options, 'phase');
   const phaseConfig = phase ? config.phases[phase] : null;
   if (phase && !phaseConfig) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
+  const suppliedBranch = optionString(options, 'repository-branch');
+  const suppliedClean = optionString(options, 'working-tree-clean');
   const values = {
     repository: root,
     outputDir: config.outputDir,
     views: optionString(options, 'views') ?? phaseConfig?.views?.join(', ') ?? 'auto',
     focus: optionString(options, 'focus', 'none'),
     task: optionString(options, 'task', 'none'),
-    depth: optionString(options, 'depth', phaseConfig?.depth ?? 'standard')
+    depth: optionString(options, 'depth', phaseConfig?.depth ?? 'standard'),
+    generatedAt: optionString(options, 'generation-timestamp', new Date().toISOString()),
+    generatedDate: optionString(options, 'generation-date', new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date())),
+    branch: suppliedBranch ?? branch(root),
+    workingTreeClean: suppliedClean ?? (changedFiles(root).length === 0 ? 'true' : 'false'),
+    builderVersion: optionString(options, 'builder-version', '2.0'),
+    promptSha256: optionString(options, 'builder-prompt-sha256', 'unknown')
   };
   const tokens = {
     '{{REPOSITORY_PATH_OR_CURRENT_DIRECTORY}}': values.repository,
@@ -87,7 +95,13 @@ function render(template, root, config, options) {
     '{{REQUESTED_VIEWS_OR_AUTO}}': values.views,
     '{{FOCUS_AREA_OR_NONE}}': values.focus,
     '{{CURRENT_TASK_OR_NONE}}': values.task,
-    '{{QUICK_OR_STANDARD_OR_DEEP}}': values.depth
+    '{{QUICK_OR_STANDARD_OR_DEEP}}': values.depth,
+    '{{GENERATION_TIMESTAMP_UTC}}': values.generatedAt,
+    '{{GENERATION_DATE}}': values.generatedDate,
+    '{{REPOSITORY_BRANCH}}': values.branch,
+    '{{WORKING_TREE_CLEAN}}': values.workingTreeClean,
+    '{{BUILDER_VERSION}}': values.builderVersion,
+    '{{BUILDER_PROMPT_SHA256}}': values.promptSha256
   };
   let result = template;
   for (const [token, value] of Object.entries(tokens)) result = result.split(token).join(value);
@@ -169,6 +183,18 @@ async function build(root, config, options) {
   await mkdir(staging, { recursive: true });
   const source = config.promptSource === 'builtin' ? path.join(packageRoot, 'templates/worldmodel-builder.md') : path.resolve(root, config.promptSource);
   const buildConfig = { ...config, outputDir: staging };
+  const generatedAt = new Date().toISOString();
+  const generatedDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(generatedAt));
+  const promptSha256 = existsSync(source) ? createHash('sha256').update(await readFile(source)).digest('hex') : 'unknown';
+  const metadata = {
+    generated_at: generatedAt,
+    generated_date: generatedDate,
+    builder_version: '2.0',
+    builder_prompt_sha256: promptSha256,
+    repository_branch: branch(root),
+    working_tree_clean: changedFiles(root).length === 0,
+    analysis_depth: optionString(options, 'depth', 'standard')
+  };
   run('git', ['worktree', 'add', '--detach', analysisRoot, head(root)], { cwd: root, stdio: 'inherit' });
   try {
     for (const relative of changedFiles(root)) {
@@ -181,7 +207,16 @@ async function build(root, config, options) {
     }
     await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
     await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), { recursive: true, force: true });
-    await writeFile(promptFile, render(await readFile(source, 'utf8'), analysisRoot, buildConfig, options));
+    const renderOptions = {
+      ...options,
+      'generation-timestamp': generatedAt,
+      'generation-date': generatedDate,
+      'repository-branch': metadata.repository_branch,
+      'working-tree-clean': String(metadata.working_tree_clean),
+      'builder-version': metadata.builder_version,
+      'builder-prompt-sha256': promptSha256
+    };
+    await writeFile(promptFile, render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions));
     const before = await repositoryContentSnapshot(analysisRoot);
     const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
     const result = run('bash', ['-lc', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
@@ -194,19 +229,29 @@ async function build(root, config, options) {
     const requiredViews = phase ? config.phases[phase]?.views ?? [] : [];
     if (phase && !config.phases[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
     const validated = await validateWorldModelDirectory(staging, {
-      expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
+      expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
     });
     // The builder is asked to include this field too, but the CLI is the source of truth for
     // provenance. Overwrite it after validation so Copilot cannot invent or omit the generation
     // instant. This timestamp is committed with manifest.json and remains hash-bound to the model.
-    const generatedAt = new Date().toISOString();
     const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    const generatedViews = Object.entries(validated.manifest.views ?? {})
+      .filter(([, entry]) => entry?.generated !== false)
+      .map(([id]) => id)
+      .sort();
+    Object.assign(validated.manifest, metadata, {
+      repository_commit: head(root),
+      views_generated: generatedViews
+    });
     validated.manifest.generated_at = generatedAt;
     validated.manifest.source_tree_sha256 = sourceState.sha256;
     validated.manifest.generated_for_phase = phase ?? null;
     validated.manifest.requested_views = requiredViews;
     validated.manifest.analysis_depth = optionString(options, 'depth', phase ? config.phases[phase].depth : 'standard');
     await writeJson(path.join(staging, 'manifest.json'), validated.manifest);
+    await validateWorldModelDirectory(staging, {
+      expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
+    });
     await installWorldModel(staging, path.join(root, config.outputDir));
     const local = optionBoolean(options, 'local');
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });

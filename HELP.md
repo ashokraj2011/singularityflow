@@ -1151,6 +1151,15 @@ match the active persona, phase, immutable work type, committed or pending
 changed-path globs, and Jira/manual source labels. `wm inject` is a compatibility
 alias for the same command.
 
+The editable builder prompt is now the v2 progressive-disclosure contract. It
+asks the generator for brief and full core/view tiers, domain and task guides,
+an evidence ledger, and `index/path-map.json`, with a generation stamp in every
+consumer-facing document. v2 manifests are accepted alongside legacy v1 models;
+the CLI pins the authoritative timestamp, source commit, branch, working-tree
+status, analysis depth, builder version, prompt hash, and generated-view list
+before committing the model. This keeps existing repositories readable while
+making newly generated models auditable and inexpensive to inject.
+
 ```yaml
 worldModel:
   # Governed view IDs. A view cannot be removed while a phase, persona,

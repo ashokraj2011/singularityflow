@@ -5,6 +5,7 @@ import { currentPhase } from './state.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { branch } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
+import { repositoryLogger } from './logging.mjs';
 import { initiativeRelative } from './initiative-state.mjs';
 import {
   bindPersonaToCopilotSession, loadCopilotSession, loadSession, personaSessionStatus, recordCopilotSession, validPersonaSession
@@ -41,8 +42,12 @@ function shouldPrompt(policy, source, valid) {
 }
 
 export async function sessionStartPersonaHook(root, definition, workflow, payload = {}) {
+  const log = repositoryLogger(root, definition, { context: { hook: 'session-start', sessionId: payload.sessionId ?? null } });
   const initiative = workflow ? null : await activeInitiative(root);
   if (initiative) {
+    log.info('hook.session.initiative', 'governed initiative session; no work-item selection applies', {
+      initiativeId: initiative.initiative.id, profile: initiative.initiative.profile, phase: initiative.currentPhase ?? 'complete'
+    });
     const phase = initiative.currentPhase ?? 'complete';
     return {
       additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}). This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sflow-session is not required here. Compose only the artifact for the phase you were given, treat the supplied governed contract as authoritative, and never write outside the initiative's declared promotion target. Never approve a phase automatically.`
@@ -122,10 +127,29 @@ export async function personaGuardHook(root, definition, workflow, payload = {})
   // Work-item selection cannot be satisfied on an initiative branch, so denying tools there blocks
   // governed initiative work permanently rather than protecting anything. Lifecycle mutation stays
   // gated by the initiative's own phase, approval, and evidence checks.
-  if (!workflow && await activeInitiative(root)) return {};
+  const log = repositoryLogger(root, definition, {
+    context: { hook: 'persona-guard', toolName: payload.toolName ?? null }
+  });
+  const initiative = workflow ? null : await activeInitiative(root);
+  if (initiative) {
+    log.info('hook.guard.allow', 'governed initiative branch', { reason: 'initiative', initiativeId: initiative.initiative.id });
+    return {};
+  }
   const status = await personaSessionStatus(root, definition, workflow);
   const blocked = status.workItemSelectionRequired || status.selectionRequired;
-  if (!status.policy?.requireBeforeTools || !blocked || isPersonaToolCall(payload)) return {};
+  if (!status.policy?.requireBeforeTools || !blocked || isPersonaToolCall(payload)) {
+    log.debug('hook.guard.allow', null, {
+      reason: !status.policy?.requireBeforeTools ? 'requireBeforeTools disabled' : !blocked ? 'session complete' : 'session-management tool',
+      workId: status.workId ?? null
+    });
+    return {};
+  }
+  log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {
+    reason: status.workItemSelectionRequired ? 'work-item selection required' : 'persona selection required',
+    workId: status.workId ?? null,
+    workItemSelectionRequired: status.workItemSelectionRequired,
+    personaSelectionRequired: status.selectionRequired
+  });
   if (status.workItemSelectionRequired) return {
     permissionDecision: 'deny',
     permissionDecisionReason: `Select and synchronize a Singularity Flow work/Jira ID before using '${payload.toolName ?? 'this tool'}'. Run /sflow-session; the contributor must choose the ID.`

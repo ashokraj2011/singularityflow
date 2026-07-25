@@ -18,7 +18,7 @@ import {
   table,
   writeText
 } from './util.mjs';
-import { assertClean, branch, changes, checkout, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { assertClean, branch, changes, checkout, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import {
   approvePhase,
   assertNoPendingPublication,
@@ -78,6 +78,9 @@ import {
   validateDesktopConfiguration
 } from './desktop.mjs';
 import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
+import {
+  filterLogEntries, LOG_LEVELS, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging
+} from './logging.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -1143,6 +1146,54 @@ async function rejectCommand(positionals, options) {
 async function syncCommand() {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
   const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+}
+
+// Read the machine-local activity log. The log lives under .git/ so it is never committed, which
+// also means nobody finds it by browsing the repository — this is how it is meant to be read.
+async function logsCommand(positionals, options) {
+  const root = repoRoot();
+  const file = logFilePath(gitDir(root));
+  if (positionals[1] === 'path') return console.log(file);
+
+  if (positionals[1] === 'level') {
+    const config = await loadConfig(root).catch(() => null);
+    const resolved = resolveLogging(config);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...resolved, file }));
+    console.log(`Log file : ${file}`);
+    console.log(`File level    : ${resolved.level}`);
+    console.log(`Console level : ${resolved.console}`);
+    console.log('Raise either for one command with SINGULARITY_FLOW_LOG_LEVEL=all or SINGULARITY_FLOW_LOG_CONSOLE=debug.');
+    return;
+  }
+
+  if (!existsSync(file)) {
+    console.log(`No activity log yet at ${file}.`);
+    console.log('It is written as commands run. Set SINGULARITY_FLOW_LOG_LEVEL=all to capture everything.');
+    return;
+  }
+
+  const entries = filterLogEntries(parseLogLines(await readFile(file, 'utf8')), {
+    level: normalizeLogLevel(optionString(options, 'level') ?? 'trace', 'trace'),
+    event: optionString(options, 'event'),
+    since: optionString(options, 'since')
+  });
+  const limit = Number.parseInt(optionString(options, 'tail') ?? '80', 10);
+  const shown = Number.isFinite(limit) && limit > 0 ? entries.slice(-limit) : entries;
+
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(shown, null, 2));
+  if (!shown.length) {
+    console.log('No matching log entries. Widen with --level all, drop --event, or extend --since.');
+    return;
+  }
+  for (const entry of shown) {
+    const context = { ...entry };
+    for (const key of ['ts', 'level', 'event', 'msg']) delete context[key];
+    const detail = Object.keys(context).length ? `  ${JSON.stringify(context)}` : '';
+    console.log(`${entry.ts ?? '(no timestamp)'}  ${String(entry.level ?? '?').toUpperCase().padEnd(5)}  ${entry.event ?? ''}${entry.msg ? `  ${entry.msg}` : ''}${detail}`);
+  }
+  const counts = shown.reduce((totals, entry) => ({ ...totals, [entry.level]: (totals[entry.level] ?? 0) + 1 }), {});
+  console.log(`\n${shown.length} of ${entries.length} matching entries · ${Object.entries(counts).map(([level, count]) => `${level} ${count}`).join(' · ')}`);
+  console.log(`Log file: ${file}`);
 }
 
 async function doctorCommand(positionals, options) {
@@ -2756,6 +2807,21 @@ async function storyCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown Story subcommand '${subcommand}'.`);
 }
 
+// Log every command's outcome. This is the spine of the activity log: without it a failure leaves
+// only the message printed to the terminal, and the sequence that produced it is gone. Building the
+// logger must never break a command, so a repository that cannot be resolved simply gets no file.
+async function commandLogger(command, argv) {
+  try {
+    const root = repoRoot();
+    const config = await loadConfig(root).catch(() => null);
+    return repositoryLogger(root, config, {
+      context: { command, pid: process.pid, cwd: root, branch: branch(root) ?? null }
+    });
+  } catch {
+    return repositoryLogger(null, null, { context: { command, pid: process.pid } });
+  }
+}
+
 export async function main(argv) {
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
   if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
@@ -2763,6 +2829,24 @@ export async function main(argv) {
   const command = positionals[0];
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
+  // `logs` reads the file; logging its own invocation would append noise to what it is showing.
+  if (command !== 'logs') {
+    const log = await commandLogger(command, argv);
+    const started = Date.now();
+    log.info('command.start', null, { argv: argv.slice(0, 24) });
+    try {
+      const result = await dispatch(command, positionals, options);
+      log.info('command.ok', null, { durationMs: Date.now() - started });
+      return result;
+    } catch (error) {
+      log.error('command.failed', error?.message, { durationMs: Date.now() - started, exitCode: error?.exitCode ?? 1, error });
+      throw error;
+    }
+  }
+  return dispatch(command, positionals, options);
+}
+
+async function dispatch(command, positionals, options) {
   switch (command) {
     case 'about': return console.log(ABOUT);
     case 'help': return helpCommand(positionals, options);
@@ -2782,6 +2866,7 @@ export async function main(argv) {
     case 'run': return runCommand(options);
     case 'cockpit':
     case 'home': return cockpitCommand();
+    case 'logs': return logsCommand(positionals, options);
     case 'doctor': return doctorCommand(positionals, options);
     case 'review': return reviewCommand(positionals, options);
     case 'workflow': return workflowCommand(positionals, options);

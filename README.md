@@ -23,6 +23,7 @@ The package contains:
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
 - A phase-aware Copilot Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode, surfaces Copilot questions as answerable forms, keeps collapsible IDE-style logs, and promotes only a human-reviewed artifact into Git.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
+- A structured activity log (`error` through `trace`) covering every command, hook decision, and Copilot Studio event, written machine-local under `.git/` with secrets redacted and never to standard output.
 
 ## Requirements
 
@@ -725,6 +726,8 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow wm build [--local]` | Build the repository world model; `--local` commits it to the current branch without pushing. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
+| `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: every command, hook decision, and Copilot Studio event, with secrets redacted. |
+| `singularity-flow logs path\|level` | Show the log file location, or the effective file and console levels. |
 | `singularity-flow migrate-config` | Convert legacy JSON configuration and work-item state without rewriting history. |
 
 An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.

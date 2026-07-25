@@ -401,6 +401,76 @@ world-model views. Both ship with the live structure empty and the full schema i
 comments, so a freshly generated artifact passes the gates and fails only once it
 contains real content that does not hold up.
 
+## Activity log
+
+Every command, hook decision, and Copilot Studio event is recorded to a
+machine-local log so a failure can be explained after the fact rather than
+reconstructed from memory.
+
+```bash
+singularity-flow logs                      # recent entries, newest last
+singularity-flow logs --tail 200           # more history
+singularity-flow logs --level error        # only failures
+singularity-flow logs --level warn         # failures and refusals
+singularity-flow logs --event hook         # one subsystem (matched as a regex)
+singularity-flow logs --since 2026-07-25   # from a point in time
+singularity-flow logs --json               # machine-readable, for piping
+singularity-flow logs path                 # where the file is
+singularity-flow logs level                # effective levels and their source
+```
+
+The log is JSON Lines at `.git/singularity-flow/logs/activity.log`. It lives
+under `.git/` deliberately: diagnostics are specific to one machine and one
+checkout, so they are never committed, never pushed, and never part of a review.
+It rotates at `logging.maxBytes` and keeps `logging.keep` generations.
+
+### Levels
+
+`off`, `error`, `warn`, `info`, `debug`, `trace` — with `all` accepted as an
+alias for `trace`, plus `verbose` (debug), `quiet` (error), and `silent` (off).
+
+Two sinks are configured separately, because they have different jobs:
+
+| Setting | Sink | Default | Purpose |
+| --- | --- | --- | --- |
+| `logging.level` | the log file | `info` | verbose enough to diagnose a failure afterwards |
+| `logging.console` | stderr | `warn` | quiet unless something is wrong |
+
+Raise either for a single command without editing governed configuration:
+
+```bash
+SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow initiative phase epic-plan
+SINGULARITY_FLOW_LOG_CONSOLE=debug singularity-flow epic merge-plan
+```
+
+`SINGULARITY_FLOW_LOG_LEVEL` raises both sinks; `SINGULARITY_FLOW_LOG_CONSOLE`
+raises only stderr. Both override `logging` in `singularity/workflow.yml`.
+
+### What is recorded
+
+| Event prefix | What it tells you |
+| --- | --- |
+| `command.start` / `command.ok` / `command.failed` | every CLI invocation with its arguments, branch, duration, exit code, and full stack on failure |
+| `hook.guard.allow` / `hook.guard.deny` | why Copilot was permitted or refused a tool, including which selection was missing |
+| `hook.session.initiative` | a governed initiative session, where no work-item selection applies |
+| `copilot.*` | every Copilot Studio ACP event — `ready`, `turn-started`, `turn-complete` with its stop reason, `tool_call`, `permission-denied`, `error`, `process-exit` |
+
+The `hook.guard.deny` and `copilot.*` entries exist because those failures used
+to be silent: a denied tool call and an empty planning turn both left the studio
+looking connected and idle with nothing to inspect.
+
+### Secrets
+
+Log context is redacted before anything is written. Values are removed both by
+key — anything matching token, secret, password, credential, authorization,
+cookie, api-key, private-key, signature, or pat — and by shape, so GitHub,
+Slack, Google, JWT, and bearer tokens are stripped even when they appear inside
+free text. Long values are truncated, and cycles and deep structures are bounded
+rather than serialized.
+
+Nothing is ever written to standard output. That stream carries the `--json`
+payloads the desktop parses, and log lines there would corrupt them.
+
 ## Copilot Studio
 
 Open **Copilot Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
@@ -1524,6 +1594,8 @@ singularity-flow jira status|projects|epics|children|permissions
 singularity-flow plugin install|uninstall|list|path
 singularity-flow desktop snapshot|validate|save|delete-template|publish|session
 singularity-flow migrate-config
+singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
+singularity-flow logs path|level
 singularity-flow home [--json]
 singularity-flow workspace list|add|remove|use
 singularity-flow story branch create|attach|status|promote

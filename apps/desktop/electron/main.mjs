@@ -43,8 +43,67 @@ let activeWorkspace = null;
 let mainWindow = null;
 const planningPacks = new Map();
 const jiraCache = new Map();
+// One logger per repository for ACP planning events. Cached because a turn emits many chunks and
+// resolving configuration per event would be wasteful.
+const planningLoggers = new Map();
+async function planningLogger(repository) {
+  if (planningLoggers.has(repository)) return planningLoggers.get(repository);
+  const pending = (async () => {
+    try {
+      const [{ repositoryLogger }, { loadDefinition }] = await Promise.all([
+        importCliModule('logging.mjs'),
+        importCliModule('config.mjs')
+      ]);
+      const definition = await loadDefinition(repository).catch(() => null);
+      return repositoryLogger(repository, definition, { context: { surface: 'copilot-studio' } });
+    } catch {
+      return null;
+    }
+  })();
+  planningLoggers.set(repository, pending);
+  return pending;
+}
+
+// Record every ACP event. A planning turn that produced nothing used to leave no trace of what
+// Copilot actually did — whether a tool was denied, a permission refused, or the turn simply ended
+// empty. Message and thought chunks are recorded by size rather than content: the transcript is
+// already in the UI, and copying it here would bloat the log without adding information.
+const PLANNING_EVENT_LEVEL = {
+  error: 'error',
+  'permission-denied': 'warn',
+  'question-unsupported': 'warn',
+  'process-exit': 'warn',
+  ready: 'info',
+  'turn-started': 'info',
+  'turn-complete': 'info',
+  question: 'info',
+  'question-answered': 'info',
+  plan: 'info',
+  plan_update: 'info',
+  plan_removed: 'info',
+  tool_call: 'debug',
+  tool_call_update: 'debug',
+  usage_update: 'debug'
+};
+function logPlanningEvent(repository, payload) {
+  void planningLogger(repository).then((log) => {
+    if (!log) return;
+    const type = payload?.type ?? 'unknown';
+    const level = PLANNING_EVENT_LEVEL[type] ?? 'trace';
+    const detail = { planningSessionId: payload?.planningSessionId ?? null };
+    if (typeof payload?.text === 'string') detail.textChars = payload.text.length;
+    for (const key of ['stopReason', 'title', 'status', 'code', 'signal', 'version', 'questionId', 'messageId']) {
+      if (payload?.[key] != null) detail[key] = payload[key];
+    }
+    log[level](`copilot.${type}`, payload?.message ?? payload?.detail ?? null, detail);
+  }).catch(() => {});
+}
+
 const copilotBackend = new CopilotBackendController({
-  bridgeFactory: ({ repository, emit }) => new CopilotPlanningBridge({ repository, emit }),
+  bridgeFactory: ({ repository, emit }) => new CopilotPlanningBridge({
+    repository,
+    emit: (payload) => { logPlanningEvent(repository, payload); emit(payload); }
+  }),
   preflight: () => copilotPlanningPreflight(),
   emit: (channel, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);

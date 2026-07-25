@@ -79,6 +79,18 @@ collaboration:
   approvalReminderAfterHours: 24
   notifications: [terminal]
 
+# Activity logging. The log is written to .git/singularity-flow/logs/activity.log, so it
+# stays machine-local and is never committed. Read it with `singularity-flow logs`.
+#   level   controls the log file: off, error, warn, info, debug, trace (alias: all)
+#   console controls stderr only, so the terminal stays quiet unless something is wrong
+# Raise either for a single command without editing this file:
+#   SINGULARITY_FLOW_LOG_LEVEL=all   SINGULARITY_FLOW_LOG_CONSOLE=debug
+logging:
+  level: info
+  console: warn
+  maxBytes: 5242880
+  keep: 3
+
 session:
   # Every new Copilot session selects a work/Jira ID, fetches its remote branch,
   # fast-forwards safely, and only then binds the contributor's persona.

@@ -16,6 +16,7 @@ import { groundingMode } from './grounding.mjs';
 import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { normalizeStorage } from './initiative-config.mjs';
+import { normalizeLogging } from './logging.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -124,6 +125,7 @@ export function validateDefinition(definition) {
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
   normalizePlanning(definition.planning ?? {});
+  normalizeLogging(definition.logging ?? {});
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');

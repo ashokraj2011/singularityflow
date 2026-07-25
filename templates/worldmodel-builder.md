@@ -113,6 +113,7 @@ Do not generate unrelated views.
 - Use source references such as `path:start_line-end_line`.
 - Prefer implementation, configuration, schemas, and tests over README claims.
 - Record the current Git commit SHA.
+- Record the generation timestamp in ISO 8601 UTC as `generated_at` in `manifest.json`, `core/model.json`, and the provenance header of every generated view. The CLI writes the canonical `manifest.json.generated_at` immediately after validation; never guess a time or use a stale timestamp.
 - Do not include secret values.
 - Do not claim tests pass unless they were executed successfully.
 - Do not claim code is unused merely because no reference was found.
@@ -730,6 +731,11 @@ Use this structure:
     }
   ]
 }
+
+The `generated_at` value must be an ISO 8601 UTC timestamp for the instant this build ran. Repeat
+that same value in the core model and view provenance so a reviewer can tell exactly when the
+repository was grounded. The committed manifest value written by the Singularity Flow CLI is
+canonical if a generated file differs.
 
 For views that were not generated:
 

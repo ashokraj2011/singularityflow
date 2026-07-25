@@ -248,6 +248,8 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   });
   const lockExists = agentLock.exists;
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
+  let worldModelManifest = null;
+  try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* A missing model is represented by rebuildReason below. */ }
   const builderPrompt = await worldModelPrompt(root, definition);
   const plannerPrompt = await planningPrompt(root, definition);
   let github = null;
@@ -294,6 +296,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     worldModel: {
       root: modelRoot,
       repositoryOwned: true,
+      generatedAt: worldModelManifest?.generated_at ?? null,
       // Why the model cannot be used as grounding right now: missing, uncommitted, stale, or
       // invalid — null when it is usable. Every snapshot carries it so any screen can offer to
       // build it, rather than each caller rediscovering the state. A freshly cloned repository

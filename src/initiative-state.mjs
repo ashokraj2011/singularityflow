@@ -8,6 +8,7 @@ import {
   validatePortfolioWorldModelViews
 } from './initiative-config.mjs';
 import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
+import { renderInitiativeGenerator } from './initiative-generators.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
@@ -395,6 +396,10 @@ export async function verifyInitiativePhaseInputs(root, portfolio, initiative, p
       const producerPhase = initiative.phases[producerPhaseId];
       const producerOutput = producerPhase?.outputs?.[producerOutputId];
       if (producerPhase?.status !== 'approved') throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' requires approved phase '${producerPhaseId}', which is ${producerPhase?.status ?? 'missing'}.`);
+      // An optional producer that was never authored is not a missing input. Requiring it anyway
+      // would mean an Epic with no recorded source gaps could never reach requirements — the gate
+      // would be enforcing the existence of a document rather than the availability of evidence.
+      if (producerOutput?.required === false && !producerOutput.sha256) continue;
       if (!producerOutput?.sha256 || !['published', 'approved'].includes(producerOutput.status)) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' has no approved published artifact hash.`);
       const source = await secureInitiativePath(root, portfolio, initiative.initiative.id, producerOutput.path, {
         label: `Initiative input '${reference}'`,
@@ -428,6 +433,24 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       label: `Initiative output '${phaseId}/${output.id}'`,
       type: 'file'
     });
+    // A generated output is rendered from committed state on every preparation, not filled in from
+    // a blank template. Regenerating rather than preserving an edit is deliberate: the artifact is
+    // a projection, and a hand-edit would be a claim that quietly disagrees with the data.
+    if (definition.generator) {
+      const content = await renderInitiativeGenerator(definition.generator, root, { initiative, phaseId, output: definition });
+      await writeText(target.absolute, content);
+      const current = await snapshot(target.absolute);
+      Object.assign(output, {
+        status: 'draft',
+        generation: phase.generation + 1,
+        sha256: current.sha256,
+        bytes: current.size,
+        generatedBy: actor,
+        generatedPersona: persona ?? null
+      });
+      prepared.push({ id: output.id, path: target.relative, sha256: current.sha256, bytes: current.size, generated: definition.generator });
+      continue;
+    }
     if (!target.exists && !definition.template) {
       await mkdir(path.dirname(target.absolute), { recursive: true });
       Object.assign(output, {

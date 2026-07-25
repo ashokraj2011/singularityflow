@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
+import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
@@ -243,7 +244,10 @@ function normalizeOutput(output, phaseId, index) {
   if (!INITIATIVE_OUTPUT_KINDS.has(kind)) throw new SingularityFlowError(`Phase '${phaseId}' output '${id}' has unsupported kind '${kind}'.`);
   const relativePath = safeRelative(output.path ?? `${id}.${kind === 'yaml' ? 'yml' : 'md'}`, `Phase '${phaseId}' output '${id}' path`);
   const template = output.template ? safeRelative(output.template, `Phase '${phaseId}' output '${id}' template`) : null;
-  if (['markdown', 'yaml', 'interface-contract'].includes(kind) && !template) throw new SingularityFlowError(`Phase '${phaseId}' output '${id}' requires a template.`);
+  // A generated output is rendered from committed state, so it needs no blank template to fill in.
+  const generator = output.generator ?? null;
+  if (generator && !isInitiativeGenerator(generator)) throw new SingularityFlowError(`Phase '${phaseId}' output '${id}' has unknown generator '${generator}'.`);
+  if (['markdown', 'yaml', 'interface-contract'].includes(kind) && !template && !generator) throw new SingularityFlowError(`Phase '${phaseId}' output '${id}' requires a template.`);
   const consumes = [...(output.consumes ?? [])];
   consumes.forEach((reference) => {
     if (typeof reference !== 'string' || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(reference)) {
@@ -257,6 +261,7 @@ function normalizeOutput(output, phaseId, index) {
     kind,
     path: relativePath,
     template,
+    generator,
     consumes,
     required: output.required !== false,
     approval: normalizedApproval(output.approval ?? {}, `Phase '${phaseId}' output '${id}' approval`)
@@ -498,6 +503,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
   const missing = [];
   for (const phase of resolved.phases) {
     for (const output of phase.outputs) {
+      // A generated output has no template to pin; its content comes from committed state.
       if (!output.template) continue;
       const relative = path.join(portfolio.templatesRoot, output.template);
       if (!existsSync(path.join(root, relative))) {

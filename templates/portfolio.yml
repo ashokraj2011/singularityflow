@@ -105,8 +105,12 @@ initiativePhases:
     lanes: [business-product]
     worldModelViews: [business]
     outputs:
-      - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, template: initiatives/epic/source-catalog.md }
-      - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, template: initiatives/epic/source-gaps.md }
+      # Generated from the pinned source manifest rather than authored: the engine already holds
+      # every field, so transcribing them by hand is busywork that can drift from the truth.
+      - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, generator: source-catalog }
+      # Optional: a well-evidenced Epic legitimately has no gaps, and demanding the document
+      # anyway only produces a file that says "none".
+      - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, required: false, template: initiatives/epic/source-gaps.md }
       - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, template: initiatives/epic/intake-summary.md }
     checklist:
       - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
@@ -120,6 +124,8 @@ initiativePhases:
     outputs:
       - { id: requirements-specification, label: Requirements specification, kind: markdown, path: requirements.md, template: initiatives/epic/requirements.md, consumes: [epic-intake/intake-summary] }
       - { id: requirements-traceability, label: Requirements traceability, kind: yaml, path: requirements-traceability.yml, template: initiatives/epic/requirements-traceability.yml, consumes: [epic-intake/source-catalog] }
+      # Consumes source-gaps when it exists; that producer is optional, so an Epic with no recorded
+      # gaps still reaches requirements instead of stalling on a document nobody needed.
       - { id: open-questions, label: Open questions and decisions, kind: markdown, path: open-questions.md, template: initiatives/epic/open-questions.md, consumes: [epic-intake/source-gaps] }
     checklist:
       - { id: requirements-traceable, label: Every REQ and AC cites a pinned source, requirement: must, acceptedAssurance: [machine-verified, human-approved], gate: block }

@@ -436,3 +436,48 @@ test('a phase-scoped promotion refuses anything outside the phase resolution', a
     /No reviewed artifacts/
   );
 });
+
+test('a generated output is rendered from committed state, and an optional one does not block', async () => {
+  const { renderInitiativeGenerator } = await import('../src/initiative-generators.mjs');
+
+  // The catalog is a projection of the pinned manifest and the Epic record: every value it shows
+  // is already governed state, so nothing here is a claim a person had to make.
+  const rendered = await renderInitiativeGenerator('source-catalog', await repository(), {
+    initiative: { initiative: { id: 'GEN-1', source: {
+      type: 'jira', key: 'GEN-1', title: 'Generated catalog', status: 'Open',
+      attachments: [{ filename: 'brief.pdf', mimeType: 'application/pdf', size: 2048 }]
+    } } }
+  });
+  assert.match(rendered, /# Source Catalog — GEN-1/);
+  assert.match(rendered, /Generated from the pinned source manifest/);
+  assert.match(rendered, /\| Jira key \| GEN-1 \|/);
+  // An attachment is listed but must not read as evidence until it is pinned and hash-verified.
+  assert.match(rendered, /brief\.pdf .*\| no \|/);
+  assert.match(rendered, /cannot cite them until they are pinned and hash-verified/);
+
+  await assert.rejects(() => renderInitiativeGenerator('not-a-generator', '/tmp', {}), /Unknown initiative output generator/);
+});
+
+test('an optional output that was never authored is not treated as a missing input', async () => {
+  const { validatePortfolio } = await import('../src/initiative-config.mjs');
+  const YAMLmod = (await import('yaml')).default;
+  const template = YAMLmod.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
+  const portfolio = validatePortfolio(template);
+  const intake = portfolio.initiativePhases['epic-intake'];
+
+  // source-catalog is generated, so it needs no template; source-gaps is optional, because a
+  // well-evidenced Epic legitimately has none and a file saying "none" is not governance.
+  const catalog = intake.outputs.find((output) => output.id === 'source-catalog');
+  const gaps = intake.outputs.find((output) => output.id === 'source-gaps');
+  assert.equal(catalog.generator, 'source-catalog');
+  assert.equal(catalog.template, null);
+  assert.equal(gaps.required, false);
+
+  // open-questions still declares the dependency, so traceability holds whenever the artifact
+  // exists — it simply no longer blocks when the optional producer was never authored.
+  const openQuestions = portfolio.initiativePhases['epic-requirements'].outputs.find((output) => output.id === 'open-questions');
+  assert.deepEqual(openQuestions.consumes, ['epic-intake/source-gaps']);
+
+  const state = await readFile(path.join(packageRoot, 'src', 'initiative-state.mjs'), 'utf8');
+  assert.match(state, /producerOutput\?\.required === false && !producerOutput\.sha256\) continue/);
+});

@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { ensureRepositoryWorldModelViews, initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { portfolioWorldModelViews, validatePortfolio } from '../src/initiative-config.mjs';
-import { bootstrapDesktopPortfolio } from '../src/desktop.mjs';
+import { bootstrapDesktopPortfolio, desktopSnapshot } from '../src/desktop.mjs';
 
 const packageRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
@@ -115,4 +115,24 @@ test('bootstrap installs initiative templates missing from a repository initiali
   for (const template of referenced) {
     assert.ok(existsSync(path.join(root, 'singularity/templates', template)), `missing template ${template}`);
   }
+});
+
+test('the desktop snapshot reports why a repository cannot be grounded, so a fresh clone is asked', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-prompt-'));
+  const root = path.join(base, 'app');
+  await mkdir(root);
+  git(['init', '-b', 'main'], root);
+  git(['config', 'user.name', 'Owner'], root);
+  git(['config', 'user.email', 'owner@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# App\n');
+  await initializeDefinition(root);
+  git(['add', '.'], root);
+  git(['commit', '-m', 'init'], root);
+
+  // A repository that has never had a world model built is exactly the state a fresh clone or a
+  // newly onboarded repository lands in. The snapshot must say so, because the prompt offering to
+  // build it reads this field — without it no screen can know grounding is unavailable.
+  const snapshot = await desktopSnapshot(root);
+  assert.match(snapshot.worldModel.rebuildReason, /has not been built/);
+  assert.equal(snapshot.worldModel.files.length, 0);
 });

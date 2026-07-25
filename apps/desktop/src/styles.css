@@ -1389,6 +1389,23 @@ body {
 .topbar select:focus, .session-control select:focus { border-color: #75a48a; box-shadow: 0 0 0 4px rgba(17,122,77,.1); }
 .topbar-actions { display: flex; align-items: center; gap: 7px; }
 
+/* Grounding prompt shown under the top bar when the repository has no usable world model. */
+.world-model-prompt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 14px 26px 0;
+  border: 1px solid rgba(203,150,42,.34);
+  border-radius: 14px;
+  padding: 13px 16px;
+  background: linear-gradient(120deg,rgba(252,246,232,.96),rgba(250,248,242,.96));
+}
+.world-model-prompt-mark { flex: 0 0 auto; color: #a9761a; font-size: 15px; }
+.world-model-prompt > div:first-of-type { flex: 1; min-width: 0; }
+.world-model-prompt strong { display: block; color: #5d4310; font-size: 12px; font-weight: 640; }
+.world-model-prompt p { margin: 3px 0 0; color: #7b6231; font-size: 10.5px; line-height: 1.5; }
+.world-model-prompt .row { flex: 0 0 auto; gap: 7px; }
+
 /* Workspace switcher in the top bar, beside the Copilot control. The shared .repository-menu
    opens upward and left-aligned because it used to hang off the bottom of the sidebar; anchored
    in the top bar it has to drop downward and align right or it renders off-screen. */

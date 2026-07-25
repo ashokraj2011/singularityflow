@@ -15,6 +15,7 @@ import {
   WORKFLOW_PATH
 } from './config.mjs';
 import { documentCatalog } from './documents.mjs';
+import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
 import { loadWorkflow } from './state.mjs';
@@ -290,6 +291,11 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     worldModel: {
       root: modelRoot,
       repositoryOwned: true,
+      // Why the model cannot be used as grounding right now: missing, uncommitted, stale, or
+      // invalid — null when it is usable. Every snapshot carries it so any screen can offer to
+      // build it, rather than each caller rediscovering the state. A freshly cloned repository
+      // reports "not been built", which is what makes the prompt appear on first open.
+      rebuildReason: await worldModelRebuildReason(root, definition),
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],

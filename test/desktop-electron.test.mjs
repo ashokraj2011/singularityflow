@@ -1102,3 +1102,20 @@ test('chat styling is not defeated by the rules it replaced', async () => {
   // panes never scrolled independently.
   assert.match(styles, /\.page-stage:has\(> \.requirements-workspace\) \{ height: 100%; \}/);
 });
+
+test('a proposed artifact can be read in full, edited, and diffed before it is written', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Review was a 300px monospace box inside a 330px column — unusable for a specification.
+  assert.match(app, /Open full size · review &amp; edit/);
+  // The edited copy is what gets promoted; `proposed` is derived from the transcript and cannot be
+  // the thing you edit.
+  assert.match(app, /for \(const \[id, value\] of Object\.entries\(edits\)\) if \(merged\.has\(id\) && value\.trim\(\)\) merged\.set\(id, value\)/);
+  // A new proposal supersedes edits made against the previous one.
+  assert.match(app, /useEffect\(\(\) => \{ setEdits\(\{\}\); setReviewed\(false\); \}, \[plan\]\)/);
+  // Writing and pushing is not something to do by reflex.
+  assert.match(app, /disabled=\{!proposed\.size \|\| !reviewed \|\| promoting \|\| running\}/);
+  // A diff needs a committed generation to compare against; the snapshot already carries its text,
+  // so no extra IPC was added for it.
+  assert.match(app, /committed\?\.content\s*\n\s*\? <DiffEditor/);
+  assert.match(app, /import Editor, \{ DiffEditor \} from '@monaco-editor\/react'/);
+});

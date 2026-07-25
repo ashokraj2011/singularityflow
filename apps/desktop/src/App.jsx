@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import YAML from 'yaml';
 import helpMarkdown from '../../../HELP.md?raw';
 import {
@@ -2413,6 +2413,9 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (!node || !stickToBottom.current) return;
     node.scrollTop = node.scrollHeight;
   }, [messages, activity]);
+  const [edits, setEdits] = useState({});
+  const [reviewed, setReviewed] = useState(false);
+  const [fullView, setFullView] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState(null);
   const [localNote, setLocalNote] = useState(null);
@@ -2476,7 +2479,20 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const outputs = contextPack?.outputs
     ?? selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs
     ?? [];
-  const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+  const parsed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+  // What is promoted is what is on screen: an edited artifact wins over the parsed one, so the
+  // reviewer's corrections are what reaches Git rather than being silently discarded.
+  const proposed = useMemo(() => {
+    const merged = new Map(parsed);
+    for (const [id, value] of Object.entries(edits)) if (merged.has(id) && value.trim()) merged.set(id, value);
+    return merged;
+  }, [parsed, edits]);
+  const edited = useMemo(
+    () => [...parsed].filter(([id, value]) => edits[id] !== undefined && edits[id] !== value).map(([id]) => id),
+    [parsed, edits]
+  );
+  // A new proposal supersedes edits made against the previous one.
+  useEffect(() => { setEdits({}); setReviewed(false); }, [plan]);
   // Compared here rather than at promotion time so the user learns while the conversation is still
   // cheap to redo.
   const contextStale = Boolean(contextPack && data.repository.head && contextPack.manifest.repository.head !== data.repository.head);
@@ -2792,19 +2808,70 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
               {!content && committed?.status === 'approved' && <span className="artifact-state approved" title="Approved">✓</span>}
             </button>)}
           </section>)}
-          {selectedArtifact && proposed.get(selectedArtifact) && <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>}
+          {selectedArtifact && proposed.get(selectedArtifact) && <>
+            <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>
+            <button className="secondary full compact" onClick={() => setFullView(selectedArtifact)}>Open full size · review &amp; edit</button>
+          </>}
           <div className="requirements-approval">
             <p className="requirements-hint">
               Approving writes every proposed artifact and pushes them as one commit. The phase gate stays a separate decision, and approval can happen from anywhere on the pushed branch.
             </p>
-            <button className="primary full" disabled={!proposed.size || promoting || running} onClick={approveArtifacts}>
+            {edited.length > 0 && <p className="requirements-hint"><b>{edited.length} edited</b> — your version is what gets written.</p>}
+            {proposed.size > 0 && <label className="self-approval-ack">
+              <input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />
+              <span>I have read {proposed.size === 1 ? 'this artifact' : `all ${proposed.size} artifacts`} in full.</span>
+            </label>}
+            <button className="primary full" disabled={!proposed.size || !reviewed || promoting || running} onClick={approveArtifacts}>
               {promoting ? 'Writing…' : `Approve ${proposed.size || ''} artifact${proposed.size === 1 ? '' : 's'} & push`}
             </button>
+            {proposed.size > 0 && !reviewed && <small className="field-error">Confirm you have read the artifacts before they are written and pushed.</small>}
           </div>
         </>}
       </aside>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
+    {fullView && (() => {
+      const output = outputs.find((item) => item.id === fullView);
+      const committed = selected.documents.find((document) => document.id === fullView && document.phase === phaseId);
+      const current = proposed.get(fullView) ?? '';
+      const language = output?.kind === 'yaml' ? 'yaml' : 'markdown';
+      return <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setFullView(null)}>
+        <div className="preview-modal artifact-modal" onClick={(event) => event.stopPropagation()}>
+          <header>
+            <div>
+              <strong>{output?.label ?? fullView}</strong>
+              <small>{fullView} · {output?.kind}{committed?.sha256 ? ` · comparing against generation ${committed.generation}` : ' · nothing committed yet'}</small>
+            </div>
+            <div className="row">
+              {edits[fullView] !== undefined && <button className="ghost compact" onClick={() => setEdits((rest) => { const next = { ...rest }; delete next[fullView]; return next; })}>Revert edits</button>}
+              <button className="ghost compact" onClick={() => setFullView(null)}>Close</button>
+            </div>
+          </header>
+          {/* A diff only means something once there is a committed generation to compare with. */}
+          {committed?.content
+            ? <DiffEditor
+              height="min(620px, 68vh)"
+              language={language}
+              original={committed.content}
+              modified={current}
+              options={{ renderSideBySide: true, readOnly: false, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }}
+              onMount={(editor) => {
+                // Edits are made on the modified side; Monaco's diff editor exposes it separately.
+                editor.getModifiedEditor().onDidChangeModelContent(() => {
+                  setEdits((rest) => ({ ...rest, [fullView]: editor.getModifiedEditor().getValue() }));
+                });
+              }}
+            />
+            : <Editor
+              height="min(620px, 68vh)"
+              language={language}
+              value={current}
+              options={{ minimap: { enabled: false }, fontSize: 12, wordWrap: 'on', scrollBeyondLastLine: false }}
+              onChange={(value) => setEdits((rest) => ({ ...rest, [fullView]: value ?? '' }))}
+            />}
+        </div>
+      </div>;
+    })()}
     {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPreview(null)}>
       <div className="preview-modal" onClick={(event) => event.stopPropagation()}>
         <header>

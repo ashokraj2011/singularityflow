@@ -3584,3 +3584,8 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .requirements-console-lines code { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
 .requirements-console-lines span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .requirements-console-lines .error code, .requirements-console-lines .warn code { color: #8a6d1f; }
+
+/* Full-size artifact review */
+.artifact-modal { width: min(1180px, 92vw); height: min(780px, 86vh); display: flex; flex-direction: column; }
+.artifact-modal > header { flex: 0 0 auto; }
+.artifact-modal .row { gap: 8px; }

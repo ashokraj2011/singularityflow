@@ -203,6 +203,7 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const output = run(process.execPath, [bin, 'wm', 'build', '--phase', 'design', '--task', task, '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
   assert.match(output, /World model built from source/);
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.match(manifest.generated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
   assert.match(manifest.source_tree_sha256, /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual(manifest.requested_views, ['architecture', 'security']);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\]\[source:[0-9a-f]{12}\] design/);

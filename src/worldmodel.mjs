@@ -196,7 +196,12 @@ async function build(root, config, options) {
     const validated = await validateWorldModelDirectory(staging, {
       expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
     });
+    // The builder is asked to include this field too, but the CLI is the source of truth for
+    // provenance. Overwrite it after validation so Copilot cannot invent or omit the generation
+    // instant. This timestamp is committed with manifest.json and remains hash-bound to the model.
+    const generatedAt = new Date().toISOString();
     const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    validated.manifest.generated_at = generatedAt;
     validated.manifest.source_tree_sha256 = sourceState.sha256;
     validated.manifest.generated_for_phase = phase ?? null;
     validated.manifest.requested_views = requiredViews;

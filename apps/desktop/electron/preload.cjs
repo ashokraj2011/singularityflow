@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('singularity', {
   answerPlanningQuestion: (repository, planningSessionId, questionId, content, action = 'accept') => ipcRenderer.invoke('planning:answer', { repository, planningSessionId, questionId, content, action }),
   stopPlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:stop', { repository, planningSessionId }),
   promotePlanningArtifact: (repository, planningSessionId, persona, content) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, content }),
+  promotePlanningArtifacts: (repository, planningSessionId, persona, artifacts) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, artifacts }),
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),

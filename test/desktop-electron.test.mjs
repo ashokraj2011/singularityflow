@@ -409,7 +409,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /\['business-planning', 'Planning'\]/);
   assert.match(source, /\['templates', 'Artifact templates'\]/);
   assert.match(source, /\['business-stories', 'Create Stories'\]/);
-  assert.match(source, /entryTab="requirements"/);
+  // Requirements is no longer a tab of the Epic workspace: sources, the Copilot conversation, and
+  // the artifacts it produces are one phase, so they are one screen.
+  assert.doesNotMatch(source, /entryTab="requirements"/);
+  assert.match(source, /<RequirementsWorkspace data=\{data\}/);
   assert.match(source, /entryTab="planning"/);
   assert.match(source, /entryTab="publish"/);
   assert.match(source, /Approved Story plan/);
@@ -669,8 +672,9 @@ test('a hand-off frames Copilot Studio on the phase it came from, and the sideba
   assert.match(source, /function openStudio\(phase = null, target = null\)/);
   assert.match(source, /setPlanningFocus\(phase \? \{ phase, target \} : null\)/);
   assert.match(source, /focus=\{planningFocus\}/);
-  assert.match(source, /openStudio\(phase \?\? 'epic-requirements'\)/);
   assert.match(source, /openStudio\(phase \?\? 'epic-plan'\)/);
+  // Requirements now owns its own phase-scoped session rather than handing off to the studio.
+  assert.match(source, /focus: \{ phase: 'epic-requirements' \}/);
   assert.match(source, /openPlanning\('epic-plan'\)/);
   assert.match(source, /openPlanning\(phases\[0\]\)/);
 

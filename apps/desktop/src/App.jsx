@@ -1637,7 +1637,11 @@ function ApprovalInbox({ data, busy, refresh, attach }) {
   </div>;
 }
 
-function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null }) {
+// The governed Copilot session: context pack, ACP transcript, inline questions, and promotion.
+// Extracted so more than one screen can present it — Copilot Studio shows it phase-by-phase,
+// while the Requirements workspace wraps the same session in a sources/chat/artifacts layout.
+// One implementation, because the ACP event handling here is subtle and must not drift.
+function useCopilotPlanningSession({ data, action, reload, profileRole = null, focus = null }) {
   const groups = data.planning?.targets ?? [];
   const defaultGroup = groups.find((item) => item.scope === 'initiative') ?? groups[0] ?? null;
   // A hand-off from a phase screen names the phase and output it wants. Honour it only when that
@@ -1967,6 +1971,15 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
     await reload(data.selectedWorkId, data.selectedInitiativeId);
   }
 
+  return {
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+  };
+}
+
+function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null }) {
+  const {
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+  } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
     <header className="page-heading planning-heading"><div><span className="eyebrow">Copilot-native decision workspace</span><h1>Copilot Studio</h1><p>Move from business intent to a reviewable, phase-specific plan without allowing the planning session to mutate source or lifecycle state.</p></div><div className="row"><Pill tone={preflight?.ready ? 'good' : 'warn'}>{preflight?.ready ? 'Copilot Plan mode ready' : 'Copilot setup needed'}</Pill><button className="secondary" onClick={openPlanningPrompt}>Edit planning prompt</button></div></header>
@@ -2164,6 +2177,217 @@ function EpicSourcesView({ data, selected, action, reload }) {
 function EpicArtifactView({ selected, phases, title, detail, openPlanning, downloadFile }) {
   const documents = selected.documents.filter((document) => phases.includes(document.phase));
   return <div className="epic-workspace-view"><section className="panel epic-artifact-hero"><div><span className="eyebrow">Governed artifact workspace</span><h2>{title}</h2><p>{detail}</p></div>{openPlanning && <button className="primary" onClick={() => openPlanning(phases[0])}>Compose in Copilot Studio</button>}</section><section className="panel initiative-documents expanded"><header className="panel-heading"><div><span className="eyebrow">Hash-bound outputs</span><h2>{documents.length} documents</h2></div></header>{documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="secondary compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Open full document</button></div>)}</section></div>;
+}
+
+// Parse fenced artifacts out of a Copilot reply. Mirrors parseArtifactBlocks in src/planning.mjs;
+// the renderer needs it to show what is on offer before anything is promoted, and the CLI
+// re-validates on the way in so this is a preview, never the authority.
+function readArtifactBlocks(text, allowedIds) {
+  const found = new Map();
+  const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n([\s\S]*?)\r?\nSFLOW-ARTIFACT:\1>>>/g;
+  for (const match of String(text ?? '').matchAll(pattern)) {
+    const [, id, body] = match;
+    if (allowedIds.includes(id) && body.trim() && !found.has(id)) found.set(id, body.trim());
+  }
+  return found;
+}
+
+function documentKind(name = '') {
+  const extension = String(name).split('.').pop()?.toLowerCase() ?? '';
+  return {
+    pdf: 'PDF', doc: 'DOC', docx: 'DOCX', xls: 'XLS', xlsx: 'XLSX', csv: 'CSV',
+    png: 'Image', jpg: 'Image', jpeg: 'Image', gif: 'Image', svg: 'Image',
+    md: 'Markdown', txt: 'Text', fig: 'Figma', json: 'JSON', yml: 'YAML', yaml: 'YAML'
+  }[extension] ?? (extension ? extension.toUpperCase() : 'File');
+}
+
+// Sources, conversation, and artifacts in one place. Requirements used to mean bouncing between a
+// governance screen and Copilot Studio, re-framing the phase by hand, and promoting one artifact at
+// a time; the phase is one piece of work, so it gets one workspace.
+function RequirementsWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt }) {
+  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: 'epic-requirements' } });
+  const {
+    contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
+    objective, setObjective, persona, setPersona, preflight, phase, group,
+    buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot
+  } = session;
+
+  const [selectedArtifact, setSelectedArtifact] = useState(null);
+  const [promoting, setPromoting] = useState(false);
+  const providers = Object.entries(selected.state.resolution.storage?.providers ?? {});
+  const [providerId, setProviderId] = useState(selected.state.resolution.storage?.defaultProvider ?? providers[0]?.[0] ?? '');
+
+  // Same governed path as the full sources view: bytes go to the configured provider and Git keeps
+  // the hash, so a pinned document is citable evidence rather than an attachment.
+  async function addSources() {
+    const result = await action(
+      () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId),
+      'Pinned source files uploaded and published'
+    );
+    if (result && !result.canceled) await reload(null, selected.state.initiative.id);
+  }
+
+  const state = selected.state;
+  const intake = state.phases['epic-intake'];
+  const requirements = state.phases['epic-requirements'];
+  const intakeApproved = intake?.status === 'approved';
+  const phaseId = intakeApproved ? 'epic-requirements' : 'epic-intake';
+  const outputs = contextPack?.outputs ?? [];
+  const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+
+  const sources = selected.sources?.sources ?? [];
+  const jiraAttachments = state.initiative.source?.type === 'jira' ? (state.initiative.source.attachments ?? []) : [];
+  const documents = selected.documents.filter((document) => document.phase === phaseId);
+
+  // The whole set lands as one commit: a traceability matrix and the requirements it cites are one
+  // decision, and approving them a step apart would leave the branch citing things that are not there.
+  async function approveArtifacts() {
+    if (!proposed.size) return;
+    setPromoting(true);
+    const result = await action(
+      () => window.singularity.promotePlanningArtifacts(
+        data.repository.root,
+        contextPack.sessionId,
+        persona,
+        [...proposed].map(([outputId, content]) => ({ outputId, content }))
+      ),
+      `Wrote and pushed ${proposed.size} artifact${proposed.size === 1 ? '' : 's'}`
+    );
+    setPromoting(false);
+    if (result) await reload(null, state.initiative.id);
+  }
+
+  const pendingQuestions = questions.filter((question) => question.status === 'pending');
+  const ready = preflight?.ready;
+
+  return <div className="requirements-workspace">
+    <header className="page-heading requirements-heading">
+      <div>
+        <span className="eyebrow">{intakeApproved ? 'Requirements' : 'Intake'} · governed authoring</span>
+        <h1>{state.initiative.title}</h1>
+        <p>Bring the evidence, work it through with Copilot, then approve the artifacts into Git.</p>
+      </div>
+      <div className="row">
+        <Pill tone={requirements?.status === 'approved' ? 'good' : 'accent'}>{phaseId} · {(intakeApproved ? requirements : intake)?.status?.replaceAll('_', ' ')}</Pill>
+        <Pill tone={ready ? 'good' : 'warn'}>{ready ? 'Copilot ready' : 'Copilot setup needed'}</Pill>
+      </div>
+    </header>
+
+    <div className="requirements-panes">
+      <aside className="requirements-sources">
+        <header><h2>Sources</h2><Pill>{sources.length}</Pill></header>
+        <p className="requirements-hint">Everything pinned here is hashed and becomes part of the governed prompt. Requirements may only cite what is listed.</p>
+        <div className="requirements-source-actions">
+          <select aria-label="Storage provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
+            {providers.map(([id, provider]) => <option key={id} value={id}>{id} · {provider.type}</option>)}
+          </select>
+          <button className="secondary compact" disabled={!providers.length} onClick={addSources}>＋ Add files</button>
+        </div>
+        {!sources.length
+          ? <p className="requirements-hint">Nothing pinned yet. Upload the specification, research, designs, or spreadsheets this phase must be based on.</p>
+          : sources.map((source) => <div key={source.sourceId} className="requirements-source-row">
+            <span className="requirements-kind">{documentKind(source.name ?? source.path)}</span>
+            <strong title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}>{source.name ?? source.path}</strong>
+            <small>{source.bytes ? `${Math.ceil(source.bytes / 1024)} KB` : ''}</small>
+          </div>)}
+        {jiraAttachments.length > 0 && <section className="requirements-jira-attachments">
+          <h3>From Jira ({jiraAttachments.length})</h3>
+          <p className="requirements-hint">Listed from the Epic import. Pin one above to make it citable evidence with its own hash.</p>
+          {jiraAttachments.map((file) => <div key={file.id ?? file.filename} className="requirements-source-row">
+            <span className="requirements-kind">{documentKind(file.filename)}</span>
+            <strong title={file.filename}>{file.filename}</strong>
+            <small>{file.size ? `${Math.ceil(file.size / 1024)} KB` : ''}</small>
+          </div>)}
+        </section>}
+        {documents.length > 0 && <section>
+          <h3>Generated ({documents.length})</h3>
+          {documents.map((document) => <div key={document.id} className="requirements-source-row">
+            <span className="requirements-kind">{document.status}</span>
+            <strong title={document.label}>{document.label}</strong>
+            <button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Preview</button>
+          </div>)}
+        </section>}
+      </aside>
+
+      <section className="requirements-conversation">
+        {!contextPack ? <div className="requirements-start">
+          <h2>Describe what this phase must decide</h2>
+          <p>Copilot receives the phase contract, your persona, the repository world model, and every pinned source. It reasons read-only; nothing is written until you approve.</p>
+          <textarea
+            rows="4"
+            value={objective}
+            onChange={(event) => setObjective(event.target.value)}
+            placeholder={`What must ${phase?.label ?? 'this phase'} settle? For example: turn the pinned specification into REQ/AC records, and flag anything the sources do not answer.`}
+          />
+          <div className="row">
+            <select aria-label="Persona" value={persona} onChange={(event) => setPersona(event.target.value)}>
+              {Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}
+            </select>
+            <button className="primary" disabled={!ready || running || !group} onClick={buildContext}>Start with Copilot</button>
+          </div>
+          {!ready && <p className="requirements-hint">{preflight?.message ?? 'Copilot CLI is not available for Plan mode yet.'}</p>}
+        </div> : <>
+          <div className="requirements-context-bar">
+            <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
+            <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
+            {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Send to Copilot</button>}
+          </div>
+          <div className="requirements-activity">{activity}</div>
+          {pendingQuestions.length > 0 && <div className="copilot-question-stack">
+            {pendingQuestions.map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}
+          </div>}
+          <div className="requirements-messages">
+            {messages.length ? messages.map((message, index) => <div className={message.role} key={`${message.id}:${index}`}>
+              <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
+              <pre>{message.text}</pre>
+            </div>) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
+          </div>
+          <div className="requirements-composer">
+            <textarea
+              rows="3"
+              value={followup}
+              disabled={!started || running}
+              onChange={(event) => setFollowup(event.target.value)}
+              placeholder="Add an instruction, answer a question, or ask for a revision…"
+            />
+            <div className="row">
+              <button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button>
+              <button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send</button>
+            </div>
+          </div>
+        </>}
+      </section>
+
+      <aside className="requirements-artifacts">
+        <header><h2>Artifacts</h2><Pill tone={proposed.size ? 'accent' : 'neutral'}>{proposed.size}/{outputs.length || '—'}</Pill></header>
+        {!outputs.length ? <p className="requirements-hint">Start a session to see what this phase must produce.</p> : <>
+          {outputs.map((output) => {
+            const content = proposed.get(output.id);
+            const committed = selected.documents.find((document) => document.id === output.id);
+            return <button
+              key={output.id}
+              type="button"
+              className={`requirements-artifact ${selectedArtifact === output.id ? 'active' : ''} ${content ? 'proposed' : ''}`}
+              onClick={() => setSelectedArtifact(selectedArtifact === output.id ? null : output.id)}
+            >
+              <span className="requirements-kind">{output.kind}</span>
+              <strong>{output.label}</strong>
+              <small>{content ? `proposed · ${Math.ceil(content.length / 1024) || 1} KB` : committed?.sha256 ? `committed · ${committed.status}` : 'not proposed yet'}</small>
+            </button>;
+          })}
+          {selectedArtifact && proposed.get(selectedArtifact) && <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>}
+          <div className="requirements-approval">
+            <p className="requirements-hint">
+              Approving writes every proposed artifact and pushes them as one commit. The phase gate stays a separate decision, and approval can happen from anywhere on the pushed branch.
+            </p>
+            <button className="primary full" disabled={!proposed.size || promoting || running} onClick={approveArtifacts}>
+              {promoting ? 'Writing…' : `Approve ${proposed.size || ''} artifact${proposed.size === 1 ? '' : 's'} & push`}
+            </button>
+          </div>
+        </>}
+      </aside>
+    </div>
+  </div>;
 }
 
 function EpicRequirementsView({ data, selected, action, reload, openPlanning, downloadFile }) {
@@ -3740,7 +3964,9 @@ export default function App() {
         onGenerate={generateWorldModel}
         onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-requirements')} localRole={onboarding?.profile?.role} entryTab="requirements" />}{page === 'business-planning' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-plan')} localRole={onboarding?.profile?.role} entryTab="planning" />}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
+        ? <RequirementsWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} />
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-plan')} localRole={onboarding?.profile?.role} entryTab="planning" />}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

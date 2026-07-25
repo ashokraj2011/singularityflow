@@ -730,7 +730,9 @@ function registerHandlers() {
     assertTrustedSender(event);
     return copilotBackend.releasePlanning(assertRepository(repository), planningSessionId);
   });
-  trustedHandle('planning:promote', async (event, { repository, planningSessionId, persona, content }) => {
+  // `artifacts` promotes a whole phase-scoped set in one governed commit; `content` remains the
+  // single-artifact form for output-scoped sessions.
+  trustedHandle('planning:promote', async (event, { repository, planningSessionId, persona, content, artifacts = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
@@ -739,8 +741,9 @@ function registerHandlers() {
       'desktop', 'planning-promote',
       '--session', planningSessionId,
       ...(persona ? ['--persona', persona] : []),
+      ...(artifacts ? ['--set'] : []),
       '--json'
-    ], { input: content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
+    ], { input: artifacts ? JSON.stringify(artifacts) : content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
     await copilotBackend.releasePlanning(root, planningSessionId);
     planningPacks.delete(planningSessionId);
     return result;

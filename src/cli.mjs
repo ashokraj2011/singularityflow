@@ -114,7 +114,7 @@ import {
 } from './initiative-report.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
-import { createPlanningContext, promotePlanningArtifact } from './planning.mjs';
+import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
 import { listEpicSources, registerEpicSource, verifyEpicSources } from './epic-sources.mjs';
 import {
   attachStoryBranch, createStoryBranch, createStoryReviewPacket, promoteStoryBranch, storyBranchStatus
@@ -2120,11 +2120,21 @@ async function desktopCommand(positionals, options) {
     target: optionString(options, 'target'),
     objective: optionString(options, 'objective', '')
   });
-  else if (subcommand === 'planning-promote') result = await promotePlanningArtifact(root, {
-    sessionId: optionString(options, 'session'),
-    persona: optionString(options, 'persona'),
-    content: await stdinText()
-  });
+  else if (subcommand === 'planning-promote') {
+    // stdin carries either the single reviewed artifact, or a JSON set from a phase-scoped
+    // session: [{ outputId, content }]. The set form is how one conversation promotes every
+    // artifact of a phase in a single governed commit.
+    const input = await stdinText();
+    let artifacts = null;
+    if (optionBoolean(options, 'set')) {
+      try { artifacts = JSON.parse(input); }
+      catch (error) { throw new SingularityFlowError(`Artifact set is not valid JSON: ${error.message}`); }
+      if (!Array.isArray(artifacts)) throw new SingularityFlowError('Artifact set must be a JSON array of { outputId, content }.');
+    }
+    result = artifacts
+      ? await promotePlanningArtifacts(root, { sessionId: optionString(options, 'session'), persona: optionString(options, 'persona'), artifacts })
+      : await promotePlanningArtifact(root, { sessionId: optionString(options, 'session'), persona: optionString(options, 'persona'), content: input });
+  }
   else if (subcommand === 'initiative-materialize-preview') {
     const initiativeId = optionString(options, 'initiative');
     result = await materializeInitiative(root, initiativeId, { dryRun: true });

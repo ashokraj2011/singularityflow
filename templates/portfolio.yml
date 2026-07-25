@@ -114,7 +114,9 @@ initiativePhases:
       # Optional: a well-evidenced Epic legitimately has no gaps, and demanding the document
       # anyway only produces a file that says "none".
       - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, required: false, template: initiatives/epic/source-gaps.md }
-      - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, template: initiatives/epic/intake-summary.md }
+      # Optional: the pinned source catalog is the authoritative intake record; teams may skip
+      # the narrative summary and move directly to the governed Requirements artifact.
+      - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, required: false, template: initiatives/epic/intake-summary.md }
     checklist:
       - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: sources-pinned, label: Required source versions are accessible and hash-pinned, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }

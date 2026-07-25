@@ -385,7 +385,7 @@ headings:
 
 | Artifact | Structure it follows |
 | --- | --- |
-| `intake-summary.md` | Epic charter: objective, measurable success criteria, stakeholder analysis, scope boundaries, readiness assessment |
+| `intake-summary.md` | Optional Epic charter: objective, measurable success criteria, stakeholder analysis, scope boundaries, readiness assessment |
 | `source-catalog.md` | Evidence register with authority, currency, coverage by scope area, and a recorded precedence ruling for conflicting sources |
 | `source-gaps.md` | Gap log separating blocking from non-blocking, with owners, working assumptions, and explicitly accepted unknowns |
 | `requirements.md` | Requirements specification structured after ISO/IEC/IEEE 29148: MoSCoW priority, the four verification methods, measurable non-functional requirements, data, integration, and compliance requirements, glossary, quality checklist |

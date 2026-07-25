@@ -37,6 +37,8 @@ import {
   updateArtifactSection
 } from './artifact-builder.mjs';
 import { workspaceLandingPage } from './workspace-routing.mjs';
+// Shared with the CLI so the app and the terminal agree on what comes next.
+import { nextInitiativeAction, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -2204,6 +2206,36 @@ function documentKind(name = '') {
 // Sources, conversation, and artifacts in one place. Requirements used to mean bouncing between a
 // governance screen and Copilot Studio, re-framing the phase by hand, and promoting one artifact at
 // a time; the phase is one piece of work, so it gets one workspace.
+
+// What to do next, in one sentence. Advancing a phase means author → publish → satisfy every
+// blocking gate → approve, and none of that sequence was visible: a blocked step announced itself
+// as a refusal from whatever command was tried next. This states the single next action and why.
+function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, onAuthor, onPublish, onApprove }) {
+  const next = nextInitiativeAction(initiative, phaseId, { checklist });
+  if (!next || next.action === NEXT_ACTIONS.COMPLETE) return null;
+  const handler = {
+    [NEXT_ACTIONS.AUTHOR]: onAuthor,
+    [NEXT_ACTIONS.PUBLISH]: onPublish,
+    [NEXT_ACTIONS.APPROVE]: onApprove,
+    [NEXT_ACTIONS.EVIDENCE]: onApprove
+  }[next.action] ?? null;
+  const label = {
+    [NEXT_ACTIONS.AUTHOR]: 'Compose',
+    [NEXT_ACTIONS.PUBLISH]: 'Publish',
+    [NEXT_ACTIONS.APPROVE]: 'Approve',
+    [NEXT_ACTIONS.EVIDENCE]: 'Record evidence'
+  }[next.action] ?? null;
+  return <section className={`next-action next-action-${next.action}`} role="status">
+    <span className="next-action-mark" aria-hidden="true">→</span>
+    <div>
+      <strong>{next.title}</strong>
+      {next.detail && <p>{next.detail}</p>}
+      {next.command && <code>{next.command}</code>}
+    </div>
+    {handler && label && <button className="primary compact" disabled={busy} onClick={handler}>{label}</button>}
+  </section>;
+}
+
 function RequirementsWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt }) {
   // Follow the phase the initiative is actually on. The engine is sequence-aware and will refuse a
   // context for any other phase, so naming a fixed one here breaks the screen for every Epic that
@@ -2279,6 +2311,15 @@ function RequirementsWorkspace({ data, selected, action, reload, downloadFile, p
       </div>
     </header>
 
+    <NextActionStrip
+      initiative={state}
+      phaseId={phaseId}
+      checklist={Object.values(state.phases[phaseId]?.checklist ?? {})}
+      busy={running || promoting}
+      onAuthor={() => { if (!contextPack) void buildContext(); }}
+      onPublish={null}
+      onApprove={null}
+    />
     {blockingChecks.length > 0 && <section className="requirements-gate">
       <div>
         <strong>{phaseId} cannot be approved yet</strong>

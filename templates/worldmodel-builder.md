@@ -92,8 +92,8 @@ If you cannot determine a value, write `unknown` — never omit the field and ne
 Because these documents are injected into other agents' prompts without surrounding context, each one must state its own provenance and authority. Begin every generated Markdown file with exactly this block, filled in:
 
 ```
-> **Grounding** · <repository name> @ `<short SHA>` · view: `<view or file id>` · tier: `<brief|full>`
-> **Generated** <generated_date> (<generated_at>) · depth: `<depth>` · builder `<builder_version>`
+> **Grounding** · <repository name> @ `{{REPOSITORY_COMMIT}}` · view: `<view or file id>` · tier: `<brief|full>`
+> **Generated** {{GENERATION_DATE}} ({{GENERATION_TIMESTAMP_UTC}}) · depth: `{{QUICK_OR_STANDARD_OR_DEEP}}` · builder `{{BUILDER_VERSION}}`
 > **Authoritative for:** file locations, entry points, commands, structural relationships as of the commit above.
 > **Not authoritative for:** current file contents. If this document conflicts with code you have read, trust the code and say so explicitly in your output.
 > **Unknowns are marked.** Do not resolve them by inference. If the repository has changed since the date above, treat locations as hints, not facts.

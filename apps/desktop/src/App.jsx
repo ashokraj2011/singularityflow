@@ -38,7 +38,7 @@ import {
 } from './artifact-builder.mjs';
 import { workspaceLandingPage } from './workspace-routing.mjs';
 // Shared with the CLI so the app and the terminal agree on what comes next.
-import { nextInitiativeAction, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
+import { nextInitiativeAction, normalizeNextActionId, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -2380,15 +2380,21 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (result) await reload(null, state.initiative.id);
   }
 
+  // Dispatch on the canonical vocabulary only. Comparing against a mix of canonical and legacy
+  // names is what let 'approve-phase' slip past every branch and fall through to a no-op.
   function nextAction(next) {
-    const actionId = next.action ?? next.id;
-    if (actionId === NEXT_ACTIONS.AUTHOR || actionId === 'prepare') return void buildContext();
-    if (actionId === NEXT_ACTIONS.PUBLISH || actionId === 'author-and-publish') return void publishPhase();
+    const actionId = normalizeNextActionId(next.action ?? next.id);
+    if (actionId === NEXT_ACTIONS.AUTHOR) return void buildContext();
+    if (actionId === NEXT_ACTIONS.PUBLISH) return void publishPhase();
     if (actionId === NEXT_ACTIONS.APPROVE || actionId === NEXT_ACTIONS.EVIDENCE) {
-      document.querySelector('.phase-governance')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // The decision itself lives in the governance panel, which owns the persona and the typed
+      // confirmation. Bring it into view and focus it so the action is unmistakably next.
+      const panel = document.querySelector('.phase-governance');
+      panel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      panel?.querySelector('input, select')?.focus({ preventScroll: true });
       return;
     }
-    onJourneyNext?.(next);
+    onJourneyNext?.({ ...next, id: actionId ?? next.action ?? next.id, sourceId: next.sourceId ?? next.action ?? next.id });
   }
 
   return <div className="requirements-workspace">
@@ -3933,10 +3939,25 @@ export default function App() {
     }[stage] ?? 'epics';
     setPage(pageForStage);
   }
+  // The single place journey actions that are not phase transitions are handled. Anything
+  // unrecognised is reported rather than absorbed: the previous fallback navigated to the stage the
+  // user was already on, so an unmapped action produced a clickable button that changed nothing and
+  // left no trace.
   function continueEpicJourney(next) {
-    if (next?.id === 'materialize') return setPage('business-stories');
-    if (next?.id === 'report') return setPage('epics');
-    openEpicJourneyStage(data?.initiative?.journey?.stage ?? 'intake');
+    const actionId = normalizeNextActionId(next?.id ?? next?.action);
+    if (actionId === NEXT_ACTIONS.MATERIALIZE) return setPage('business-stories');
+    if (actionId === NEXT_ACTIONS.REPORT) return setPage('epics');
+    if (actionId === NEXT_ACTIONS.SOURCES) return openEpicJourneyStage('intake');
+    if (actionId === NEXT_ACTIONS.STATUS || actionId === NEXT_ACTIONS.ADVANCE) {
+      return void reload(null, data?.initiative?.state?.initiative?.id ?? null);
+    }
+    if (actionId === NEXT_ACTIONS.BLOCKED || actionId === NEXT_ACTIONS.COMPLETE) {
+      return openEpicJourneyStage(data?.initiative?.journey?.stage ?? 'intake');
+    }
+    setToast({
+      tone: 'bad',
+      text: `No action is wired for '${next?.sourceId ?? next?.id ?? 'unknown'}'. Nothing was changed — please report this.`
+    });
   }
   async function saveEditor() { const result = await action(() => window.singularity.saveFile(data.repository.root, editor.path, editor.content), `${editor.path} saved and validated`); if (result) { setEditor({ ...editor, original: editor.content }); await reload(); } }
   async function validate() { await action(() => window.singularity.validate(data.repository.root), 'Configuration is valid'); }

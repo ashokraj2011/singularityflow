@@ -775,3 +775,20 @@ test('a blocked approval says which field is missing, and the strip does not mis
   assert.match(source, /\[NEXT_ACTIONS\.APPROVE\]: 'Go to approval'/);
   assert.match(source, /\[NEXT_ACTIONS\.EVIDENCE\]: 'Go to evidence'/);
 });
+
+test('journey actions dispatch on one vocabulary, and an unmapped action is reported', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+
+  // The dispatch compared a mix of canonical and legacy names, so 'approve-phase' matched no branch
+  // and fell through to a fallback that navigated to the current stage — a clickable button that
+  // changed nothing. Every id is now normalized once before any comparison.
+  assert.match(source, /const actionId = normalizeNextActionId\(next\.action \?\? next\.id\)/);
+  assert.doesNotMatch(source, /actionId === 'prepare'/);
+  assert.doesNotMatch(source, /actionId === 'author-and-publish'/);
+
+  // The fallthrough must surface an unwired action instead of absorbing it.
+  const journey = source.slice(source.indexOf('function continueEpicJourney('), source.indexOf('function continueEpicJourney(') + 1400);
+  assert.match(journey, /No action is wired for/);
+  assert.match(journey, /Nothing was changed/);
+  assert.doesNotMatch(journey, /next\?\.id === 'materialize'/);
+});

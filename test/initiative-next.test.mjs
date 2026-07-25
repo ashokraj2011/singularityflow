@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { epicJourney, nextInitiativeAction, NEXT_ACTIONS } from '../src/initiative-next.mjs';
+import { epicJourney, nextInitiativeAction, normalizeNextActionId as normalizeNextActionIdRef, NEXT_ACTIONS } from '../src/initiative-next.mjs';
 
 const definition = {
   id: 'epic-requirements',
@@ -119,4 +119,34 @@ test('completed Epic journey exposes a report CTA and reaches 100 percent', () =
   assert.equal(journey.stage, 'complete');
   assert.equal(journey.completionPercent, 100);
   assert.equal(journey.nextAction.id, 'report');
+});
+
+test('every action name the journey can emit maps to exactly one canonical action', async () => {
+  const { normalizeNextActionId } = await import('../src/initiative-next.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const path = (await import('node:path')).default;
+  const packageRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+
+  // initiativeNextActions is the older generator and feeds the Epic journey button. Two
+  // vocabularies for one concept is what made "Approve Intake & continue" a no-op: it carried
+  // 'approve-phase', the renderer compared against 'approve', nothing matched, and the click fell
+  // through to a fallback that navigated to the stage the user was already on.
+  const report = await readFile(path.join(packageRoot, 'src', 'initiative-report.mjs'), 'utf8');
+  const emitted = [...new Set([...report.matchAll(/action: '([a-z-]+)'/g)].map((match) => match[1]))];
+  assert.ok(emitted.includes('approve-phase'), 'fixture should still cover the action that regressed');
+
+  for (const id of emitted) {
+    assert.ok(normalizeNextActionId(id), `journey action '${id}' has no canonical mapping and would fall through silently`);
+  }
+  // The specific regression, pinned by name.
+  assert.equal(normalizeNextActionId('approve-phase'), NEXT_ACTIONS.APPROVE);
+  // An unknown id must resolve to null so callers report it rather than guessing.
+  assert.equal(normalizeNextActionId('not-a-real-action'), null);
+  assert.equal(normalizeNextActionId(undefined), null);
+});
+
+test('canonical ids pass through normalization unchanged', () => {
+  for (const id of Object.values(NEXT_ACTIONS)) {
+    assert.equal(normalizeNextActionIdRef(id), id, `${id} must be stable under normalization`);
+  }
 });

@@ -19,8 +19,44 @@ export const NEXT_ACTIONS = Object.freeze({
   APPROVE: 'approve',
   ADVANCE: 'advance',
   COMPLETE: 'complete',
-  BLOCKED: 'blocked'
+  BLOCKED: 'blocked',
+  // Journey-only actions. They are not phase transitions, but they are actions a caller can be
+  // asked to take, so they belong in the same vocabulary rather than a second one.
+  SOURCES: 'sources',
+  MATERIALIZE: 'materialize',
+  REPORT: 'report',
+  STATUS: 'status'
 });
+
+/**
+ * initiativeNextActions in initiative-report.mjs predates this module and emits its own action
+ * names. Two vocabularies for the same concept is how the Epic journey's "Approve Intake &
+ * continue" button came to do nothing: it carried 'approve-phase', the renderer compared against
+ * 'approve', no branch matched, and the click fell through to a navigate-to-the-current-stage
+ * fallback — a fully clickable button that changed nothing.
+ *
+ * Every id crosses into the UI through here, so a name can only diverge in one place.
+ */
+const LEGACY_ACTION_IDS = Object.freeze({
+  prepare: NEXT_ACTIONS.AUTHOR,
+  author: NEXT_ACTIONS.AUTHOR,
+  'author-and-publish': NEXT_ACTIONS.PUBLISH,
+  'approve-phase': NEXT_ACTIONS.APPROVE,
+  'add-sources': NEXT_ACTIONS.SOURCES,
+  materialize: NEXT_ACTIONS.MATERIALIZE,
+  report: NEXT_ACTIONS.REPORT,
+  status: NEXT_ACTIONS.STATUS
+});
+
+const CANONICAL_ACTIONS = new Set(Object.values(NEXT_ACTIONS));
+
+// Returns null for an unrecognised id rather than guessing. A caller that cannot map an action must
+// say so; silently treating it as something else is what produced the original defect.
+export function normalizeNextActionId(id) {
+  if (!id) return null;
+  if (CANONICAL_ACTIONS.has(id)) return id;
+  return LEGACY_ACTION_IDS[id] ?? null;
+}
 
 import { initiativeOutputRequired } from './initiative-policy.mjs';
 
@@ -85,7 +121,9 @@ export function epicJourney(initiative, nextActions = []) {
     completionPercent,
     stages: stageStatus,
     nextAction: next ? {
-      id: next.action,
+      id: normalizeNextActionId(next.action) ?? next.action,
+      // Preserved so an unmapped action can be reported precisely rather than guessed at.
+      sourceId: next.action,
       label: epicActionLabel(next, current.label),
       command: next.command ?? null,
       reason: next.reason ?? next.detail ?? null,
@@ -93,7 +131,8 @@ export function epicJourney(initiative, nextActions = []) {
       outputs: next.outputs ?? [],
       checks: next.checks ?? []
     } : {
-      id: activeStep === 4 ? 'report' : 'status',
+      id: activeStep === 4 ? NEXT_ACTIONS.REPORT : NEXT_ACTIONS.STATUS,
+      sourceId: activeStep === 4 ? 'report' : 'status',
       label: epicActionLabel(null, current.label),
       command: null,
       reason: null,

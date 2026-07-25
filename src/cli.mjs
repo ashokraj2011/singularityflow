@@ -408,7 +408,8 @@ async function startCommand(positionals, options) {
   const selectedPersona = await selectPersona(root, config, actionActor(root), id, { selection: receipt?.answers.persona ?? null });
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
-  const base = optionString(options, 'base', config.defaultBaseBranch);
+  const explicitBase = optionString(options, 'base');
+  let base = explicitBase ?? config.defaultBaseBranch;
   checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
   const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
   if (existsSync(seedFile)) {
@@ -425,8 +426,13 @@ async function startCommand(positionals, options) {
       planId: seed.story.planId ?? null,
       branchCompletionPolicy: seed.story.branchCompletionPolicy ?? 'pr',
       requiredChecks: seed.story.requiredChecks ?? [],
+      parentBranch: seed.story.parentBranch ?? null,
       seed: posix(path.relative(root, seedFile))
     };
+    // Materialization records the branch this story was actually cut from. Use it as the work
+    // item's base so change detection (`<base>...HEAD`) sees only the story's own commits, not
+    // the epic branch's governance artifacts.
+    if (!explicitBase && seed.story.parentBranch) base = seed.story.parentBranch;
   }
   const workflow = await createWorkflow(root, config, {
     id,

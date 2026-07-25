@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { gitDir, head, identity } from './git.mjs';
+import { gitDir, hasRemote, head, identity } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
   loadInitiative, saveInitiative, secureInitiativePath
@@ -244,13 +244,44 @@ function configureCloneIdentity(clone, actor) {
   run('git', ['config', 'user.email', actor.email], { cwd: clone });
 }
 
+// Two remote URLs refer to the same repository when they differ only by transport, credentials,
+// a .git suffix, or a trailing slash. Used to decide whether a story lives in the repository the
+// epic branch itself is in.
+function normalizeRemoteUrl(value) {
+  let text = String(value ?? '').trim();
+  if (!text) return '';
+  const scp = text.match(/^[^/@]+@([^:]+):(.+)$/);          // git@host:owner/repo
+  if (scp) text = `ssh://${scp[1]}/${scp[2]}`;
+  try {
+    const url = new URL(text);
+    text = `${url.hostname.toLowerCase()}${url.pathname}`;   // drop scheme, port, credentials
+  } catch { /* a local filesystem path stays as-is */ }
+  return text.replace(/\.git$/, '').replace(/\/+$/, '');
+}
+
+// True when `repository` is the same repository the initiative (and so the epic branch) lives in.
+export function isLeadRepository(root, repository) {
+  if (!hasRemote(root, 'origin')) return false;
+  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
+  if (origin.status !== 0) return false;
+  const leadUrl = normalizeRemoteUrl(origin.stdout);
+  return Boolean(leadUrl) && leadUrl === normalizeRemoteUrl(repository?.url);
+}
+
 function remoteBranchHead(repositoryUrl, branchName, cwd) {
   const result = run('git', ['ls-remote', '--heads', repositoryUrl, `refs/heads/${branchName}`], { cwd, allowFailure: true });
   if (result.status !== 0) throw new SingularityFlowError(`Unable to read ${repositoryUrl}: ${(result.stderr || result.stdout).trim()}`);
   return result.stdout.trim().split(/\s+/)[0] || null;
 }
 
-function storySeed(root, initiative, story) {
+// The branch a story is cut from, and the branch its pull request targets.
+function parentBranchFor(root, repository, initiative) {
+  return isLeadRepository(root, repository)
+    ? (initiative.initiative.branch ?? initiative.initiative.id)
+    : repository.defaultBranch;
+}
+
+function storySeed(root, initiative, story, { parentBranch = null, baseCommit = null } = {}) {
   const artifacts = [];
   for (const phaseId of initiative.phaseOrder) {
     for (const output of Object.values(initiative.phases[phaseId].outputs)) {
@@ -291,6 +322,9 @@ function storySeed(root, initiative, story) {
       jiraAliases: story.jiraAliases ?? [],
       idAuthority: story.idAuthority ?? initiative.lineage?.idAuthority ?? null,
       repository: story.repository,
+      // Lineage: the branch this story was cut from, and that its pull request targets.
+      parentBranch,
+      baseCommit,
       repositoryMetadata: structuredClone(initiative.resolution.repositories?.[story.repository]?.metadata ?? {}),
       branchCompletionPolicy: initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy ?? 'pr',
       requiredChecks: structuredClone(initiative.resolution.repositories?.[story.repository]?.requiredChecks ?? []),
@@ -320,8 +354,17 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     const switched = run('git', ['switch', '-C', branchName, `origin/${branchName}`], { cwd: target, allowFailure: true });
     if (switched.status !== 0) throw new SingularityFlowError(`Unable to attach branch ${branchName}: ${(switched.stderr || switched.stdout).trim()}`);
   } else {
-    const base = `origin/${repository.defaultBranch}`;
-    if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) throw new SingularityFlowError(`Repository '${story.repository}' has no default branch '${repository.defaultBranch}'.`);
+    // Stories in the epic's own repository branch from the epic branch, so they inherit the
+    // approved artifacts (their recorded paths and hashes resolve) and share an ancestor for
+    // integration. Stories in other repositories keep branching from that repository's default
+    // branch — an epic branch is never fabricated in a repository that has none.
+    const parentBranch = parentBranchFor(root, repository, initiative);
+    const base = `origin/${parentBranch}`;
+    if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) {
+      throw new SingularityFlowError(parentBranch === repository.defaultBranch
+        ? `Repository '${story.repository}' has no default branch '${repository.defaultBranch}'.`
+        : `Repository '${story.repository}' has no published epic branch '${parentBranch}'. Push the initiative branch before materializing stories.`);
+    }
     run('git', ['switch', '-C', branchName, base], { cwd: target });
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
@@ -330,7 +373,12 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     label: `Story '${branchName}' seed`,
     type: 'file'
   });
-  const seed = storySeed(root, initiative, story);
+  const parentBranch = parentBranchFor(root, repository, initiative);
+  const baseCommit = run('git', ['rev-parse', `origin/${parentBranch}`], { cwd: target, allowFailure: true });
+  const seed = storySeed(root, initiative, story, {
+    parentBranch,
+    baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null
+  });
   if (seedPath.exists) {
     const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
     if (current?.initiative?.id !== initiative.initiative.id || current?.story?.id !== branchName) throw new SingularityFlowError(`Existing branch '${branchName}' contains an unrelated Singularity Flow seed.`);

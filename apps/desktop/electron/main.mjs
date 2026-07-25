@@ -688,7 +688,7 @@ function registerHandlers() {
     });
     return snapshot(root);
   });
-  trustedHandle('worldmodel:generate', async (event, { repository, local = true }) => {
+  trustedHandle('worldmodel:generate', async (event, { repository, local = true, views = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const send = (payload) => {
@@ -699,7 +699,15 @@ function registerHandlers() {
       // Generation runs the world-model builder (Copilot) in an isolated worktree; allow up to 15
       // minutes. --local commits into the working tree without pushing to the remote default branch.
       send({ type: 'phase', phase: 'copilot', message: 'Copilot is inspecting the repository and generating Markdown views.' });
-      await invokeCli(root, ['wm', 'build', ...(local ? ['--local'] : [])], {
+      // `wm build` has always accepted --views; the desktop passed only --local, so a rebuild from
+      // the app could only ever produce whatever `views: auto` routed to — core plus development —
+      // no matter which views the phases actually need.
+      const requested = Array.isArray(views) ? views.filter((view) => /^[a-z][a-z0-9-]*$/.test(view)) : [];
+      await invokeCli(root, [
+        'wm', 'build',
+        ...(requested.length ? ['--views', requested.join(',')] : []),
+        ...(local ? ['--local'] : [])
+      ], {
         json: false,
         timeoutMs: 15 * 60 * 1000,
         onOutput: (text, stream) => {

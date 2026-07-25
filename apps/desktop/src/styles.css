@@ -3639,3 +3639,14 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 /* What the governed context could not include — a warning nobody sees is not a warning */
 .context-warnings { display: grid; gap: 5px; margin-bottom: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(203,150,42,.5); background: rgba(200,151,31,.06); }
 .context-warnings p { margin: 0; font-size: 11px; line-height: 1.5; color: #7a5d12; }
+
+/* Which world-model views a rebuild should produce */
+.view-picker { display: grid; gap: 7px; margin-top: 12px; }
+.view-picker-label { font-size: 9.5px; font-weight: 720; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.view-picker-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.view-pick { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.view-pick span { display: grid; }
+.view-pick b { font-size: 11.5px; font-weight: 620; }
+.view-pick small { font-size: 9.5px; color: var(--muted); }
+.view-pick.built { border-color: rgba(47,109,79,.4); }
+.view-pick.built small { color: var(--brand, #2f6d4f); }

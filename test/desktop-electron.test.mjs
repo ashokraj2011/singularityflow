@@ -1239,3 +1239,22 @@ test('a context that carries no world model says so', async () => {
   assert.match(app, /className="context-warnings"/);
   assert.match(app, /contextPack\.warnings\.map/);
 });
+
+test('the app can ask the world-model builder for the views its phases need', async () => {
+  // `wm build` has always accepted --views. The desktop passed only --local, so a rebuild from the
+  // app could only produce whatever `views: auto` routed to — with no task, core plus development —
+  // and the business, architecture and security views the phases reference were never generated
+  // however many times the user pressed the button.
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  assert.match(main, /\.\.\.\(requested\.length \? \['--views', requested\.join\(','\)\] : \[\]\)/);
+  // A view id reaches a command line, so it is validated rather than trusted.
+  assert.match(main, /\/\^\[a-z\]\[a-z0-9-\]\*\$\/\.test\(view\)/);
+
+  const preload = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'preload.cjs'), 'utf8');
+  assert.match(preload, /generateWorldModel: \(repository, local = true, views = null\)/);
+
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // The default selection is what the repository is actually asked for, not everything or nothing.
+  assert.match(app, /data\.worldModel\.views\.filter\(\(view\) => \(view\.structuredReferences \?\? \[\]\)\.length\)/);
+  assert.match(app, /generateWorldModel\?\.\(undefined, undefined, buildViews\)/);
+});

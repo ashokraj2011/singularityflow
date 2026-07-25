@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('singularity', {
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
   recordInitiativeEvidence: (repository, initiativeId, phaseId, checkId, reason, observedState) =>
     ipcRenderer.invoke('initiative:evidence-record', { repository, initiativeId, phaseId, checkId, reason, observedState }),
-  generateWorldModel: (repository, local = true) => ipcRenderer.invoke('worldmodel:generate', { repository, local }),
+  generateWorldModel: (repository, local = true, views = null) => ipcRenderer.invoke('worldmodel:generate', { repository, local, views }),
   onWorldModelProgress: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('worldmodel:progress', handler);

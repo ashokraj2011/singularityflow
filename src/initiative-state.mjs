@@ -7,13 +7,27 @@ import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
   validatePortfolioWorldModelViews
 } from './initiative-config.mjs';
-import { loadDefinition } from './config.mjs';
+import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
+
+// Restore any packaged initiative template the repository is missing, into the portfolio's own
+// templatesRoot — the root the resolver and the recorded snapshot paths both read, and which the
+// workflow definition may configure differently. Repositories initialized before the initiatives/
+// subtree shipped have none of it, so every referenced template would otherwise abort the phase.
+// Installed files are staged because commitInitiativeChange stages only the initiative directory;
+// leaving them unstaged makes the next command fail on an unclean tree.
+async function healInitiativeTemplates(root, portfolio) {
+  const installed = await ensureRepositoryTemplates(root, null, { templatesRoot: portfolio.templatesRoot });
+  if (installed.length) {
+    add(root, installed.map((relative) => posix(path.join(portfolio.templatesRoot, relative))));
+  }
+  return installed;
+}
 
 export function validateInitiativeId(id) {
   if (!id || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) throw new SingularityFlowError('Initiative ID must be one safe identifier without slashes.');
@@ -233,6 +247,7 @@ export async function createInitiative(root, {
   }
   const resolved = resolveInitiativeProfile(portfolio, profile, { idAuthority });
   assertAuthorityMembership(resolved);
+  await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.worldModelGrounding = groundingMode(definition);
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
@@ -401,6 +416,9 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
   const phase = initiative.phases[phaseId];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}; preparation requires in_progress.`);
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
+  // A template recorded at creation can be absent now (never installed, or deleted since). Restore
+  // the packaged copy; the hash check below still rejects it if it differs from what was recorded.
+  await healInitiativeTemplates(root, portfolio);
   const phaseDefinition = initiative.resolution.phases.find((item) => item.id === phaseId);
   const actor = identity(root);
   const prepared = [];

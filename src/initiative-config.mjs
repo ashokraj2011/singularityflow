@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -492,16 +493,27 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
   });
   const portfolioSnapshot = await snapshot(portfolioFile.absolute);
   const templates = {};
+  // Collect every template that is still missing and report them together. Failing on the first
+  // one turns authoring a profile into one round trip per output.
+  const missing = [];
   for (const phase of resolved.phases) {
     for (const output of phase.outputs) {
       if (!output.template) continue;
-      const template = await secureRepositoryPath(root, path.join(portfolio.templatesRoot, output.template), {
+      const relative = path.join(portfolio.templatesRoot, output.template);
+      if (!existsSync(path.join(root, relative))) {
+        missing.push(`${phase.id}/${output.id} → ${posix(relative)}`);
+        continue;
+      }
+      const template = await secureRepositoryPath(root, relative, {
         label: `Initiative template for '${phase.id}/${output.id}'`,
         mustExist: true,
         type: 'file'
       });
       templates[`${phase.id}/${output.id}`] = { path: template.relative, ...(await snapshot(template.absolute)) };
     }
+  }
+  if (missing.length) {
+    throw new SingularityFlowError(`Profile '${resolved.id}' references ${missing.length} initiative template${missing.length === 1 ? '' : 's'} that ${missing.length === 1 ? 'does' : 'do'} not exist and ${missing.length === 1 ? 'is' : 'are'} not packaged with Singularity Flow:\n${missing.map((entry) => `  - ${entry}`).join('\n')}\nAdd each file under ${posix(portfolio.templatesRoot)}/, or point the output at a template that exists.`);
   }
   const canonical = JSON.stringify({
     profile: resolved.id,

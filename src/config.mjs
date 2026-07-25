@@ -396,11 +396,14 @@ export async function copyMissingFiles(source, destination, installed = [], rela
 }
 
 // Install any packaged template files the repository is missing (for example the initiatives/
-// subtree required by the Epic profiles) into the configured templates root.
-export async function ensureRepositoryTemplates(root, definition = null) {
-  const templatesRoot = definition?.templatesRoot ?? 'singularity/templates';
-  assertRelative(templatesRoot, 'templatesRoot');
-  return copyMissingFiles(path.join(packageRoot, 'templates', 'artifacts'), path.join(root, templatesRoot));
+// subtree required by the Epic profiles) into the templates root that will be read. The portfolio
+// declares its own templatesRoot independently of the workflow definition, so callers resolving
+// initiative templates must pass that root explicitly — healing the other one installs files
+// nothing reads.
+export async function ensureRepositoryTemplates(root, definition = null, { templatesRoot = null } = {}) {
+  const target = templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates';
+  assertRelative(target, 'templatesRoot');
+  return copyMissingFiles(path.join(packageRoot, 'templates', 'artifacts'), path.join(root, target));
 }
 
 async function copyIfMissing(source, destination) {

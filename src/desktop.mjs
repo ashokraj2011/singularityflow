@@ -390,7 +390,7 @@ export async function bootstrapDesktopPortfolio(root, {
   // Self-heal: install any packaged templates the portfolio's phases reference (the initiatives/
   // subtree is absent from repositories initialized before it shipped), then declare the
   // world-model views the portfolio needs so validation cannot fail on a fresh onboarding.
-  await ensureRepositoryTemplates(root, definition);
+  await ensureRepositoryTemplates(root, definition, { templatesRoot: portfolio.templatesRoot });
   const declaredViews = await ensureRepositoryWorldModelViews(root, portfolioWorldModelViews(portfolio));
   const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
   validatePortfolioWorldModelViews(portfolio, validatedDefinition);

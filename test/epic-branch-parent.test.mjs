@@ -245,3 +245,80 @@ test('epic merge-plan reports the live sequence from Git', async () => {
   assert.equal(plan.epicReady, false);
   assert.deepEqual(plan.outstanding, stories);
 });
+
+test('story pull request targets the epic branch and is built from committed state', async () => {
+  const { pullRequestTarget, storyPullRequestBody, createStoryPullRequest } = await import('../src/pull-request.mjs');
+  const workflow = {
+    workItem: { id: 'APP-1', title: 'Add priority', branch: 'APP-1', baseBranch: 'main', workType: 'feature' },
+    source: {}
+  };
+  const seed = {
+    initiative: { id: EPIC, branch: EPIC },
+    story: {
+      parentBranch: EPIC,
+      baseCommit: 'a'.repeat(40),
+      acceptanceCriteria: ['Priority is persisted', 'Reader sorts by priority'],
+      requiredChecks: ['build'],
+      branchCompletionPolicy: 'pr',
+      epicJiraKey: 'KAN-8',
+      jiraKey: 'KAN-12'
+    },
+    approvedArtifacts: [{ phase: 'define', output: 'business-case', path: 'artifacts/define/business-case.md', sha256: 'b'.repeat(64) }]
+  };
+
+  // The pull request targets the epic branch, not the repository default branch.
+  assert.deepEqual(pullRequestTarget(workflow, seed), { base: EPIC, head: 'APP-1' });
+  assert.deepEqual(pullRequestTarget(workflow, null), { base: 'main', head: 'APP-1' });
+
+  const body = storyPullRequestBody(workflow, seed);
+  assert.match(body, /Epic: `INIT-SOLO` \(Jira KAN-8\)/);
+  assert.match(body, /Branched from: `INIT-SOLO` at `aaaaaaaa`/);
+  assert.match(body, /Priority is persisted/);
+  assert.match(body, /business-case\.md` — define\/business-case @ `bbbbbbbbbbbb`/);
+
+  // A story whose dependencies have not merged cannot open a pull request.
+  const blocked = { workId: 'APP-2', base: EPIC, head: 'APP-2', title: 't', body: 'b', requiredChecks: [], blockedBy: ['APP-1'] };
+  assert.throws(() => createStoryPullRequest('/tmp', blocked, { runCommand: () => ({ status: 0, stdout: '', stderr: '' }) }), /APP-1 must merge/);
+
+  // An existing pull request is reported rather than duplicated.
+  const calls = [];
+  const stub = (command, args) => {
+    calls.push(`${command} ${args[0]}`);
+    if (command === 'git') return { status: 0, stdout: 'git@github.com:acme/app.git', stderr: '' };
+    if (args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: 'https://github.com/acme/app/pull/7', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  const ready = { workId: 'APP-1', base: EPIC, head: 'APP-1', title: 't', body: 'b', requiredChecks: [], blockedBy: [] };
+  const result = createStoryPullRequest('/tmp', ready, { runCommand: stub });
+  assert.equal(result.status, 'existing');
+  assert.equal(result.url, 'https://github.com/acme/app/pull/7');
+  assert.ok(!calls.includes('gh pr create'));
+});
+
+test('impact map validation rejects unknown repositories and undeclared world-model views', async () => {
+  const { validateImpactMap } = await import('../src/initiative-repositories.mjs');
+  const portfolio = { repositories: { api: { url: 'x' }, web: { url: 'y' } } };
+  const manifest = { views: { architecture: { path: 'views/architecture.md' }, security: { path: 'views/security.md' } } };
+
+  const good = { version: 1, repositories: { api: { worldModelViews: ['architecture'] } } };
+  assert.deepEqual(validateImpactMap(portfolio, manifest, good, { mode: 'enforce' }), { errors: [], warnings: [] });
+
+  const unknownRepo = { version: 1, repositories: { ghost: { worldModelViews: ['architecture'] } } };
+  assert.match(validateImpactMap(portfolio, manifest, unknownRepo, { mode: 'enforce' }).errors[0], /unknown repository 'ghost'/);
+
+  const unknownView = { version: 1, repositories: { api: { worldModelViews: ['telepathy'] } } };
+  assert.match(validateImpactMap(portfolio, manifest, unknownView, { mode: 'enforce' }).errors[0], /undeclared world-model view 'telepathy'/);
+
+  // Outside enforce the same findings surface as warnings rather than blocking.
+  const warned = validateImpactMap(portfolio, manifest, unknownView, { mode: 'warn' });
+  assert.equal(warned.errors.length, 0);
+  assert.equal(warned.warnings.length, 1);
+});
+
+test('worldModelRebuildReason reports a missing model without throwing', async () => {
+  const { worldModelRebuildReason } = await import('../src/grounding.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-reason-'));
+  const reason = await worldModelRebuildReason(root, { worldModel: { outputDir: 'singularity/world-model' } });
+  assert.match(reason, /has not been built/);
+});

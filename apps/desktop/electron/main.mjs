@@ -1505,7 +1505,18 @@ function registerHandlers() {
       started.initiative,
       `[${epicKey}][epic:init] start ${profile}`
     );
-    return { initiativeId: epicKey, source, publication };
+    // Report a missing or stale world model without blocking: generation runs Copilot and can take
+    // minutes, so the renderer offers it rather than the epic start stalling on it. Building it now
+    // lands the model on the epic branch, where every phase prompt can be grounded in it.
+    let worldModel = null;
+    try {
+      const { worldModelRebuildReason } = await importCliModule('grounding.mjs');
+      const reason = await worldModelRebuildReason(root, definition);
+      worldModel = { reason, ready: reason === null };
+    } catch (error) {
+      worldModel = { reason: null, ready: false, error: error.message };
+    }
+    return { initiativeId: epicKey, source, publication, worldModel };
   });
   trustedHandle('epic:local-id-preview', async (event, { repository }) => {
     assertTrustedSender(event);

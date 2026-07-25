@@ -124,6 +124,32 @@ export function validateInitiativeBreakdown(value, portfolio) {
   return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
 }
 
+// The epic-plan phase asks Copilot, grounded in the committed world model, which repositories and
+// which parts of the system an epic touches. The prompt is grounded but the answer is not checked,
+// so a hallucinated repository or view would flow straight into the breakdown. Every repository
+// named must exist in the portfolio, and every world-model view referenced must exist in the
+// committed manifest.
+export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = 'warn' } = {}) {
+  const problems = [];
+  const repositories = repositoryMap?.repositories ?? {};
+  if (repositories && typeof repositories === 'object' && !Array.isArray(repositories)) {
+    for (const [id, entry] of Object.entries(repositories)) {
+      if (!portfolio.repositories?.[id]) problems.push(`impact map names unknown repository '${id}'`);
+      const views = entry?.worldModelViews ?? entry?.views ?? [];
+      if (!Array.isArray(views)) { problems.push(`impact map repository '${id}' views must be a list`); continue; }
+      for (const view of views) {
+        if (!manifest?.views?.[view]) problems.push(`impact map repository '${id}' references undeclared world-model view '${view}'`);
+      }
+    }
+  } else if (repositories !== undefined && Object.keys(repositories ?? {}).length) {
+    problems.push('impact map repositories must be a mapping of repository ID to impact');
+  }
+
+  if (!problems.length) return { errors: [], warnings: [] };
+  // Fail closed only where grounding is enforced; elsewhere surface the same findings as warnings.
+  return mode === 'enforce' ? { errors: problems, warnings: [] } : { errors: [], warnings: problems };
+}
+
 // The order stories merge into the epic branch, derived from the dependsOn graph the breakdown
 // already declares. validateInitiativeBreakdown proves that graph acyclic, so a topological order
 // always exists; ties are broken by story ID so the sequence is deterministic.

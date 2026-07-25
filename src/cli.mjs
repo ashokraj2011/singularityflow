@@ -77,7 +77,7 @@ import {
   selectDesktopPersona,
   validateDesktopConfiguration
 } from './desktop.mjs';
-import { verifyGroundingRecord, worldModelCommit, worldModelSourceSnapshot } from './grounding.mjs';
+import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -117,6 +117,7 @@ import {
   attachStoryBranch, createStoryBranch, createStoryReviewPacket, promoteStoryBranch, storyBranchStatus
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
+import { createStoryPullRequest, storyPullRequestPlan } from './pull-request.mjs';
 import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
@@ -652,21 +653,6 @@ async function nextStepsCommand(positionals, options) {
   else process.stdout.write(nextStepsText(snapshot));
 }
 
-async function worldModelRebuildReason(root, config) {
-  const outputDir = config.worldModel?.outputDir ?? 'singularity/world-model';
-  const manifestPath = path.join(root, outputDir, 'manifest.json');
-  if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
-  try {
-    const manifest = await readJson(manifestPath);
-    const currentSource = await worldModelSourceSnapshot(root, config);
-    if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
-    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) return 'The repository world model is stale for the current source tree.';
-    return null;
-  } catch (error) {
-    return `The repository world model is invalid: ${error.message}`;
-  }
-}
-
 async function nextCommand(options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
   if (existsSync(pendingPublicationPath(root, config, workflow.workItem.id))) {
@@ -985,6 +971,36 @@ async function artifactCommand(positionals, options) {
     return;
   }
   throw new SingularityFlowError(`Unknown artifact subcommand: ${subcommand}`);
+}
+
+async function pullRequestCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const plan = await storyPullRequestPlan(root, config, workflow);
+
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
+  else {
+    console.log(`Pull request for ${plan.workId}\n`);
+    console.log(`  ${plan.head} → ${plan.base}   (policy: ${plan.policy})`);
+    if (plan.requiredChecks.length) console.log(`  Required checks: ${plan.requiredChecks.join(', ')}`);
+    if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
+    console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
+  }
+
+  // Opening a pull request is an outward action, so preview is the default: it requires an
+  // explicit --create plus a typed confirmation of the exact work ID.
+  if (!optionBoolean(options, 'create')) {
+    console.log('Preview only. Re-run with --create to open this pull request.');
+    return;
+  }
+  if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to open the pull request into ${plan.base}: `, plan.workId))) {
+    throw new SingularityFlowError('Pull request cancelled.');
+  }
+  const result = createStoryPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+  console.log(result.status === 'existing'
+    ? `A pull request already exists: ${result.url}`
+    : `Opened ${result.url}`);
 }
 
 async function submitCommand(options) {
@@ -2780,6 +2796,7 @@ export async function main(argv) {
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);
     case 'artifact': return artifactCommand(positionals, options);
+    case 'pr': return pullRequestCommand(positionals, options);
     case 'submit': return submitCommand(options);
     case 'approve': return approveCommand(positionals, options);
     case 'reject': return rejectCommand(positionals, options);

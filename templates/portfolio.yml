@@ -110,7 +110,7 @@ initiativePhases:
     outputs:
       # Generated from the pinned source manifest rather than authored: the engine already holds
       # every field, so transcribing them by hand is busywork that can drift from the truth.
-      - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, generator: source-catalog }
+      - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, generator: source-catalog, required: false }
       # Optional: a well-evidenced Epic legitimately has no gaps, and demanding the document
       # anyway only produces a file that says "none".
       - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, required: false, template: initiatives/epic/source-gaps.md }
@@ -118,8 +118,10 @@ initiativePhases:
       # the narrative summary and move directly to the governed Requirements artifact.
       - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, required: false, template: initiatives/epic/intake-summary.md }
     checklist:
-      - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
-      - { id: sources-pinned, label: Required source versions are accessible and hash-pinned, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
+      # Jira's imported Epic snapshot is sufficient to pass Intake. Additional source files are
+      # useful evidence, but never a mandatory prerequisite for entering Requirements.
+      - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
+      - { id: sources-pinned, label: Additional source versions are accessible and hash-pinned, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
   epic-requirements:

@@ -386,7 +386,7 @@ headings:
 | Artifact | Structure it follows |
 | --- | --- |
 | `intake-summary.md` | Optional Epic charter: objective, measurable success criteria, stakeholder analysis, scope boundaries, readiness assessment |
-| `source-catalog.md` | Evidence register with authority, currency, coverage by scope area, and a recorded precedence ruling for conflicting sources |
+| `source-catalog.md` | Optional evidence register with authority, currency, coverage by scope area, and a recorded precedence ruling for conflicting sources |
 | `source-gaps.md` | Gap log separating blocking from non-blocking, with owners, working assumptions, and explicitly accepted unknowns |
 | `requirements.md` | Requirements specification structured after ISO/IEC/IEEE 29148: MoSCoW priority, the four verification methods, measurable non-functional requirements, data, integration, and compliance requirements, glossary, quality checklist |
 | `requirements-traceability.yml` | Requirements traceability matrix — the machine-checked citation graph |
@@ -405,9 +405,11 @@ Epic's contract — it is reported as a changed template instead.
 Two templates are validated as well as generated. `requirements-traceability.yml`
 must cite pinned sources with a locator for every `REQ-nnn` and `AC-nnn`, and
 `repository-map.yml` must name only configured repositories and declared
-world-model views. Both ship with the live structure empty and the full schema in
-comments, so a freshly generated artifact passes the gates and fails only once it
-contains real content that does not hold up.
+world-model views. For Jira-backed Epics, the committed Jira Epic snapshot is
+also a valid pinned source, so uploaded documents are useful enrichment rather
+than a prerequisite. Both ship with the live structure empty and the full schema
+in comments, so a freshly generated artifact passes the gates and fails only once
+it contains real content that does not hold up.
 
 ## Activity log
 

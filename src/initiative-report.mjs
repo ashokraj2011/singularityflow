@@ -233,7 +233,7 @@ export async function initiativeNextActions(root, initiativeId) {
       : 'The initiative is complete; review final conformance, evidence assurance, time, tokens, and cost.'
   }];
   const phase = initiative.phases[initiative.currentPhase];
-  if (initiative.resolution.profile === 'epic-planning' && phase.id === 'epic-intake') {
+  if (initiative.resolution.profile === 'epic-planning' && phase.id === 'epic-intake' && initiative.initiative.source?.type !== 'jira') {
     const sources = await listEpicSources(root, initiativeId);
     if (!sources.manifest.sources.length) return [{
       action: 'add-sources',
@@ -257,7 +257,11 @@ export async function initiativeNextActions(root, initiativeId) {
   }];
   if (phase.status === 'in_progress') {
     const outputs = Object.values(phase.outputs);
-    if (outputs.some((output) => output.status === 'not_generated')) return [{
+    const phaseDefinition = initiative.resolution.phases.find((candidate) => candidate.id === phase.id);
+    const requiredOutputIds = new Set((phaseDefinition?.outputs ?? [])
+      .filter((output) => output.required !== false)
+      .map((output) => output.id));
+    if (outputs.some((output) => requiredOutputIds.has(output.id) && output.status === 'not_generated')) return [{
       action: 'prepare',
       command: `singularity-flow initiative phase ${phase.id}`,
       reason: 'Create the configured output documents for the active phase.'

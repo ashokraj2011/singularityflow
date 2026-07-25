@@ -472,8 +472,10 @@ test('an optional output that was never authored is not treated as a missing inp
   const summary = intake.outputs.find((output) => output.id === 'intake-summary');
   assert.equal(catalog.generator, 'source-catalog');
   assert.equal(catalog.template, null);
+  assert.equal(catalog.required, false);
   assert.equal(gaps.required, false);
   assert.equal(summary.required, false);
+  assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional']);
 
   // open-questions still declares the dependency, so traceability holds whenever the artifact
   // exists — it simply no longer blocks when the optional producer was never authored.

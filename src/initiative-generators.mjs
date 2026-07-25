@@ -1,4 +1,4 @@
-import { listEpicSources } from './epic-sources.mjs';
+import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 
 /**
  * Generated initiative outputs.
@@ -29,9 +29,11 @@ function bytes(value) {
 async function sourceCatalog(root, { initiative }) {
   const { manifest } = await listEpicSources(root, initiative.initiative.id).catch(() => ({ manifest: { sources: [] } }));
   const sources = manifest?.sources ?? [];
+  const jiraSnapshot = jiraSnapshotSource(initiative);
+  const catalogSources = jiraSnapshot ? [jiraSnapshot, ...sources] : sources;
   const source = initiative.initiative.source ?? {};
   const jiraAttachments = source.type === 'jira' ? (source.attachments ?? []) : [];
-  const pinnedNames = new Set(sources.map((entry) => entry.name));
+  const pinnedNames = new Set(catalogSources.map((entry) => entry.name));
 
   const lines = [
     `# Source Catalog — ${initiative.initiative.id}`,
@@ -44,13 +46,13 @@ async function sourceCatalog(root, { initiative }) {
     ''
   ];
 
-  if (!sources.length) {
+  if (!catalogSources.length) {
     lines.push('_No sources are pinned yet. Requirements may only cite pinned evidence._', '');
   } else {
     lines.push(
       '| Source ID | Name | Provider | Version | SHA-256 | Size | Pinned at |',
       '| --- | --- | --- | --- | --- | --- | --- |',
-      ...sources.map((entry) => `| ${cell(entry.sourceId)} | ${cell(entry.name)} | ${cell(entry.provider)} | ${cell(entry.version)} | \`${cell(entry.sha256).slice(0, 16)}\` | ${bytes(entry.bytes)} | ${cell(entry.registeredAt)} |`),
+      ...catalogSources.map((entry) => `| ${cell(entry.sourceId)} | ${cell(entry.name)} | ${cell(entry.provider)} | ${cell(entry.version)} | \`${cell(entry.sha256).slice(0, 16)}\` | ${bytes(entry.bytes)} | ${cell(entry.registeredAt ?? 'Epic start')} |`),
       ''
     );
   }
@@ -94,7 +96,7 @@ async function sourceCatalog(root, { initiative }) {
   lines.push(
     '## Coverage',
     '',
-    `${sources.length} pinned source${sources.length === 1 ? '' : 's'}${jiraAttachments.length ? `, ${jiraAttachments.length} Jira attachment${jiraAttachments.length === 1 ? '' : 's'} on the Epic` : ''}.`,
+    `${catalogSources.length} pinned source${catalogSources.length === 1 ? '' : 's'}${jiraAttachments.length ? `, ${jiraAttachments.length} Jira attachment${jiraAttachments.length === 1 ? '' : 's'} on the Epic` : ''}.`,
     'Anything a requirement cites must appear in the pinned table above.',
     ''
   );

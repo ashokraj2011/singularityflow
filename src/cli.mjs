@@ -112,6 +112,7 @@ import { interfaceContractStatus, registerInterfaceContract } from './initiative
 import {
   deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
 } from './initiative-report.mjs';
+import { epicJourney } from './initiative-next.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
@@ -1750,7 +1751,7 @@ async function initiativeCommand(positionals, options) {
     else console.log(table(initiatives, [{ key: 'id', label: 'INITIATIVE' }, { key: 'profile', label: 'PROFILE' }, { key: 'status', label: 'STATUS' }, { key: 'currentPhase', label: 'CURRENT' }]));
     return;
   }
-  const acceptsExplicitId = new Set(['status', 'next', 'report', 'gate']);
+  const acceptsExplicitId = new Set(['status', 'next', 'journey', 'report', 'gate']);
   const initiativeId = optionString(options, 'initiative') ?? (acceptsExplicitId.has(subcommand) && positionals[2] ? positionals[2] : branch(root));
   const loaded = await loadInitiative(root, initiativeId, portfolio);
   const initiative = loaded.initiative;
@@ -2053,6 +2054,18 @@ async function initiativeCommand(positionals, options) {
     const actions = await initiativeNextActions(root, initiativeId);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(actions, null, 2));
     else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}: ${action.command}\n   ${action.reason}`));
+    return;
+  }
+  if (subcommand === 'journey') {
+    const actions = await initiativeNextActions(root, initiativeId);
+    const journey = epicJourney(initiative, actions);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(journey, null, 2));
+    else {
+      console.log(`${journey.stageLabel} · ${journey.completionPercent}% complete`);
+      console.log(`Next: ${journey.nextAction.label}`);
+      if (journey.nextAction.command) console.log(`Command: ${journey.nextAction.command}`);
+      if (journey.nextAction.reason) console.log(journey.nextAction.reason);
+    }
     return;
   }
   if (subcommand === 'gate') {
@@ -2738,7 +2751,8 @@ async function epicCommand(positionals, options) {
     sync: 'sync',
     report: 'report',
     resume: 'resume',
-    next: 'next'
+    next: 'next',
+    journey: 'journey'
   };
   const mapped = mappings[subcommand];
   if (!mapped) throw new SingularityFlowError(`Unknown Epic subcommand '${subcommand}'.`);

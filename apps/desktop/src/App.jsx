@@ -2216,12 +2216,14 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
   const handler = {
     [NEXT_ACTIONS.AUTHOR]: onAuthor,
     [NEXT_ACTIONS.PUBLISH]: onPublish,
+    'author-and-publish': onPublish,
     [NEXT_ACTIONS.APPROVE]: onApprove,
     [NEXT_ACTIONS.EVIDENCE]: onApprove
   }[next.action] ?? null;
   const label = {
     [NEXT_ACTIONS.AUTHOR]: 'Compose',
     [NEXT_ACTIONS.PUBLISH]: 'Publish',
+    'author-and-publish': 'Publish',
     [NEXT_ACTIONS.APPROVE]: 'Approve',
     [NEXT_ACTIONS.EVIDENCE]: 'Record evidence'
   }[next.action] ?? null;
@@ -2236,10 +2238,35 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
   </section>;
 }
 
+function EpicJourneyRail({ journey, onSelect, onNext }) {
+  if (!journey) return null;
+  return <section className="epic-journey-rail" aria-label="Epic journey progress">
+    <div className="epic-journey-steps">
+      {journey.stages.map((stage, index) => <React.Fragment key={stage.id}>
+        <button
+          type="button"
+          className={`epic-journey-step ${stage.status}`}
+          disabled={!onSelect || stage.status === 'upcoming'}
+          onClick={() => onSelect?.(stage.id)}
+          title={stage.phaseStatus ? `${stage.label}: ${stage.phaseStatus.replaceAll('_', ' ')}` : stage.label}
+        >
+          <span>{stage.status === 'complete' ? '✓' : index + 1}</span>
+          <strong>{stage.label}</strong>
+        </button>
+        {index < journey.stages.length - 1 && <i aria-hidden="true">→</i>}
+      </React.Fragment>)}
+    </div>
+    <div className="epic-journey-next">
+      <span><small>{journey.completionPercent}% complete</small><strong>{journey.nextAction.label}</strong></span>
+      {onNext && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
+    </div>
+  </section>;
+}
+
 // One workspace for any authored phase: sources, the Copilot conversation, and the artifacts the
 // phase owes. The session and artifact panes were always driven by the initiative's current phase;
 // only the wording assumed Requirements.
-function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt }) {
+function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt, onJourneyStage, onJourneyNext }) {
   // Follow the phase the initiative is actually on. The engine is sequence-aware and will refuse a
   // context for any other phase, so naming a fixed one here breaks the screen for every Epic that
   // has not reached it yet.
@@ -2303,6 +2330,25 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const pendingQuestions = questions.filter((question) => question.status === 'pending');
   const ready = preflight?.ready;
 
+  async function publishPhase() {
+    const result = await action(
+      () => window.singularity.publishInitiativePhase(data.repository.root, state.initiative.id, phaseId, persona),
+      `${phaseLabel} published, committed, and pushed`
+    );
+    if (result) await reload(null, state.initiative.id);
+  }
+
+  function nextAction(next) {
+    const actionId = next.action ?? next.id;
+    if (actionId === NEXT_ACTIONS.AUTHOR || actionId === 'prepare') return void buildContext();
+    if (actionId === NEXT_ACTIONS.PUBLISH || actionId === 'author-and-publish') return void publishPhase();
+    if (actionId === NEXT_ACTIONS.APPROVE || actionId === NEXT_ACTIONS.EVIDENCE) {
+      document.querySelector('.phase-governance')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    onJourneyNext?.(next);
+  }
+
   return <div className="requirements-workspace">
     <header className="page-heading requirements-heading">
       <div>
@@ -2316,14 +2362,16 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </div>
     </header>
 
+    <EpicJourneyRail journey={selected.journey} onSelect={onJourneyStage} onNext={nextAction} />
+
     <NextActionStrip
       initiative={state}
       phaseId={phaseId}
       checklist={Object.values(state.phases[phaseId]?.checklist ?? {})}
       busy={running || promoting}
-      onAuthor={() => { if (!contextPack) void buildContext(); }}
-      onPublish={null}
-      onApprove={null}
+      onAuthor={() => nextAction({ action: NEXT_ACTIONS.AUTHOR })}
+      onPublish={() => nextAction({ action: NEXT_ACTIONS.PUBLISH })}
+      onApprove={() => nextAction({ action: NEXT_ACTIONS.APPROVE })}
     />
     {blockingChecks.length > 0 && <section className="requirements-gate">
       <div>
@@ -2450,6 +2498,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
         </>}
       </aside>
     </div>
+    <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
   </div>;
 }
 
@@ -3164,6 +3213,14 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     );
     if (result) await reload(null, initiativeId);
   }
+  function selectJourneyStage(stage) {
+    setTab({ intake: 'intake', requirements: 'requirements', planning: 'planning', stories: 'publish', complete: 'complete' }[stage] ?? 'intake');
+  }
+  function continueJourney(next) {
+    if (next.id === 'materialize') return void previewMaterialization();
+    if (next.id === 'report') return setTab('complete');
+    selectJourneyStage(selected?.journey?.stage ?? 'intake');
+  }
   return <div className="page initiative-page">
     <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p>{onAllEpics && <div className="row gap epic-workspace-exits">
       {/* Selecting an Epic replaces the Epic list with this workspace, so without these the list
@@ -3171,6 +3228,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       <button className="ghost compact" onClick={() => onAllEpics()}>← All Epics</button>
       <button className="secondary compact" onClick={() => onAllEpics('new')}>＋ New Epic</button>
     </div>}</div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
+    {selected?.journey && <EpicJourneyRail journey={selected.journey} onSelect={selectJourneyStage} onNext={continueJourney} />}
     {businessStage && <section className={`business-stage-intro ${businessStage.prerequisite ? 'ready' : 'waiting'}`}>
       <div className="business-stage-copy"><span className="eyebrow">{businessStage.step}</span><h2>{businessStage.title}</h2><p>{businessStage.detail}</p></div>
       <EpicJourneyDiagram activeStep={businessStage.activeStep} />
@@ -3776,6 +3834,21 @@ export default function App() {
     if (result) setData(result);
     if (result) setPage('epics');
   }
+  function openEpicJourneyStage(stage) {
+    const pageForStage = {
+      intake: 'epics',
+      requirements: 'business-requirements',
+      planning: 'business-planning',
+      stories: 'business-stories',
+      complete: 'epics'
+    }[stage] ?? 'epics';
+    setPage(pageForStage);
+  }
+  function continueEpicJourney(next) {
+    if (next?.id === 'materialize') return setPage('business-stories');
+    if (next?.id === 'report') return setPage('epics');
+    openEpicJourneyStage(data?.initiative?.journey?.stage ?? 'intake');
+  }
   async function saveEditor() { const result = await action(() => window.singularity.saveFile(data.repository.root, editor.path, editor.content), `${editor.path} saved and validated`); if (result) { setEditor({ ...editor, original: editor.content }); await reload(); } }
   async function validate() { await action(() => window.singularity.validate(data.repository.root), 'Configuration is valid'); }
   async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
@@ -4038,9 +4111,9 @@ export default function App() {
         onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} />
+        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} />
+        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-create')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;

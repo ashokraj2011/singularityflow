@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextInitiativeAction, NEXT_ACTIONS } from '../src/initiative-next.mjs';
+import { epicJourney, nextInitiativeAction, NEXT_ACTIONS } from '../src/initiative-next.mjs';
 
 const definition = {
   id: 'epic-requirements',
@@ -93,4 +93,30 @@ test('approved and completed states resolve without inventing work', () => {
 test('unknown input is reported rather than thrown, because this renders in a status bar', () => {
   assert.equal(nextInitiativeAction(null).action, NEXT_ACTIONS.BLOCKED);
   assert.equal(nextInitiativeAction(initiative({ status: 'in_progress', outputs: {} }), 'no-such-phase').action, NEXT_ACTIONS.BLOCKED);
+});
+
+test('Epic journey projects the governed phase into a business-friendly stage and CTA', () => {
+  const state = {
+    currentPhase: 'epic-plan',
+    status: 'in_progress',
+    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-plan', 'epic-spec', 'epic-create'],
+    phases: {
+      'epic-intake': { status: 'approved' },
+      'epic-requirements': { status: 'approved' },
+      'epic-plan': { status: 'in_progress' }
+    }
+  };
+  const journey = epicJourney(state, [{ action: 'author-and-publish', command: 'singularity-flow initiative phase publish epic-plan', reason: 'Review the Story plan.' }]);
+  assert.equal(journey.stage, 'planning');
+  assert.equal(journey.activeStep, 2);
+  assert.equal(journey.nextAction.label, 'Publish Planning');
+  assert.equal(journey.stages[0].status, 'complete');
+  assert.equal(journey.stages[3].status, 'upcoming');
+});
+
+test('completed Epic journey exposes a report CTA and reaches 100 percent', () => {
+  const journey = epicJourney({ status: 'complete', currentPhase: null, phaseOrder: [], phases: {} }, []);
+  assert.equal(journey.stage, 'complete');
+  assert.equal(journey.completionPercent, 100);
+  assert.equal(journey.nextAction.id, 'report');
 });

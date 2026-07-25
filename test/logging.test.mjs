@@ -4,6 +4,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createLogger, filterLogEntries, logFilePath, normalizeLogging, normalizeLogLevel,
   parseLogLines, redact, REDACTED, resolveLogging
@@ -103,7 +104,7 @@ test('the log rotates and retains only the configured generations', async () => 
 test('logging never writes to stdout, because the CLI emits JSON there', async () => {
   // fd 1 belongs to command output. A logger that writes there corrupts every --json consumer,
   // which has already shipped as a bug once.
-  const source = await readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'logging.mjs'), 'utf8');
+  const source = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'logging.mjs'), 'utf8');
   assert.equal(source.includes('const STDERR_FD = 2'), true);
   assert.equal(/process\.stdout|writeSync\(1/.test(source), false);
 });

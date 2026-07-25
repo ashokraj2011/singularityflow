@@ -20,6 +20,7 @@ import { loadSession } from './session.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
+  exists,
   nowIso,
   posix,
   run,
@@ -88,6 +89,14 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
   return sections;
 }
 
+// Written beside the cached bytes by the desktop layer; see apps/desktop/electron/source-text.mjs.
+export const TEXT_RENDITION_SUFFIX = '.sflow-text.md';
+
+function isTextualMime(mimeType) {
+  return String(mimeType).startsWith('text/')
+    || ['application/json', 'application/yaml', 'application/xml'].includes(mimeType);
+}
+
 async function epicSourceSections(root, initiative, phase) {
   if (initiative.resolution.profile !== 'epic-planning') return { sections: [], warnings: [] };
   const result = await verifyEpicSources(root, initiative.initiative.id, { materialize: true });
@@ -96,15 +105,25 @@ async function epicSourceSections(root, initiative, phase) {
   if (required && failures.length) {
     throw new SingularityFlowError(`Epic source verification failed:\n- ${failures.map((entry) => `${entry.sourceId}: ${entry.status}${entry.error ? ` (${entry.error})` : ''}`).join('\n- ')}`);
   }
-  const sections = result.results.filter((entry) => entry.status === 'verified').map((entry) => ({
-    sourceId: entry.sourceId,
-    path: entry.cachePath,
-    sha256: entry.expectedSha256,
-    version: entry.version ?? entry.record?.version ?? null,
-    bytes: entry.record?.bytes ?? null,
-    mimeType: entry.record?.mimeType ?? 'application/octet-stream',
-    name: entry.record?.name ?? entry.sourceId
-  }));
+  const sections = [];
+  for (const entry of result.results.filter((item) => item.status === 'verified')) {
+    const mimeType = entry.record?.mimeType ?? 'application/octet-stream';
+    const rendition = entry.cachePath ? `${entry.cachePath}${TEXT_RENDITION_SUFFIX}` : null;
+    const hasRendition = rendition ? await exists(path.join(root, rendition)) : false;
+    sections.push({
+      sourceId: entry.sourceId,
+      path: entry.cachePath,
+      // A binary is only worth reading if a text rendition was derived for it; otherwise saying
+      // "read the cached file" sends Copilot at bytes it will decode as mojibake.
+      readablePath: hasRendition ? rendition : (isTextualMime(mimeType) ? entry.cachePath : null),
+      renditionOf: hasRendition ? entry.cachePath : null,
+      sha256: entry.expectedSha256,
+      version: entry.version ?? entry.record?.version ?? null,
+      bytes: entry.record?.bytes ?? null,
+      mimeType,
+      name: entry.record?.name ?? entry.sourceId
+    });
+  }
   const jiraSnapshot = jiraSnapshotSource(initiative);
   if (jiraSnapshot) sections.unshift({
     sourceId: jiraSnapshot.sourceId,
@@ -267,15 +286,21 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const sourceText = epicSources.sections.map((source) => [
     `## Pinned Epic source: ${source.sourceId} — ${source.name}`,
     '',
-    source.path ? `- Local verified cache: \`${source.path}\`` : '- Stored in the committed Jira Epic snapshot',
+    source.readablePath
+      ? `- Readable text: \`${source.readablePath}\`${source.renditionOf ? ` (text extracted from \`${source.renditionOf}\`)` : ''}`
+      : source.path
+        ? `- Cached bytes: \`${source.path}\` — **not readable as text**`
+        : '- Stored in the committed Jira Epic snapshot',
     `- SHA-256: \`${source.sha256}\``,
     `- Provider version: \`${source.version ?? 'unavailable'}\``,
     `- MIME type: \`${source.mimeType}\``,
     source.content ? `\n\`\`\`json\n${source.content}\n\`\`\`` : '',
     '',
-    source.path
-      ? 'Read the exact cached file through the local filesystem. Cite this source ID plus page, frame, or section in every derived requirement and acceptance criterion.'
-      : 'Use the exact Jira Epic snapshot above as the source. Cite this source ID plus field or section in every derived requirement and acceptance criterion.'
+    source.readablePath
+      ? 'Read the exact file above through the local filesystem. Cite this source ID plus page, frame, or section in every derived requirement and acceptance criterion.'
+      : source.path
+        ? 'No text could be extracted from this source, so do not guess at its contents. Record what you need from it as an open question rather than inventing a requirement.'
+        : 'Use the exact Jira Epic snapshot above as the source. Cite this source ID plus field or section in every derived requirement and acceptance criterion.'
   ].join('\n')).join('\n\n');
   const rendered = [
     `# Governed Copilot prompt — ${initiativeId}/${phaseId} generation ${generation}`,

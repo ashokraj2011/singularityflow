@@ -1053,3 +1053,25 @@ test('a stray file drop cannot navigate the app away', async () => {
   assert.match(main, /for \(const type of \['dragover', 'drop'\]\)/);
   assert.match(main, /closest\('\[data-accepts-drop\]'\)/);
 });
+
+test('the contract says what Copilot can actually read', async () => {
+  // A pinned binary was described as "read the exact cached file", which Copilot does as UTF-8 —
+  // so it read mojibake and could invent from it. Each source now states whether it is readable,
+  // and an unreadable one is explicitly not to be guessed at.
+  const context = await readFile(path.join(packageRoot, 'src', 'initiative-context.mjs'), 'utf8');
+  assert.match(context, /Readable text/);
+  assert.match(context, /\*\*not readable as text\*\*/);
+  assert.match(context, /Record what you need from it as an open question rather than inventing a requirement/);
+  assert.match(context, /export const TEXT_RENDITION_SUFFIX/);
+
+  // The engine must not grow a document parser: it has one dependency and the gate asserts so.
+  const enginePackage = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+  assert.deepEqual(Object.keys(enginePackage.dependencies ?? {}), ['yaml']);
+  const extractor = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'source-text.mjs'), 'utf8');
+  assert.match(extractor, /from 'node:zlib'/);
+  assert.doesNotMatch(extractor, /require\(|from '(?!node:)/);
+
+  // The rendition is derived once, at pin time, beside the cached bytes.
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  assert.match(main, /await writeSourceRenditions\(root, initiativeId, records\)/);
+});

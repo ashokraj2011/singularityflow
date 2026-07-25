@@ -996,7 +996,37 @@ Follow the governed planning contract above. Work only in native Plan mode. Befo
     });
     return storageCredentialStore().saveOAuth(providerId, credential);
   });
-  function isTextualSource(mimeType, name = '') {
+  // Copilot receives a filesystem path and reads it as UTF-8, so a pinned PDF/DOCX/XLSX arrived as
+// mojibake. A text rendition is derived once, at pin time, and written beside the cached bytes; the
+// engine notices it and points Copilot there instead. Failure is never fatal — a source with no
+// rendition is declared unreadable in the contract rather than silently handed over.
+async function writeSourceRenditions(root, initiativeId, records) {
+  const { verifyEpicSources } = await importCliModule('epic-sources.mjs');
+  const { TEXT_RENDITION_SUFFIX } = await importCliModule('initiative-context.mjs');
+  const verification = await verifyEpicSources(root, initiativeId, { materialize: true }).catch(() => null);
+  if (!verification) return;
+  for (const record of records) {
+    const result = verification.results?.find((item) => item.sourceId === record.sourceId);
+    if (!result?.cachePath) continue;
+    if (isTextualSource(record.mimeType, record.name)) continue;
+    try {
+      const absolute = path.join(root, result.cachePath);
+      const rendition = extractSourceText(await readFile(absolute), record.mimeType);
+      if (rendition.status !== 'extracted') continue;
+      await writeFile(`${absolute}${TEXT_RENDITION_SUFFIX}`, [
+        `# Text extracted from ${record.name}`,
+        '',
+        `- Source: \`${record.sourceId}\``,
+        `- SHA-256 of the original: \`${record.sha256}\``,
+        '',
+        rendition.text,
+        ''
+      ].join('\n'), 'utf8');
+    } catch { /* A rendition is an optimisation; the pinned bytes remain the evidence. */ }
+  }
+}
+
+function isTextualSource(mimeType, name = '') {
   const mime = String(mimeType ?? '');
   if (mime.startsWith('text/')) return true;
   if (['application/json', 'application/yaml', 'application/xml'].includes(mime)) return true;
@@ -1100,6 +1130,8 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       `[${initiativeId}][epic:source] ${ids}`,
       { appendOnly: true }
     );
+    // After the commit: the rendition lives in .git alongside the cache and is never committed.
+    await writeSourceRenditions(root, initiativeId, records);
     return { canceled: false, records: records.map((record) => ({ ...record, publication })) };
   });
   // A pinned source was a name, a size and a hash: nothing could open it, so a user could never see

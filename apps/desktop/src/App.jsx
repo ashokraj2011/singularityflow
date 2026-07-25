@@ -39,6 +39,7 @@ import {
 import { workspaceLandingPage } from './workspace-routing.mjs';
 // Shared with the CLI so the app and the terminal agree on what comes next.
 import { nextInitiativeAction, normalizeNextActionId, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
+import { PHASE_SCOPE } from '../../../src/planning.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -2004,9 +2005,26 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   }
 
   async function promote() {
+    // A phase-scoped session produces several fenced artifacts from one conversation, so the
+    // single-artifact call would send the fences themselves as one document and the engine would
+    // reject '*' as a promotion target. Parse the set and promote it as one commit instead.
+    const phaseScoped = contextPack?.target?.id === PHASE_SCOPE || targetId === PHASE_SCOPE;
+    const outputs = contextPack?.outputs ?? [];
+    const set = phaseScoped ? readArtifactBlocks(plan, outputs.map((output) => output.id)) : null;
+    if (phaseScoped && !set.size) {
+      setActivity(`No fenced artifact was found. Copilot must wrap each artifact in its <<<SFLOW-ARTIFACT:id …>>> fence.`);
+      return;
+    }
     const result = await action(
-      () => window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan),
-      `Reviewed plan promoted to ${target.path}, committed, and pushed`
+      () => (phaseScoped
+        ? window.singularity.promotePlanningArtifacts(
+          data.repository.root, contextPack.sessionId, persona,
+          [...set].map(([outputId, content]) => ({ outputId, content }))
+        )
+        : window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan)),
+      phaseScoped
+        ? `Promoted ${set.size} artifact${set.size === 1 ? '' : 's'}, committed, and pushed`
+        : `Reviewed plan promoted to ${target.path}, committed, and pushed`
     );
     if (!result) return;
     setReviewed(false);

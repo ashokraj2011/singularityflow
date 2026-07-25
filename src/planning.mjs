@@ -159,6 +159,25 @@ function phaseTargetInstructions(outputs) {
   ].join('\n');
 }
 
+// Promotion only recognises fenced artifacts, and this text is the single-output counterpart of
+// phaseTargetInstructions. It never described the fence, so a single-output session asked for "a
+// complete Markdown document" and its reply could never be promoted — the artifact pane stayed
+// empty no matter how well Copilot answered.
+function singleTargetFence(target) {
+  const { start, end } = artifactBlockMarkers(target.id);
+  return [
+    'Wrap the finished artifact in its own fence, using exactly this form:',
+    '',
+    start,
+    `<the complete ${target.label} as ${target.kind}>`,
+    end,
+    '',
+    'Emit nothing between the fences except the artifact content itself, and do not wrap a fenced artifact in a Markdown code fence.',
+    'Discuss and ask questions freely outside the fence; only fenced content is promoted.',
+    `Governed destination: ${target.id} (${target.kind}) → ${target.path}`
+  ].join('\n');
+}
+
 function targetInstructions(target) {
   if (target.kind === 'yaml') {
     return [
@@ -166,10 +185,16 @@ function targetInstructions(target) {
       'Do not wrap the final artifact in a Markdown code fence.',
       target.id === 'story-plan'
         ? 'Use executable breakdown version 2: initiativeId and epics[]. The existing Jira Epic uses planId plus its governed jiraKey. Every Story uses an immutable temporary planId such as STORY-001; Jira returns workId/jiraKey later. Include title, description, REQ-nnn requirements, AC-nnn acceptanceCriteria, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate. Never invent Jira Story keys.'
-        : 'Preserve stable IDs and express dependencies as structured values.'
+        : 'Preserve stable IDs and express dependencies as structured values.',
+      '',
+      singleTargetFence(target)
     ].join('\n');
   }
-  return 'The proposed artifact must be a complete Markdown document, not a summary or a patch. Preserve explicit IDs, evidence, decisions, risks, dependencies, owners, and open questions.';
+  return [
+    'The proposed artifact must be a complete Markdown document, not a summary or a patch. Preserve explicit IDs, evidence, decisions, risks, dependencies, owners, and open questions.',
+    '',
+    singleTargetFence(target)
+  ].join('\n');
 }
 
 function initiativePhaseContract(initiative, phase) {
@@ -481,16 +506,25 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
       id: initiativeId,
       title: initiative.initiative.title,
       currentPhase: initiative.currentPhase,
-      phases: initiative.resolution.phases.map((phase) => ({
-        id: phase.id,
-        label: phase.label,
-        status: initiative.phases[phase.id].status,
-        current: phase.id === initiative.currentPhase,
-        lanes: phase.lanes,
-        targets: phase.outputs
-          .filter((output) => ['markdown', 'yaml', 'interface-contract'].includes(output.kind))
-          .map((output) => ({ id: output.id, label: output.label, kind: output.kind, path: initiative.phases[phase.id].outputs[output.id].path }))
-      }))
+      phases: initiative.resolution.phases.map((phase) => {
+        const promotable = phase.outputs
+          .filter((output) => PROMOTABLE_KINDS.includes(output.kind))
+          .map((output) => ({ id: output.id, label: output.label, kind: output.kind, path: initiative.phases[phase.id].outputs[output.id].path }));
+        return {
+          id: phase.id,
+          label: phase.label,
+          status: initiative.phases[phase.id].status,
+          current: phase.id === initiative.currentPhase,
+          lanes: phase.lanes,
+          // A phase whose artifacts are one decision is offered as one target, first, so a caller
+          // that takes targets[0] gets the whole set. Without this entry nothing could ever send
+          // PHASE_SCOPE, so phaseTargetInstructions — the only text that teaches Copilot the
+          // promotion fence — was unreachable and no artifact could be recognised.
+          targets: promotable.length > 1
+            ? [{ id: PHASE_SCOPE, label: `${phase.label} artifacts`, kind: 'phase', outputs: promotable.map((output) => output.id) }, ...promotable]
+            : promotable
+        };
+      })
     });
   }
   return { enabled: normalizePlanning(definition.planning ?? {}).enabled, targets };

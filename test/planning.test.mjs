@@ -485,3 +485,34 @@ test('an optional output that was never authored is not treated as a missing inp
   const state = await readFile(path.join(packageRoot, 'src', 'initiative-state.mjs'), 'utf8');
   assert.match(state, /producerOutput\?\.required === false && !producerOutput\.sha256\) continue/);
 });
+
+test('every promotion target teaches Copilot the fence it will be parsed by', async () => {
+  // Promotion recognises artifacts only by <<<SFLOW-ARTIFACT:id …>>>. That format was described
+  // solely in phaseTargetInstructions, reachable only for a phase-scoped target — which nothing
+  // ever sent. A single-output session was told to produce "a complete Markdown document" and its
+  // reply could never be recognised, so no artifact could be promoted from any surface.
+  const root = await repository();
+  run(root, process.execPath, [bin, 'initiative', 'start', 'INIT-FENCE', '--title', 'Fence coverage']);
+  const catalog = await planningTargetCatalog(root, { initiativeId: 'INIT-FENCE' });
+  const phase = catalog.targets[0].phases.find((item) => item.targets.length > 2);
+  assert.ok(phase, 'expected a phase with more than one promotable output');
+
+  // The whole set is offered first, so a caller taking targets[0] gets every artifact.
+  assert.equal(phase.targets[0].id, PHASE_SCOPE);
+  const ids = phase.targets.slice(1).map((item) => item.id);
+
+  const whole = await createPlanningContext(root, {
+    scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
+    persona: 'product-owner', target: PHASE_SCOPE, objective: 'set'
+  });
+  const wholeText = await readFile(whole.contextPath, 'utf8');
+  for (const id of ids) assert.ok(wholeText.includes(`<<<SFLOW-ARTIFACT:${id}`), `${id} fence missing from phase contract`);
+
+  const single = await createPlanningContext(root, {
+    scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
+    persona: 'product-owner', target: ids[0], objective: 'one'
+  });
+  const singleText = await readFile(single.contextPath, 'utf8');
+  assert.ok(singleText.includes(`<<<SFLOW-ARTIFACT:${ids[0]}`), 'single-target contract must describe its own fence');
+  assert.ok(!singleText.includes(`<<<SFLOW-ARTIFACT:${ids[1]}`), 'a single-output contract must not invite artifacts it is not scoped to');
+});

@@ -13,6 +13,7 @@ import {
 import {
   initiativeMilestoneReadiness, requiredInitiativeMilestone
 } from './initiative-milestones.mjs';
+import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 import { identity } from './git.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
@@ -193,7 +194,7 @@ export async function registerInitiativeEvidence(root, {
     initiativeId: initiative.initiative.id,
     phase: phaseId,
     check: checkId,
-    requirement: check.requirement,
+    requirement: initiativeCheckRequirement(initiative, phaseId, check),
     assurance,
     identityAssurance: 'configured-local',
     verificationMethod: verificationMethod ?? (assurance === 'presence-only' ? 'presence' : assurance),
@@ -273,13 +274,13 @@ export async function evaluateInitiativeChecklist(root, initiative, portfolio, p
     let status;
     if (decision) status = decision.record.decision;
     else if (accepted.length) status = 'satisfied';
-    else if (check.requirement === 'optional') status = 'optional';
+    else if (initiativeCheckRequirement(initiative, phaseId, check) === 'optional') status = 'optional';
     else if (matching.some((entry) => entry.status === 'stale')) status = 'stale';
     else status = 'missing';
     results.push({
       id: check.id,
       label: check.label,
-      requirement: check.requirement,
+      requirement: initiativeCheckRequirement(initiative, phaseId, check),
       gate: check.gate,
       status,
       acceptedAssurance: check.acceptedAssurance,
@@ -370,7 +371,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
   const errors = [], warnings = [], passes = [];
   for (const outputDefinitionValue of definition.outputs) {
     const output = phase.outputs[outputDefinitionValue.id];
-    if (outputDefinitionValue.required && (!output.sha256 || !['published', 'approved'].includes(output.status))) errors.push(`required output ${phaseId}/${output.id} is not published`);
+    if (initiativeOutputRequired(initiative, phaseId, outputDefinitionValue) && (!output.sha256 || !['published', 'approved'].includes(output.status))) errors.push(`required output ${phaseId}/${output.id} is not published`);
     if (!output.sha256) continue;
     const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
       label: `Initiative output '${phaseId}/${output.id}'`,
@@ -477,7 +478,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
       type: 'file'
     });
     const current = await snapshot(target.absolute);
-    if (definition.required && !current.exists) missing.push(`${definition.id} (${output.path})`);
+    if (initiativeOutputRequired(initiative, phaseId, definition) && !current.exists) missing.push(`${definition.id} (${output.path})`);
     if (!current.exists) continue;
     Object.assign(output, {
       status: 'published',

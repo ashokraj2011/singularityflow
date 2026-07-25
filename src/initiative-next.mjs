@@ -22,6 +22,8 @@ export const NEXT_ACTIONS = Object.freeze({
   BLOCKED: 'blocked'
 });
 
+import { initiativeOutputRequired } from './initiative-policy.mjs';
+
 export const EPIC_JOURNEY_STAGES = Object.freeze([
   { id: 'intake', label: 'Intake', phase: 'epic-intake' },
   { id: 'requirements', label: 'Requirements', phase: 'epic-requirements' },
@@ -181,7 +183,7 @@ export function nextInitiativeAction(initiative, phaseId = null, { checklist = n
   // in_progress: the outputs decide. Only required outputs gate publication — the engine reports a
   // missing output only when its definition is required, and the desktop used to be stricter.
   const pending = definition.outputs
-    .filter((output) => output.required !== false)
+    .filter((output) => initiativeOutputRequired(initiative, id, output))
     .filter((output) => {
       const state = phase.outputs?.[output.id];
       return !(state?.sha256 && ['draft', 'published', 'approved'].includes(state.status));

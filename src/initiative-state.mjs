@@ -9,6 +9,7 @@ import {
 } from './initiative-config.mjs';
 import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { renderInitiativeGenerator } from './initiative-generators.mjs';
+import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
@@ -400,6 +401,9 @@ export async function verifyInitiativePhaseInputs(root, portfolio, initiative, p
       // would mean an Epic with no recorded source gaps could never reach requirements — the gate
       // would be enforcing the existence of a document rather than the availability of evidence.
       if (producerOutput?.required === false && !producerOutput.sha256) continue;
+      // Legacy Epic snapshots may still say required even though the current
+      // Epic Intake policy is non-blocking.
+      if (!initiativeOutputRequired(initiative, producerPhaseId, producerOutput) && !producerOutput.sha256) continue;
       if (!producerOutput?.sha256 || !['published', 'approved'].includes(producerOutput.status)) throw new SingularityFlowError(`Initiative input '${reference}' for '${phaseId}/${output.id}' has no approved published artifact hash.`);
       const source = await secureInitiativePath(root, portfolio, initiative.initiative.id, producerOutput.path, {
         label: `Initiative input '${reference}'`,

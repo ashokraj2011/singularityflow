@@ -322,3 +322,61 @@ test('worldModelRebuildReason reports a missing model without throwing', async (
   const reason = await worldModelRebuildReason(root, { worldModel: { outputDir: 'singularity/world-model' } });
   assert.match(reason, /has not been built/);
 });
+
+test('publishing a phase blocks an impact map naming an unknown repository under enforce', async () => {
+  const { publishInitiativePhase } = await import('../src/initiative-evidence.mjs');
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-impact-publish-'));
+  const root = path.join(base, 'lead');
+  await mkdir(root);
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', ACTOR_EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Lead\n');
+  await initializeDefinition(root);
+
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) {
+    authority.members = [{ name: 'Initiative Owner', email: ACTOR_EMAIL }];
+  }
+  portfolio.repositories = { app: { url: path.join(base, 'app.git'), defaultBranch: 'main', required: true } };
+  // Isolate the impact gate: keep the outputs other phases reference, but drop their upstream
+  // input requirements so publication reaches the impact check.
+  for (const output of portfolio.initiativePhases.plan.outputs) { delete output.consumes; output.required = false; }
+  // Give the phase a repository-map output so the impact gate applies.
+  portfolio.initiativePhases.plan.outputs.push({
+    id: 'repository-map', label: 'Repository map', kind: 'yaml', path: 'repository-map.yml', template: 'initiatives/generic-output.yml'
+  });
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  await writeFile(definitionFile, YAML.stringify(definition));
+
+  // A committed world model declaring exactly one view.
+  const modelDir = path.join(root, 'singularity/world-model');
+  await mkdir(modelDir, { recursive: true });
+  await writeFile(path.join(modelDir, 'manifest.json'), JSON.stringify({ views: { architecture: { path: 'views/architecture.md' } } }));
+
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize lead'], { cwd: root });
+  run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
+  const created = await createInitiative(root, { id: 'INIT-IMPACT', profile: 'initiative-lite' });
+  created.initiative.currentPhase = 'plan';
+  created.initiative.phases.define.status = 'approved';
+  created.initiative.phases.plan.status = 'in_progress';
+  await saveInitiative(root, created.portfolio, created.initiative);
+
+  const directory = initiativeDir(root, created.portfolio, 'INIT-IMPACT');
+  const mapPath = path.join(directory, created.initiative.phases.plan.outputs['repository-map'].path);
+  await mkdir(path.dirname(mapPath), { recursive: true });
+
+  // An unknown repository is rejected outright.
+  await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { ghost: { worldModelViews: ['architecture'] } } }));
+  await assert.rejects(() => publishInitiativePhase(root, 'INIT-IMPACT', 'plan'), /unknown repository 'ghost'/);
+
+  // So is a view the committed world model does not declare.
+  await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { app: { worldModelViews: ['telepathy'] } } }));
+  await assert.rejects(() => publishInitiativePhase(root, 'INIT-IMPACT', 'plan'), /undeclared world-model view 'telepathy'/);
+});

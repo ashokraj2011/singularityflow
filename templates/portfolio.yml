@@ -138,6 +138,7 @@ initiativePhases:
       - { id: stories-traceable, label: Every Story maps to REQ and AC identifiers, requirement: must, acceptedAssurance: [machine-verified, human-approved], gate: block }
       - { id: repositories-resolved, label: Every Story has a configured owning repository, requirement: must, acceptedAssurance: [machine-verified], gate: block }
       - { id: dependencies-acyclic, label: Story dependencies are valid and acyclic, requirement: must, acceptedAssurance: [machine-verified], gate: block }
+      - { id: impact-grounded, label: Impact map names only configured repositories and declared world-model views, requirement: must, acceptedAssurance: [machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
   epic-spec:

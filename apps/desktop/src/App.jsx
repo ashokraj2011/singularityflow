@@ -2309,6 +2309,9 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
   const jiraConfigured = Boolean(data.portfolio?.jira?.enabled || (workspacePath && workspaceProjectKeys.length));
   const [source, setSource] = useState(jiraConfigured ? 'jira' : 'local');
   const [status, setStatus] = useState(null);
+  // Offered, never forced: generating the world model runs Copilot and can take minutes, so the
+  // epic starts either way and the model can be built onto the epic branch from here.
+  const [worldModelOffer, setWorldModelOffer] = useState(null);
   const [epicKey, setEpicKey] = useState('');
   const [selectedEpicKey, setSelectedEpicKey] = useState('');
   const [fetchedEpic, setFetchedEpic] = useState(null);
@@ -2508,13 +2511,51 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       () => window.singularity.startEpicWizard(data.repository.root, fetchedEpic.key, profile, persona),
       `Epic ${fetchedEpic.key} fetched from Jira, initialized, committed, and pushed`
     );
-    if (result) await reload(null, fetchedEpic.key);
+    if (!result) return;
+    // The epic branch exists and is pushed. If the repository has no usable world model, offer to
+    // build it now so every phase prompt can be grounded, rather than reloading straight past it.
+    if (result.worldModel?.reason) {
+      setWorldModelOffer({ initiativeId: result.initiativeId ?? fetchedEpic.key, reason: result.worldModel.reason });
+      return;
+    }
+    await reload(null, fetchedEpic.key);
+  }
+  async function generateWorldModelForEpic() {
+    // local=false: publish normally so the model is pushed with the epic branch.
+    const built = await action(
+      () => window.singularity.generateWorldModel(data.repository.root, false),
+      'World model generated and pushed with the epic branch'
+    );
+    const target = worldModelOffer?.initiativeId;
+    setWorldModelOffer(null);
+    if (built) await reload(null, target);
+  }
+  async function skipWorldModel() {
+    const target = worldModelOffer?.initiativeId;
+    setWorldModelOffer(null);
+    await reload(null, target);
   }
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
   const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
   const canStart = source === 'jira'
     ? connected && fetchedEpic?.key === epicKey && profile && persona
     : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
+  if (worldModelOffer) return <div className="epic-start-wizard">
+    <section className="epic-start-form">
+      <div className="epic-start-step">
+        <b>✓</b>
+        <div>
+          <span className="eyebrow">Epic started</span>
+          <h3>Ground {worldModelOffer.initiativeId} in a repository world model?</h3>
+          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The model is committed and pushed with the epic branch, so every phase prompt can be grounded in it. You can skip and generate it later from the World model page.</p>
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="primary" onClick={generateWorldModelForEpic}>Generate world model</button>
+            <button className="ghost" onClick={skipWorldModel}>Skip for now</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>;
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <div className="epic-start-intro-copy">

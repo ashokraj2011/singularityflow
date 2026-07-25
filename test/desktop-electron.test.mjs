@@ -623,3 +623,17 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(main, /figma\.com\/embed/);
   assert.doesNotMatch(main, /<webview>/);
 });
+
+test('epic start offers world-model generation instead of blocking on it', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  // epic:start reports the world-model status; it never runs the builder itself.
+  assert.match(main, /worldModelRebuildReason/);
+  assert.match(main, /worldModel = \{ reason, ready: reason === null \}/);
+  // The renderer offers generation, and lets the user skip.
+  assert.match(source, /worldModelOffer/);
+  assert.match(source, /Generate world model/);
+  assert.match(source, /Skip for now/);
+  // Generation is pushed with the epic branch, so it must not use the local-only path.
+  assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
+});

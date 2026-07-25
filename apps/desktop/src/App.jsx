@@ -2443,8 +2443,16 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
   const [selfApproval, setSelfApproval] = useState(false);
   if (!phase) return null;
   const outputs = Object.values(phase.outputs ?? {});
-  const readyToPublish = phase.status === 'in_progress' && outputs.length > 0
-    && outputs.every((output) => output.sha256 && output.status === 'draft');
+  // Publication needs every REQUIRED output authored. The engine already works this way
+  // (verifyInitiativePhaseOutputs only reports a missing output when definition.required), so
+  // demanding all of them here made the button stricter than the gate it represents: an optional
+  // output left blank disabled publish in the app while the CLI would have accepted it.
+  const requiredOutputs = outputs.filter((output) => output.required !== false);
+  const authoredOutputs = outputs.filter((output) => output.sha256 && output.status === 'draft');
+  const readyToPublish = phase.status === 'in_progress'
+    && requiredOutputs.length > 0
+    && requiredOutputs.every((output) => output.sha256 && output.status === 'draft');
+  const pendingRequired = requiredOutputs.filter((output) => !(output.sha256 && output.status === 'draft'));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const approved = phase.status === 'approved';
   async function publish() {
@@ -2473,10 +2481,12 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     }
   }
   return <section className="panel phase-governance">
-    <div><span className="eyebrow">Governed stage action</span><h3>{phase.label}</h3><p>{approved ? 'This stage is approved and remains available for review.' : awaitingApproval ? 'Review the generated documents above, then bind your decision to the exact phase bundle.' : readyToPublish ? 'The authored outputs are ready to publish as an immutable generation.' : 'Generate or promote every required output before publishing this stage.'}</p></div>
+    <div><span className="eyebrow">Governed stage action</span><h3>{phase.label}</h3><p>{approved ? 'This stage is approved and remains available for review.' : awaitingApproval ? 'Review the generated documents above, then bind your decision to the exact phase bundle.' : readyToPublish ? 'The authored outputs are ready to publish as an immutable generation.' : pendingRequired.length ? `Waiting on ${pendingRequired.length} required output${pendingRequired.length === 1 ? '' : 's'}: ${pendingRequired.map((output) => output.id).join(', ')}. Compose ${pendingRequired.length === 1 ? 'it' : 'them'} in Copilot Studio, or edit the prepared file directly, then publish.` : 'Generate or promote every required output before publishing this stage.'}</p>
+      {!readyToPublish && !awaitingApproval && !approved && authoredOutputs.length > 0 && <p className="stage-progress">{authoredOutputs.length} of {requiredOutputs.length} required outputs authored.</p>}
+    </div>
     <label><span>Session persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></label>
     {awaitingApproval && <><label><span>Exact confirmation</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`${phaseId}:phase`} /></label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
-    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved</Pill> : awaitingApproval ? <button className="primary" disabled={!persona || confirmation !== `${phaseId}:phase`} onClick={approve}>Approve exact stage</button> : <button className="primary" disabled={!readyToPublish || !persona} onClick={publish}>Publish for approval</button>}</div>
+    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved</Pill> : awaitingApproval ? <button className="primary" disabled={!persona || confirmation !== `${phaseId}:phase`} onClick={approve}>Approve exact stage</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish for approval</button>}</div>
     {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}
   </section>;
 }

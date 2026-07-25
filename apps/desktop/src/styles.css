@@ -3387,3 +3387,4 @@ input:disabled, select:disabled, textarea:disabled {
 .requirements-gate p { margin: 3px 0 0; color: #7b6231; font-size: 10.5px; line-height: 1.5; }
 .requirements-gate ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: #7b6231; font-size: 10.5px; }
 .requirements-gate code { color: #5d4310; font-size: 10px; }
+.stage-progress { margin: 6px 0 0; color: var(--muted); font-size: 10px; }

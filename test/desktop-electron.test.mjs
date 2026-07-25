@@ -735,3 +735,19 @@ test('the Requirements workspace follows the initiative phase and shows what blo
   assert.match(workspace, /check\.requirement === 'must' && check\.status !== 'satisfied'/);
   assert.match(workspace, /cannot be approved yet/);
 });
+
+test('publication waits on required outputs only, and says which ones', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const governance = source.slice(source.indexOf('function PhaseGovernance('), source.indexOf('function EpicsHome('));
+
+  // The engine reports a missing output only when definition.required, so demanding every output
+  // here made the button stricter than the gate it represents.
+  assert.match(governance, /const requiredOutputs = outputs\.filter\(\(output\) => output\.required !== false\)/);
+  assert.match(governance, /requiredOutputs\.every\(\(output\) => output\.sha256 && output\.status === 'draft'\)/);
+
+  // A disabled primary action must say what it is waiting for; "not active" with no reason is the
+  // complaint that prompted this.
+  assert.match(governance, /pendingRequired/);
+  assert.match(governance, /Waiting on \$\{pendingRequired\.length\}/);
+  assert.match(governance, /title=\{!persona \? 'Select a persona first\.'/);
+});

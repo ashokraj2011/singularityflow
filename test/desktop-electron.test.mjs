@@ -90,6 +90,25 @@ test('Electron welcome screen opens the workspace boundary and preserves loading
   assert.doesNotMatch(source, /finally \{ setBusy\(false\); setTimeout\(\(\) => setToast\(null\)/);
 });
 
+test('How it works is a visual lifecycle and Documentation remains the searchable manual', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
+  assert.match(source, /const \[standaloneHowItWorks, setStandaloneHowItWorks\] = useState\(false\)/);
+  assert.match(source, /<button onClick=\{\(\) => setStandaloneHowItWorks\(true\)\}>How it works<\/button>/);
+  assert.match(source, /<button onClick=\{\(\) => setStandaloneHelp\(true\)\}>Documentation<\/button>/);
+  assert.match(source, /From Jira Epic to[\s\S]*reconciled delivery/);
+  assert.match(source, /Jira tracks work/);
+  assert.match(source, /Git carries truth/);
+  assert.match(source, /Copilot authors/);
+  assert.match(source, /People decide/);
+  assert.match(source, /The reconciliation loop/);
+  assert.match(source, /How it works is the map\. Documentation is the manual\./);
+  assert.match(styles, /\.lifecycle-map/);
+  assert.match(styles, /\.git-state-spine/);
+  assert.match(styles, /\.reconcile-loop/);
+  assert.match(styles, /\.guide-surface-comparison/);
+});
+
 test('Electron routes new workspace selections to configuration before Epic intake', () => {
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }), 'workspaces');
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-needs-repair' } }), 'workspaces');

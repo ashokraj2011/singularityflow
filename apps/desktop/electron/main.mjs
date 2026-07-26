@@ -846,6 +846,19 @@ function registerHandlers() {
       savedStatus: entry.status
     };
   });
+  trustedHandle('initiative:outputs-select', async (event, { repository, initiativeId, phaseId, outputIds, reason = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ selectInitiativePhaseOutputs }, { commitInitiativeChange }, { loadInitiative }] = await Promise.all([
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const selection = await selectInitiativePhaseOutputs(root, initiativeId, phaseId, outputIds ?? [], { reason });
+    const state = await loadInitiative(root, initiativeId);
+    await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    return snapshot(root, null, initiativeId);
+  });
   trustedHandle('initiative:evidence-record', async (event, { repository, initiativeId, phaseId, checkId, reason, observedState }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);

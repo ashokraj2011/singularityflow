@@ -428,7 +428,16 @@ export function availableInitiativeOutputs(portfolio, initiative, phaseId) {
   const pinned = initiative.resolution.phases.find((item) => item.id === phaseId)?.outputs ?? [];
   const configured = resolveInitiativeProfile(portfolio, initiative.resolution.profile)
     ?.phases.find((item) => item.id === phaseId)?.outputs ?? [];
-  const byId = new Map(pinned.map((output) => [output.id, { ...output, pinned: true }]));
+  const configuredById = new Map(configured.map((output) => [output.id, output]));
+  const byId = new Map(pinned.map((output) => [output.id, {
+    ...output,
+    // The profile is the authority on what governance demands *now*; the pinned entry is the
+    // authority on where the artifact lives and which template it was cut from. Reading required
+    // from the pinned copy would mean an Epic started before an output was relaxed could never
+    // relax it — the profile could be corrected and no existing Epic would ever benefit.
+    required: configuredById.has(output.id) ? configuredById.get(output.id).required !== false : output.required !== false,
+    pinned: true
+  }]));
   for (const output of configured) if (!byId.has(output.id)) byId.set(output.id, { ...output, pinned: false });
   return [...byId.values()];
 }

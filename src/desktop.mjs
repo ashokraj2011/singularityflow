@@ -48,6 +48,8 @@ import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
 import { epicJourney } from './initiative-next.mjs';
+import { availableInitiativeOutputs } from './initiative-state.mjs';
+import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
@@ -223,6 +225,21 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     // Every profile gets a journey. Withholding it from the others is what left the delivery
     // workspace with no statement of where the work stood or what to do next.
     journey: epicJourney(initiative, nextActions),
+    // Every output the current phase could produce, with what this Epic has chosen. The app cannot
+    // offer a choice it cannot see, and the pinned resolution alone does not show an output the
+    // profile has gained since the Epic started.
+    outputChoices: initiative.currentPhase
+      ? availableInitiativeOutputs(portfolio, initiative, initiative.currentPhase).map((output) => ({
+        id: output.id,
+        label: output.label,
+        kind: output.kind,
+        required: output.required !== false,
+        pinned: output.pinned === true,
+        included: initiativeOutputRequired(initiative, initiative.currentPhase, output),
+        authored: Boolean(initiative.phases?.[initiative.currentPhase]?.outputs?.[output.id]?.sha256)
+      }))
+      : [],
+    outputSelectionPhase: initiative.currentPhase ?? null,
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'

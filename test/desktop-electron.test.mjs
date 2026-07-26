@@ -1398,3 +1398,30 @@ test('the app can ask the world-model builder for the views its phases need', as
   assert.match(app, /data\.worldModel\.views\.filter\(\(view\) => \(view\.structuredReferences \?\? \[\]\)\.length\)/);
   assert.match(app, /generateWorldModel\?\.\(undefined, undefined, buildViews\)/);
 });
+
+test('an Epic picks its documents from the Artifacts pane, and the change is governed', async () => {
+  // A phase's outputs are a property of the delivery profile; which of the optional ones an Epic
+  // actually produces is a decision, and there was nowhere to make it. discover-define demanded a
+  // business case, an opportunity brief and a product roadmap from every Epic alike.
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
+  const app = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
+
+  assert.match(preload, /selectInitiativeOutputs:/);
+  assert.match(main, /trustedHandle\('initiative:outputs-select'/);
+  // The engine owns the rules; the handler only carries the request and commits the result.
+  const handler = main.slice(main.indexOf("trustedHandle('initiative:outputs-select'"));
+  assert.match(handler.slice(0, 1200), /selectInitiativePhaseOutputs\(root, initiativeId, phaseId/);
+  assert.match(handler.slice(0, 1200), /commitInitiativeChange\(/);
+  assert.doesNotMatch(handler.slice(0, 1200), /required|includes\(/);
+
+  // The app cannot offer a choice it cannot see, and the pinned resolution alone does not show an
+  // output the profile has gained since the Epic started.
+  assert.match(desktop, /outputChoices: initiative\.currentPhase/);
+  assert.match(desktop, /availableInitiativeOutputs\(portfolio, initiative, initiative\.currentPhase\)/);
+
+  // Required outputs are shown but not unpickable, and a reason is not optional.
+  assert.match(app, /disabled=\{choice\.required \|\| choice\.authored\}/);
+  assert.match(app, /disabled=\{!outputReason\.trim\(\)\} onClick=\{applyOutputChoice\}/);
+});

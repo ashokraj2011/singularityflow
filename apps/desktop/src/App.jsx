@@ -2763,6 +2763,25 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     () => selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [],
     [selected.state.resolution, activePhaseId]
   );
+  // Only the current phase can have its documents chosen; a phase that is done is done.
+  const outputChoices = activePhaseId === selected.outputSelectionPhase ? selected.outputChoices ?? [] : [];
+  const includedOutputIds = outputChoices.filter((choice) => choice.included).map((choice) => choice.id);
+  const [chosenOutputs, setChosenOutputs] = useState(includedOutputIds);
+  const [outputReason, setOutputReason] = useState('');
+  useEffect(() => {
+    setChosenOutputs(includedOutputIds);
+    setOutputReason('');
+  }, [includedOutputIds.join(','), activePhaseId]);
+  const outputChoiceChanged = [...chosenOutputs].sort().join(',') !== [...includedOutputIds].sort().join(',');
+
+  async function applyOutputChoice() {
+    const result = await action(
+      () => window.singularity.selectInitiativeOutputs(data.repository.root, selected.state.initiative.id, activePhaseId, chosenOutputs, outputReason.trim()),
+      `${activePhaseId} will produce ${chosenOutputs.length} document${chosenOutputs.length === 1 ? '' : 's'}`
+    );
+    if (result) await reload(undefined, selected.state.initiative.id);
+  }
+
   const requiredOutputIds = useMemo(() => new Set(
     (selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [])
       .filter((output) => output.required)
@@ -3062,6 +3081,28 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
       <aside className="requirements-artifacts">
         <header><h2>Artifacts</h2><Pill tone={proposed.size ? 'accent' : 'neutral'}>{proposed.size}/{outputs.length || '—'}</Pill></header>
+        {/* What this phase demands is a property of the profile; what this Epic needs is a
+            decision. Optional outputs are chosen here, and the choice is a governed change. */}
+        {outputChoices.length > 0 && <details className="artifact-choice">
+          <summary>Documents for this Epic ({outputChoices.filter((choice) => choice.included).length} of {outputChoices.length})</summary>
+          {outputChoices.map((choice) => <label key={choice.id} className={choice.required ? 'locked' : undefined}>
+            <input
+              type="checkbox"
+              checked={chosenOutputs.includes(choice.id)}
+              disabled={choice.required || choice.authored}
+              onChange={(event) => setChosenOutputs((current) => event.target.checked
+                ? [...current, choice.id]
+                : current.filter((id) => id !== choice.id))}
+            />
+            <span><strong>{choice.label}</strong><small>{choice.required
+              ? 'Required by this delivery profile'
+              : choice.authored ? 'Already has content — remove the file first' : 'Optional'}{choice.pinned ? '' : ' · added to the profile since this Epic started'}</small></span>
+          </label>)}
+          {outputChoiceChanged && <div className="row">
+            <input aria-label="Why this Epic's documents changed" value={outputReason} onChange={(event) => setOutputReason(event.target.value)} placeholder="Why — recorded with the change" />
+            <button className="primary compact" disabled={!outputReason.trim()} onClick={applyOutputChoice}>Apply</button>
+          </div>}
+        </details>}
         {!outputs.length ? <p className="requirements-hint">Start a session to see what this phase must produce.</p> : <>
           {artifactGroups.map((group) => group.items.length > 0 && <section key={group.id} className="artifact-group">
             <h3>{group.label}</h3>

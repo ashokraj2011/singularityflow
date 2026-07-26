@@ -3677,3 +3677,16 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .view-pick small { font-size: 9.5px; color: var(--muted); }
 .view-pick.built { border-color: rgba(47,109,79,.4); }
 .view-pick.built small { color: var(--brand, #2f6d4f); }
+
+/* Choosing this Epic's documents. A phase's outputs are a property of the delivery profile; which
+   of the optional ones an Epic actually produces is a decision, and it belongs beside them. */
+.artifact-choice { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.artifact-choice > summary { cursor: pointer; font-size: 11px; font-weight: 640; color: var(--ink); }
+.artifact-choice label { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.artifact-choice label input { margin-top: 2px; }
+.artifact-choice label span { display: grid; gap: 1px; min-width: 0; }
+.artifact-choice label strong { font-size: 11px; font-weight: 620; color: var(--ink); }
+.artifact-choice label small { font-size: 9.5px; color: var(--muted); }
+.artifact-choice label.locked strong { color: var(--muted); }
+.artifact-choice > .row { margin-top: 12px; gap: 8px; }
+.artifact-choice > .row input { flex: 1 1 auto; min-width: 0; }

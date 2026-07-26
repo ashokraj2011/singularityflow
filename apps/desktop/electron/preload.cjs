@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('singularity', {
   attachInboxItem: (repository, workId) => ipcRenderer.invoke('inbox:attach', { repository, workId }),
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
+  selectInitiativeOutputs: (repository, initiativeId, phaseId, outputIds, reason) => ipcRenderer.invoke('initiative:outputs-select', { repository, initiativeId, phaseId, outputIds, reason }),
   recordInitiativeEvidence: (repository, initiativeId, phaseId, checkId, reason, observedState) =>
     ipcRenderer.invoke('initiative:evidence-record', { repository, initiativeId, phaseId, checkId, reason, observedState }),
   generateWorldModel: (repository, local = true, views = null) => ipcRenderer.invoke('worldmodel:generate', { repository, local, views }),

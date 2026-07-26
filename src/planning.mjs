@@ -600,7 +600,17 @@ export async function createPlanningContext(root, {
   };
 }
 
-async function loadPlanningPack(root, sessionId) {
+/**
+ * Load a saved planning pack.
+ *
+ * `requireCurrentHead` is the difference between reading a conversation and writing to Git. Promotion
+ * needs the repository to be exactly where the context was built, or the artifacts describe a tree
+ * that no longer exists. Resuming needs no such thing: it restores a transcript. Refusing to load
+ * on a moved HEAD meant any governed commit in between — publishing another phase, pinning a
+ * source, restarting the Epic — destroyed the conversation rather than marking it unpromotable,
+ * which is the opposite of the stale-context banner the app was given to show.
+ */
+async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } = {}) {
   const directory = planningDirectory(root, sessionId);
   const manifestPath = path.join(directory, 'manifest.json');
   const contextPath = path.join(directory, 'context.md');
@@ -610,7 +620,8 @@ async function loadPlanningPack(root, sessionId) {
   if (manifest.sessionId !== sessionId || manifest.repository.root !== root) throw new SingularityFlowError('Planning context identity does not match this repository.');
   if (current.sha256 !== manifest.context.sha256) throw new SingularityFlowError('Planning context changed after Copilot received it.');
   if (branch(root) !== manifest.repository.branch) throw new SingularityFlowError(`Planning started on branch '${manifest.repository.branch}', but '${branch(root)}' is now checked out.`);
-  if (head(root) !== manifest.repository.head) throw new SingularityFlowError('Repository HEAD changed after the planning context was created. Rebuild the context before promotion.');
+  const headMoved = head(root) !== manifest.repository.head;
+  if (headMoved && requireCurrentHead) throw new SingularityFlowError('Repository HEAD changed after the planning context was created. Rebuild the context before promotion.');
   const pinnedFiles = [
     ...(manifest.prompt?.path && !manifest.prompt.path.startsWith('builtin:') ? [{ kind: 'planning-prompt', ...manifest.prompt }] : []),
     ...(manifest.sources ?? [])
@@ -627,7 +638,7 @@ async function loadPlanningPack(root, sessionId) {
       throw new SingularityFlowError(`Governed planning source changed after context creation: ${source.path}. Rebuild the context before promotion.`);
     }
   }
-  return { directory, manifestPath, contextPath, manifest };
+  return { directory, manifestPath, contextPath, manifest, headMoved };
 }
 
 function preserveManagedMetadata(previous, next, pattern) {

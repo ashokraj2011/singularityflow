@@ -829,7 +829,10 @@ function registerHandlers() {
     const entry = entries.find((item) => item.sessionId === planningSessionId);
     if (!entry) throw new Error(`No saved planning session '${planningSessionId}' exists for this repository.`);
     const { loadPlanningPack } = await importCliModule('planning.mjs');
-    const pack = await loadPlanningPack(root, planningSessionId);
+    // Resuming restores a conversation; it writes nothing. A HEAD that has moved since makes the
+    // pack unpromotable, which the workspace already says with its rebuild banner — it is not a
+    // reason to lose the transcript.
+    const pack = await loadPlanningPack(root, planningSessionId, { requireCurrentHead: false });
     const context = await readFile(pack.contextPath, 'utf8');
     planningPacks.set(planningSessionId, { repository: root, contextPath: pack.contextPath, manifestPath: pack.manifestPath });
     if (entry.status === 'active') await copilotBackend.attachPlanning(root, planningSessionId);

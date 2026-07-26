@@ -578,3 +578,38 @@ test('every promotion target teaches Copilot the fence it will be parsed by', as
   assert.ok(singleText.includes(`<<<SFLOW-ARTIFACT:${ids[0]}`), 'single-target contract must describe its own fence');
   assert.ok(!singleText.includes(`<<<SFLOW-ARTIFACT:${ids[1]}`), 'a single-output contract must not invite artifacts it is not scoped to');
 });
+
+test('a moved HEAD blocks promotion but does not destroy the conversation', async () => {
+  // loadPlanningPack refused outright on a HEAD that had moved, and resume used the same door. So
+  // any governed commit in between — publishing another phase, pinning a source, restarting the
+  // Epic — took the transcript with it, when all it should do is make the pack unpromotable. The
+  // workspace already had a stale-context banner to say exactly that; it never got the chance.
+  const { loadPlanningPack, promotePlanningArtifacts } = await import('../src/planning.mjs');
+  const root = await repository();
+  run(root, process.execPath, [bin, 'start', 'PLAN-STALE', '--title', 'Stale context']);
+  const context = await createPlanningContext(root, {
+    scope: 'work-item',
+    id: 'PLAN-STALE',
+    phase: 'intake',
+    persona: 'product-owner',
+    target: 'artifact',
+    objective: 'Define the outcome.'
+  });
+
+  await writeFile(path.join(root, 'UNRELATED.md'), '# a governed commit lands\n');
+  run(root, 'git', ['add', 'UNRELATED.md']);
+  run(root, 'git', ['commit', '-m', 'Something else was committed']);
+
+  // Reading it back is fine, and it says plainly that the repository has moved on.
+  const pack = await loadPlanningPack(root, context.sessionId, { requireCurrentHead: false });
+  assert.equal(pack.headMoved, true);
+  assert.equal(pack.manifest.sessionId, context.sessionId);
+
+  // Writing to Git is not: promotion still demands the tree the context was built against.
+  await assert.rejects(
+    promotePlanningArtifacts(root, { sessionId: context.sessionId, artifacts: [{ id: 'artifact', content: '# Draft\n' }] }),
+    /Repository HEAD changed after the planning context was created/
+  );
+  // …and the default is still the strict one, so no caller gets the loose rule by accident.
+  await assert.rejects(loadPlanningPack(root, context.sessionId), /Repository HEAD changed/);
+});

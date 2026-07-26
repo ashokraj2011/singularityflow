@@ -2906,6 +2906,23 @@ function documentKind(name = '') {
   }[extension] ?? (extension ? extension.toUpperCase() : 'File');
 }
 
+// Journey controls can originate from the Epic overview or from another phase page. Route first,
+// then reveal the exact control that owns the action after React has committed the destination.
+// In particular, `add-evidence` must land on the evidence attestation/checklist area rather than
+// being mistaken for an unknown lifecycle mutation.
+function revealPhaseAction(actionId) {
+  if (![NEXT_ACTIONS.APPROVE, NEXT_ACTIONS.EVIDENCE, NEXT_ACTIONS.PUBLISH].includes(actionId)) return;
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    const target = actionId === NEXT_ACTIONS.EVIDENCE
+      ? document.querySelector('.evidence-attest') ?? document.querySelector('.stage-evidence') ?? document.querySelector('.phase-governance')
+      : document.querySelector('.phase-governance');
+    if (!target) return;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.querySelector('button, textarea, input, select')?.focus({ preventScroll: true });
+  }));
+}
+
 // Sources, conversation, and artifacts in one place. Requirements used to mean bouncing between a
 // governance screen and Copilot Studio, re-framing the phase by hand, and promoting one artifact at
 // a time; the phase is one piece of work, so it gets one workspace.
@@ -3750,6 +3767,16 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     .filter((check) => check.status !== 'satisfied' && check.requirement !== 'optional')
     .map((check) => ({ ...check, definition: checkDefinitions.find((item) => item.id === check.id) }))
     .filter((check) => check.definition?.acceptedAssurance?.includes('human-approved'));
+  const externalEvidence = (selected.phaseGate?.checklist ?? [])
+    .filter((check) => !['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status))
+    .filter((check) => !check.acceptedAssurance?.includes('human-approved'))
+    .map((check) => {
+      const assurance = check.acceptedAssurance?.[0] ?? '<LEVEL>';
+      return {
+        ...check,
+        command: `singularity-flow initiative evidence add ${check.id} --phase ${phaseId} --assurance ${assurance} --path <EVIDENCE-FILE> --verification <METHOD>`
+      };
+    });
 
   async function recordEvidence(checkId) {
     const result = await action(
@@ -3838,6 +3865,17 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
           </div>
           {!attestation.trim() && <small className="field-error">Say what you reviewed — an attestation with no reasoning is not evidence.</small>}
         </div> : <button className="secondary compact" onClick={() => { setAttesting(check.id); setAttestation(''); }}>Record judgement</button>}
+      </div>)}
+    </section>}
+    {externalEvidence.length > 0 && <section className="evidence-attest external-evidence">
+      <header><strong>Checks awaiting verified evidence</strong><small>These checks cannot be satisfied by a human attestation. Register the relevant test, scanner, system, or source evidence from Copilot CLI, then refresh this page.</small></header>
+      {externalEvidence.map((check) => <div key={check.id} className="evidence-attest-row">
+        <div>
+          <code>{check.id}</code>
+          <span>{check.label}</span>
+          <em>Accepted assurance: {check.acceptedAssurance.join(' / ')}</em>
+        </div>
+        <code className="external-evidence-command">{check.command}</code>
       </div>)}
     </section>}
     {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} className={confirmation.trim() && confirmation !== `${phaseId}:phase` ? 'confirmation-mismatch' : undefined} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Type the phrase here" />{approvalBlocker && <small className="field-error">{approvalBlocker}</small>}</label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
@@ -4623,28 +4661,37 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     if (stage !== 'complete' && selected?.state.phaseOrder?.includes(stage)) return void openPlanning?.(stage);
     setTab({ intake: 'intake', complete: 'complete' }[stage] ?? 'intake');
   }
-  function focusJourneyPhase(phaseId) {
+  function focusJourneyPhase(phaseId, actionId = null) {
     const epicStage = {
       'epic-intake': 'intake',
       'epic-requirements': 'requirements',
       'epic-planning': 'planning',
       'epic-publish': 'stories'
     }[phaseId];
-    if (!epicStage && selected?.state.phaseOrder?.includes(phaseId)) return void openPlanning?.(phaseId);
+    if (!epicStage && selected?.state.phaseOrder?.includes(phaseId)) {
+      openPlanning?.(phaseId);
+      revealPhaseAction(actionId);
+      return;
+    }
     const stage = epicStage ?? selected?.journey?.stage ?? 'intake';
     if (onStagePage && ['requirements', 'planning', 'stories'].includes(stage)) {
       onStagePage(stage);
+      revealPhaseAction(actionId);
       return;
     }
     setTab(stage === 'stories' ? 'publish' : stage);
-    window.setTimeout(() => document.querySelector('.epic-artifact-hero')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+    if ([NEXT_ACTIONS.APPROVE, NEXT_ACTIONS.EVIDENCE, NEXT_ACTIONS.PUBLISH].includes(actionId)) {
+      revealPhaseAction(actionId);
+    } else {
+      window.setTimeout(() => document.querySelector('.epic-artifact-hero')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+    }
   }
   function continueJourney(next) {
     const actionId = normalizeNextActionId(next?.action ?? next?.id);
     if (actionId === NEXT_ACTIONS.MATERIALIZE) return void previewMaterialization();
     if (actionId === NEXT_ACTIONS.REPORT) return setTab('complete');
     if ([NEXT_ACTIONS.AUTHOR, NEXT_ACTIONS.PUBLISH, NEXT_ACTIONS.APPROVE, NEXT_ACTIONS.EVIDENCE].includes(actionId)) {
-      return void focusJourneyPhase(next?.phaseId ?? selected?.state.currentPhase ?? 'epic-intake');
+      return void focusJourneyPhase(next?.phaseId ?? selected?.state.currentPhase ?? 'epic-intake', actionId);
     }
     if (actionId === NEXT_ACTIONS.ADVANCE || actionId === NEXT_ACTIONS.STATUS || actionId === NEXT_ACTIONS.SOURCES) {
       return selectJourneyStage(selected?.journey?.stage ?? 'intake');
@@ -5443,6 +5490,12 @@ export default function App() {
     if (actionId === NEXT_ACTIONS.MATERIALIZE) return setPage('business-stories');
     if (actionId === NEXT_ACTIONS.REPORT) return setPage('epics');
     if (actionId === NEXT_ACTIONS.SOURCES) return openEpicJourneyStage('intake');
+    if ([NEXT_ACTIONS.AUTHOR, NEXT_ACTIONS.PUBLISH, NEXT_ACTIONS.APPROVE, NEXT_ACTIONS.EVIDENCE].includes(actionId)) {
+      const phaseId = next?.phaseId ?? data?.initiative?.state?.currentPhase ?? null;
+      if (phaseId) openStudio(phaseId);
+      revealPhaseAction(actionId);
+      return;
+    }
     if (actionId === NEXT_ACTIONS.STATUS || actionId === NEXT_ACTIONS.ADVANCE) {
       return void reload(null, data?.initiative?.state?.initiative?.id ?? null);
     }

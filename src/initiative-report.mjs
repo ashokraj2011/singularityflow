@@ -301,13 +301,25 @@ export async function initiativeNextActions(root, initiativeId) {
   }
   if (phase.status === 'awaiting_approval') {
     const gate = await evaluateInitiativePhase(root, portfolio, initiative, phase.id);
-    if (gate.errors.length) return gate.errors.map((reason) => ({
-      action: reason.includes('approval') ? 'approve-output' : 'add-evidence',
-      command: reason.includes('approval')
-        ? `singularity-flow initiative approve ${reason.match(/output [^/]+\/([^ ]+)/)?.[1] ?? '<OUTPUT>'}`
-        : `singularity-flow initiative checklist ${phase.id}`,
-      reason
-    }));
+    if (gate.errors.length) return gate.errors.map((reason) => {
+      const outputApproval = reason.includes('approval');
+      const checkId = reason.match(/^checklist [^/]+\/([^ ]+) is /)?.[1] ?? null;
+      const check = checkId ? gate.checklist.find((candidate) => candidate.id === checkId) : null;
+      const humanAttestation = check?.acceptedAssurance?.includes('human-approved');
+      const assurance = humanAttestation ? 'human-approved' : check?.acceptedAssurance?.[0] ?? '<LEVEL>';
+      return {
+        action: outputApproval ? 'approve-output' : 'add-evidence',
+        phaseId: phase.id,
+        checkId,
+        checks: checkId ? [checkId] : [],
+        command: outputApproval
+          ? `singularity-flow initiative approve ${reason.match(/output [^/]+\/([^ ]+)/)?.[1] ?? '<OUTPUT>'}`
+          : humanAttestation
+            ? `singularity-flow initiative evidence add ${checkId ?? '<CHECK-ID>'} --phase ${phase.id} --assurance ${assurance} --observed-state "<WHAT WAS REVIEWED>" --reason "<WHY THIS SATISFIES THE CHECK>"`
+            : `singularity-flow initiative evidence add ${checkId ?? '<CHECK-ID>'} --phase ${phase.id} --assurance ${assurance} --path <EVIDENCE-FILE> --verification <METHOD>`,
+        reason
+      };
+    });
     return [{
       action: 'approve-phase',
       command: `singularity-flow initiative approve phase`,

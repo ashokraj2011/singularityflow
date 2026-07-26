@@ -52,6 +52,30 @@ test('a published phase with an unevidenced blocking gate asks for evidence, not
   assert.deepEqual(next.checks, ['material-questions-resolved']);
 });
 
+test('legacy add-evidence guidance becomes the canonical evidence action', () => {
+  assert.equal(normalizeNextActionIdRef('add-evidence'), NEXT_ACTIONS.EVIDENCE);
+  const state = {
+    currentPhase: 'epic-requirements',
+    status: 'in_progress',
+    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-planning', 'epic-publish'],
+    phases: {
+      'epic-intake': { status: 'approved' },
+      'epic-requirements': { status: 'awaiting_approval' }
+    }
+  };
+  const journey = epicJourney(state, [{
+    action: 'add-evidence',
+    phaseId: 'epic-requirements',
+    checks: ['material-questions-resolved'],
+    command: 'singularity-flow initiative evidence add material-questions-resolved',
+    reason: 'The required check has no evidence.'
+  }]);
+  assert.equal(journey.nextAction.id, NEXT_ACTIONS.EVIDENCE);
+  assert.equal(journey.nextAction.sourceId, 'add-evidence');
+  assert.equal(journey.nextAction.label, 'Add Requirements evidence');
+  assert.deepEqual(journey.nextAction.checks, ['material-questions-resolved']);
+});
+
 test('a warn-level gate does not block, and a satisfied phase offers approval with its exact string', () => {
   const next = nextInitiativeAction(
     initiative({ status: 'awaiting_approval', generation: 2, outputs: {} }),
@@ -141,6 +165,7 @@ test('every action name the journey can emit maps to exactly one canonical actio
   }
   // The specific regression, pinned by name.
   assert.equal(normalizeNextActionId('approve-phase'), NEXT_ACTIONS.APPROVE);
+  assert.equal(normalizeNextActionId('add-evidence'), NEXT_ACTIONS.EVIDENCE);
   // An unknown id must resolve to null so callers report it rather than guessing.
   assert.equal(normalizeNextActionId('not-a-real-action'), null);
   assert.equal(normalizeNextActionId(undefined), null);

@@ -438,18 +438,44 @@ export SINGULARITY_FLOW_JIRA_EXTRA_FIELDS="customfield_10001,customfield_10002"
 Verify access before starting work:
 
 ```bash
+singularity-flow jira status
 singularity-flow jira pull ENG-142
-singularity-flow jira list --project ENG
+singularity-flow jira assigned --project ENG
 singularity-flow start ENG-142 --jira
 ```
 
-Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`; the Cloud path continues to use email plus API token. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery.
+Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`; the Cloud path continues to use email plus API token. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
+
+- `/sflow-jira-status` checks the connection and authenticated Jira identity.
+- `/sflow-jira-assigned` lists incomplete Stories assigned to that identity.
+- `/sflow-jira-board` lists Stories grouped under active/future sprints and never queries the backlog.
+- `/sflow-jira-update` changes one Story only after displaying its current state and receiving exact Story-key confirmation.
+
+Discover boards and retrieve sprint work without backlog:
+
+```bash
+singularity-flow jira boards --project ENG
+singularity-flow jira board 42 --state active,future --type Story
+```
+
+Explicit direct updates use Jira's available transitions and dedicated assignee, priority, sprint, and comment APIs. Every mutating command requires the exact Jira key:
+
+```bash
+singularity-flow jira transitions ENG-142
+singularity-flow jira transition ENG-142 --to "In Progress" --confirm ENG-142
+singularity-flow jira assign ENG-142 --to me --confirm ENG-142
+singularity-flow jira priority ENG-142 --to High --confirm ENG-142
+singularity-flow jira sprint ENG-142 --to 81 --confirm ENG-142
+singularity-flow jira comment ENG-142 --text "Ready for review" --confirm ENG-142
+```
+
+The CLI does not infer a transition or silently skip transition screens that require additional fields.
 
 For corporate desktop use, enable and constrain the connector in `singularity/portfolio.yml`, then open **Jira workspace**. Credentials are validated in Electron’s main process and encrypted with the operating-system credential store; the renderer, Git repository, Copilot context, CLI child environments, low-level request results, and application logs never receive the saved token. Jira requests accept only paths under the configured API base, reject redirects, enforce a 16 MiB response ceiling, require JSON success payloads, and use bounded per-attempt timeouts; the interactive connection check is limited to one retry so a broken VPN, proxy, SSO interception, or URL returns a useful error instead of hanging or appearing connected. Cloud token pagination and Data Center offset pagination are followed up to the requested 500-issue safety ceiling, while repeated issues, repeated tokens, and non-advancing offsets fail instead of producing a misleading snapshot. Large Epic hierarchies are therefore not silently reduced to the first 100 stories. Host and project allowlists, deployment/auth mode, caching, permitted write operations, and owned fields are repository policy. Every desktop Jira request revalidates the repository-selected connection and project scope; initiative adoption and outbound writes use the immutable policy snapshot captured when that initiative started. The app can browse Projects → Epics → child stories, map each story to a repository, and adopt a hash-pinned Jira snapshot into an existing Singularity initiative while preserving separate Work IDs and Jira IDs.
 
 When `singularity/portfolio.yml` is absent, **Jira workspace** first opens the portfolio bootstrap wizard. Configure the Jira deployment, HTTPS host, optional project key, and write posture there; review and publish that repository policy before connecting the user token/PAT in the separate keychain-backed sign-in form.
 
-Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, unchanged Jira `updatedAt` values, and a plan that still matches the pinned connection, deployment, and project policy. Applied operations produce committed receipts, and retries accept only receipts that match the exact reviewed plan. Governed Jira fields such as status, assignee, sprint, priority, and resolution are excluded.
+Initiative-planning Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, unchanged Jira `updatedAt` values, and a plan that still matches the pinned connection, deployment, and project policy. Applied operations produce committed receipts, and retries accept only receipts that match the exact reviewed plan. That governed planner excludes status, assignee, sprint, priority, and resolution. A separately invoked `/sflow-jira-update` is an operator action against one exact Story and is not part of the governed initiative write plan.
 
 ### Manual story intake without Jira
 
@@ -865,9 +891,11 @@ token downloads are not supported in this delivery. See
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |
-| `singularity-flow jira list` | List assigned Jira work with optional project, type, limit, and JQL filters. |
+| `singularity-flow jira assigned` | List incomplete Jira work assigned to the connected Jira user; `jira list` remains an alias. |
+| `singularity-flow jira boards\|board` | Discover Jira Software boards and list Stories in active/future sprints with backlog excluded. |
 | `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |
 | `singularity-flow jira status\|projects\|epics\|children\|permissions` | Discover connection, visible hierarchy, and effective project permissions. |
+| `singularity-flow jira transitions\|transition\|assign\|priority\|sprint\|comment` | Inspect transitions or update one exact Jira Story with mandatory `--confirm <STORY-KEY>`. |
 | `singularity-flow initiative jira-adopt <EPIC>` | Preview or adopt a Jira Epic and its children into a Git initiative with repository mappings. |
 | `singularity-flow initiative jira-plan` | Create, commit, and push a hash-pinned outbound Jira change plan. |
 | `singularity-flow initiative jira-apply --plan <SHA>` | Apply one approved, unchanged plan and commit/push per-operation receipts. |

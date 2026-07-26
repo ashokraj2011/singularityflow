@@ -51,8 +51,9 @@ import {
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import {
-  discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
-  getIssueProperty, listEpicStories, listEpics, listFields, listMyIssues, listProjects
+  addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
+  getIssueProperty, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions,
+  listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue
 } from './jira.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
@@ -240,15 +241,24 @@ Usage:
   singularity-flow wm compose [--persona ID] [--phase ID] [--task TEXT] [--evidence] [--dry-run] [--out FILE]
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
-  singularity-flow jira list [--project KEY] [--type Story] [--limit 25] [--jql JQL] [--json]
-  singularity-flow jira status
+  singularity-flow jira status [--json]
+  singularity-flow jira assigned [--project KEY] [--type Story] [--limit 25] [--json]
+  singularity-flow jira list [same options]             Compatibility alias for jira assigned
   singularity-flow jira projects [--query TEXT]
   singularity-flow jira epics --project KEY
   singularity-flow jira children EPIC-KEY
   singularity-flow jira permissions --project KEY
+  singularity-flow jira boards [--project KEY] [--limit 100] [--json]
+  singularity-flow jira board <BOARD-ID> [--state active,future] [--type Story] [--limit 500] [--json]
   singularity-flow jira pull <WORK-ID> [--json]
   singularity-flow jira show <WORK-ID> [--json]      Alias for jira pull
   singularity-flow jira fields [--query TEXT] [--json]
+  singularity-flow jira transitions <WORK-ID> [--json]
+  singularity-flow jira transition <WORK-ID> --to STATUS --confirm <WORK-ID> [--expected-updated-at ISO] [--json]
+  singularity-flow jira assign <WORK-ID> --to me|unassigned|ACCOUNT-ID --confirm <WORK-ID> [--json]
+  singularity-flow jira priority <WORK-ID> --to NAME|ID --confirm <WORK-ID> [--json]
+  singularity-flow jira sprint <WORK-ID> --to SPRINT-ID --confirm <WORK-ID> [--json]
+  singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install
   singularity-flow plugin uninstall | list | path
   singularity-flow desktop snapshot [WORK-ID] --json
@@ -1505,6 +1515,20 @@ async function gateCommand(options) {
   console.log('Singularity Flow governance gate passed.');
 }
 
+function confirmedJiraIssue(positionals, options) {
+  const key = requirePositional(positionals, 2, 'Jira work ID').trim().toUpperCase();
+  const confirmation = optionString(options, 'confirm');
+  if (!confirmation || confirmation.trim().toUpperCase() !== key) {
+    throw new SingularityFlowError(`This Jira update requires exact confirmation. Re-run with --confirm ${key}.`);
+  }
+  return key;
+}
+
+function jiraSprintLabel(issue) {
+  const sprint = issue.sprints?.find((item) => item.state === 'active') ?? issue.sprints?.[0];
+  return sprint ? `${sprint.name ?? sprint.id}${sprint.state ? ` (${sprint.state})` : ''}` : '—';
+}
+
 async function jiraCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'Jira subcommand');
   if (subcommand === 'status') {
@@ -1512,6 +1536,8 @@ async function jiraCommand(positionals, options) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(`Connected to ${result.server.serverTitle ?? result.baseUrl} (${result.deployment}).`);
+      console.log(`URL: ${result.baseUrl}`);
+      console.log(`Authentication: ${result.authenticationMode}`);
       console.log(`Account: ${result.account.displayName ?? result.account.accountId}${result.account.email ? ` <${result.account.email}>` : ''}`);
       console.log(`Visible projects: ${result.projects.length}`);
     }
@@ -1553,7 +1579,58 @@ async function jiraCommand(positionals, options) {
     ]));
     return;
   }
-  if (subcommand === 'list') {
+  if (subcommand === 'boards') {
+    const boards = await listBoards({
+      project: optionString(options, 'project'),
+      limit: optionNumber(options, 'limit', 100)
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(boards, null, 2));
+    else if (!boards.length) console.log('No visible Jira Software boards found.');
+    else console.log(table(boards.map((board) => ({
+      id: board.id,
+      type: board.type ?? '',
+      project: board.location?.projectKey ?? '',
+      name: board.name ?? ''
+    })), [
+      { key: 'id', label: 'BOARD' },
+      { key: 'type', label: 'TYPE' },
+      { key: 'project', label: 'PROJECT' },
+      { key: 'name', label: 'NAME' }
+    ]));
+    return;
+  }
+  if (subcommand === 'board') {
+    const boardId = requirePositional(positionals, 2, 'Jira board ID');
+    const result = await listBoardStories(boardId, {
+      states: optionString(options, 'state', 'active,future'),
+      issueType: optionString(options, 'type', 'Story'),
+      limit: optionNumber(options, 'limit', 500)
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else if (!result.totalIssues) {
+      console.log(`No Jira ${result.issueType} items found in ${result.sprintStates.join('/')} sprints. The backlog was not queried.`);
+    } else {
+      const rows = result.sprints.flatMap((sprint) => sprint.issues.map((issue) => ({
+        sprint: sprint.name ?? sprint.id,
+        state: sprint.state ?? '',
+        key: issue.key,
+        status: issue.status ?? '',
+        assignee: issue.assignee?.displayName ?? 'Unassigned',
+        title: issue.title
+      })));
+      console.log(table(rows, [
+        { key: 'sprint', label: 'SPRINT' },
+        { key: 'state', label: 'SPRINT STATE' },
+        { key: 'key', label: 'STORY' },
+        { key: 'status', label: 'STATUS' },
+        { key: 'assignee', label: 'ASSIGNEE' },
+        { key: 'title', label: 'SUMMARY' }
+      ]));
+      console.log(`Backlog excluded · ${result.totalIssues} ${result.issueType} item(s) across ${result.sprints.length} sprint(s).`);
+    }
+    return;
+  }
+  if (['list', 'assigned'].includes(subcommand)) {
     const result = await listMyIssues({
       project: optionString(options, 'project'),
       issueType: optionString(options, 'type', 'Story'),
@@ -1561,10 +1638,17 @@ async function jiraCommand(positionals, options) {
       jql: optionString(options, 'jql')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else if (!result.issues.length) console.log('No matching Jira work items found.');
-    else console.log(table(result.issues.map((issue) => ({ key: issue.key, status: issue.status ?? '', priority: issue.priority ?? '', title: issue.title })), [
+    else if (!result.issues.length) console.log('No matching Jira work items assigned to the connected user.');
+    else console.log(table(result.issues.map((issue) => ({
+      key: issue.key,
+      status: issue.status ?? '',
+      sprint: jiraSprintLabel(issue),
+      priority: issue.priority ?? '',
+      title: issue.title
+    })), [
       { key: 'key', label: 'KEY' },
       { key: 'status', label: 'STATUS' },
+      { key: 'sprint', label: 'SPRINT' },
       { key: 'priority', label: 'PRIORITY' },
       { key: 'title', label: 'SUMMARY' }
     ]));
@@ -1587,6 +1671,64 @@ async function jiraCommand(positionals, options) {
       { key: 'custom', label: 'CUSTOM' },
       { key: 'type', label: 'TYPE' }
     ]));
+    return;
+  }
+  if (subcommand === 'transitions') {
+    const key = requirePositional(positionals, 2, 'Jira work ID');
+    const transitions = await listIssueTransitions(key);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(transitions, null, 2));
+    else if (!transitions.length) console.log(`No Jira transitions are currently available for ${key.toUpperCase()}.`);
+    else console.log(table(transitions, [
+      { key: 'id', label: 'ID' },
+      { key: 'name', label: 'TRANSITION' },
+      { key: 'to', label: 'TO STATUS' },
+      { key: 'statusCategory', label: 'CATEGORY' }
+    ]));
+    return;
+  }
+  if (subcommand === 'transition') {
+    const key = confirmedJiraIssue(positionals, options);
+    const target = optionString(options, 'to');
+    if (!target) throw new SingularityFlowError('jira transition requires --to STATUS or --to TRANSITION-ID.');
+    const result = await transitionIssue(key, target, { expectedUpdatedAt: optionString(options, 'expected-updated-at') });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Jira ${key} transitioned using '${result.transition.name}' → ${result.issue.status}.`);
+    return;
+  }
+  if (subcommand === 'assign') {
+    const key = confirmedJiraIssue(positionals, options);
+    const target = optionString(options, 'to');
+    if (!target) throw new SingularityFlowError('jira assign requires --to me, --to unassigned, or --to ACCOUNT-ID.');
+    const issue = await assignIssue(key, target);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(issue, null, 2));
+    else console.log(`Jira ${key} assignee is now ${issue.assignee?.displayName ?? 'Unassigned'}.`);
+    return;
+  }
+  if (subcommand === 'priority') {
+    const key = confirmedJiraIssue(positionals, options);
+    const target = optionString(options, 'to');
+    if (!target) throw new SingularityFlowError('jira priority requires --to NAME or --to PRIORITY-ID.');
+    const issue = await setIssuePriority(key, target);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(issue, null, 2));
+    else console.log(`Jira ${key} priority is now ${issue.priority ?? target}.`);
+    return;
+  }
+  if (subcommand === 'sprint') {
+    const key = confirmedJiraIssue(positionals, options);
+    const target = optionString(options, 'to');
+    if (!target) throw new SingularityFlowError('jira sprint requires --to SPRINT-ID.');
+    const issue = await moveIssueToSprint(key, target);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(issue, null, 2));
+    else console.log(`Jira ${key} moved to sprint ${target}${issue.sprints?.length ? ` (${jiraSprintLabel(issue)})` : ''}.`);
+    return;
+  }
+  if (subcommand === 'comment') {
+    const key = confirmedJiraIssue(positionals, options);
+    const text = optionString(options, 'text');
+    if (!text?.trim()) throw new SingularityFlowError('jira comment requires non-empty --text TEXT.');
+    const result = await addComment(key, text);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ key, ...result }, null, 2));
+    else console.log(`Comment ${result.id ?? '(ID unavailable)'} added to Jira ${key}.`);
     return;
   }
   throw new SingularityFlowError(`Unknown Jira subcommand: ${subcommand}`);

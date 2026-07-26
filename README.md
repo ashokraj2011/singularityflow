@@ -68,7 +68,7 @@ These files are ordinary reviewed repository files and remain fully editable.
 
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
-The Electron app does not start or embed a Copilot planning session. Requirements
+The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements
 and Planning show the exact `/sflow-*` command to run from the open repository,
 with one-click copy controls. The installed skill composes the selected phase,
 persona, repository world model, approved inputs, remote skills, requirements,
@@ -76,6 +76,15 @@ and templates inside the user’s normal Copilot CLI session. Refresh the deskto
 after the skill commits and pushes its result. Repository world-model generation
 is the one deliberate exception: Electron can invoke that long-running operation
 and displays its prompt, progress, and result.
+
+The desktop also includes **Agent workbench → Event Horizon**, a separate
+permission-gated ACP execution surface. It opens the active repository
+automatically and can run GitHub Copilot CLI, Claude Code ACP, or Gemini CLI
+when the corresponding command is installed. Event Horizon shows streaming
+responses, reasoning, plans, tool calls, diffs, attachments, model and mode
+controls, context, usage, and inline allow/deny decisions. It never advances a
+Flow phase or grants an approval by itself; governed artifacts and decisions
+still move through Singularity Flow.
 
 The Electron **Workspace configuration** view creates a disposable local
 directory containing one isolated clone per participating repository, a clearly
@@ -785,6 +794,8 @@ The Electron app is a visual control plane over the same CLI and Git-backed stat
 ```bash
 npm run desktop:dev
 npm run desktop:build
+npm run event-horizon:build
+npm run event-horizon:check
 npm run desktop:package:current
 ```
 
@@ -819,12 +830,17 @@ Open an initialized repository from the app. The studio keeps up to ten recently
 The daily workspace uses the **Singularity** product identity throughout. **Artifact Studio** visualizes the complete phase sequence, generation state, approvals, governed deliverables, and shared artifact repository. **Requirements** provides a three-pane repository tree, full document preview, Git metadata, and Markdown outline. **Impact analysis** renders the current repository/initiative dependency topology and derives risk signals from committed story freshness and interface-contract integrity. These screens are projections of the same Git state; they do not create a parallel state store.
 
 Electron is the durable configuration, evidence, progress, review, and approval
-surface. It does not run a Copilot ACP backend or retain a hidden planning
-conversation. Requirements, Planning, and other phase pages display the
+surface. Its governed phase pages do not run a Copilot ACP backend or retain a
+hidden planning conversation. Requirements, Planning, and other phase pages display the
 repository path, primary `/sflow-*` skill, shell equivalent, upload command,
 and next-step command. Questions, persona-aware authoring, and model interaction
 therefore happen in the already authenticated Copilot CLI. The resulting Git
 artifacts appear in Electron after refresh.
+
+The optional **Agent workbench** is deliberately separate from those phase
+pages. It opens Event Horizon as another managed window in the same installed
+desktop application, scopes the selected ACP agent to the active repository,
+and leaves Flow lifecycle transitions explicit.
 
 Install the personal Copilot plugin with:
 

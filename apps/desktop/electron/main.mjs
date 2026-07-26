@@ -39,6 +39,7 @@ const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
 let activeWorkspace = null;
 let mainWindow = null;
+let eventHorizonModulePromise = null;
 const jiraCache = new Map();
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
@@ -48,6 +49,35 @@ function storageCredentialsPath() { return path.join(app.getPath('userData'), 's
 function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
 function storageCredentialStore() { return new StorageCredentialStore(storageCredentialsPath(), safeStorage); }
+
+function eventHorizonEntryPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'event-horizon', 'out', 'main', 'index.js')
+    : path.resolve(here, '../../event-horizon/out/main/index.js');
+}
+
+async function eventHorizonModule() {
+  if (!eventHorizonModulePromise) {
+    const entry = eventHorizonEntryPath();
+    if (!existsSync(entry)) {
+      throw new Error('The Agent workbench bundle is missing. Run npm run event-horizon:build and rebuild the desktop app.');
+    }
+    process.env.SINGULARITY_FLOW_EMBED_EVENT_HORIZON = '1';
+    eventHorizonModulePromise = import(pathToFileURL(entry).href).then((loaded) => {
+      const module = loaded.default && typeof loaded.default === 'object'
+        ? { ...loaded.default, ...loaded }
+        : loaded;
+      if (typeof module.openEventHorizonWindow !== 'function' || typeof module.eventHorizonStatus !== 'function') {
+        throw new Error('The bundled Agent workbench does not expose its embedded desktop interface.');
+      }
+      return module;
+    }).catch((error) => {
+      eventHorizonModulePromise = null;
+      throw error;
+    });
+  }
+  return eventHorizonModulePromise;
+}
 
 function cliResourcePath(...segments) {
   const root = app.isPackaged ? path.join(process.resourcesPath, 'cli') : path.resolve(here, '../../..');
@@ -390,6 +420,30 @@ async function openRepository(repository, { workspace = null } = {}) {
 }
 
 function registerHandlers() {
+  trustedHandle('agent-workbench:status', async (_event, { repository }) => {
+    const root = assertRepository(repository);
+    const module = await eventHorizonModule();
+    const status = await module.eventHorizonStatus();
+    return {
+      ...status,
+      repository: root,
+      bundled: true,
+      product: 'Event Horizon',
+      description: 'A permission-gated ACP workbench for Copilot and other compatible coding agents.'
+    };
+  });
+  trustedHandle('agent-workbench:open', async (_event, { repository, agentId = 'copilot' }) => {
+    const root = assertRepository(repository);
+    const module = await eventHorizonModule();
+    const status = await module.eventHorizonStatus();
+    const selected = status.agents.find((agent) => agent.id === agentId);
+    if (!selected) throw new Error(`ACP agent '${agentId}' is not available on this computer.`);
+    if (selected.available === false) {
+      throw new Error(`${selected.name} was not found on this computer. Install its ACP command and reopen the Agent workbench.`);
+    }
+    module.openEventHorizonWindow({ cwd: root, agentId });
+    return { opened: true, repository: root, agent: selected };
+  });
   trustedHandle('onboarding:get', async (event) => {
     assertTrustedSender(event);
     const jira = await jiraCredentialStore().safeStatus();

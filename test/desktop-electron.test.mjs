@@ -374,6 +374,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Workflow time/);
   assert.match(source, /Total elapsed/);
   assert.match(source, /Approval waiting/);
+  assert.match(source, /function EpicBusinessOverview/);
+  assert.match(source, /Business command center/);
+  assert.match(source, /Generated artifacts in one place/);
+  assert.match(source, /Who approved/);
+  assert.match(source, /approvalDisplayName/);
+  assert.match(source, /if \(data\.initiative\) return <EpicBusinessOverview data=\{data\} \/>/);
   assert.match(source, /Copilot capture inactive/);
   assert.match(source, /Telemetry setup is outdated/);
   assert.match(source, /Waiting for Copilot export/);
@@ -485,6 +491,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(source, /SDLC Planner/);
   assert.match(styles, /\.cost-dashboard/);
   assert.match(styles, /\.timing-dashboard/);
+  assert.match(styles, /\.epic-business-page/);
+  assert.match(styles, /\.epic-command-hero/);
+  assert.match(styles, /\.business-document-list/);
+  assert.match(styles, /\.business-approval-list/);
   assert.match(styles, /\.timing-row/);
   assert.match(styles, /\.cost-breakdown-grid/);
   assert.match(styles, /\.recent-repositories/);

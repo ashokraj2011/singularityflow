@@ -89,6 +89,9 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   const report = JSON.parse(execute(root, ['initiative', 'report', '--format', 'json']).stdout);
   assert.equal(report.identityAssurance, 'configured-local');
   assert.equal(report.approvals.selfApprovals.length, 2);
+  assert.equal(report.approvals.recent.length, 2);
+  assert.equal(report.approvals.recent[0].actorEmail, actorEmail);
+  assert.equal(report.approvals.byPhase.define.length, 2);
   assert.equal(report.evidence.byAssurance['human-approved'], 2);
   const gate = JSON.parse(execute(root, ['initiative', 'gate', '--json']).stdout);
   assert.equal(gate.valid, true);

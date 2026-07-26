@@ -2764,7 +2764,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     [selected.state.resolution, activePhaseId]
   );
   // Only the current phase can have its documents chosen; a phase that is done is done.
-  const outputChoices = activePhaseId === selected.outputSelectionPhase ? selected.outputChoices ?? [] : [];
+  // Any phase whose decisions are still open — not just the one in progress. Knowing you do not
+  // need a document is most useful before you reach the phase that would demand it.
+  const outputChoiceEntry = selected.outputChoicesByPhase?.[activePhaseId] ?? null;
+  const outputChoices = outputChoiceEntry?.editable ? outputChoiceEntry.choices : [];
   const includedOutputIds = outputChoices.filter((choice) => choice.included).map((choice) => choice.id);
   const [chosenOutputs, setChosenOutputs] = useState(includedOutputIds);
   const [outputReason, setOutputReason] = useState('');

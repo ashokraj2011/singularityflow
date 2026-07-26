@@ -228,21 +228,22 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     // The ordered account of what is left in this phase. nextActions answers "what is the single
     // next command", which told someone already standing in the workspace to open the workspace.
     phaseWork: initiativePhaseWork(initiative),
-    // Every output the current phase could produce, with what this Epic has chosen. The app cannot
-    // offer a choice it cannot see, and the pinned resolution alone does not show an output the
-    // profile has gained since the Epic started.
-    outputChoices: initiative.currentPhase
-      ? availableInitiativeOutputs(portfolio, initiative, initiative.currentPhase).map((output) => ({
+    // Every output every phase could produce, with what this Epic has chosen, keyed by phase.
+    // Offering the choice only for the current phase meant the decision had to be made in the one
+    // moment the phase was open — a phase you have not reached yet is exactly when knowing you do
+    // not need a document is most useful, and an approved one is the only place it is too late.
+    outputChoicesByPhase: Object.fromEntries(initiative.phaseOrder.map((id) => [id, {
+      editable: initiative.phases[id]?.status !== 'approved',
+      choices: availableInitiativeOutputs(portfolio, initiative, id).map((output) => ({
         id: output.id,
         label: output.label,
         kind: output.kind,
         required: output.required !== false,
         pinned: output.pinned === true,
-        included: initiativeOutputRequired(initiative, initiative.currentPhase, output),
-        authored: Boolean(initiative.phases?.[initiative.currentPhase]?.outputs?.[output.id]?.sha256)
+        included: initiativeOutputRequired(initiative, id, output),
+        authored: Boolean(initiative.phases?.[id]?.outputs?.[output.id]?.sha256)
       }))
-      : [],
-    outputSelectionPhase: initiative.currentPhase ?? null,
+    }])),
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'

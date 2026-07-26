@@ -1422,8 +1422,12 @@ test('an Epic picks its documents from the Artifacts pane, and the change is gov
 
   // The app cannot offer a choice it cannot see, and the pinned resolution alone does not show an
   // output the profile has gained since the Epic started.
-  assert.match(desktop, /outputChoices: initiative\.currentPhase/);
-  assert.match(desktop, /availableInitiativeOutputs\(portfolio, initiative, initiative\.currentPhase\)/);
+  // Every phase, not just the one in progress: knowing you do not need a document is most useful
+  // before you reach the phase that would demand it, and an approved phase is the only place it is
+  // too late. The pane reads the same map, so it offers the choice wherever the engine allows one.
+  assert.match(desktop, /outputChoicesByPhase: Object\.fromEntries\(initiative\.phaseOrder\.map/);
+  assert.match(desktop, /editable: initiative\.phases\[id\]\?\.status !== 'approved'/);
+  assert.match(app, /const outputChoices = outputChoiceEntry\?\.editable \? outputChoiceEntry\.choices : \[\]/);
 
   // Required outputs are shown but not unpickable, and a reason is not optional.
   assert.match(app, /disabled=\{choice\.required \|\| choice\.authored\}/);

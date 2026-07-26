@@ -326,6 +326,68 @@ test('ACP form elicitation pauses for an inline answer and cancels unsupported m
   assert.equal(events.at(-1).type, 'question-unsupported');
 });
 
+test('the session mode decides tool permissions, and leaving Plan asks rather than allows', async () => {
+  // Plan mode was the only mode the bridge could be in, and every non-read tool call was refused
+  // with no way to say otherwise — so 'run the tests' or 'write this file' was permanently out of
+  // reach, whatever the operator wanted. Switching modes must move the gate; it must not open it.
+  const events = [];
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });
+  bridge.availableModes = [{ id: 'copilot#plan', name: 'Plan' }, { id: 'copilot#agent', name: 'Agent' }];
+  bridge.currentModeId = 'copilot#plan';
+  const params = (kind) => ({
+    toolCall: { kind, title: `${kind} something` },
+    options: [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'reject', kind: 'reject_once' }]
+  });
+
+  // Reads are allowed in every mode: that is what makes the session useful at all.
+  assert.deepEqual(await bridge.decidePermission(params('read')), { outcome: { outcome: 'selected', optionId: 'allow' } });
+  // In Plan mode a write is refused outright, with no prompt and no waiting.
+  assert.deepEqual(await bridge.decidePermission(params('edit')), { outcome: { outcome: 'selected', optionId: 'reject' } });
+  assert.equal(events.at(-1).type, 'permission-denied');
+  assert.match(events.at(-1).detail, /Plan mode is read-only/);
+  assert.equal(bridge.pendingPermissions.size, 0);
+
+  bridge.currentModeId = 'copilot#agent';
+  assert.equal(bridge.inPlanMode(), false);
+  // Outside Plan the same call is put to the operator — the turn waits, nothing is decided for them.
+  const pending = bridge.decidePermission(params('edit'));
+  const request = events.at(-1);
+  assert.equal(request.type, 'permission-request');
+  assert.equal(request.mode, 'Agent');
+  assert.equal(bridge.pendingPermissions.size, 1);
+  bridge.answerPermission(request.requestId, true);
+  assert.deepEqual(await pending, { outcome: { outcome: 'selected', optionId: 'allow' } });
+
+  // A refusal is a refusal, and an unanswered request dies closed when the session ends.
+  const refused = bridge.decidePermission(params('execute'));
+  bridge.answerPermission(events.at(-1).requestId, false);
+  assert.deepEqual(await refused, { outcome: { outcome: 'selected', optionId: 'reject' } });
+  const abandoned = bridge.decidePermission(params('delete'));
+  bridge.cancelPendingPermissions();
+  assert.deepEqual(await abandoned, { outcome: { outcome: 'selected', optionId: 'reject' } });
+  assert.equal(bridge.pendingPermissions.size, 0);
+});
+
+test('a mode change is refused mid-turn and rejected for a mode the session never advertised', async () => {
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: () => {} });
+  bridge.session = { sessionId: 'session-mode' };
+  bridge.availableModes = [{ id: 'copilot#plan', name: 'Plan' }, { id: 'copilot#agent', name: 'Agent' }];
+  bridge.currentModeId = 'copilot#plan';
+  const requested = [];
+  bridge.connection = { agent: { request: async (_method, params) => { requested.push(params); return {}; } } };
+
+  bridge.running = true;
+  await assert.rejects(bridge.setMode('copilot#agent'), /before changing its mode/);
+  bridge.running = false;
+  await assert.rejects(bridge.setMode('copilot#yolo'), /did not advertise mode/);
+  assert.deepEqual(requested, [], 'nothing reaches the agent until the request is valid');
+
+  const result = await bridge.setMode('copilot#agent');
+  assert.equal(result.mode, 'Agent');
+  assert.equal(result.readOnly, false);
+  assert.equal(requested.at(-1).modeId, 'copilot#agent');
+});
+
 test('ACP shutdown always cancels questions and terminates the process after partial cleanup failures', async () => {
   const events = [];
   const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });

@@ -167,6 +167,12 @@ function isReadOnlyToolCall(toolCall) {
   return READ_ONLY_TOOL_KINDS.has(toolCall?.kind);
 }
 
+// Copilot names its read-only mode 'Plan' and gives it an id ending in '#plan'. Both are checked
+// because either alone has been enough to miss it on some CLI versions.
+function isPlanModeDescriptor(mode) {
+  return String(mode?.name ?? '').toLowerCase() === 'plan' || String(mode?.id ?? '').endsWith('#plan');
+}
+
 function allowPermission(params) {
   const option = params.options.find((candidate) => candidate.kind === 'allow_once')
     ?? params.options.find((candidate) => candidate.kind === 'allow_always');
@@ -195,11 +201,42 @@ export class CopilotPlanningBridge {
     this.closed = false;
     this.questionCounter = 0;
     this.pendingQuestions = new Map();
+    this.permissionCounter = 0;
+    this.pendingPermissions = new Map();
+    this.availableModes = [];
+    this.currentModeId = null;
     this.configOptions = [];
     this.model = null;
     this.availableModels = [];
     this.modelConfigId = null;
     this.modelSwitchSupported = false;
+  }
+
+  /** The modes this session advertises, with the active one marked. */
+  modeState() {
+    return {
+      current: this.currentModeId,
+      currentName: this.availableModes.find((mode) => mode.id === this.currentModeId)?.name ?? null,
+      available: this.availableModes.map((mode) => ({
+        id: mode.id,
+        name: mode.name ?? mode.id,
+        description: mode.description ?? null,
+        readOnly: isPlanModeDescriptor(mode)
+      })),
+      switchSupported: this.availableModes.length > 1
+    };
+  }
+
+  /**
+   * Whether the active mode is the read-only one.
+   *
+   * This decides the permission policy, so it is derived from the session's own mode descriptors
+   * rather than from a remembered flag: a mode change that this process did not initiate still
+   * moves the gate.
+   */
+  inPlanMode() {
+    const mode = this.availableModes.find((candidate) => candidate.id === this.currentModeId);
+    return mode ? isPlanModeDescriptor(mode) : true;
   }
 
   applyConfigOptions(configOptions = [], fallback = this.model) {
@@ -233,6 +270,73 @@ export class CopilotPlanningBridge {
     return new Promise((resolve) => {
       this.pendingQuestions.set(questionId, { resolve, message: params.message });
     });
+  }
+
+  /**
+   * Decide a tool-permission request against the active mode.
+   *
+   * Read-only kinds are always allowed — that is what makes the session useful, and it is why
+   * inspecting the repository never interrupts anyone. Everything else depends on the mode:
+   *
+   *   Plan  — refused outright. Nothing Copilot does may change the repository, and artifacts
+   *           reach Git only through the governed promotion fence.
+   *   other — put to the operator, one request at a time. Switching modes is a decision to
+   *           supervise Copilot, not a decision to stop looking; a blanket allow would make the
+   *           mode switch a bigger grant than anyone asked for.
+   */
+  decidePermission(params) {
+    const toolCall = params.toolCall;
+    const title = toolCall?.title ?? 'Copilot tool request';
+    const kind = toolCall?.kind ?? null;
+    if (isReadOnlyToolCall(toolCall)) {
+      this.emit({ type: 'permission-allowed', title, kind });
+      return allowPermission(params);
+    }
+    if (this.inPlanMode()) {
+      this.emit({
+        type: 'permission-denied',
+        title,
+        kind,
+        detail: `Plan mode is read-only: a '${kind ?? 'unknown'}' tool call cannot change the repository. Promotion is the only write path — or switch the session mode to review these requests yourself.`
+      });
+      return rejectPermission(params);
+    }
+    const requestId = `permission-${++this.permissionCounter}`;
+    this.emit({
+      type: 'permission-request',
+      requestId,
+      title,
+      kind,
+      locations: (toolCall?.locations ?? []).map((location) => location?.path).filter(Boolean),
+      mode: this.modeState().currentName
+    });
+    return new Promise((resolve) => {
+      this.pendingPermissions.set(requestId, { resolve, params, title, kind });
+    });
+  }
+
+  answerPermission(requestId, allow) {
+    const pending = this.pendingPermissions.get(requestId);
+    if (!pending) throw new Error(`Copilot permission request '${requestId}' is no longer awaiting a decision.`);
+    this.pendingPermissions.delete(requestId);
+    pending.resolve(allow ? allowPermission(pending.params) : rejectPermission(pending.params));
+    this.emit({
+      type: allow ? 'permission-allowed' : 'permission-denied',
+      requestId,
+      title: pending.title,
+      kind: pending.kind,
+      detail: allow ? 'Allowed by the operator.' : 'Refused by the operator.'
+    });
+    return { requestId, allowed: Boolean(allow) };
+  }
+
+  /** Refuse anything still waiting. Called when the turn is cancelled or the process goes away. */
+  cancelPendingPermissions() {
+    for (const [requestId, pending] of this.pendingPermissions) {
+      pending.resolve(rejectPermission(pending.params));
+      this.emit({ type: 'permission-denied', requestId, title: pending.title, kind: pending.kind, detail: 'The session ended before this request was answered.' });
+    }
+    this.pendingPermissions.clear();
   }
 
   answerQuestion(questionId, { action = 'accept', content = null } = {}) {
@@ -270,26 +374,13 @@ export class CopilotPlanningBridge {
       this.closed = true;
       this.running = false;
       this.cancelPendingQuestions();
+    this.cancelPendingPermissions();
       this.emit({ type: 'process-exit', code, signal });
     });
     const processError = new Promise((_, reject) => this.process.once('error', reject));
     const stream = acp.ndJsonStream(Writable.toWeb(this.process.stdin), Readable.toWeb(this.process.stdout));
     const client = acp.client({ name: 'singularity-flow-planning-studio' })
-      .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
-        const toolCall = ctx.params.toolCall;
-        const title = toolCall?.title ?? 'Copilot tool request';
-        if (isReadOnlyToolCall(toolCall)) {
-          this.emit({ type: 'permission-allowed', title, kind: toolCall.kind });
-          return allowPermission(ctx.params);
-        }
-        this.emit({
-          type: 'permission-denied',
-          title,
-          kind: toolCall?.kind ?? null,
-          detail: `Copilot Studio is read-only: a '${toolCall?.kind ?? 'unknown'}' tool call cannot change the repository. Promotion is the only write path.`
-        });
-        return rejectPermission(ctx.params);
-      })
+      .onRequest(acp.methods.client.session.requestPermission, (ctx) => this.decidePermission(ctx.params))
       .onRequest(acp.methods.client.fs.readTextFile, (ctx) => this.readRepositoryFile(ctx.params))
       .onRequest(acp.methods.client.elicitation.create, (ctx) => this.requestInput(ctx.params));
     this.connection = client.connect(stream);
@@ -307,16 +398,24 @@ export class CopilotPlanningBridge {
     ]);
     this.session = await this.connection.agent.buildSession(this.repository).start();
     const modelState = this.applyConfigOptions(this.session.configOptions ?? [], model);
-    const planMode = this.session.modes?.availableModes?.find((mode) => mode.name?.toLowerCase() === 'plan')
-      ?? this.session.modes?.availableModes?.find((mode) => String(mode.id).endsWith('#plan'));
+    // Every advertised mode is kept so the operator can switch later; the session still *starts*
+    // in Plan, because a session that begins able to write is one nobody chose.
+    this.availableModes = this.session.modes?.availableModes ?? [];
+    const planMode = this.availableModes.find(isPlanModeDescriptor);
     if (!planMode) throw new Error('Copilot ACP did not advertise native Plan mode.');
     await this.connection.agent.request(acp.methods.agent.session.setMode, { sessionId: this.session.sessionId, modeId: planMode.id });
+    this.currentModeId = planMode.id;
+    const modeState = this.modeState();
     this.emit({
       type: 'ready',
       sessionId: this.session.sessionId,
       version: preflight.version,
       protocolVersion: initialized.protocolVersion,
       modes: { ...(this.session.modes ?? {}), currentModeId: planMode.id },
+      mode: modeState.currentName,
+      modeId: modeState.current,
+      availableModes: modeState.available,
+      modeSwitchSupported: modeState.switchSupported,
       model: modelState.current,
       models: modelState.available,
       modelSwitchSupported: modelState.switchSupported
@@ -326,11 +425,42 @@ export class CopilotPlanningBridge {
       sessionId: this.session.sessionId,
       version: preflight.version,
       protocolVersion: initialized.protocolVersion,
-      mode: 'plan',
+      mode: modeState.currentName ?? 'plan',
+      modeId: modeState.current,
+      availableModes: modeState.available,
+      modeSwitchSupported: modeState.switchSupported,
       model: modelState.current,
       models: modelState.available,
       modelSwitchSupported: modelState.switchSupported
     };
+  }
+
+  /**
+   * Switch the session's mode.
+   *
+   * Mid-turn is refused for the same reason a model change is: the agent is already acting under
+   * the policy it was given, and moving the gate underneath it decides nothing honestly.
+   */
+  async setMode(modeId) {
+    if (!this.session || this.closed) throw new Error('Copilot planning session is not active.');
+    if (this.running) throw new Error('Wait for the current Copilot turn to finish before changing its mode.');
+    const requested = String(modeId ?? '').trim();
+    if (!requested) throw new Error('Choose a Copilot mode before applying the change.');
+    const target = this.availableModes.find((mode) => mode.id === requested);
+    if (!target) throw new Error(`Copilot did not advertise mode '${requested}' for this session.`);
+    await this.connection.agent.request(acp.methods.agent.session.setMode, { sessionId: this.session.sessionId, modeId: target.id });
+    this.currentModeId = target.id;
+    const state = this.modeState();
+    this.emit({
+      type: 'mode-changed',
+      message: state.currentName === null ? `Copilot mode changed to ${target.id}.` : `Copilot mode changed to ${state.currentName}.`,
+      mode: state.currentName,
+      modeId: state.current,
+      readOnly: this.inPlanMode(),
+      availableModes: state.available,
+      modeSwitchSupported: state.switchSupported
+    });
+    return { mode: state.currentName, modeId: state.current, readOnly: this.inPlanMode(), availableModes: state.available, modeSwitchSupported: state.switchSupported };
   }
 
   async setModel(model) {
@@ -417,6 +547,12 @@ export class CopilotPlanningBridge {
             models: next.available,
             modelSwitchSupported: next.switchSupported
           });
+        } else if (update.type === 'current_mode_update') {
+          // Copilot can move its own mode. The permission gate reads the session's mode, so this
+          // has to be recorded or the gate would answer for a mode the agent has already left.
+          this.currentModeId = update.mode ?? this.currentModeId;
+          const state = this.modeState();
+          this.emit({ ...update, mode: state.currentName, modeId: state.current, readOnly: this.inPlanMode(), availableModes: state.available });
         } else {
           this.emit(update);
         }
@@ -431,6 +567,7 @@ export class CopilotPlanningBridge {
 
   async cancelCurrentTurn() {
     this.cancelPendingQuestions();
+    this.cancelPendingPermissions();
     if (!this.session || this.closed || !this.running) return { cancelled: false };
     try {
       await this.connection?.agent.request(acp.methods.agent.session.cancel, { sessionId: this.session.sessionId });
@@ -443,6 +580,7 @@ export class CopilotPlanningBridge {
   async stop() {
     const warnings = [];
     this.cancelPendingQuestions();
+    this.cancelPendingPermissions();
     if (this.session) {
       try { await this.cancelCurrentTurn(); } catch (error) { warnings.push(`turn cancellation failed: ${error.message}`); }
       try { this.session.dispose(); } catch (error) { warnings.push(`session disposal failed: ${error.message}`); }

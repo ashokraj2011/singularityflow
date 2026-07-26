@@ -606,6 +606,24 @@ function CopilotServiceControl({ repository, notify }) {
     }
   }
 
+  async function applyMode(modeId) {
+    setOperation('mode');
+    try {
+      const result = await window.singularity.setCopilotServiceMode(repository, modeId);
+      setStatus(result);
+      notify({
+        tone: result.readOnly ? 'good' : 'warn',
+        text: result.readOnly
+          ? `Copilot mode is ${result.mode}: read-only, nothing reaches Git except through promotion.`
+          : `Copilot mode is ${result.mode}. Tool calls that change the repository are now put to you one at a time.`
+      });
+    } catch (error) {
+      notify({ tone: 'bad', text: error?.message || String(error) });
+    } finally {
+      setOperation(null);
+    }
+  }
+
   async function stop() {
     setOperation('stop');
     try {
@@ -624,6 +642,7 @@ function CopilotServiceControl({ repository, notify }) {
   const connectedAt = Date.parse(status.connectedAt ?? status.startedAt);
   const connectedFor = status.running && Number.isFinite(connectedAt) ? Math.max(0, clock - connectedAt) : null;
   const availableModels = status.availableModels ?? [];
+  const availableModes = status.availableModes ?? [];
   const selectedModelKnown = !model || availableModels.some((candidate) => candidate.value === model);
   const modelChanged = Boolean(model && model !== status.model);
   const usage = status.usage ?? { status: 'unavailable', byModel: [] };
@@ -638,7 +657,18 @@ function CopilotServiceControl({ repository, notify }) {
       <header><div><span className="eyebrow">Local ACP process</span><h2>Copilot backend</h2></div><Pill tone={status.running ? 'good' : status.state === 'error' ? 'bad' : 'neutral'}>{status.state}</Pill></header>
       <p>Start Copilot once, then reuse that native Plan-mode process across governed planning turns. Stopping it cancels any active turn; it never changes Git state by itself.</p>
       <div className="copilot-service-facts"><div><span>Model</span><strong title={modelLabel}>{modelLabel}</strong></div><div><span>Connected</span><strong>{connectedFor === null ? '—' : formatDuration(connectedFor)}</strong></div><div><span>Total tokens</span><strong>{formatServiceTokens(usage.totalTokens)}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
-      <div className="copilot-service-meta"><span>Plan mode</span><span>PID {status.processId ?? '—'}</span><span>{status.version ?? status.preflight?.version ?? 'Version unavailable'}</span></div>
+      <div className="copilot-service-meta"><span>{status.mode ? `${status.mode} mode` : 'Plan mode'}</span><span>PID {status.processId ?? '—'}</span><span>{status.version ?? status.preflight?.version ?? 'Version unavailable'}</span></div>
+      <label className="copilot-model-control"><span>Session mode</span>
+        <select value={status.modeId ?? ''} disabled={working || !status.running || !status.modeSwitchSupported} onChange={(event) => applyMode(event.target.value)}>
+          {!status.running && <option value="">Plan (on connection)</option>}
+          {availableModes.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}{candidate.readOnly ? ' · read-only' : ''}</option>)}
+        </select>
+        <small>{!status.running
+          ? 'Every session starts in Plan. Switch it here once the backend is connected.'
+          : status.readOnly
+            ? 'Plan mode refuses every tool call that could change the repository. Artifacts reach Git through promotion.'
+            : 'Copilot may ask to edit or run things. Each request is put to you before it happens.'}</small>
+      </label>
       <label className="copilot-model-control"><span>{status.running ? 'Active model' : 'Model for next connection'}</span>{availableModels.length
         ? <select value={selectedModelKnown ? model : ''} disabled={working || (status.running && !status.modelSwitchSupported)} onChange={(event) => setModel(event.target.value)}>
           {!selectedModelKnown && <option value="">{model}</option>}
@@ -1726,11 +1756,13 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   const [reviewed, setReviewed] = useState(false);
   const [usage, setUsage] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [permissions, setPermissions] = useState([]);
   const [logs, setLogs] = useState([]);
   const [activity, setActivity] = useState('Build a governed context pack to begin.');
   const transcriptRef = useRef('');
   const planRef = useRef('');
   const questionsRef = useRef([]);
+  const permissionsRef = useRef([]);
   const group = groups.find((item) => `${item.scope}:${item.id}` === groupKey) ?? defaultGroup;
   const phase = group?.phases.find((item) => item.id === phaseId) ?? group?.phases.find((item) => item.current) ?? null;
   const target = phase?.targets.find((item) => item.id === targetId) ?? phase?.targets[0] ?? null;
@@ -1882,10 +1914,30 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         setActivity('Copilot withdrew its structured plan; continue the conversation to produce a replacement.');
       } else if (event.type === 'tool_call') {
         setActivity(`${event.title} · ${event.status}`);
+      } else if (event.type === 'permission-request') {
+        // Outside Plan mode the backend asks rather than refuses, so the request has to reach the
+        // operator: an unanswered one blocks Copilot's turn until the session ends.
+        permissionsRef.current = [...permissionsRef.current, {
+          id: event.requestId,
+          title: event.title,
+          kind: event.kind,
+          locations: event.locations ?? [],
+          mode: event.mode ?? null
+        }];
+        setPermissions(permissionsRef.current);
+        setActivity(`Copilot is asking to ${event.kind ?? 'act'}: ${event.title}`);
       } else if (event.type === 'permission-allowed') {
-        setActivity(`${event.title} · reading`);
+        permissionsRef.current = permissionsRef.current.filter((request) => request.id !== event.requestId);
+        setPermissions(permissionsRef.current);
+        setActivity(`${event.title} · ${event.requestId ? 'allowed' : 'reading'}`);
       } else if (event.type === 'permission-denied') {
-        setActivity(`${event.title} was blocked: Copilot Studio cannot change the repository.`);
+        permissionsRef.current = permissionsRef.current.filter((request) => request.id !== event.requestId);
+        setPermissions(permissionsRef.current);
+        setActivity(event.detail ?? `${event.title} was blocked.`);
+      } else if (event.type === 'mode-changed' || event.type === 'current_mode_update') {
+        setActivity(event.readOnly === false
+          ? `Copilot is in ${event.mode} mode: it may ask to change the repository.`
+          : `Copilot is in ${event.mode ?? 'Plan'} mode: read-only.`);
       } else if (event.type === 'usage_update') {
         setUsage((current) => ({
           ...(current ?? {}),
@@ -1947,6 +1999,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     setReviewed(false);
     setUsage(null);
     questionsRef.current = [];
+    permissionsRef.current = [];
+    setPermissions([]);
     setQuestions([]);
     setLogs([]);
   }
@@ -2000,6 +2054,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     transcriptRef.current = '';
     setReviewed(false);
     questionsRef.current = [];
+    permissionsRef.current = [];
+    setPermissions([]);
     setQuestions([]);
     setLogs([]);
     setActivity(`${result.manifest.sources.length} hashed sources ready for Copilot.`);
@@ -2037,6 +2093,16 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     setRunning(true);
     const result = await action(() => window.singularity.promptPlanningSession(data.repository.root, contextPack.sessionId, text));
     if (!result) setRunning(false);
+  }
+
+  async function answerPermission(request, allow) {
+    const result = await action(
+      () => window.singularity.answerCopilotPermission(data.repository.root, request.id, allow),
+      allow ? `Allowed: ${request.title}` : `Refused: ${request.title}`
+    );
+    if (!result) return;
+    permissionsRef.current = permissionsRef.current.filter((item) => item.id !== request.id);
+    setPermissions(permissionsRef.current);
   }
 
   async function answerQuestion(question, values) {
@@ -2135,13 +2201,13 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   // hand-off; only the explicit Stop button releases the Copilot planning context.
 
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
 function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
@@ -2558,9 +2624,9 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const activePhaseId = requestedPhaseId ?? selected.state.currentPhase ?? 'epic-intake';
   const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId }, onCopilotLost });
   const {
-    contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
+    contextPack, messages, questions, permissions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
-    buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot
+    buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, answerPermission, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
   const messageRef = useRef(null);
@@ -3035,6 +3101,25 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </aside>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
+    {permissions[0] && <div className="modal-backdrop copilot-ask" role="dialog" aria-modal="true">
+      <div className="preview-modal question-modal">
+        <header>
+          <div>
+            <strong>Copilot wants to {permissions[0].kind ?? 'act on'} the repository</strong>
+            <small>{permissions.length > 1 ? `${permissions.length} requests waiting · deciding one at a time` : `${permissions[0].mode ?? 'This'} mode puts each of these to you before it happens`}</small>
+          </div>
+        </header>
+        <div className="copilot-permission-request">
+          <p><strong>{permissions[0].title}</strong></p>
+          {!!permissions[0].locations.length && <ul className="copilot-permission-paths">{permissions[0].locations.map((location) => <li key={location}><code>{location}</code></li>)}</ul>}
+          <p className="field-help">Refusing is safe: Copilot is told no and continues. Nothing here is committed — publishing and approval still run through the governed phase.</p>
+          <div className="row">
+            <button className="primary" onClick={() => answerPermission(permissions[0], true)}>Allow once</button>
+            <button className="ghost" onClick={() => answerPermission(permissions[0], false)}>Refuse</button>
+          </div>
+        </div>
+      </div>
+    </div>}
     {pendingQuestions[0] && <div className="modal-backdrop copilot-ask" role="dialog" aria-modal="true">
       <div className="preview-modal question-modal">
         <header>

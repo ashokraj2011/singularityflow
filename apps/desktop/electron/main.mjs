@@ -767,6 +767,14 @@ function registerHandlers() {
     assertTrustedSender(event);
     return copilotBackend.setModel(assertRepository(repository), model?.trim() || null);
   });
+  trustedHandle('copilot-service:mode', (event, { repository, modeId }) => {
+    assertTrustedSender(event);
+    return copilotBackend.setMode(assertRepository(repository), String(modeId ?? '').trim());
+  });
+  trustedHandle('copilot-service:permission', (event, { repository, requestId, allow }) => {
+    assertTrustedSender(event);
+    return copilotBackend.answerPermission(assertRepository(repository), String(requestId ?? '').trim(), allow === true);
+  });
   trustedHandle('copilot-service:stop', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.stop(assertRepository(repository));

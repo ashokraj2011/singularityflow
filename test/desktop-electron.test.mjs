@@ -943,11 +943,13 @@ test('the governed contract is sent to Copilot, not pointed at', async () => {
   assert.match(main, /await readFile\(pack\.contextPath, 'utf8'\)/);
   assert.match(main, /Follow the governed planning contract above/);
 
-  // The guarantee that matters is that Copilot cannot change anything. Reads were later allowed
-  // deliberately — see 'read-only Plan mode denies writes, not reads' — but writing must stay shut.
+  // The guarantee that matters is that Copilot cannot change anything of its own accord. Reads
+  // were later allowed deliberately — see 'read-only Plan mode denies writes, not reads' — and a
+  // mode switch was added later still, but the client never writes, and Plan mode still refuses.
   const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
   assert.match(acp, /writeTextFile: false/);
-  assert.match(acp, /return rejectPermission\(ctx\.params\)/);
+  const decide = acp.slice(acp.indexOf('decidePermission(params) {'), acp.indexOf('answerPermission(requestId'));
+  assert.match(decide, /if \(this\.inPlanMode\(\)\) \{[\s\S]*?return rejectPermission\(params\);/);
 });
 
 test('a human-approved check can be attested from the app', async () => {

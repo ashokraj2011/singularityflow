@@ -97,12 +97,23 @@ export class CopilotBackendController {
     if (event.type === 'ready' && !service.stopRequested) {
       service.state = 'ready';
       service.version = event.version ?? service.version;
-      service.mode = event.modes?.currentModeId ?? 'plan';
+      service.mode = event.mode ?? event.modes?.currentModeId ?? 'plan';
+      service.modeId = event.modeId ?? event.modes?.currentModeId ?? service.modeId;
+      service.availableModes = event.availableModes ?? service.availableModes;
+      service.modeSwitchSupported = event.modeSwitchSupported ?? service.modeSwitchSupported;
+      service.readOnly = true;
       service.sessionId = event.sessionId ?? service.sessionId;
       service.connectedAt ??= normalized.at;
       service.model = event.model ?? service.model ?? service.requestedModel;
       service.availableModels = event.models ?? service.availableModels;
       service.modelSwitchSupported = event.modelSwitchSupported ?? service.modelSwitchSupported;
+    }
+    if (['mode-changed', 'current_mode_update'].includes(event.type)) {
+      service.mode = event.mode ?? service.mode;
+      service.modeId = event.modeId ?? service.modeId;
+      service.availableModes = event.availableModes ?? service.availableModes;
+      service.modeSwitchSupported = event.modeSwitchSupported ?? service.modeSwitchSupported;
+      if (typeof event.readOnly === 'boolean') service.readOnly = event.readOnly;
     }
     if (['model-changed', 'config_option_update'].includes(event.type)) {
       service.model = event.model ?? service.model;
@@ -170,7 +181,8 @@ export class CopilotBackendController {
   #statusValue(service) {
     if (!service) return {
       state: 'stopped', running: false, startedAt: null, connectedAt: null, stoppedAt: null,
-      version: null, mode: null, processId: null, activePlanningSessionId: null,
+      version: null, mode: null, modeId: null, availableModes: [], modeSwitchSupported: false, readOnly: true,
+      processId: null, activePlanningSessionId: null,
       model: null, requestedModel: null, availableModels: [], modelSwitchSupported: false,
       usage: serializedUsage(emptyUsage()), lastEvent: null, canStop: false
     };
@@ -182,6 +194,10 @@ export class CopilotBackendController {
       stoppedAt: service.stoppedAt ?? null,
       version: service.version ?? null,
       mode: service.mode ?? null,
+      modeId: service.modeId ?? null,
+      availableModes: service.availableModes ?? [],
+      modeSwitchSupported: Boolean(service.modeSwitchSupported),
+      readOnly: service.readOnly !== false,
       model: service.model ?? service.requestedModel ?? null,
       requestedModel: service.requestedModel ?? null,
       availableModels: service.availableModels ?? [],
@@ -226,6 +242,10 @@ export class CopilotBackendController {
       stoppedAt: null,
       version: check.version,
       mode: 'plan',
+      modeId: null,
+      availableModes: [],
+      modeSwitchSupported: false,
+      readOnly: true,
       requestedModel: model,
       model: model,
       availableModels: [],
@@ -253,6 +273,9 @@ export class CopilotBackendController {
         service.state = 'ready';
         service.version = result.version ?? service.version;
         service.mode = result.mode ?? 'plan';
+        service.modeId = result.modeId ?? service.modeId;
+        service.availableModes = result.availableModes ?? service.availableModes;
+        service.modeSwitchSupported = result.modeSwitchSupported ?? service.modeSwitchSupported;
         service.sessionId = result.sessionId ?? service.sessionId;
         service.connectedAt ??= this.now();
         service.model = result.model ?? service.model;
@@ -294,6 +317,31 @@ export class CopilotBackendController {
     service.availableModels = result.models ?? service.availableModels;
     service.modelSwitchSupported = result.modelSwitchSupported ?? service.modelSwitchSupported;
     return this.status(key);
+  }
+
+  async setMode(repository, modeId) {
+    const key = this.#key(repository);
+    const service = this.services.get(key);
+    if (!service?.bridge || !['ready', 'busy'].includes(service.state)) {
+      throw new Error('Start the Copilot backend before changing its mode.');
+    }
+    // Unlike a model change, this is allowed with a planning session attached: the mode is the
+    // point of the session, and forcing a release would throw away the conversation to widen it.
+    if (service.state === 'busy') throw new Error('Finish the current Copilot turn before changing its mode.');
+    const result = await service.bridge.setMode(modeId);
+    service.mode = result.mode ?? service.mode;
+    service.modeId = result.modeId ?? modeId;
+    service.availableModes = result.availableModes ?? service.availableModes;
+    service.modeSwitchSupported = result.modeSwitchSupported ?? service.modeSwitchSupported;
+    service.readOnly = result.readOnly !== false;
+    return this.status(key);
+  }
+
+  answerPermission(repository, requestId, allow) {
+    const key = this.#key(repository);
+    const service = this.services.get(key);
+    if (!service?.bridge) throw new Error('The Copilot backend is not running.');
+    return service.bridge.answerPermission(requestId, allow);
   }
 
   async beginPlanning(repository, planningSessionId, { prompt, model = null } = {}) {

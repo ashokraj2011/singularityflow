@@ -3625,6 +3625,12 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .question-modal > header strong { display: block; font-size: 14px; font-weight: 660; color: var(--ink); }
 .question-modal > header small { font-size: 11px; color: var(--muted); }
 
+/* A tool-permission request outside Plan mode. Same modal, but the decision is allow or refuse. */
+.copilot-permission-request { display: grid; gap: 12px; }
+.copilot-permission-request > p { margin: 0; font-size: 12px; color: var(--ink); }
+.copilot-permission-paths { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.copilot-permission-paths code { font-size: 11px; color: var(--muted); word-break: break-all; }
+
 /* Command picker — the work this phase actually asks for */
 .composer-commands { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .composer-commands.start-commands { margin: 4px 0 12px; }

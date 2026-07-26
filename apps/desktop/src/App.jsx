@@ -5172,6 +5172,137 @@ function TemplatePreview({ content, className = '' }) {
   return <div className={`markdown-preview ${className}`}>{markdownBlocks(content)}</div>;
 }
 
+const lifecycleSteps = [
+  {
+    id: 'jira-intake',
+    system: 'jira',
+    icon: 'jira',
+    number: '01',
+    eyebrow: 'Jira',
+    title: 'Bring in the Epic',
+    detail: 'Flow snapshots the Epic identity, description, attachments, and source references without making Jira the approval ledger.'
+  },
+  {
+    id: 'git-grounding',
+    system: 'git',
+    icon: 'workflow',
+    number: '02',
+    eyebrow: 'Lead Git repository',
+    title: 'Pin the evidence',
+    detail: 'Source hashes, the repository world model, workflow profile, persona, and templates are committed to the Epic branch.'
+  },
+  {
+    id: 'copilot-planning',
+    system: 'copilot',
+    icon: 'planning',
+    number: '03',
+    eyebrow: 'Copilot CLI',
+    title: 'Formalize the work',
+    detail: 'The /sflow-* skills compose governed context so Copilot can draft requirements, impact analysis, specifications, and a Story plan.'
+  },
+  {
+    id: 'business-decision',
+    system: 'human',
+    icon: 'review',
+    number: '04',
+    eyebrow: 'Business review',
+    title: 'Approve exact versions',
+    detail: 'People review the generated documents in Flow. Decisions bind to content hashes and are committed and pushed with identity and persona.'
+  },
+  {
+    id: 'story-materialization',
+    system: 'jira',
+    icon: 'epics',
+    number: '05',
+    eyebrow: 'Jira + delivery Git',
+    title: 'Create governed Stories',
+    detail: 'Approved Stories are written to Jira and receive repository routing, a canonical branch, a seed, parent specification, and lineage receipts.'
+  },
+  {
+    id: 'copilot-delivery',
+    system: 'copilot',
+    icon: 'resources',
+    number: '06',
+    eyebrow: 'Developer Copilot',
+    title: 'Design, build, and test',
+    detail: 'A developer fetches a Story with sflow, works in any tool, and publishes phase artifacts, evidence, approvals, and source commits.'
+  },
+  {
+    id: 'finalize',
+    system: 'git',
+    icon: 'validate',
+    number: '07',
+    eyebrow: 'Exact Git SHA',
+    title: 'Finalize the delivery packet',
+    detail: 'The finalized packet connects the Story spec to source, tests, conformance findings, approvals, model usage, and the exact submitted commit.'
+  },
+  {
+    id: 'reconcile',
+    system: 'reconcile',
+    icon: 'refresh',
+    number: '08',
+    eyebrow: 'Product owner',
+    title: 'Reconcile and complete',
+    detail: 'Flow compares every Story with the parent spec, surfaces Jira drift or missing evidence, and records an explicit adopt, restore, approve, or reject decision.'
+  }
+];
+
+function HowItWorks({ onDocumentation }) {
+  return <main className="how-it-works">
+    <header className="how-it-works-hero">
+      <div>
+        <span className="eyebrow">Two-minute visual guide</span>
+        <h1>From Jira Epic to<br /><em>reconciled delivery.</em></h1>
+        <p>Singularity Flow connects business intent, AI-assisted authoring, delivery repositories, and human decisions without hiding which system owns each part of the lifecycle.</p>
+      </div>
+      <div className="how-it-works-summary" aria-label="Core operating model">
+        <span><NavIcon name="jira" /><strong>Jira tracks work</strong><small>Epics, Stories, assignment, and status</small></span>
+        <span><NavIcon name="workflow" /><strong>Git carries truth</strong><small>Artifacts, hashes, lineage, and decisions</small></span>
+        <span><NavIcon name="planning" /><strong>Copilot authors</strong><small>Governed prompts through /sflow-* skills</small></span>
+        <span><NavIcon name="review" /><strong>People decide</strong><small>Exact-version approval and reconciliation</small></span>
+      </div>
+    </header>
+
+    <section className="lifecycle-visual" aria-labelledby="lifecycle-title">
+      <header>
+        <div><span className="eyebrow">End-to-end lifecycle</span><h2 id="lifecycle-title">One continuous chain of evidence</h2></div>
+        <div className="lifecycle-legend" aria-label="System legend">
+          <span className="jira">Jira</span>
+          <span className="git">Git</span>
+          <span className="copilot">Copilot</span>
+          <span className="human">Human decision</span>
+        </div>
+      </header>
+      <ol className="lifecycle-map">
+        {lifecycleSteps.map((step) => <li className={`lifecycle-node ${step.system}`} key={step.id}>
+          <div className="lifecycle-node-head"><span className="lifecycle-icon"><NavIcon name={step.icon} /></span><b>{step.number}</b></div>
+          <span className="eyebrow">{step.eyebrow}</span>
+          <h3>{step.title}</h3>
+          <p>{step.detail}</p>
+        </li>)}
+      </ol>
+      <div className="git-state-spine">
+        <span className="git-state-icon"><NavIcon name="publish" /></span>
+        <div><strong>Git state transfer is always underneath the journey</strong><small>Every generation, submission, approval, rejection, Story receipt, and reconciliation decision becomes an atomic commit and push. Another terminal can resume from the branch.</small></div>
+        <code>generate → commit → push → review → decide</code>
+      </div>
+      <div className="reconcile-loop">
+        <span className="reconcile-loop-icon"><NavIcon name="refresh" /></span>
+        <div><span className="eyebrow">The reconciliation loop</span><strong>External changes are observed, never silently merged</strong><p>If Jira, a branch, a contract, or approved evidence changes, Flow shows the drift. The product owner explicitly adopts it into a new Git generation or restores the approved Git-owned value.</p></div>
+        <div className="reconcile-route" aria-label="Reconciliation route"><span>Observe</span><i>→</i><span>Compare</span><i>→</i><span>Decide</span><i>→</i><span>Commit</span></div>
+      </div>
+    </section>
+
+    <section className="guide-surface-comparison" aria-labelledby="guide-difference-title">
+      <header><span className="eyebrow">Choose the right guide</span><h2 id="guide-difference-title">How it works is the map. Documentation is the manual.</h2></header>
+      <div>
+        <article className="active"><span className="guide-number">01</span><h3>How it works</h3><p>Use this pictorial overview to understand the lifecycle, system boundaries, state transfer, approvals, and reconciliation.</p><strong>You are here</strong></article>
+        <article><span className="guide-number">02</span><h3>Documentation</h3><p>Use the searchable manual for exact CLI commands, workflow YAML, templates, personas, remote agents, Jira setup, and troubleshooting.</p><button className="secondary" onClick={onDocumentation}>Open documentation</button></article>
+      </div>
+    </section>
+  </main>;
+}
+
 const helpMatches = [...helpMarkdown.matchAll(/^##\s+(.+)$/gm)];
 const helpTopics = helpMatches.map((match, index) => ({
   id: match[1].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
@@ -5648,6 +5779,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [standaloneHelp, setStandaloneHelp] = useState(false);
+  const [standaloneHowItWorks, setStandaloneHowItWorks] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState([]);
   const [repositoryMenu, setRepositoryMenu] = useState(false);
   const [worldModelRun, setWorldModelRun] = useState(null);
@@ -6194,6 +6326,7 @@ export default function App() {
 
   if (showStartupIntro) return <StartupIntro onDone={dismissStartupIntro} />;
   if (onboardingLoading) return <div className="onboarding-loading"><FlowBrand className="brand large flow-brand-welcome" context="Preparing desktop setup" /><span className="onboarding-loading-orb">✦</span></div>;
+  if (!data && standaloneHowItWorks) return <div className="standalone-guide"><button className="ghost help-back" onClick={() => setStandaloneHowItWorks(false)}>← Back</button><HowItWorks onDocumentation={() => { setStandaloneHowItWorks(false); setStandaloneHelp(true); }} /></div>;
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;
   if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
@@ -6201,14 +6334,14 @@ export default function App() {
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}>
     <header className="welcome-nav">
       <FlowBrand className="brand large flow-brand-welcome" context="Git-native delivery" />
-      <nav><button onClick={openScreensaver}>Screensaver</button><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button></nav>
+      <nav><button onClick={openScreensaver}>Screensaver</button><button onClick={() => setStandaloneHowItWorks(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button></nav>
     </header>
     <main className="welcome-hero">
       <section>
         <Pill tone="accent">Plan · govern · deliver</Pill>
         <h1>Start with your<br /><em>Epic and requirements.</em></h1>
         <p>Open a project workspace, bring in the Epic and source documents, then move through requirements, Story planning, specification, and governed publication. The workspace carries every repository and its Jira routing.</p>
-        <div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening workspace…' : 'Open project workspace'}</button><button className="ghost large-button" onClick={() => setStandaloneHelp(true)} disabled={busy}>See the workflow</button></div>
+        <div className="welcome-actions"><button className="primary large-button" onClick={() => openWorkspace()} disabled={busy}>{busy ? 'Opening workspace…' : 'Open project workspace'}</button><button className="ghost large-button" onClick={() => setStandaloneHowItWorks(true)} disabled={busy}>See the workflow</button></div>
         <details className="welcome-advanced">
           <summary><span><strong>Workspace configuration</strong><small>Local directory · repositories · Jira boards · App IDs</small></span><b>＋</b></summary>
           <div><p>Create an isolated project workspace with exactly one lead Git repository for Epic artifacts. Repository-specific Jira routing and metadata are configured together.</p><button className="secondary" onClick={() => openWorkspace()} disabled={busy}>Open or create workspace</button></div>

@@ -678,6 +678,38 @@ test('epic start requires world-model generation before requirements', async () 
   assert.match(source, /setWorldModelError/);
 });
 
+test('no DOM handler is bound bare to a function whose first argument crosses IPC', async () => {
+  // `onClick={handler}` hands the handler a React SyntheticEvent. When that handler's first
+  // parameter is a repository path or a file list rather than an event, the event travels to
+  // ipcRenderer.invoke and dies in structured clone as 'An object could not be cloned.' — a
+  // message that names neither the button nor the argument. It cost two buttons: 'Generate world
+  // model' (reported as a world-model build failure at 0m00s) and '＋ Add source'.
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const eventNames = new Set(['event', 'e', '_event', '_']);
+  // Resolve each handler inside its own component. Two components declare a `loadEpics`, and a
+  // prop can share a name with a function declared in App; matching the first declaration in the
+  // file flags both as offenders and the guard becomes noise nobody keeps.
+  const components = [...source.matchAll(/^(?:export default )?function [A-Za-z]/gm)].map((match) => match.index);
+  const blockOf = (index) => {
+    const start = components.filter((position) => position <= index).pop() ?? 0;
+    const end = components.find((position) => position > index) ?? source.length;
+    return source.slice(start, end);
+  };
+  const offenders = [];
+  for (const match of source.matchAll(/on(Click|Change|Submit|Input|KeyDown|Blur|Focus)=\{([A-Za-z_$][\w$]*)\}/g)) {
+    const [, prop, name] = match;
+    const declaration = blockOf(match.index).match(new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(([^)]*)\\)|const\\s+${name}\\s*=\\s*(?:async\\s*)?\\(([^)]*)\\)\\s*=>`));
+    if (!declaration) continue; // A prop: it defends itself where it is defined.
+    const first = (declaration[1] ?? declaration[2] ?? '').split(',')[0].trim().split(/[=\s]/)[0];
+    if (first && !eventNames.has(first)) offenders.push(`on${prop}={${name}} → ${name}(${first}, …)`);
+  }
+  assert.deepEqual(offenders, [], `bind these with an arrow that passes no event: ${offenders.join(', ')}`);
+
+  // Defence at the definitions too, since a future call site can reintroduce it.
+  assert.match(source, /const filePaths = Array\.isArray\(paths\) \? paths : null/);
+  assert.match(source, /typeof repositoryOrLocal === 'boolean' \? repositoryOrLocal : true/);
+});
+
 test('Copilot Studio releases the previous session when the governed context is rebuilt', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   const build = source.slice(source.indexOf('async function buildContext()'), source.indexOf('async function startCopilot()'));

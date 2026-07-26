@@ -257,7 +257,9 @@ function WorldModelPrompt({ reason, busy, onGenerate, copilotHealth = null, onCo
       <p>{reason} Requirements, impact analysis, and Story planning read the repository world model as governed context. Building it now keeps those phases grounded in this codebase.</p>
     </div>
     <div className="row">
-      <button className="primary compact" onClick={onGenerate} disabled={busy}>Generate world model</button>
+      {/* Called with no argument on purpose: a bare onClick hands the handler a React event, and
+          this one's first parameter is a repository path that goes straight over IPC. */}
+      <button className="primary compact" onClick={() => onGenerate()} disabled={busy}>Generate world model</button>
     </div>
   </section>;
 }
@@ -2582,7 +2584,11 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   // Same governed path as the full sources view: bytes go to the configured provider and Git keeps
   // the hash, so a pinned document is citable evidence rather than an attachment.
-  async function addSources(filePaths = null) {
+  async function addSources(paths = null) {
+    // Only a real list survives. Everything here crosses the IPC boundary, where a React event —
+    // which a bare onClick would hand us as this argument — fails structured clone with the
+    // useless message 'An object could not be cloned.'
+    const filePaths = Array.isArray(paths) ? paths : null;
     const result = await action(
       () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId, undefined, filePaths),
       'Pinned source files uploaded and published'
@@ -2838,7 +2844,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           <select aria-label="Storage provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
             {providers.map(([id, provider]) => <option key={id} value={id}>{id} · {provider.type}</option>)}
           </select>
-          <button className="secondary full" disabled={!providers.length} onClick={addSources}>＋ Add source</button>
+          <button className="secondary full" disabled={!providers.length} onClick={() => addSources()}>＋ Add source</button>
         </footer>
       </aside>
 
@@ -4791,8 +4797,14 @@ export default function App() {
     return result;
   }
   async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined, views = null) {
+    // Both of these cross the IPC boundary, so both must be primitives. A bare onClick hands this
+    // function a React event as its first argument; that used to land in `local` and fail
+    // structured clone with 'An object could not be cloned.' — a message that says nothing about
+    // the button that was pressed, reported as a world-model build failure at 0m00s.
     const repository = typeof repositoryOrLocal === 'string' ? repositoryOrLocal : data?.repository?.root;
-    const local = typeof repositoryOrLocal === 'string' ? (localArgument ?? true) : repositoryOrLocal;
+    const local = typeof repositoryOrLocal === 'string'
+      ? (typeof localArgument === 'boolean' ? localArgument : true)
+      : (typeof repositoryOrLocal === 'boolean' ? repositoryOrLocal : true);
     if (!repository || worldModelRun?.status === 'running') return null;
     // Checked before anything is shown: `wm build` runs Copilot for minutes, and failing at the end
     // for a reason that was knowable at the start is the worst possible ordering.

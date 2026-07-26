@@ -705,7 +705,11 @@ test('every Epic is reachable and states where its work stands', async () => {
   // 'locked until Requirements is approved' notice included — so routing 'discover-define' there
   // opened Planning for a phase the Epic does not have.
   const openStudio = source.slice(source.indexOf('function openStudio('), source.indexOf('function acceptPortfolioBootstrap('));
-  assert.match(openStudio, /phase && !phase\.startsWith\('epic-'\) \? 'phase' : 'business-planning'/);
+  assert.match(openStudio, /epicPage \?\? \(phase \? 'phase' : 'business-planning'\)/);
+  // 'Compose in Copilot Studio' on the Epic intake panel opened Planning, because epic-intake has
+  // no dedicated page and the fallback was a page about epic-plan. Only the two phases that have
+  // a page of their own may route to one; every other phase opens the workspace for itself.
+  assert.doesNotMatch(openStudio, /startsWith\('epic-'\)/);
   assert.match(source, /page === 'phase' && \(data\.initiative && planningFocus\?\.phase/);
   assert.match(source, /<PhaseWorkspace requestedPhaseId=\{planningFocus\.phase\}/);
 });

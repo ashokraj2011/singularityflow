@@ -4860,7 +4860,10 @@ export default function App() {
       const epicPage = ['epic-plan', 'epic-spec'].includes(phase)
         ? 'business-planning'
         : phase === 'epic-requirements' ? 'business-requirements' : null;
-      setPage(epicPage ?? (phase && !phase.startsWith('epic-') ? 'phase' : 'business-planning'));
+      // Everything else opens the workspace for that phase. Falling back to business-planning for
+      // any unmapped epic- phase is why 'Compose in Copilot Studio' on the Epic intake panel opened
+      // Planning: epic-intake has no dedicated page, and the fallback was a page about epic-plan.
+      setPage(epicPage ?? (phase ? 'phase' : 'business-planning'));
       return;
     }
     // Legacy story workflows still have a planning surface, but it is no longer exposed as a

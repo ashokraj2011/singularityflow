@@ -355,6 +355,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Total tokens/);
   assert.match(source, /Run from/);
   assert.match(source, /Shell equivalent/);
+  assert.match(source, /cli-command-card/);
+  assert.match(source, /cli-command-terminal/);
+  assert.match(source, /Recommended next command/);
+  assert.doesNotMatch(source, /<strong>\{command\.purpose\}<\/strong><code>\{command\.skill\}<\/code><small>Shell equivalent:/);
   assert.match(source, /Epic decomposition analysis/);
   assert.match(source, /Interface contracts/);
   assert.match(source, /Branches stay isolated/);
@@ -515,6 +519,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.onboarding-failure/);
   assert.match(styles, /\.cli-handoff/);
   assert.match(styles, /\.cli-command-list/);
+  assert.match(styles, /\.cli-command-card/);
+  assert.match(styles, /\.cli-command-terminal/);
+  assert.match(styles, /\.cli-command-equivalent/);
   assert.match(styles, /\.cli-review-grid/);
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);

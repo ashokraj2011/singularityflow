@@ -614,3 +614,32 @@ test('a moved HEAD blocks promotion but does not destroy the conversation', asyn
   // …and the default is still the strict one, so no caller gets the loose rule by accident.
   await assert.rejects(loadPlanningPack(root, context.sessionId), /Repository HEAD changed/);
 });
+
+test('a changed governed source restores as stale but remains impossible to promote', async () => {
+  const { loadPlanningPack } = await import('../src/planning.mjs');
+  const root = await repository();
+  run(root, process.execPath, [bin, 'start', 'PLAN-SOURCE-STALE', '--title', 'Changed governed state']);
+  const context = await createPlanningContext(root, {
+    scope: 'work-item',
+    id: 'PLAN-SOURCE-STALE',
+    phase: 'intake',
+    persona: 'product-owner',
+    target: 'artifact',
+    objective: 'Define the outcome.'
+  });
+  const source = context.manifest.prompt;
+  assert.ok(source?.path && !source.path.startsWith('builtin:'), 'planning context should pin its governed prompt');
+  const sourcePath = path.join(root, source.path);
+  await writeFile(sourcePath, `${await readFile(sourcePath, 'utf8')}\n`);
+
+  const restored = await loadPlanningPack(root, context.sessionId, { requireCurrentHead: false });
+  assert.equal(restored.stale, true);
+  assert.equal(restored.changedSources.length, 1);
+  assert.equal(restored.changedSources[0].path, source.path);
+  assert.equal(restored.changedSources[0].status, 'changed');
+
+  await assert.rejects(
+    loadPlanningPack(root, context.sessionId),
+    /Governed planning source changed after context creation/
+  );
+});

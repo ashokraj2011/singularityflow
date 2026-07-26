@@ -858,4 +858,4 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   };
 }
 
-export { artifactBlockMarkers, PHASE_SCOPE };
+export { artifactBlockMarkers, PHASE_SCOPE, loadPlanningPack };

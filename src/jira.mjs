@@ -990,6 +990,30 @@ export async function addComment(key, body, options = {}) {
   return { id: payload?.id ?? null, createdAt: payload?.created ?? null };
 }
 
+export async function setIssueProperty(key, propertyKey, value, options = {}) {
+  if (!/^[A-Za-z0-9._-]{1,255}$/.test(String(propertyKey ?? ''))) {
+    throw new SingularityFlowError('Jira issue property key must be a portable identifier.');
+  }
+  const resolved = resolveConnection(options);
+  await jiraRequest(
+    restPath(resolved, `issue/${encodeURIComponent(key)}/properties/${encodeURIComponent(propertyKey)}`),
+    { ...options, method: 'PUT', body: value, connection: resolved }
+  );
+  return { key, propertyKey, value };
+}
+
+export async function getIssueProperty(key, propertyKey, options = {}) {
+  if (!/^[A-Za-z0-9._-]{1,255}$/.test(String(propertyKey ?? ''))) {
+    throw new SingularityFlowError('Jira issue property key must be a portable identifier.');
+  }
+  const resolved = resolveConnection(options);
+  const { payload } = await jiraRequest(
+    restPath(resolved, `issue/${encodeURIComponent(key)}/properties/${encodeURIComponent(propertyKey)}`),
+    { ...options, connection: resolved }
+  );
+  return payload?.value ?? null;
+}
+
 export async function uploadJiraAttachment(key, {
   filename,
   bytes,

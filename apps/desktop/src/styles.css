@@ -2888,6 +2888,21 @@ input:disabled, select:disabled, textarea:disabled {
 .planned-story-grid dl div { min-width: 0; border-radius: 7px; padding: 7px 8px; background: #f1f5f2; }
 .planned-story-grid dt { color: #8a958e; font-size: 7px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase; }
 .planned-story-grid dd { overflow: hidden; margin: 3px 0 0; color: #425449; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.planned-story-grid .editable-story-card { display: grid; gap: 13px; padding: 20px; }
+.planned-story-grid .editable-story-card:hover { transform: none; }
+.editable-story-card label { display: grid; gap: 6px; color: #526259; font-size: 12px; font-weight: 620; }
+.editable-story-card label > span { letter-spacing: .025em; }
+.editable-story-card input,
+.editable-story-card select,
+.editable-story-card textarea { width: 100%; min-height: 42px; border: 1px solid #ccd9d0; border-radius: 9px; padding: 10px 12px; background: #fff; color: #1f3027; font: inherit; font-size: 13px; line-height: 1.45; }
+.editable-story-card textarea { resize: vertical; }
+.editable-story-card .story-blocking { display: flex; align-items: center; grid-auto-flow: column; gap: 7px; font-size: 11px; }
+.editable-story-card .story-blocking input { width: 16px; min-height: 16px; padding: 0; }
+.story-edit-grid { display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start !important; gap: 12px !important; }
+.editable-story-card details { border-top: 1px solid #e3e9e5; padding-top: 11px; }
+.editable-story-card summary { cursor: pointer; color: #176b43; font-size: 12px; font-weight: 650; }
+.editable-story-card details textarea { margin-top: 10px; }
+.editable-story-card footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #e3e9e5; padding-top: 12px; color: #748078; font-size: 11px; }
 
 .jira-artifact-publish { overflow: hidden; }
 .jira-artifact-publish .panel-heading p { max-width: 760px; margin: 6px 0 0; color: #748178; font-size: 10px; font-weight: 400; }

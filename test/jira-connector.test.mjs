@@ -550,12 +550,18 @@ test('Jira write operations are independently constrained by the pinned policy',
     subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
     fields: { status: 'Done' }
   }, policy), /outside allowedFields/);
+  assert.doesNotThrow(() => assertJiraWriteOperationPolicy({
+    id: 'comment-story-STORY-001',
+    action: 'add-comment',
+    subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
+    body: 'Visible governed lineage'
+  }, policy));
   assert.throws(() => assertJiraWriteOperationPolicy({
     id: 'comment-story-STORY-001',
     action: 'add-comment',
     subject: { type: 'story', id: 'STORY-001', jiraKey: 'APP-42' },
-    body: 'Unexpected action'
-  }, policy), /not implemented/);
+    body: ''
+  }, policy), /invalid Story lineage comment/);
   assert.throws(() => assertJiraWriteOperationPolicy({
     id: 'create-story-STORY-001',
     action: 'create-story',
@@ -825,7 +831,7 @@ test('governed Jira write plan creates Epic then child story and persists receip
     connection: 'corporate-jira',
     deployment: 'cloud',
     writeMode: 'approved',
-    writeOperations: ['create-epic', 'create-story', 'update-owned-fields', 'attach-artifact'],
+    writeOperations: ['create-epic', 'create-story', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'],
     projectKey: 'APP',
     epicIssueType: 'Epic',
     storyIssueType: 'Story'
@@ -865,7 +871,10 @@ test('governed Jira write plan creates Epic then child story and persists receip
     artifactSelections: [{ phase: 'define', id: 'business-case', targets: ['epic'] }],
     fetchImpl: async () => { throw new Error('write-plan creation should not call Jira for new issues'); }
   });
-  assert.deepEqual(planned.plan.operations.map((operation) => operation.action), ['create-epic', 'create-story', 'attach-artifact']);
+  assert.deepEqual(
+    planned.plan.operations.map((operation) => operation.action),
+    ['create-epic', 'create-story', 'set-lineage-property', 'add-comment', 'attach-artifact']
+  );
   assert.equal(planned.plan.artifacts[0].sha256, created.initiative.phases.define.outputs['business-case'].sha256);
   let sequence = 100;
   const bodies = [];
@@ -891,6 +900,21 @@ test('governed Jira write plan creates Epic then child story and persists receip
         attachment: []
       }
     });
+    if (url.includes('/issue/APP-101?')) return response({
+      id: '101',
+      key: 'APP-101',
+      fields: {
+        summary: 'Build mobile screen',
+        issuetype: { name: 'Story' },
+        project: { key: 'APP' },
+        labels: [],
+        attachment: []
+      }
+    });
+    if (url.includes('/issue/APP-101/properties/com.singularity.flow.lineage') && init.method === 'PUT') {
+      return response({}, 204);
+    }
+    if (url.endsWith('/issue/APP-101/comment') && init.method === 'POST') return response({ id: 'comment-1' });
     if (url.endsWith('/issue/APP-100/attachments') && init.method === 'POST') {
       return response([{ id: 'att-1', filename: planned.plan.artifacts[0].filename, size: Buffer.byteLength(requirementContent), mimeType: 'text/markdown' }]);
     }
@@ -903,8 +927,8 @@ test('governed Jira write plan creates Epic then child story and persists receip
     fetchImpl,
     actor: 'owner@example.com'
   });
-  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101', 'APP-100']);
-  assert.equal(applied.results[2].attachment.sha256, planned.plan.artifacts[0].sha256);
+  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101', 'APP-101', 'APP-101', 'APP-100']);
+  assert.equal(applied.results[4].attachment.sha256, planned.plan.artifacts[0].sha256);
   assert.equal(bodies[1].fields.parent.key, 'APP-100');
   const breakdown = YAML.parse(await readFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'breakdown.yml'), 'utf8'));
   assert.equal(breakdown.epics[0].jiraKey, 'APP-100');

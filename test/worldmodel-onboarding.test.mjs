@@ -115,8 +115,8 @@ test('bootstrap installs initiative templates missing from a repository initiali
     for (const output of phase.outputs ?? []) if (output.template) referenced.add(output.template);
   }
   // source-catalog is generated from the pinned manifest and has no template, so this checks a
-  // still-authored epic output instead.
-  assert.ok(referenced.has('initiatives/epic/intake-summary.md'), 'fixture should reference the epic templates');
+  // governed artifact from the consolidated requirements/planning contract instead.
+  assert.ok(referenced.has('initiatives/epic/parent-spec.md'), 'fixture should reference the Epic planning templates');
   for (const template of referenced) {
     assert.ok(existsSync(path.join(root, 'singularity/templates', template)), `missing template ${template}`);
   }

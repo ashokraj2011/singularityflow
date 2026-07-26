@@ -372,6 +372,83 @@ export async function registerEpicSource(root, {
   return { portfolio, initiative, record, recordSha256: recordHash, manifest };
 }
 
+/**
+ * Governed text is useful for workshop notes and answers to Copilot questions.
+ * The Markdown bytes live with the Epic branch and use the same immutable
+ * source manifest as uploaded documents.
+ */
+export async function registerEpicTextSource(root, {
+  initiativeId,
+  text,
+  label = 'Epic notes',
+  kind = 'note'
+} = {}) {
+  const content = String(text ?? '').trim();
+  if (!content) throw new SingularityFlowError('Epic text source cannot be empty.');
+  if (!['note', 'question-answer'].includes(kind)) throw new SingularityFlowError(`Unsupported Epic text source kind '${kind}'.`);
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const contentSha = sha256(Buffer.from(`${content}\n`, 'utf8'));
+  const sourceId = `SRC-${contentSha.slice(0, 12).toUpperCase()}`;
+  const filename = `${kind}-${contentSha.slice(0, 12)}.md`;
+  const contentTarget = await secureInitiativePath(root, portfolio, initiativeId, `sources/text/${filename}`, {
+    label: `Epic '${initiativeId}' governed text`
+  });
+  await writeText(contentTarget.absolute, `${content}\n`);
+  const actor = identity(root);
+  const observedAt = nowIso();
+  const record = {
+    schemaVersion: SOURCE_RECORD_VERSION,
+    initiativeId,
+    sourceId,
+    name: String(label || 'Epic notes').trim(),
+    filename,
+    provider: 'git',
+    providerType: 'git-managed-markdown',
+    objectId: contentTarget.relative,
+    url: null,
+    version: contentSha,
+    etag: null,
+    sha256: contentSha,
+    bytes: Buffer.byteLength(`${content}\n`),
+    mimeType: 'text/markdown',
+    uploadedAt: observedAt,
+    uploadedBy: actor,
+    status: 'pinned'
+  };
+  const recordHash = sourceRecordHash(record);
+  const recordPath = await secureInitiativePath(root, portfolio, initiativeId, `sources/records/${recordHash}.json`, {
+    label: `Epic '${initiativeId}' text source record`
+  });
+  await writeJson(recordPath.absolute, record);
+  const manifest = await readSourceManifest(root, portfolio, initiativeId);
+  manifest.sources = manifest.sources.filter((entry) => entry.sourceId !== sourceId);
+  manifest.sources.push({
+    sourceId,
+    recordSha256: recordHash,
+    recordPath: recordPath.relative,
+    name: record.name,
+    provider: 'git',
+    sha256: contentSha,
+    bytes: record.bytes,
+    mimeType: record.mimeType,
+    status: 'pinned'
+  });
+  manifest.sources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  const manifestPath = await sourceManifestPath(root, portfolio, initiativeId);
+  await writeText(manifestPath.absolute, YAML.stringify(manifest));
+  initiative.sources ??= { records: 0, verifiedAt: null };
+  initiative.sources.records = manifest.sources.length;
+  initiative.history.push({
+    at: observedAt,
+    actor: actor.email?.toLowerCase() ?? actor.name,
+    event: 'epic_text_source_registered',
+    phase: initiative.currentPhase,
+    detail: `${sourceId} ${kind}`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, record, recordSha256: recordHash, manifest };
+}
+
 export async function listEpicSources(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const manifest = await readSourceManifest(root, portfolio, initiativeId);
@@ -407,6 +484,30 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
         expectedSha256: entry.sha256,
         error: 'Source manifest and source record disagree.'
       });
+      continue;
+    }
+    if (record.provider === 'git' && record.providerType === 'git-managed-markdown') {
+      try {
+        const target = await secureInitiativePath(
+          root,
+          portfolio,
+          initiativeId,
+          record.objectId.slice(`${posix(portfolio.initiativeRoot)}/${initiativeId}/`.length),
+          { label: `Epic text source '${record.sourceId}'`, mustExist: true, type: 'file' }
+        );
+        const current = await snapshot(target.absolute);
+        results.push({
+          sourceId: record.sourceId,
+          status: current.sha256 === record.sha256 ? 'verified' : 'hash-mismatch',
+          expectedSha256: record.sha256,
+          actualSha256: current.sha256,
+          version: record.version,
+          cachePath: record.objectId,
+          record
+        });
+      } catch (error) {
+        results.push({ sourceId: record.sourceId, status: 'unavailable', expectedSha256: record.sha256, error: error.message });
+      }
       continue;
     }
     const provider = storage.providers?.[record.provider];

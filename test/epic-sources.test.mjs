@@ -6,6 +6,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
+import {
+  prepareEpicStorySpecifications, updateEpicStory, verifyEpicPlanningPackage
+} from '../src/epic-lifecycle.mjs';
 import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
 import { initiativeNextActions } from '../src/initiative-report.mjs';
 import { createInitiative, loadInitiative, saveInitiative } from '../src/initiative-state.mjs';
@@ -170,7 +173,7 @@ test('Epic traceability requires pinned source locators and complete REQ/AC Stor
     }]
   }));
   traceOutput.generation = 1;
-  const planOutput = initiative.phases['epic-plan'].outputs['story-plan'];
+  const planOutput = initiative.phases['epic-planning'].outputs['story-plan'];
   planOutput.generation = 1;
   await writeFile(path.join(root, 'singularity/initiatives/MOB-100/breakdown.yml'), YAML.stringify({
     version: 2,
@@ -202,6 +205,66 @@ test('Epic traceability requires pinned source locators and complete REQ/AC Stor
   await writeFile(tracePath, YAML.stringify(invalid));
   const failed = await verifyEpicTraceability(root, loaded.portfolio, initiative);
   assert.match(failed.errors.join('\n'), /source ID plus page, frame, or section locator/);
+});
+
+test('editable Planning Stories refresh their governed specifications and reopen the exact package', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'MOB-100');
+  loaded.initiative.currentPhase = 'epic-planning';
+  loaded.initiative.phases['epic-intake'].status = 'approved';
+  loaded.initiative.phases['epic-requirements'].status = 'approved';
+  loaded.initiative.phases['epic-planning'].status = 'approved';
+  loaded.initiative.phases['epic-publish'].status = 'in_progress';
+  const breakdown = {
+    version: 2,
+    initiativeId: 'MOB-100',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      title: 'Mobile sign-in',
+      stories: [{
+        planId: 'STORY-001',
+        workId: 'STORY-001',
+        title: 'Build sign-in screen',
+        description: 'Create the sign-in interaction.',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001'],
+        repository: 'mobile',
+        suggestedWorkType: 'feature',
+        dependsOn: [],
+        blocking: true,
+        specification: '## Contract\n\nRender the approved sign-in states and validation behavior.'
+      }]
+    }]
+  };
+  const breakdownText = YAML.stringify(breakdown);
+  await writeFile(path.join(root, 'singularity/initiatives/MOB-100/breakdown.yml'), breakdownText);
+  await mkdir(path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-planning'), { recursive: true });
+  await writeFile(
+    path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-planning/story-plan.yml'),
+    breakdownText
+  );
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  await prepareEpicStorySpecifications(root, 'MOB-100');
+  const before = await verifyEpicPlanningPackage(root, loaded.portfolio, loaded.initiative);
+  assert.equal(before.valid, true);
+
+  const updated = await updateEpicStory(root, 'MOB-100', 'STORY-001', {
+    title: 'Build accessible sign-in screen',
+    specification: '## Contract\n\nRender accessible sign-in states, validation, and keyboard behavior.'
+  });
+  assert.equal(updated.story.title, 'Build accessible sign-in screen');
+  assert.equal(updated.initiative.currentPhase, 'epic-planning');
+  assert.equal(updated.initiative.phases['epic-planning'].status, 'in_progress');
+  assert.equal(updated.initiative.phases['epic-publish'].status, 'not_started');
+  const specification = await readFile(
+    path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-planning/stories/STORY-001/story-spec.md'),
+    'utf8'
+  );
+  assert.match(specification, /accessible sign-in states/);
+  const after = await verifyEpicPlanningPackage(root, updated.portfolio, updated.initiative);
+  assert.equal(after.valid, true);
+  assert.notEqual(after.packageSha256, before.packageSha256);
 });
 
 test('Jira Epic attachments are pinned as governed sources at start', async () => {

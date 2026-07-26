@@ -30,6 +30,5 @@ export function initiativeOutputRequired(initiative, phaseId, definition) {
 }
 
 export function initiativeCheckRequirement(initiative, phaseId, check) {
-  if (epicIntakeAllowsEmptyArtifacts(initiative, phaseId)) return 'optional';
   return check?.requirement ?? 'must';
 }

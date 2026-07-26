@@ -97,13 +97,13 @@ test('unknown input is reported rather than thrown, because this renders in a st
 
 test('Epic journey projects the governed phase into a business-friendly stage and CTA', () => {
   const state = {
-    currentPhase: 'epic-plan',
+    currentPhase: 'epic-planning',
     status: 'in_progress',
-    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-plan', 'epic-spec', 'epic-create'],
+    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-planning', 'epic-publish'],
     phases: {
       'epic-intake': { status: 'approved' },
       'epic-requirements': { status: 'approved' },
-      'epic-plan': { status: 'in_progress' }
+      'epic-planning': { status: 'in_progress' }
     }
   };
   const journey = epicJourney(state, [{ action: 'author-and-publish', command: 'singularity-flow initiative phase publish epic-plan', reason: 'Review the Story plan.' }]);
@@ -124,8 +124,9 @@ test('completed Epic journey exposes a report CTA and reaches 100 percent', () =
 test('every action name the journey can emit maps to exactly one canonical action', async () => {
   const { normalizeNextActionId } = await import('../src/initiative-next.mjs');
   const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
   const path = (await import('node:path')).default;
-  const packageRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
   // initiativeNextActions is the older generator and feeds the Epic journey button. Two
   // vocabularies for one concept is what made "Approve Intake & continue" a no-op: it carried

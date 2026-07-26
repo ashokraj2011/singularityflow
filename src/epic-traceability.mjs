@@ -79,7 +79,7 @@ export async function verifyEpicTraceability(root, portfolio, initiative) {
     }
     if (!errors.length) passes.push(`${requirementIds.size} requirements and ${acceptanceIds.size} acceptance criteria cite pinned sources`);
 
-    const planPhase = initiative.phases['epic-plan'];
+    const planPhase = initiative.phases['epic-planning'];
     const planPrepared = planPhase?.generation > 0
       || Object.values(planPhase?.outputs ?? {}).some((output) => (output.generation ?? 0) > planPhase.generation);
     if (planPrepared) {

@@ -40,7 +40,7 @@ jira:
     attachmentPolicy: metadata-only
     cacheMinutes: 10
   writeMode: off
-  writeOperations: [create-epic, create-story, update-owned-fields, attach-artifact]
+  writeOperations: [create-epic, create-story, update-owned-fields, add-comment, attach-artifact, set-lineage-property]
   allowedFields: [summary, description, parent, labels, components]
   # Backward-compatible materialization switch. New Jira writes additionally
   # require writeMode: approved and an exact reviewed write-plan hash.
@@ -88,9 +88,9 @@ storage:
 initiativeProfiles:
   epic-planning:
     label: Epic planning
-    description: Intake an existing Jira Epic, synthesize requirements, approve a Story plan and high-level specification, and create Jira/Git stories.
+    description: Ground an Epic, approve traceable requirements, approve an editable Story/specification package, and publish Jira/Git Stories.
     lifecycleMode: planning-only
-    phases: [epic-intake, epic-requirements, epic-plan, epic-spec, epic-create]
+    phases: [epic-intake, epic-requirements, epic-planning, epic-publish]
   initiative-lite:
     label: Initiative lite
     description: Four governed phases for smaller cross-repository initiatives.
@@ -108,68 +108,52 @@ initiativePhases:
     lanes: [business-product]
     worldModelViews: [business]
     outputs:
-      # Generated from the pinned source manifest rather than authored: the engine already holds
-      # every field, so transcribing them by hand is busywork that can drift from the truth.
       - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, generator: source-catalog, required: false }
-      # Optional: a well-evidenced Epic legitimately has no gaps, and demanding the document
-      # anyway only produces a file that says "none".
-      - { id: source-gaps, label: Source gaps and questions, kind: markdown, path: source-gaps.md, required: false, template: initiatives/epic/source-gaps.md }
-      # Optional: the pinned source catalog is the authoritative intake record; teams may skip
-      # the narrative summary and move directly to the governed Requirements artifact.
-      - { id: intake-summary, label: Epic intake summary, kind: markdown, path: intake-summary.md, required: false, template: initiatives/epic/intake-summary.md }
     checklist:
-      # Jira's imported Epic snapshot is sufficient to pass Intake. Additional source files are
-      # useful evidence, but never a mandatory prerequisite for entering Requirements.
       - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
       - { id: sources-pinned, label: Additional source versions are accessible and hash-pinned, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
-    bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
+      - { id: repository-grounded, label: Repository world model matches the current source tree, requirement: must, acceptedAssurance: [machine-verified], gate: block }
+    # Intake is a collection step, not an approval ceremony. It advances automatically once
+    # the repository world model is current and committed.
+    bundleApproval: { mode: none, authorities: [], minimum: 0, allowSelfApproval: true }
 
   epic-requirements:
     label: Requirements
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture, security]
     outputs:
-      - { id: requirements-specification, label: Requirements specification, kind: markdown, path: requirements.md, template: initiatives/epic/requirements.md, consumes: [epic-intake/intake-summary] }
-      - { id: requirements-traceability, label: Requirements traceability, kind: yaml, path: requirements-traceability.yml, template: initiatives/epic/requirements-traceability.yml, consumes: [epic-intake/source-catalog] }
-      # Consumes source-gaps when it exists; that producer is optional, so an Epic with no recorded
-      # gaps still reaches requirements instead of stalling on a document nobody needed.
-      - { id: open-questions, label: Open questions and decisions, kind: markdown, path: open-questions.md, template: initiatives/epic/open-questions.md, consumes: [epic-intake/source-gaps] }
+      - { id: requirements-specification, label: Requirements specification, kind: markdown, path: requirements.md, template: initiatives/epic/requirements.md }
+      - { id: requirements-traceability, label: Requirements traceability, kind: yaml, path: traceability.yml, template: initiatives/epic/requirements-traceability.yml }
+      - { id: impact-analysis, label: Repository impact analysis, kind: yaml, path: impact-analysis.yml, template: initiatives/epic/impact-analysis.yml }
     checklist:
       - { id: requirements-traceable, label: Every REQ and AC cites a pinned source, requirement: must, acceptedAssurance: [machine-verified, human-approved], gate: block }
-      - { id: material-questions-resolved, label: Material scope questions are resolved or explicitly accepted, requirement: must, acceptedAssurance: [human-approved], gate: block }
+      - { id: material-questions-resolved, label: Material scope questions are resolved or explicitly accepted, requirement: optional, acceptedAssurance: [human-approved], gate: warn }
+      - { id: impact-grounded, label: Impact analysis cites configured repositories and current world-model evidence, requirement: must, acceptedAssurance: [machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
-  epic-plan:
-    label: Plan
+  epic-planning:
+    label: Planning
     lanes: [business-product, design-architecture, engineering]
     worldModelViews: [business, architecture, development, testing, security]
     outputs:
-      - { id: story-plan, label: Executable Story plan, kind: yaml, path: story-plan.yml, template: initiatives/epic/story-plan.yml, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability] }
-      - { id: repository-map, label: Repository ownership map, kind: yaml, path: repository-map.yml, template: initiatives/epic/repository-map.yml, consumes: [epic-requirements/requirements-specification] }
-      - { id: dependency-map, label: Story dependency map, kind: markdown, path: dependency-map.md, template: initiatives/epic/dependency-map.md, consumes: [epic-requirements/requirements-specification] }
+      - { id: story-plan, label: Executable Story plan, kind: yaml, path: story-plan.yml, template: initiatives/epic/story-plan.yml, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-requirements/impact-analysis] }
+      - { id: parent-specification, label: Parent solution specification, kind: markdown, path: parent-spec.md, template: initiatives/epic/parent-spec.md, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-requirements/impact-analysis] }
+      - { id: story-specification-index, label: Story specification index, kind: yaml, path: story-spec-index.yml, template: initiatives/epic/story-spec-index.yml, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-requirements/impact-analysis] }
     checklist:
       - { id: stories-traceable, label: Every Story maps to REQ and AC identifiers, requirement: must, acceptedAssurance: [machine-verified, human-approved], gate: block }
       - { id: repositories-resolved, label: Every Story has a configured owning repository, requirement: must, acceptedAssurance: [machine-verified], gate: block }
       - { id: dependencies-acyclic, label: Story dependencies are valid and acyclic, requirement: must, acceptedAssurance: [machine-verified], gate: block }
-      - { id: impact-grounded, label: Impact map names only configured repositories and declared world-model views, requirement: must, acceptedAssurance: [machine-verified], gate: block }
+      - { id: story-specifications-complete, label: Every Story has an exact hash-bound specification, requirement: must, acceptedAssurance: [machine-verified], gate: block }
+      - { id: acceptance-criteria-covered, label: Every acceptance criterion is allocated to at least one Story, requirement: must, acceptedAssurance: [machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
-  epic-spec:
-    label: High-level specification
-    lanes: [business-product, design-architecture, engineering]
-    worldModelViews: [business, architecture, development, testing, security, operations]
-    outputs:
-      - { id: high-level-specification, label: High-level solution specification, kind: markdown, path: high-level-specification.md, template: initiatives/epic/high-level-specification.md, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-plan/story-plan, epic-plan/repository-map, epic-plan/dependency-map] }
-    checklist: []
-    bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
-
-  epic-create:
-    label: Create Stories
+  epic-publish:
+    label: Publish Stories
     lanes: [business-product, engineering]
     worldModelViews: [business, architecture, development]
     outputs:
-      - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-plan/story-plan, epic-spec/high-level-specification] }
-      - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-plan/story-plan, epic-plan/repository-map, epic-spec/high-level-specification] }
+      - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-planning/story-plan, epic-planning/parent-specification, epic-planning/story-specification-index] }
+      - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-planning/story-plan, epic-planning/parent-specification, epic-planning/story-specification-index] }
     checklist:
       - { id: jira-permission-verified, label: Selected identity authority can create Story records, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: stories-materialized, label: Jira Stories and canonical Git branches have receipts, requirement: must, acceptedAssurance: [system-verified, machine-verified], gate: block }

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { add, branch, commit, fileAtRef, head, identity, localBranches, pushBranch, remoteBranches } from './git.mjs';
@@ -517,6 +517,76 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
   });
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative, phaseId, included: requested, adopted, before };
+}
+
+/**
+ * Take an Epic back to its first phase without taking anything else with it.
+ *
+ * Starting over used to mean deleting the branch and starting a new Epic, which is a bigger
+ * hammer than the job: it threw away the Jira identity, the pinned sources, and — because a fresh
+ * Epic branches from the default branch and rebuilds — the repository world model. None of that is
+ * what "start again" means. Restarting keeps the branch it is already on, keeps the identity and
+ * the pinned evidence, and touches nothing outside this Epic's own directory, so the world model
+ * cannot be a casualty of it.
+ *
+ * Two things it deliberately does not do. It does not erase history: the record of the first
+ * attempt is the reason anyone can explain the second. And it does not reuse the old resolution —
+ * the profile is resolved again from current configuration, which is what makes restarting the way
+ * an Epic adopts a phase shape that has changed since it began.
+ */
+export async function restartInitiative(root, id = branch(root), { reason = null, persona = null } = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, id);
+  if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`);
+  const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile);
+  await healInitiativeTemplates(root, portfolio);
+  const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
+  const definition = await loadDefinition(root);
+  resolution.worldModelGrounding = groundingMode(definition);
+  resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+  resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
+    profileResolutionSha256: resolution.resolutionSha256,
+    worldModelGrounding: resolution.worldModelGrounding,
+    worldModelOutputDir: resolution.worldModelOutputDir
+  })).digest('hex');
+
+  // Artifacts belong to the attempt being abandoned. Sources do not: they are pinned evidence
+  // about the world, hashed and cited, and they are as true on the second attempt as the first.
+  const artifactRoot = await secureInitiativePath(root, portfolio, id, 'artifacts', {
+    label: `Initiative '${id}' artifacts`,
+    type: 'directory'
+  });
+  const removed = [];
+  if (artifactRoot.exists) {
+    for (const entry of await readdir(artifactRoot.absolute, { withFileTypes: true, recursive: true })) {
+      if (entry.isFile()) removed.push(posix(path.relative(artifactRoot.absolute, path.join(entry.parentPath ?? entry.path, entry.name))));
+    }
+    await rm(artifactRoot.absolute, { recursive: true, force: true });
+  }
+
+  const restartedAt = nowIso();
+  const actor = identity(root);
+  const phases = resolved.phases.map((phase, index) => phaseState(phase, index, restartedAt));
+  const previous = { phase: initiative.currentPhase, status: initiative.status, generation: Object.values(initiative.phases).reduce((total, phase) => total + (phase.generation ?? 0), 0) };
+  Object.assign(initiative, {
+    resolution,
+    status: 'in_progress',
+    currentPhase: phases[0]?.id ?? null,
+    phaseOrder: phases.map((phase) => phase.id),
+    phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
+    materialization: { status: 'not_started', attempts: [] },
+    childStories: {},
+    contracts: {}
+  });
+  initiative.history.push({
+    at: restartedAt,
+    actor: actorKey(actor),
+    persona,
+    event: 'initiative_restarted',
+    phase: phases[0]?.id ?? null,
+    detail: `from ${previous.phase ?? 'complete'} (${previous.status}); ${removed.length} artifact${removed.length === 1 ? '' : 's'} discarded${reason ? `: ${reason}` : ''}`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, removed, previous };
 }
 
 export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { persona = null } = {}) {

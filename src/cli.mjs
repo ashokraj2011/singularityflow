@@ -94,7 +94,7 @@ import {
 import { loadPortfolio } from './initiative-config.mjs';
 import {
   commitInitiativeChange, createInitiative, initiativeProgress, listInitiatives,
-  availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, secureInitiativePath,
+  availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
   selectInitiativePhaseOutputs, syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
 import {
@@ -250,6 +250,7 @@ Usage:
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT] [--selection-receipt TOKEN]
   singularity-flow initiative resume <INIT-ID> [--fetch]
+  singularity-flow initiative restart <INIT-ID> [--reason TEXT]
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
   singularity-flow initiative outputs [PHASE] [--include a,b,c] [--reason TEXT]
@@ -1766,6 +1767,22 @@ async function initiativeCommand(positionals, options) {
       console.log(`Profile: ${initiative.initiative.profileLabel} · Status: ${initiative.status} · Current: ${initiative.currentPhase ?? 'complete'}`);
       console.log(`${initiativeFlowText(progress)}\n${progress.percentage}% complete`);
     }
+    return;
+  }
+  if (subcommand === 'restart') {
+    const confirmed = await confirmInitiativeExact(
+      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, the Epic identity, the pinned sources and the repository world model are kept.`,
+      initiativeId
+    );
+    if (!confirmed) throw new SingularityFlowError('Restart was not confirmed.');
+    const session = await loadSession(root, { required: false });
+    const result = await restartInitiative(root, initiativeId, {
+      reason: optionString(options, 'reason') ?? null,
+      persona: session?.persona ?? null
+    });
+    const state = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
+    console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; branch, sources and world model kept. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'outputs') {

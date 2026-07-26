@@ -1785,7 +1785,123 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   </div>;
 }
 
+function businessStatusLabel(value) {
+  return String(value ?? 'not_started').replaceAll('_', ' ');
+}
+
+function documentExcerpt(content, fallback = 'No preview text is available for this document yet.') {
+  if (!content) return fallback;
+  const plain = String(content)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/^#{1,6}\s+/, '').replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(' · ');
+  return plain.length > 280 ? `${plain.slice(0, 277)}…` : plain || fallback;
+}
+
+function approvalDisplayName(approval) {
+  if (!approval) return 'No approval yet';
+  if (approval.actorName && approval.actorEmail && approval.actorName !== approval.actorEmail) return `${approval.actorName} · ${approval.actorEmail}`;
+  return approval.actorName ?? approval.actorEmail ?? approval.actor ?? 'Unknown approver';
+}
+
+function EpicBusinessOverview({ data }) {
+  const selected = data.initiative;
+  const state = selected.state;
+  const report = selected.report ?? {};
+  const progress = selected.progress ?? {};
+  const phases = report.phases?.length ? report.phases : progress.phases ?? [];
+  const documents = selected.documents ?? [];
+  const generatedDocuments = documents.filter((document) => document.status !== 'not_generated' && (document.sha256 || document.content || document.status === 'approved' || document.status === 'published'));
+  const approvals = report.approvals?.recent ?? [];
+  const approvalsByPhase = report.approvals?.byPhase ?? {};
+  const currentPhase = state.currentPhase ? state.phases[state.currentPhase] : null;
+  const percent = progress.percentage ?? 0;
+  const jiraSnapshot = selected.sources?.jiraSnapshot ? 1 : 0;
+  const totalSources = (report.sources?.total ?? selected.sources?.sources?.length ?? 0) + jiraSnapshot;
+  const pinnedSources = (report.sources?.pinned ?? 0) + jiraSnapshot;
+  const storyTotal = report.children?.total ?? selected.breakdown?.stories?.length ?? 0;
+  const storyComplete = report.children?.complete ?? 0;
+  const storyMaterialized = report.children?.materialized ?? 0;
+  const selfApprovals = report.approvals?.selfApprovals?.length ?? 0;
+  const phaseCount = phases.length || state.phaseOrder.length;
+  const approvedPhases = phases.filter((phase) => phase.status === 'approved').length;
+  return <div className="page dashboard-page epic-business-page">
+    <section className="epic-command-hero">
+      <div className="epic-command-copy">
+        <span className="eyebrow">Business command center</span>
+        <div className="row gap"><Pill tone="accent">{state.initiative.profileLabel}</Pill><Pill tone={state.status === 'complete' ? 'good' : 'neutral'}>{state.status}</Pill><Pill>{report.identityAssurance ?? 'configured-local'} identity</Pill></div>
+        <h1>{state.initiative.title}</h1>
+        <p>{state.initiative.id} · branch {state.initiative.branch} · current stage {currentPhase?.label ?? 'complete'}</p>
+        <div className="epic-business-refresh"><span>↻</span><strong>Run work in Copilot CLI, then press Refresh here.</strong><small>This screen reads only committed Git/Jira lineage, so it shows exactly what reviewers and business users can trust.</small></div>
+      </div>
+      <div className="epic-command-progress"><ProgressRing value={percent} /><span><b>{approvedPhases}/{phaseCount}</b> phases approved</span></div>
+    </section>
+    <div className="epic-business-metrics">
+      <div><span>Current stage</span><strong>{currentPhase?.label ?? 'Complete'}</strong><small>{state.currentPhase ?? 'all gates complete'}</small></div>
+      <div><span>Generated documents</span><strong>{generatedDocuments.length}/{documents.length}</strong><small>hash-bound artifacts</small></div>
+      <div><span>Approvals</span><strong>{report.approvals?.records ?? 0}</strong><small>{selfApprovals ? `${selfApprovals} self-approval warning${selfApprovals === 1 ? '' : 's'}` : 'review decisions recorded'}</small></div>
+      <div><span>Pinned sources</span><strong>{pinnedSources}/{totalSources}</strong><small>Jira and uploaded evidence</small></div>
+      <div><span>Stories</span><strong>{storyComplete}/{storyTotal}</strong><small>{storyMaterialized} materialized</small></div>
+      <div><span>Elapsed</span><strong>{report.duration ?? '—'}</strong><small>wall-clock lifecycle</small></div>
+    </div>
+    {selfApprovals > 0 && <div className="notice warn">⚠ {selfApprovals} self-approval{selfApprovals === 1 ? '' : 's'} recorded. Valid if configured, but not independent business review.</div>}
+    <div className="epic-business-grid">
+      <section className="panel business-phase-board">
+        <header className="panel-heading"><div><span className="eyebrow">Epic progress</span><h2>Phase-by-phase status</h2></div><Pill tone={state.status === 'complete' ? 'good' : 'accent'}>{percent}% complete</Pill></header>
+        <div className="business-phase-list">
+          {phases.map((phase, index) => {
+            const phaseApprovals = approvalsByPhase[phase.id] ?? [];
+            const latestApproval = phaseApprovals[0] ?? null;
+            return <article className={`${phase.status.replaceAll('_', '-')} ${phase.id === state.currentPhase ? 'current' : ''}`} key={phase.id}>
+              <div className="business-phase-step"><span>{index + 1}</span><StatusDot status={phase.status} /></div>
+              <div><h3>{phase.label}</h3><p>{businessStatusLabel(phase.status)}</p></div>
+              <div className="business-phase-facts"><span>{phase.publishedOutputs ?? phase.generatedOutputs ?? 0}/{phase.outputs ?? 0} docs</span><span>generation {phase.generation ?? phase.generations ?? 0}</span><span>{phase.errors?.length ? `${phase.errors.length} blockers` : phase.warnings?.length ? `${phase.warnings.length} warnings` : 'gate clean'}</span></div>
+              <div className={latestApproval ? 'phase-approved-by' : 'phase-approved-by empty'}><strong>{latestApproval ? approvalDisplayName(latestApproval) : 'Not approved yet'}</strong><small>{latestApproval ? `${latestApproval.decision} · ${formatRecentTime(latestApproval.at)}${latestApproval.selfApproval ? ' · self-approval' : ''}` : 'No reviewer decision recorded for this phase.'}</small></div>
+            </article>;
+          })}
+          {!phases.length && <div className="inline-empty">No Epic phases have been recorded yet. Start or refresh the Epic workspace.</div>}
+        </div>
+      </section>
+      <section className="panel business-approval-register">
+        <header className="panel-heading"><div><span className="eyebrow">Governance</span><h2>Who approved</h2></div><Pill>{approvals.length} recent</Pill></header>
+        <div className="business-approval-list">
+          {approvals.map((approval) => <article key={approval.sha256 ?? `${approval.phase}:${approval.subject}:${approval.at}`}>
+            <span className="approval-avatar">{approval.actorName?.slice(0, 1)?.toUpperCase() ?? '✓'}</span>
+            <div><strong>{approvalDisplayName(approval)}</strong><small>{approval.phase} · {approval.subject} · {formatRecentTime(approval.at)}</small></div>
+            <Pill tone={approval.selfApproval ? 'warn' : 'good'}>{approval.selfApproval ? 'self-approval' : approval.decision}</Pill>
+          </article>)}
+          {!approvals.length && <div className="inline-empty">No approvals have been committed yet. Approved stages will show the person, persona, time, and exact subject here.</div>}
+        </div>
+      </section>
+    </div>
+    <div className="epic-business-grid lower">
+      <section className="panel business-documents">
+        <header className="panel-heading"><div><span className="eyebrow">Documents</span><h2>Generated artifacts in one place</h2></div><Pill tone={generatedDocuments.length ? 'good' : 'neutral'}>{generatedDocuments.length} generated</Pill></header>
+        <div className="business-document-list">
+          {documents.map((document) => <article className={document.status === 'not_generated' ? 'pending' : ''} key={`${document.phase}:${document.id}`}>
+            <header><div><span>{document.phase}</span><h3>{document.label}</h3></div><Pill tone={document.status === 'approved' ? 'good' : document.status === 'published' ? 'accent' : document.status === 'not_generated' ? 'neutral' : 'warn'}>{businessStatusLabel(document.status)}</Pill></header>
+            <p>{documentExcerpt(document.content, document.status === 'not_generated' ? 'Not generated yet. The configured artifact will appear here after the CLI phase publishes it.' : 'Generated file exists, but inline preview is not available for this format.')}</p>
+            <footer><code>{document.repositoryPath ?? document.path ?? 'not written yet'}</code><span>{document.sha256 ? `sha ${document.sha256.slice(0, 12)}` : 'hash pending'}</span></footer>
+          </article>)}
+          {!documents.length && <div className="inline-empty">No configured Epic documents were found for this workspace.</div>}
+        </div>
+      </section>
+      <section className="panel business-story-readiness">
+        <header className="panel-heading"><div><span className="eyebrow">Delivery readiness</span><h2>Stories tied to this Epic</h2></div><Pill tone={storyTotal && storyComplete === storyTotal ? 'good' : storyMaterialized ? 'accent' : 'neutral'}>{storyComplete}/{storyTotal} complete</Pill></header>
+        <div className="business-story-summary">
+          {(report.children?.epics ?? []).map((epic) => <section key={epic.id}><header><div><strong>{epic.jiraKey ?? epic.id}</strong><span>{epic.title}</span></div><em>{epic.percentage}%</em></header><div>{epic.stories.slice(0, 6).map((story) => <article key={story.workId ?? story.id}><StatusDot status={story.status === 'complete' ? 'approved' : story.materialized ? 'in_progress' : 'not_started'} /><span><strong>{story.workId ?? story.id}</strong><small>{story.repository} · {story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')}</small></span><Pill tone={story.stale || story.blocked ? 'warn' : story.status === 'complete' ? 'good' : 'neutral'}>{story.jiraKey ?? 'Jira pending'}</Pill></article>)}</div></section>)}
+          {!(report.children?.epics ?? []).length && <div className="inline-empty">No Story plan has been approved yet. Generated Stories will appear here after Planning publishes them.</div>}
+        </div>
+      </section>
+    </div>
+  </div>;
+}
+
 function Dashboard({ data }) {
+  if (data.initiative) return <EpicBusinessOverview data={data} />;
   const p = data.progress;
   if (!data.workflow) return <Empty title="No work item selected" detail="Choose a work item above to see progress, approvals, usage, and supporting evidence." />;
   const current = data.workflow.phases[data.workflow.currentPhase];

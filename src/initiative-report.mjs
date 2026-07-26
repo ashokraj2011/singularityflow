@@ -136,6 +136,28 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
     actor: entry.record.actor.email ?? entry.record.actor.name,
     at: entry.record.at
   }));
+  const approvalTimeline = approvals.map((entry) => ({
+    phase: entry.record.phase,
+    subjectType: entry.record.subject?.type ?? null,
+    subjectId: entry.record.subject?.id ?? null,
+    subject: entry.record.subject ? `${entry.record.subject.type}/${entry.record.subject.id}` : 'unknown',
+    subjectSha256: entry.record.subject?.sha256 ?? null,
+    actorName: entry.record.actor?.name ?? entry.record.actor?.email ?? 'unknown',
+    actorEmail: entry.record.actor?.email ?? null,
+    actor: entry.record.actor?.email ?? entry.record.actor?.name ?? 'unknown',
+    persona: entry.record.persona ?? null,
+    channel: entry.record.channel ?? 'unknown',
+    decision: entry.record.decision ?? 'approved',
+    at: entry.record.at ?? null,
+    selfApproval: Boolean(entry.record.selfApproval),
+    identityAssurance: entry.record.identityAssurance ?? 'configured-local',
+    sha256: entry.sha256,
+    path: entry.path
+  })).sort((left, right) => String(right.at ?? '').localeCompare(String(left.at ?? '')));
+  const approvalsByPhase = Object.fromEntries(initiative.phaseOrder.map((phaseId) => [
+    phaseId,
+    approvalTimeline.filter((entry) => entry.phase === phaseId)
+  ]));
   return {
     schemaVersion: 1,
     generatedAt: now,
@@ -151,7 +173,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       byAssurance: Object.fromEntries(['machine-verified', 'system-verified', 'human-approved', 'presence-only'].map((assurance) => [assurance, evidence.filter((entry) => entry.record.assurance === assurance).length])),
       stale: phases.flatMap((phase) => phase.checks).filter((check) => check.status === 'stale').length
     },
-    approvals: { records: approvals.length, selfApprovals },
+    approvals: { records: approvals.length, selfApprovals, recent: approvalTimeline.slice(0, 12), byPhase: approvalsByPhase },
     invalidations: invalidations.length,
     contracts: await interfaceContractStatus(root, initiativeId),
     sources: {

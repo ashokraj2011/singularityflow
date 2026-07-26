@@ -699,6 +699,15 @@ test('every Epic is reachable and states where its work stands', async () => {
   const studio = source.slice(source.indexOf('function InitiativeStudio('));
   assert.match(studio, /selected\?\.state\.phaseOrder\?\.includes\(stage\)\) return void openPlanning\?\.\(stage\)/);
   assert.match(studio, /!epicStage && selected\?\.state\.phaseOrder\?\.includes\(phaseId\)\) return void openPlanning\?\.\(phaseId\)/);
+
+  // ...and that workspace is the phase's own. Requirements, Planning and Create Stories are pages
+  // about the Epic-planning phases — EpicPlanningPage is hard-wired to epic-plan, heading and
+  // 'locked until Requirements is approved' notice included — so routing 'discover-define' there
+  // opened Planning for a phase the Epic does not have.
+  const openStudio = source.slice(source.indexOf('function openStudio('), source.indexOf('function acceptPortfolioBootstrap('));
+  assert.match(openStudio, /phase && !phase\.startsWith\('epic-'\) \? 'phase' : 'business-planning'/);
+  assert.match(source, /page === 'phase' && \(data\.initiative && planningFocus\?\.phase/);
+  assert.match(source, /<PhaseWorkspace requestedPhaseId=\{planningFocus\.phase\}/);
 });
 
 test('an Epic that already exists is opened from the wizard, not started again', async () => {

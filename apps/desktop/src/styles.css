@@ -813,7 +813,15 @@ button.full { width: 100%; }
 .standalone-help { min-height: 100vh; background: #fff; }
 .help-back { position: fixed; top: 15px; right: 18px; z-index: 10; }
 
-.standalone-guide { min-height: 100vh; overflow: auto; background: #f5f7f5; }
+.standalone-guide {
+  width: 100vw;
+  height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: #f5f7f5;
+}
 .how-it-works { width: min(1440px, 100%); margin: 0 auto; padding: 74px clamp(24px, 5vw, 76px) 72px; color: #16221b; }
 .how-it-works-hero { min-height: 360px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(420px, .9fr); align-items: center; gap: clamp(44px, 7vw, 100px); border-bottom: 1px solid #d9e1db; padding: 28px 0 58px; }
 .how-it-works-hero h1 { max-width: 780px; margin: 15px 0 20px; color: #141b17; font-size: clamp(52px, 6vw, 86px); font-weight: 610; letter-spacing: -.06em; line-height: .94; }

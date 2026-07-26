@@ -107,6 +107,7 @@ test('How it works is a visual lifecycle and Documentation remains the searchabl
   assert.match(styles, /\.git-state-spine/);
   assert.match(styles, /\.reconcile-loop/);
   assert.match(styles, /\.guide-surface-comparison/);
+  assert.match(styles, /\.standalone-guide \{[\s\S]*height: 100vh;[\s\S]*overflow-y: auto;/);
 });
 
 test('Electron routes new workspace selections to configuration before Epic intake', () => {

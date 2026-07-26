@@ -1,0 +1,3 @@
+interface:
+  display_name: "Sync Epic"
+  short_description: "Synchronize Epic repositories safely"

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Story checks"
+  short_description: "Record exact-SHA delivery evidence"

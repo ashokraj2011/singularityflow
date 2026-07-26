@@ -194,7 +194,8 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   decision,
   persona,
   target = null,
-  reason = null
+  reason = null,
+  channel = 'desktop-epic-review'
 } = {}) {
   if (!packetSha256) throw new SingularityFlowError('An exact Story review-packet hash is required.');
   if (!['approve', 'reject'].includes(decision)) throw new SingularityFlowError("Review decision must be 'approve' or 'reject'.");
@@ -223,13 +224,13 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   const outcome = decision === 'approve'
     ? await approvePhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
-      channel: 'desktop-epic-review'
+      channel
     })
     : await rejectPhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
       target: target ?? preview.phase,
       reason,
-      channel: 'desktop-epic-review'
+      channel
     });
   const publication = await commitAndPublish(
     selected.clone,

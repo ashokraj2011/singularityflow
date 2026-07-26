@@ -155,6 +155,16 @@ use the four-phase `epic-planning` profile:
 /sflow-epic-story-draft
 /sflow-epic-publish
 /sflow-epic-status
+/sflow-epic-next
+/sflow-epic-sync
+/sflow-epic-drift
+/sflow-epic-review
+/sflow-epic-review-decision
+/sflow-epic-merge-plan
+/sflow-story-checks
+/sflow-worldmodel
+/sflow-agents
+/sflow-telemetry
 ```
 
 Stories in the Epic's own repository are branched from the **Epic branch**, which

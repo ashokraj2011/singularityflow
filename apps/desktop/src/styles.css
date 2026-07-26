@@ -52,6 +52,38 @@ h1, h2, h3, p { text-wrap: pretty; }
 .desktop-crash > p:not(.eyebrow) { max-width: 620px; color: var(--muted); font-size: 15px; }
 .desktop-crash pre { max-height: 220px; overflow: auto; margin: 24px 0; border: 1px solid var(--line); border-radius: 12px; padding: 14px; color: var(--red-700); background: var(--red-100); font-size: 11px; white-space: pre-wrap; }
 
+.screensaver-stage { width: 100vw; height: 100vh; position: relative; overflow: hidden; color: #fff; background: #07100c; isolation: isolate; }
+.screensaver-stage::before { content: ''; position: absolute; inset: 0; z-index: 1; background: radial-gradient(circle at 50% 50%, transparent 42%, rgba(0,0,0,.58) 100%); pointer-events: none; }
+.screensaver-image { width: 100%; height: 100%; display: block; position: absolute; inset: 0; object-fit: cover; opacity: 0; transform: scale(1.012); transition: opacity .7s var(--ease-out), transform 10s linear; }
+.screensaver-image.active { opacity: 1; transform: scale(1.045); }
+.screensaver-preload { width: 1px; height: 1px; position: absolute; left: -100vw; opacity: 0; pointer-events: none; }
+.screensaver-shade { position: absolute; inset: 0; z-index: 2; background: linear-gradient(90deg, rgba(5,13,10,.72), rgba(5,13,10,.18) 47%, rgba(5,13,10,.62)); pointer-events: none; }
+.screensaver-top { min-height: 74px; position: absolute; z-index: 5; inset: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 26px; }
+.screensaver-top .flow-brand { border-bottom: 0; background: transparent; }
+.screensaver-controls { display: flex; align-items: center; gap: 7px; padding: 5px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; background: rgba(7,16,12,.34); box-shadow: 0 18px 60px rgba(0,0,0,.28); backdrop-filter: blur(18px); }
+.screensaver-controls button { min-width: 42px; height: 36px; border: 0; border-radius: 999px; padding: 0 13px; color: #f8fbf8; background: transparent; cursor: pointer; font-size: 12px; font-weight: 680; }
+.screensaver-controls button:hover { background: rgba(255,255,255,.14); }
+.screensaver-controls button:first-child, .screensaver-controls button:nth-child(3) { font-size: 22px; line-height: 1; }
+.screensaver-caption { width: min(720px, 42vw); position: absolute; z-index: 4; left: 5.6vw; bottom: 15vh; display: grid; gap: 10px; text-shadow: 0 12px 40px rgba(0,0,0,.65); }
+.screensaver-caption span { color: #f6c64a; font-size: 12px; font-weight: 780; letter-spacing: .16em; text-transform: uppercase; }
+.screensaver-caption h1 { margin: 0; color: #fff; font-family: var(--font-sans); font-size: 74px; font-weight: 790; letter-spacing: 0; line-height: .95; }
+.screensaver-caption p { max-width: 680px; margin: 0; color: rgba(255,255,255,.78); font-family: var(--font-editorial); font-size: 24px; line-height: 1.36; }
+.screensaver-filmstrip { width: min(760px, calc(100vw - 52px)); position: absolute; z-index: 5; right: 26px; bottom: 26px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.screensaver-filmstrip button { height: 68px; position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 0; background: rgba(255,255,255,.08); cursor: pointer; box-shadow: 0 16px 44px rgba(0,0,0,.3); transition: border-color .18s, transform .18s, opacity .18s; }
+.screensaver-filmstrip button:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.42); }
+.screensaver-filmstrip button.active { border-color: #f6c64a; opacity: 1; }
+.screensaver-filmstrip img { width: 100%; height: 100%; display: block; object-fit: cover; opacity: .72; }
+.screensaver-filmstrip button.active img { opacity: 1; }
+.screensaver-filmstrip span { position: absolute; right: 7px; bottom: 5px; color: #fff; font-size: 9px; font-weight: 760; text-shadow: 0 2px 12px #000; }
+.screensaver-stage:fullscreen .screensaver-top { padding-top: 22px; }
+.screensaver-stage:fullscreen .screensaver-filmstrip { bottom: 34px; }
+@media (max-width: 1240px) {
+  .screensaver-caption { width: 520px; }
+  .screensaver-caption h1 { font-size: 56px; }
+  .screensaver-caption p { font-size: 19px; }
+  .screensaver-filmstrip { width: 620px; }
+}
+
 .shell { min-height: 100vh; display: grid; grid-template-columns: 264px minmax(0, 1fr); background: #f4f6f2; }
 .sidebar { height: 100vh; display: flex; flex-direction: column; color: var(--ink); background: #fff; border-right: 1px solid var(--line); box-shadow: none; }
 .brand { min-height: 76px; display: flex; align-items: center; gap: 12px; padding: 0 22px; border-bottom: 1px solid var(--line); background: #fff; }

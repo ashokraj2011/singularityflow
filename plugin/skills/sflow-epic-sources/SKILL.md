@@ -5,6 +5,8 @@ description: List, upload, pin, materialize, and verify governed Epic source fil
 
 # Manage Epic sources
 
+For a short upload-first experience, use `/sflow-upload`. This skill remains the complete Epic-source lifecycle interface.
+
 1. Start with `singularity-flow epic sources list --epic <EPIC-KEY>`.
 2. For an upload, ask for the exact provider and local path, then run `singularity-flow epic sources add --epic <EPIC-KEY> --provider <ID> --file <PATH> --mime <TYPE>`.
 3. For an HTTPS reference, require a configured `https-reference` provider and run the same command with `--url` and `--label`.

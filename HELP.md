@@ -169,7 +169,7 @@ tools only from the other. Both are now the same sidebar:
 
 ```text
 Epic planning   Epics · Requirements · Planning · Create Stories ·
-                Copilot Studio · Artifact templates
+                Copilot CLI handoff · Artifact templates
 Delivery        Overview · Artifact studio · Impact analysis · Documents
 Decisions       Approval inbox · Review bundle
 Configuration   Workspace configuration · Portfolio designer · Workflow designer ·
@@ -438,7 +438,7 @@ it contains real content that does not hold up.
 
 ## Activity log
 
-Every command, hook decision, and Copilot Studio event is recorded to a
+Every command and hook decision is recorded to a
 machine-local log so a failure can be explained after the fact rather than
 reconstructed from memory.
 
@@ -488,11 +488,10 @@ raises only stderr. Both override `logging` in `singularity/workflow.yml`.
 | `command.start` / `command.ok` / `command.failed` | every CLI invocation with its arguments, branch, duration, exit code, and full stack on failure |
 | `hook.guard.allow` / `hook.guard.deny` | why Copilot was permitted or refused a tool, including which selection was missing |
 | `hook.session.initiative` | a governed initiative session, where no work-item selection applies |
-| `copilot.*` | every Copilot Studio ACP event — `ready`, `turn-started`, `turn-complete` with its stop reason, `tool_call`, `permission-denied`, `error`, `process-exit` |
+| `worldmodel.*` | repository world-model preparation, Copilot execution, validation, and publication progress |
 
-The `hook.guard.deny` and `copilot.*` entries exist because those failures used
-to be silent: a denied tool call and an empty planning turn both left the studio
-looking connected and idle with nothing to inspect.
+The hook and world-model entries make refusals and long-running grounding work
+visible without embedding a phase-planning session in Electron.
 
 ### Secrets
 
@@ -506,41 +505,30 @@ rather than serialized.
 Nothing is ever written to standard output. That stream carries the `--json`
 payloads the desktop parses, and log lines there would corrupt them.
 
-## Copilot Studio
+## Copilot CLI handoff
 
-Open **Copilot Studio** in the Electron app after selecting an active initiative or story. It is a governed front end for the locally installed GitHub Copilot CLI, connected through the Agent Client Protocol (ACP) and explicitly placed in Copilot's native Plan mode.
+Electron does not start a Copilot backend or embed a planning conversation.
+It is the durable configuration, document, progress, review, and approval
+surface. Requirements, Planning, and phase screens show:
 
-Copilot Studio serves **every phase**, not only Plan — it is where each phase's
-artifact is composed before it is governed. It was previously called Planning
-Copilot, which suggested it belonged to the Plan phase alone.
+- the exact repository directory;
+- the primary phase-aware `/sflow-*` command;
+- its shell equivalent;
+- `/sflow-upload` for adding governed evidence; and
+- `/sflow-nextsteps` for deterministic recovery and sequencing.
 
-Reaching it from a phase screen (**Compose in Copilot Studio** on Requirements,
-Planning, or Create Stories) pre-frames the phase and its first output, so the
-artifact is composed against the phase you came from. Opening it from the sidebar
-leaves the frame on the current phase instead. Always confirm the **Promotion
-target** before starting: the composed artifact is written to exactly that path,
-so a Story plan framed on Intake would be promoted into the source catalog.
+Copy the command, open the normal authenticated Copilot CLI in that repository,
+and run it there. The skill composes the configured persona, phase contract,
+repository world model, approved inputs, pinned sources, remote skills, and
+artifact template. Copilot questions and follow-up discussion stay in that CLI
+session. Successful generation and lifecycle actions commit and push through
+the existing Singularity Flow guarantees. Refresh Electron to inspect the
+result, run governance checks, and approve it.
 
-Use the **Copilot** control in the desktop top bar to start or stop the repository-scoped ACP backend and inspect its state, process ID, version, mode, active planning attachment, and transient local service log. Planning turns reuse the running backend. Releasing or promoting a planning context leaves it ready; stopping it cancels an active turn. **Start Copilot Plan mode** starts it automatically when needed.
-
-Start, Stop, and planning attachment are serialized so repeated clicks cannot create multiple backends or revive a process after Stop. Empty and overlapping follow-ups fail visibly. Releasing a context requires the active turn to finish or cancel successfully. If shutdown reports an error, use **Retry stop**; cleanup continues through pending questions, ACP session, connection, and child process even when one step fails.
-
-Choose the current phase output, a persona, and the decision objective. **Build governed context** deterministically composes the phase contract, persona prompt, repository world model, active remote-agent skills, approved inputs, source requirement, current draft, and exact promotion target. It records source and prompt hashes in a private pack below `.git/singularity-flow/planning/` without changing Git state. Inspect the complete prompt before selecting **Start Copilot Plan mode**.
-
-Use follow-up turns to compare alternatives, expose assumptions, refine acceptance criteria, create cross-repository story boundaries, define interface contracts, or improve delivery sequencing. The planning lens changes for discovery, design, product gate, inception, elaboration/specification, construction, and delivery/conformance work while the profile's configured phase contract remains authoritative.
-
-Copilot conversation remains transient. Review and edit the complete proposed artifact in the adjacent panel. **Promote, commit & push** rechecks the branch HEAD, current phase, immutable target, input readiness, and target format; it then preserves managed metadata, stores the exact prompt/artifact/manifest audit bundle, and publishes one planning commit. It does not submit, approve, materialize stories, merge, or advance the phase.
-
-Configure it in `singularity/workflow.yml`:
-
-```yaml
-planning:
-  enabled: true
-  promptSource: singularity/prompts/copilot-planning.md
-  maxContextBytes: 1048576
-```
-
-The prompt is editable in **Prompts & skills**. The context limit may be 16 KiB through 10 MiB. Tool permission requests are rejected, renderer sandboxing remains enabled, and a plan file is read only when it remains inside the open repository. ACP model/token usage is displayed only when Copilot supplies exact values. See `COPILOT-STUDIO.md` for the complete architecture and walkthrough.
+Repository world-model generation is the only desktop Copilot operation. It is
+kept in Electron because it is repository-wide, can take several minutes, and
+benefits from a visible prompt, progress log, generation timestamp, commit, and
+push result.
 
 Singularity Desktop’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
 
@@ -548,7 +536,7 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 - **Artifact Studio** shows the phase sequence, generation and approval state, governed outputs, and the shared artifact repository.
 - **Requirements** shows a repository document tree, full Markdown preview, Git metadata, and section outline; uploaded design packages and reference links remain attached to the selected work item.
-- **Copilot Studio** builds a governed, hash-recorded context pack and invokes local GitHub Copilot in Plan mode before a reviewed artifact can be promoted.
+- **Copilot CLI handoff** shows exact `/sflow-*` commands while the normal Copilot CLI performs persona-aware authoring and asks questions.
 - **Impact analysis** visualizes repositories and child stories, then reports committed context freshness and interface-contract integrity without inventing unobserved dependencies.
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
@@ -573,9 +561,8 @@ In the desktop:
 7. Type the exact workspace ID to create the isolated workspace.
 
 Each selected repository is cloned separately below `repos/`. Fetch operations
-skip dirty clones and never change a branch. Switching workspace stops the
-previous Copilot backend and discards private planning handles before the new
-lead repository becomes active.
+skip dirty clones and never change a branch. Switching workspace updates the
+lead repository used by the displayed Copilot CLI handoff commands.
 
 If setup is interrupted, repeat creation with the same workspace ID and unchanged
 repository plan or select **Repair**. Missing clones resume and every attempt is
@@ -1404,7 +1391,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session persona |
 | `/sflow-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sflow-help` | Load this manual or explain the selected work-item workflow |
-| `/sflow-logs` | Read the activity log to explain what a command, hook, or Copilot Studio turn actually did; works while a session is gated |
+| `/sflow-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
 | `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sflow-next` | Execute exactly one next valid lifecycle action |
 | `/sflow-inputs` | Preview or render approved upstream artifact inputs |
@@ -1419,6 +1406,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-status` | Show detailed work-item state and warnings |
 | `/sflow-progress` | Show deterministic phase completion |
 | `/sflow-report` | Show timing, waiting, rework, token, and bottleneck metrics |
+| `/sflow-upload` | Upload files, folders, notes, images, Figma exports, or HTTPS references to the active Epic or Story |
 | `/sflow-documents` | List, view, and upload supporting documents |
 | `/sflow-review` | Review current artifacts and evidence |
 | `/sflow-release` | Prepare final release/conformance activities |

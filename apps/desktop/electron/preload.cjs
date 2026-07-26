@@ -66,25 +66,6 @@ contextBridge.exposeInMainWorld('singularity', {
   bootstrapPortfolio: (repository, configuration) => ipcRenderer.invoke('configuration:bootstrap-portfolio', { repository, configuration }),
   bootstrapWorkspacePortfolio: (repository, workspace) => ipcRenderer.invoke('configuration:bootstrap-workspace-portfolio', { repository, workspace }),
   selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
-  planningPreflight: (repository) => ipcRenderer.invoke('planning:preflight', { repository }),
-  copilotServiceStatus: (repository) => ipcRenderer.invoke('copilot-service:status', { repository }),
-  startCopilotService: (repository, model = null) => ipcRenderer.invoke('copilot-service:start', { repository, model }),
-  setCopilotServiceModel: (repository, model) => ipcRenderer.invoke('copilot-service:model', { repository, model }),
-  setCopilotServiceMode: (repository, modeId) => ipcRenderer.invoke('copilot-service:mode', { repository, modeId }),
-  answerCopilotPermission: (repository, requestId, allow) => ipcRenderer.invoke('copilot-service:permission', { repository, requestId, allow }),
-  stopCopilotService: (repository) => ipcRenderer.invoke('copilot-service:stop', { repository }),
-  copilotServiceLogs: (repository) => ipcRenderer.invoke('copilot-service:logs', { repository }),
-  buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),
-  listPlanningSessions: (repository) => ipcRenderer.invoke('planning:sessions', { repository }),
-  resumePlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:resume', { repository, planningSessionId }),
-  startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
-  promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
-  answerPlanningQuestion: (repository, planningSessionId, questionId, content, action = 'accept') => ipcRenderer.invoke('planning:answer', { repository, planningSessionId, questionId, content, action }),
-  interruptPlanningTurn: (repository, planningSessionId) =>
-    ipcRenderer.invoke('planning:interrupt', { repository, planningSessionId }),
-  stopPlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:stop', { repository, planningSessionId }),
-  promotePlanningArtifact: (repository, planningSessionId, persona, content) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, content }),
-  promotePlanningArtifacts: (repository, planningSessionId, persona, artifacts) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, artifacts }),
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
@@ -158,16 +139,6 @@ contextBridge.exposeInMainWorld('singularity', {
   createJiraWritePlan: (repository, initiativeId, artifacts = []) => ipcRenderer.invoke('jira:write-plan', { repository, initiativeId, artifacts }),
   applyJiraWritePlan: (repository, initiativeId, planSha256, confirmation) => ipcRenderer.invoke('jira:apply', { repository, initiativeId, planSha256, confirmation }),
   openJira: (repository, url) => ipcRenderer.invoke('jira:open', { repository, url }),
-  onPlanningEvent: (listener) => {
-    const handler = (_event, payload) => listener(payload);
-    ipcRenderer.on('planning:event', handler);
-    return () => ipcRenderer.removeListener('planning:event', handler);
-  },
-  onCopilotServiceEvent: (listener) => {
-    const handler = (_event, payload) => listener(payload);
-    ipcRenderer.on('copilot-service:event', handler);
-    return () => ipcRenderer.removeListener('copilot-service:event', handler);
-  },
   uploadDocuments: (repository) => ipcRenderer.invoke('documents:upload', { repository }),
   uploadDocumentDirectory: (repository) => ipcRenderer.invoke('documents:upload-directory', { repository }),
   addDocumentUrl: (repository, url, label) => ipcRenderer.invoke('documents:add-url', { repository, url, label }),

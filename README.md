@@ -21,9 +21,9 @@ The package contains:
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
-- A phase-aware Copilot Studio that runs the local GitHub Copilot CLI through ACP in native Plan mode, surfaces Copilot questions as answerable forms, keeps collapsible IDE-style logs, and promotes only a human-reviewed artifact into Git.
+- A clean Copilot CLI handoff: Electron shows the exact phase-aware `/sflow-*` command, while authoring and questions stay in the user’s normal Copilot session.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
-- A structured activity log (`error` through `trace`) covering every command, hook decision, and Copilot Studio event, written machine-local under `.git/` with secrets redacted and never to standard output.
+- A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
 ## Requirements
 
@@ -68,15 +68,22 @@ These files are ordinary reviewed repository files and remain fully editable.
 
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
-The Electron **Copilot Studio** is a governed client for GitHub Copilot CLI's native Plan mode. It combines the selected phase contract, persona, repository world model, approved inputs, remote skills, requirements, and current draft into a hashed local context pack. Copilot can ask structured questions directly in the app and explore alternatives through persistent follow-up turns; only the artifact explicitly reviewed in the right-hand panel can be promoted, committed, and pushed. See [COPILOT-STUDIO.md](COPILOT-STUDIO.md).
+The Electron app does not start or embed a Copilot planning session. Requirements
+and Planning show the exact `/sflow-*` command to run from the open repository,
+with one-click copy controls. The installed skill composes the selected phase,
+persona, repository world model, approved inputs, remote skills, requirements,
+and templates inside the user’s normal Copilot CLI session. Refresh the desktop
+after the skill commits and pushes its result. Repository world-model generation
+is the one deliberate exception: Electron can invoke that long-running operation
+and displays its prompt, progress, and result.
 
 The Electron **Workspace configuration** view creates a disposable local
 directory containing one isolated clone per participating repository, a clearly
 ungoverned document inbox, and local caches. Each repository records its Jira
 board or project key, App ID, display name, and optional metadata. Exactly one
 repository is the lead: it is opened as the home for Epic-level artifacts.
-Switching workspaces stops the prior Copilot backend before activating the new
-lead repository. Workspace setup does not require Jira or portfolio governance.
+Switching workspaces changes the lead repository used by the displayed
+`/sflow-*` commands. Workspace setup does not require Jira or portfolio governance.
 See [WORKSPACES.md](WORKSPACES.md).
 
 Interrupted workspace creation is resumable: selecting the same workspace ID and
@@ -152,12 +159,12 @@ branch is never created where one does not already exist. See
 
 The Electron app presents **one navigation for every role**. An `Epic planning`
 section carries the journey — `Epics`, `Requirements`, `Planning`,
-`Create Stories`, `Copilot Studio`, and `Artifact templates` — alongside
+`Create Stories`, `Copilot CLI handoff`, and `Artifact templates` — alongside
 `Delivery`, `Decisions`, `Configuration`, and `Learn` in the same collapsible
 sidebar (⌘/Ctrl+B). The role chosen during onboarding suggests an initial
 planning persona; it does not route to a different shell, and there is no
-experience to switch between. The active workspace and the Copilot service
-control sit together in the top bar, visible from every page.
+experience to switch between. The active workspace remains visible in the top
+bar, while each phase page shows the exact command for the normal Copilot CLI.
 
 Planning combines Story decomposition and the high-level specification without
 hiding either governed phase. Generated Stories and their `REQ-nnn`/`AC-nnn`
@@ -726,7 +733,7 @@ First trust and updates require exact agent-name confirmation. `singularity/agen
 | `singularity-flow wm build [--local]` | Build the repository world model; `--local` commits it to the current branch without pushing. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
-| `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: every command, hook decision, and Copilot Studio event, with secrets redacted. |
+| `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |
 | `singularity-flow logs path\|level` | Show the log file location, or the effective file and console levels. |
 | `singularity-flow migrate-config` | Convert legacy JSON configuration and work-item state without rewriting history. |
 
@@ -804,9 +811,13 @@ Open an initialized repository from the app. The studio keeps up to ten recently
 
 The daily workspace uses the **Singularity** product identity throughout. **Artifact Studio** visualizes the complete phase sequence, generation state, approvals, governed deliverables, and shared artifact repository. **Requirements** provides a three-pane repository tree, full document preview, Git metadata, and Markdown outline. **Impact analysis** renders the current repository/initiative dependency topology and derives risk signals from committed story freshness and interface-contract integrity. These screens are projections of the same Git state; they do not create a parallel state store.
 
-**Copilot Studio** adds an intentional reasoning workspace above those deterministic controls. It exposes every profile phase for orientation, allows planning only on the active in-progress phase, and adapts the prompt to discovery, design, inception, elaboration, construction, delivery, or story-level work. It invokes the locally authenticated `copilot` executable through ACP, explicitly switches the ACP session to native Plan mode, streams conversation and structured plan updates, renders ACP clarification forms inline, and rejects permission requests. A collapsed IDE-style console retains tool, status, and diagnostic events. Story-plan output receives a dedicated Epic/Story Work ID analysis before promotion. The context manifest stays private under `.git/singularity-flow/planning/`; a promoted artifact copies its exact context and provenance into the work item or initiative before one commit/push. Promotion never submits, approves, materializes stories, or merges a branch.
-
-The desktop top bar includes a **Copilot backend** control. Start it once to keep one repository-scoped ACP process ready across multiple planning turns, inspect its process/version/mode and local event log, or stop it explicitly. Releasing or promoting a planning context leaves the backend ready; stopping the backend cancels any active turn. Starting a planning turn also starts the backend automatically when needed. Lifecycle operations are serialized: concurrent starts share one initialization, Stop cannot be undone by a late startup completion, overlapping prompts are rejected, and failed shutdowns remain recoverable through **Retry stop**.
+Electron is the durable configuration, evidence, progress, review, and approval
+surface. It does not run a Copilot ACP backend or retain a hidden planning
+conversation. Requirements, Planning, and other phase pages display the
+repository path, primary `/sflow-*` skill, shell equivalent, upload command,
+and next-step command. Questions, persona-aware authoring, and model interaction
+therefore happen in the already authenticated Copilot CLI. The resulting Git
+artifacts appear in Electron after refresh.
 
 Install the personal Copilot plugin with:
 
@@ -834,6 +845,7 @@ The plugin package remains named `singularity-flow`, while every public skill ha
 /sflow-next
 /sflow-report
 /sflow-help
+/sflow-upload ./requirements.pdf --epic MOB-100
 /sflow-documents list
 /sflow-status
 /sflow-submit

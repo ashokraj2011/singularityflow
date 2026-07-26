@@ -18,6 +18,16 @@ test('plugin manifest publishes collision-safe skills, a workflow agent, and the
   assert.equal(manifest.hooks, 'hooks.json');
 });
 
+test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-upload/);
+  assert.match(content, /epic sources add --epic/);
+  assert.match(content, /documents upload/);
+  assert.match(content, /files, folders, images, PDFs, Figma exports/);
+  assert.match(content, /stable source\/document ID/);
+  assert.match(content, /commit, and push result/);
+});
+
 test('plugin hooks initialize a session persona and guard mutating tools', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));

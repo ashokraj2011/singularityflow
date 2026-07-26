@@ -973,7 +973,7 @@ function DesignerModal({ title, detail, children, submitLabel, danger = false, s
   </form></div>;
 }
 
-function ArtifactStudio({ data, openWorkspace, openDocument }) {
+function ArtifactStudio({ data, openWorkspace, downloadFile }) {
   const storyPhases = data.progress?.phases ?? [];
   const initiativePhases = data.initiative?.progress?.phases ?? [];
   const phases = storyPhases.length ? storyPhases : initiativePhases;
@@ -990,6 +990,11 @@ function ArtifactStudio({ data, openWorkspace, openDocument }) {
   const phaseDocuments = documents.filter((document) => document.phase === selected?.id);
   const completion = data.progress?.percentage ?? data.initiative?.progress?.percentage ?? 0;
   const title = data.workflow?.workItem.title ?? data.initiative?.state.initiative.title ?? 'Governed delivery workspace';
+  const { openArtifact, artifactViewer } = useArtifactViewer({
+    repository: data.repository.root,
+    workId: data.workflow ? data.selectedWorkId : null,
+    downloadFile
+  });
   return <div className="page artifact-studio-page">
     <header className="page-heading row-between"><div><span className="eyebrow">Artifact lifecycle</span><h1>Artifact Studio</h1><p>Follow each governed phase from repository context to approved, Git-backed output.</p></div><div className="studio-heading-actions"><Pill tone="accent">{completion}% complete</Pill><button className="primary" onClick={openWorkspace}>Open requirement workspace</button></div></header>
     {!phases.length ? <Empty title="No active delivery selected" detail="Choose a story work item or initiative to see its artifact lifecycle." /> : <>
@@ -1005,7 +1010,7 @@ function ArtifactStudio({ data, openWorkspace, openDocument }) {
             <div><span>Approval</span><strong>{selected?.approvals != null ? `${selected.approvals}/${selected.approvalsRequired}` : selected?.status === 'approved' ? 'Complete' : 'Pending'}</strong><small>exact content hash</small></div>
             <div><span>Outputs</span><strong>{phaseDocuments.length || selected?.outputs || 0}</strong><small>registered documents</small></div>
           </div>
-          <div className="phase-deliverables"><strong>Governed deliverables</strong>{phaseDocuments.length ? phaseDocuments.map((document) => <button key={document.id} onClick={() => openDocument(document)}><span className="studio-file-icon">{document.kind === 'artifact' ? 'MD' : 'DOC'}</span><span><b>{document.label}</b><small>{document.path}</small></span><em>Open</em></button>) : <div className="inline-empty">No phase document has been published yet.</div>}</div>
+          <div className="phase-deliverables"><strong>Governed deliverables</strong>{phaseDocuments.length ? phaseDocuments.map((document) => <button key={document.id} onClick={() => openArtifact(document)}><span className="studio-file-icon">{kindTag(document.path ?? document.kind)}</span><span><b>{document.label}</b><small>{document.path}</small></span><em>Open</em></button>) : <div className="inline-empty">No phase document has been published yet.</div>}</div>
         </section>
         <section className="panel studio-assistant">
           <header className="panel-heading"><div><span className="eyebrow">Singularity intelligence</span><h2>What happens next</h2></div><span className="ai-orb">✦</span></header>
@@ -1016,8 +1021,9 @@ function ArtifactStudio({ data, openWorkspace, openDocument }) {
       <section className="panel artifact-repository">
         <header className="panel-heading"><div><span className="eyebrow">Shared repository</span><h2>Governed artifacts</h2></div><span>{documents.length} registered</span></header>
         <div className="artifact-repository-head"><span>Name</span><span>Phase</span><span>Status</span><span>Repository path</span><span /></div>
-        {documents.length ? documents.map((document) => <div className="artifact-repository-row" key={document.id}><div><span className="studio-file-icon">{document.kind === 'artifact' ? 'MD' : document.kind === 'url' ? 'URL' : 'DOC'}</span><strong>{document.label}</strong></div><span>{document.phase ?? 'system'}</span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status ?? document.kind}</Pill><code>{document.path ?? document.url}</code><button className="ghost compact" onClick={() => openDocument(document)}>Open</button></div>) : <div className="inline-empty">Generated and uploaded artifacts will appear here with their repository provenance.</div>}
+        {documents.length ? documents.map((document) => <div className="artifact-repository-row" key={document.id}><div><span className="studio-file-icon">{document.kind === 'url' ? 'URL' : kindTag(document.path ?? document.kind)}</span><strong>{document.label}</strong></div><span>{document.phase ?? 'system'}</span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status ?? document.kind}</Pill><code>{document.path ?? document.url}</code><button className="ghost compact" onClick={() => openArtifact(document)}>Open</button></div>) : <div className="inline-empty">Generated and uploaded artifacts will appear here with their repository provenance.</div>}
       </section>
+      {artifactViewer}
     </>}
   </div>;
 }
@@ -1814,7 +1820,121 @@ function approvalDisplayName(approval) {
   return approval.actorName ?? approval.actorEmail ?? approval.actor ?? 'Unknown approver';
 }
 
-function EpicBusinessOverview({ data }) {
+function artifactPath(document) {
+  return document?.repositoryPath ?? document?.path ?? null;
+}
+
+function artifactFormat(document) {
+  const file = String(artifactPath(document) ?? document?.label ?? '').toLowerCase();
+  const kind = String(document?.kind ?? '').toLowerCase();
+  if (kind === 'json' || file.endsWith('.json') || file.endsWith('.jsonl')) return 'json';
+  if (kind === 'yaml' || file.endsWith('.yml') || file.endsWith('.yaml')) return 'yaml';
+  if (kind === 'markdown' || kind === 'interface-contract' || file.endsWith('.md') || file.endsWith('.markdown')) return 'markdown';
+  if (kind === 'text' || file.endsWith('.txt')) return 'text';
+  if (document?.mimeType?.startsWith('image/')) return 'image';
+  if (document?.mimeType === 'application/pdf') return 'pdf';
+  return kind || 'document';
+}
+
+function prettyArtifactContent(document, content) {
+  if (content == null) return null;
+  if (artifactFormat(document) !== 'json') return String(content);
+  try { return JSON.stringify(JSON.parse(content), null, 2); }
+  catch { return String(content); }
+}
+
+function JsonArtifactNode({ name = null, value, depth = 0 }) {
+  const compound = value !== null && typeof value === 'object';
+  if (!compound) return <div className="json-artifact-leaf"><span>{name}</span><code className={value === null ? 'null' : typeof value}>{value === null ? 'null' : typeof value === 'string' ? `"${value}"` : String(value)}</code></div>;
+  const entries = Object.entries(value);
+  const label = Array.isArray(value) ? `${entries.length} item${entries.length === 1 ? '' : 's'}` : `${entries.length} field${entries.length === 1 ? '' : 's'}`;
+  return <details className="json-artifact-node" open={depth < 2}>
+    <summary>{name != null && <strong>{name}</strong>}<span>{Array.isArray(value) ? 'Array' : 'Object'} · {label}</span></summary>
+    <div>{entries.map(([key, child]) => <JsonArtifactNode key={key} name={Array.isArray(value) ? `[${key}]` : key} value={child} depth={depth + 1} />)}</div>
+  </details>;
+}
+
+function ArtifactPreviewDialog({ viewer, onClose, onDownload }) {
+  const [mode, setMode] = useState('preview');
+  useEffect(() => { setMode('preview'); }, [viewer?.document?.id, viewer?.document?.repositoryPath, viewer?.document?.path]);
+  useEffect(() => {
+    if (!viewer) return undefined;
+    const close = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [viewer, onClose]);
+  if (!viewer) return null;
+  const document = viewer.document;
+  const format = artifactFormat(document);
+  const content = prettyArtifactContent(document, viewer.content);
+  let parsedJson = null;
+  if (format === 'json' && content != null) {
+    try { parsedJson = JSON.parse(content); } catch { /* Invalid JSON remains inspectable as source. */ }
+  }
+  const generated = document.status !== 'not_generated' && Boolean(document.sha256 || content != null || artifactPath(document));
+  const headings = format === 'markdown'
+    ? String(content ?? '').split('\n').filter((line) => /^#{1,3}\s+/.test(line)).map((line) => ({ depth: line.match(/^#+/)[0].length, label: line.replace(/^#+\s+/, '') })).slice(0, 18)
+    : [];
+  return <div className="modal-backdrop artifact-reader-backdrop" role="dialog" aria-modal="true" aria-label={`${document.label} artifact preview`} onClick={onClose}>
+    <section className="artifact-reader" onClick={(event) => event.stopPropagation()}>
+      <header className="artifact-reader-header">
+        <div className="artifact-reader-identity"><span className={`artifact-reader-icon ${format}`}>{kindTag(document.path ?? document.kind)}</span><div><span className="eyebrow">{document.phase ?? 'Governed artifact'} · generation {document.generation ?? 0}</span><h2>{document.label}</h2><code>{artifactPath(document) ?? document.id}</code></div></div>
+        <div className="row"><Pill tone={document.status === 'approved' ? 'good' : document.status === 'published' ? 'accent' : generated ? 'warn' : 'neutral'}>{businessStatusLabel(document.status ?? (generated ? 'generated' : 'not_generated'))}</Pill><button className="ghost compact" onClick={onClose}>Close</button></div>
+      </header>
+      <div className="artifact-reader-facts">
+        <span><small>Format</small><strong>{format.toUpperCase()}</strong></span>
+        <span><small>Version</small><strong>Generation {document.generation ?? 0}</strong></span>
+        <span><small>Integrity</small><strong>{document.sha256 ? 'Hash recorded ✓' : 'Hash pending'}</strong></span>
+        <span><small>SHA-256</small><code>{document.sha256?.slice(0, 16) ?? 'not generated'}</code></span>
+        <span><small>Size</small><strong>{document.bytes || document.size ? formatBytes(document.bytes ?? document.size) : '—'}</strong></span>
+      </div>
+      <div className="artifact-reader-toolbar">
+        <div className="artifact-reader-tabs"><button className={mode === 'preview' ? 'active' : ''} onClick={() => setMode('preview')}>{format === 'json' ? 'Structured view' : 'Readable view'}</button>{content != null && <button className={mode === 'source' ? 'active' : ''} onClick={() => setMode('source')}>Source</button>}</div>
+        <div className="row">{content != null && <button className="ghost compact" onClick={() => copyText(content)}>Copy content</button>}{artifactPath(document) && <button className="secondary compact" onClick={() => onDownload(artifactPath(document))}>Download</button>}</div>
+      </div>
+      <div className={`artifact-reader-layout ${headings.length ? 'with-outline' : ''}`}>
+        {headings.length > 0 && <aside className="artifact-reader-outline"><span className="eyebrow">On this page</span>{headings.map((heading, index) => <span style={{ paddingLeft: `${(heading.depth - 1) * 12}px` }} key={`${heading.label}:${index}`}>{heading.label}</span>)}</aside>}
+        <main className="artifact-reader-content">
+          {viewer.loading ? <div className="artifact-reader-empty"><span className="artifact-reader-spinner" /><h3>Loading governed artifact…</h3><p>Reading the committed file and verifying its catalog reference.</p></div>
+            : viewer.error ? <div className="artifact-reader-empty error"><span>!</span><h3>Artifact could not be opened</h3><p>{viewer.error}</p></div>
+              : !generated ? <div className="artifact-reader-empty"><span>○</span><h3>Not generated yet</h3><p>This configured output will become readable here after its phase publishes a generation.</p></div>
+                : viewer.dataUrl?.startsWith('data:application/pdf') ? <iframe title={document.label} src={viewer.dataUrl} />
+                  : viewer.dataUrl?.startsWith('data:image/') ? <img alt={document.label} src={viewer.dataUrl} />
+                    : content == null ? <div className="artifact-reader-empty"><span>{kindTag(document.path ?? document.kind)}</span><h3>No safe inline preview</h3><p>Download this governed artifact and open it with its native application.</p></div>
+                      : mode === 'source' ? <pre className={`artifact-source ${format}`}><code>{content}</code></pre>
+                        : format === 'json' && parsedJson != null ? <div className="json-artifact-preview"><JsonArtifactNode value={parsedJson} /></div>
+                          : format === 'markdown' ? <TemplatePreview className="artifact-markdown-preview" content={content} />
+                            : <pre className={`artifact-source ${format}`}><code>{content}</code></pre>}
+        </main>
+      </div>
+    </section>
+  </div>;
+}
+
+function useArtifactViewer({ repository, workId = null, downloadFile }) {
+  const [viewer, setViewer] = useState(null);
+  const closeArtifact = useCallback(() => setViewer(null), []);
+  const openArtifact = useCallback(async (document) => {
+    if (!document) return;
+    if (document.content != null || !workId || !document.id) {
+      setViewer({ document, content: document.content ?? null, loading: false });
+      return;
+    }
+    setViewer({ document, content: null, loading: true });
+    try {
+      const result = await window.singularity.previewDocument(repository, workId, document.id);
+      setViewer({ document: { ...document, ...(result.record ?? {}) }, ...result, loading: false });
+    } catch (error) {
+      setViewer({ document, content: null, loading: false, error: error?.message ?? String(error) });
+    }
+  }, [repository, workId]);
+  return {
+    openArtifact,
+    artifactViewer: <ArtifactPreviewDialog viewer={viewer} onClose={closeArtifact} onDownload={downloadFile} />
+  };
+}
+
+function EpicBusinessOverview({ data, downloadFile }) {
   const selected = data.initiative;
   const state = selected.state;
   const report = selected.report ?? {};
@@ -1835,6 +1955,7 @@ function EpicBusinessOverview({ data }) {
   const selfApprovals = report.approvals?.selfApprovals?.length ?? 0;
   const phaseCount = phases.length || state.phaseOrder.length;
   const approvedPhases = phases.filter((phase) => phase.status === 'approved').length;
+  const { openArtifact, artifactViewer } = useArtifactViewer({ repository: data.repository.root, downloadFile });
   return <div className="page dashboard-page epic-business-page">
     <section className="epic-command-hero">
       <div className="epic-command-copy">
@@ -1888,10 +2009,10 @@ function EpicBusinessOverview({ data }) {
       <section className="panel business-documents">
         <header className="panel-heading"><div><span className="eyebrow">Documents</span><h2>Generated artifacts in one place</h2></div><Pill tone={generatedDocuments.length ? 'good' : 'neutral'}>{generatedDocuments.length} generated</Pill></header>
         <div className="business-document-list">
-          {documents.map((document) => <article className={document.status === 'not_generated' ? 'pending' : ''} key={`${document.phase}:${document.id}`}>
+          {documents.map((document) => <article className={document.status === 'not_generated' ? 'pending' : ''} key={`${document.phase}:${document.id}`} onClick={() => openArtifact(document)}>
             <header><div><span>{document.phase}</span><h3>{document.label}</h3></div><Pill tone={document.status === 'approved' ? 'good' : document.status === 'published' ? 'accent' : document.status === 'not_generated' ? 'neutral' : 'warn'}>{businessStatusLabel(document.status)}</Pill></header>
             <p>{documentExcerpt(document.content, document.status === 'not_generated' ? 'Not generated yet. The configured artifact will appear here after the CLI phase publishes it.' : 'Generated file exists, but inline preview is not available for this format.')}</p>
-            <footer><code>{document.repositoryPath ?? document.path ?? 'not written yet'}</code><span>{document.sha256 ? `sha ${document.sha256.slice(0, 12)}` : 'hash pending'}</span></footer>
+            <footer><code>{document.repositoryPath ?? document.path ?? 'not written yet'}</code><span>{document.sha256 ? `sha ${document.sha256.slice(0, 12)}` : 'hash pending'}</span><button className="artifact-card-open" type="button">Open artifact →</button></footer>
           </article>)}
           {!documents.length && <div className="inline-empty">No configured Epic documents were found for this workspace.</div>}
         </div>
@@ -1904,11 +2025,30 @@ function EpicBusinessOverview({ data }) {
         </div>
       </section>
     </div>
+    {artifactViewer}
   </div>;
 }
 
-function Dashboard({ data }) {
-  if (data.initiative) return <EpicBusinessOverview data={data} />;
+function StoryArtifactOverview({ data, downloadFile }) {
+  const documents = (data.documents ?? []).filter((document) => ['artifact', 'package'].includes(document.type));
+  const { openArtifact, artifactViewer } = useArtifactViewer({
+    repository: data.repository.root,
+    workId: data.selectedWorkId,
+    downloadFile
+  });
+  return <section className="panel overview-artifacts">
+    <header className="panel-heading"><div><span className="eyebrow">Generated outputs</span><h2>Artifacts ready to inspect</h2><p>Open Markdown, JSON, YAML, images, and PDFs without leaving the workflow overview.</p></div><Pill tone={documents.length ? 'good' : 'neutral'}>{documents.length} generated</Pill></header>
+    {documents.length ? <div className="overview-artifact-grid">{documents.map((document) => <button type="button" className="overview-artifact-card" key={document.id} onClick={() => openArtifact(document)}>
+      <span className="artifact-reader-icon">{kindTag(document.path ?? document.kind)}</span>
+      <span><small>{document.phase ?? 'workflow'} · generation {document.generation ?? 0}</small><strong>{document.label}</strong><code>{document.path}</code></span>
+      <span className="overview-artifact-state"><Pill tone={document.status === 'approved' ? 'good' : 'accent'}>{businessStatusLabel(document.status ?? 'generated')}</Pill><em>Open →</em></span>
+    </button>)}</div> : <div className="inline-empty">No generated artifacts are committed for this Story yet. Refresh after the next CLI publication.</div>}
+    {artifactViewer}
+  </section>;
+}
+
+function Dashboard({ data, downloadFile }) {
+  if (data.initiative) return <EpicBusinessOverview data={data} downloadFile={downloadFile} />;
   const p = data.progress;
   if (!data.workflow) return <Empty title="No work item selected" detail="Choose a work item above to see progress, approvals, usage, and supporting evidence." />;
   const current = data.workflow.phases[data.workflow.currentPhase];
@@ -1932,6 +2072,7 @@ function Dashboard({ data }) {
     <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Lifecycle</span><h2>Phase progress</h2></div></header><div className="phase-list">
       {p.phases.map((phase) => { const timing = data.report?.phases.find((item) => item.id === phase.id); return <div className={`phase-row ${phase.id === p.currentPhase ? 'active' : ''}`} key={phase.id}><StatusDot status={phase.status} /><div className="phase-copy"><strong>{phase.label}</strong><span>{phase.id}</span></div><Pill>{phase.generation ? `Generation ${phase.generation}` : 'Not generated'}</Pill><span className="approval-count">{phase.approvals}/{phase.approvalsRequired} approvals</span><span className="phase-time">{formatDuration(timing?.elapsedMs)}</span><span className="phase-status">{phase.status.replaceAll('_', ' ')}</span></div>; })}
     </div></section>
+    <StoryArtifactOverview data={data} downloadFile={downloadFile} />
     {simulation && <section className="panel contract-preview"><header className="panel-heading"><div><span className="eyebrow">Resolved preflight</span><h2>Workflow contract preview</h2></div><Pill>{simulation.inputsMode} inputs</Pill></header><div className="contract-grid">{simulation.phases.map((phase) => <div key={phase.id}><strong>{phase.label}</strong><code>{phase.template}</code><span>{phase.inputs.length ? `← ${phase.inputs.join(', ')}` : 'No phase inputs'} · {phase.minimumApprovals} approval(s)</span></div>)}</div></section>}
   </div>;
 }
@@ -2671,7 +2812,8 @@ function EpicSourcesView({ data, selected, action, reload }) {
 
 function EpicArtifactView({ selected, phases, title, detail, openPlanning, downloadFile }) {
   const documents = selected.documents.filter((document) => phases.includes(document.phase));
-  return <div className="epic-workspace-view"><section className="panel epic-artifact-hero"><div><span className="eyebrow">Governed artifact workspace</span><h2>{title}</h2><p>{detail}</p></div>{openPlanning && <button className="primary" onClick={() => openPlanning(phases[0])}>Show Copilot CLI command</button>}</section><section className="panel initiative-documents expanded"><header className="panel-heading"><div><span className="eyebrow">Hash-bound outputs</span><h2>{documents.length} documents</h2></div></header>{documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="secondary compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Open full document</button></div>)}</section></div>;
+  const { openArtifact, artifactViewer } = useArtifactViewer({ downloadFile });
+  return <div className="epic-workspace-view"><section className="panel epic-artifact-hero"><div><span className="eyebrow">Governed artifact workspace</span><h2>{title}</h2><p>{detail}</p></div>{openPlanning && <button className="primary" onClick={() => openPlanning(phases[0])}>Show Copilot CLI command</button>}</section><section className="panel initiative-documents expanded"><header className="panel-heading"><div><span className="eyebrow">Hash-bound outputs</span><h2>{documents.length} documents</h2></div></header>{documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="secondary compact" disabled={!document.sha256} onClick={() => openArtifact(document)}>View artifact</button></div>)}</section>{artifactViewer}</div>;
 }
 
 // Parse fenced artifacts out of a Copilot reply. Mirrors parseArtifactBlocks in src/planning.mjs;
@@ -3006,6 +3148,7 @@ function PhaseCliWorkspace({ data, selected, action, reload, downloadFile, onJou
   const outputs = phaseResolution?.outputs ?? [];
   const sources = selected.sources?.sources ?? [];
   const jiraSnapshot = state.initiative.source?.type === 'jira';
+  const { openArtifact, artifactViewer } = useArtifactViewer({ repository: data.repository.root, downloadFile });
   const nextAction = (next) => {
     const actionId = normalizeNextActionId(next?.id ?? next?.action);
     if ([NEXT_ACTIONS.STATUS, NEXT_ACTIONS.ADVANCE].includes(actionId)) {
@@ -3045,13 +3188,14 @@ function PhaseCliWorkspace({ data, selected, action, reload, downloadFile, onJou
           return <div className="cli-output-row" key={output.id}>
             <span><strong>{output.label}</strong><small>{output.id} · {output.required ? 'required' : 'optional'}</small></span>
             <Pill tone={document?.status === 'approved' ? 'good' : document?.sha256 ? 'warn' : 'neutral'}>{document?.status?.replaceAll('_', ' ') ?? 'not generated'}</Pill>
-            <button className="secondary compact" disabled={!document?.repositoryPath} onClick={() => downloadFile(document.repositoryPath)}>Open</button>
+            <button className="secondary compact" disabled={!document?.repositoryPath} onClick={() => openArtifact(document)}>Open artifact</button>
           </div>;
         })}
         {!outputs.length && <div className="inline-empty">This phase has no configured document outputs.</div>}
       </section>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
+    {artifactViewer}
   </div>;
 }
 
@@ -4479,6 +4623,7 @@ function ConfigurationPublish({ data, initiativeId, dirty, busy, publishConfigur
 function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio, openPlanning, setupJira, generateWorldModel, openEpic, localRole, jiraAccount, publishConfiguration = null, busy = false, entryTab = null, onAllEpics = null, reportProblem = null, onStagePage = null }) {
   const [tab, setTab] = useState('intake');
   const [materializationModal, setMaterializationModal] = useState(null);
+  const { openArtifact, artifactViewer } = useArtifactViewer({ repository: data.repository.root, downloadFile });
   // Starting again keeps the branch, the identity, the pinned sources and the world model; only
   // this attempt's artifacts go. The typed ID is the same bar the CLI sets, for the same reason.
   const [restartModal, setRestartModal] = useState(null);
@@ -4758,7 +4903,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       </section>
       <div className="initiative-grid">
         <section className="panel initiative-contracts"><header className="panel-heading"><div><span className="eyebrow">Producer / consumer graph</span><h2>Interface contracts</h2></div><span>{selected.contracts.length}</span></header>{selected.contracts.length ? selected.contracts.map((contract) => <div key={contract.key}><div><strong>{contract.key}</strong><Pill tone={contract.integrity === 'verified' ? 'good' : 'warn'}>{contract.integrity}</Pill></div><span>{contract.format} · {contract.sha256.slice(0, 12)}</span><small>{contract.producers.join(', ') || 'external'} → {contract.consumers.join(', ') || 'no consumers'}</small></div>) : <div className="inline-empty">No interface contracts registered yet.</div>}</section>
-        <section className="panel initiative-documents"><header className="panel-heading"><div><span className="eyebrow">Governed outputs</span><h2>Initiative documents</h2></div><span>{selected.documents.length}</span></header>{selected.documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Download</button></div>)}</section>
+        <section className="panel initiative-documents"><header className="panel-heading"><div><span className="eyebrow">Governed outputs</span><h2>Initiative documents</h2></div><span>{selected.documents.length}</span></header>{selected.documents.map((document) => <div key={`${document.phase}:${document.id}`}><span><strong>{document.label}</strong><small>{document.phase} · generation {document.generation}</small></span><Pill tone={document.status === 'approved' ? 'good' : document.status === 'stale' ? 'warn' : 'neutral'}>{document.status}</Pill><button className="ghost compact" disabled={!document.sha256} onClick={() => openArtifact(document)}>View</button></div>)}</section>
       </div>
     </>}
     {repositoryModal && <DesignerModal title="Add a participating repository" detail="Application identity and custom key/value pairs are stored as governed Git metadata under repositories.<id>.metadata in singularity/portfolio.yml." submitLabel="Add to YAML draft" error={repositoryModal.error} onCancel={() => setRepositoryModal(null)} onSubmit={addRepository}><div className="modal-grid"><label><span>Repository ID</span><input autoFocus value={repositoryModal.values.id} placeholder="mobile" onChange={(event) => repositoryField('id', event.target.value)} /></label><label><span>Application ID</span><input value={repositoryModal.values.appId} placeholder="APP-1001" onChange={(event) => repositoryField('appId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={repositoryModal.values.name} placeholder="Mobile application" onChange={(event) => repositoryField('name', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={repositoryModal.values.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => repositoryField('url', event.target.value)} /></label><label><span>Default branch</span><input value={repositoryModal.values.defaultBranch} onChange={(event) => repositoryField('defaultBranch', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={repositoryModal.values.required} onChange={(event) => repositoryField('required', event.target.checked)} />Required for initiative delivery</label></div><div className="repository-metadata-fields"><header><div><strong>Custom metadata</strong><span>Examples: owner, businessUnit, costCenter, criticality.</span></div><button type="button" className="ghost compact" onClick={() => repositoryField('metadata', [...repositoryModal.values.metadata, { key: '', value: '' }])}>＋ Add field</button></header>{repositoryModal.values.metadata.map((entry, index) => <div key={index}><input aria-label={`Repository metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => repositoryMetadataField(index, 'key', event.target.value)} /><input aria-label={`Repository metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => repositoryMetadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" aria-label={`Remove repository metadata ${index + 1}`} onClick={() => repositoryField('metadata', repositoryModal.values.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}</div></DesignerModal>}
@@ -4776,6 +4921,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       {restartModal.confirmation.trim() && restartModal.confirmation.trim() !== selected.state.initiative.id && <small className="field-error">That is not {selected.state.initiative.id}.</small>}
     </DesignerModal>}
     {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This applies the exact reviewed Jira plan, uploads the selected hash-bound artifacts, adopts returned Jira keys as immutable Work IDs, creates one canonical branch per Story, writes governed seeds and approved Epic inputs, and publishes every receipt. It is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div><div><span>Selected artifacts</span><strong>{materializationModal.writePlan?.artifacts?.length ?? 0}</strong></div></div>{materializationModal.writePlan && <><div className="notice neutral"><strong>Exact Jira Story and artifact plan</strong><br />Plan hash: <code>{materializationModal.writePlan.sha256}</code><br />Source breakdown: <code>{materializationModal.writePlan.source.breakdownSha256}</code></div>{materializationModal.writePlan.artifacts?.length > 0 && <div className="jira-modal-artifacts">{materializationModal.writePlan.artifacts.map((artifact) => <div key={artifact.reference}><span><strong>{artifact.label}</strong><small>{artifact.filename}</small></span><code>{artifact.sha256.slice(0, 12)}</code><Pill>{artifact.targets.join(' + ')}</Pill></div>)}</div>}</>}<label><span>Type the Epic ID to confirm the exact plan</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
+    {artifactViewer}
   </div>;
 }
 
@@ -5213,6 +5359,46 @@ function Agents({ data, editor, setEditor, chooseAgent, saveEditor, createAgent,
   return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Agent registry</span><h2>Agents</h2></div><div className="row"><button className="icon-button" title="Import agent" onClick={importAgent}>⇧</button><button className="icon-button" title="Create agent" onClick={() => setModal({ id: '', error: null })}>＋</button></div></div><p className="muted">Remote links are inert until explicitly locked.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!lockView && current?.path === agent.path ? 'active' : ''} onClick={() => { setLockView(false); chooseAgent(agent); }}><span>AG</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<button className={lockView ? 'active' : ''} onClick={() => setLockView(true)}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only · refresh with CLI</small></div></button></aside>
     <main className="template-main">{lockView ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned trust state</span><h1>{data.agentsLock.path}</h1></div><div className="row"><button className="secondary compact" disabled={!data.agentsLock.exists} onClick={() => downloadFile(data.agentsLock.path)}>Download</button><Pill>Read only</Pill></div></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository Markdown' : 'bundled plugin agent'}</small></span><span className="row"><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>{current.editable && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}<code>singularity-flow agents {status?.locked ? 'sync' : 'lock'} {current.id}</code></span></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} onDownload={() => downloadFile(current.path)} onImport={current.editable ? importAgent : null} readOnly={!current.editable} /></> : <Empty title="No agents found" detail="Create or import agent Markdown under .github/agents." action={<button className="primary" onClick={() => setModal({ id: '', error: null })}>Create first agent</button>} />}</main>
     {modal && <DesignerModal title="Create repository agent" detail="Create editable agent Markdown with remote-skill, remote-template, and generated-output dependency tables." submitLabel="Create agent" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitAgent}><label><span>Agent ID</span><input autoFocus value={modal.id} placeholder="architecture" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
+  </div>;
+}
+
+function InitiativeDocuments({ data, downloadFile }) {
+  const documents = data.initiative?.documents ?? [];
+  const [query, setQuery] = useState('');
+  const [phase, setPhase] = useState('all');
+  const phases = data.initiative?.state.phaseOrder ?? [];
+  const visible = documents.filter((document) => {
+    const matchesPhase = phase === 'all' || document.phase === phase;
+    const text = `${document.label} ${document.id} ${document.phase} ${artifactPath(document)} ${document.status}`.toLowerCase();
+    return matchesPhase && text.includes(query.trim().toLowerCase());
+  });
+  const generated = documents.filter((document) => document.status !== 'not_generated' && (document.sha256 || document.content != null));
+  const approved = generated.filter((document) => document.status === 'approved');
+  const { openArtifact, artifactViewer } = useArtifactViewer({ repository: data.repository.root, downloadFile });
+  return <div className="page initiative-document-library">
+    <header className="page-heading row-between"><div><span className="eyebrow">Governed document center</span><h1>Epic artifacts</h1><p>Read every generated Markdown, JSON, YAML, image, and report across the Epic lifecycle from one place.</p></div><div className="row"><Pill tone="good">{generated.length} generated</Pill><Pill>{approved.length} approved</Pill></div></header>
+    <section className="initiative-document-toolbar panel">
+      <label><span>Search artifacts</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, phase, status, or repository path…" /></label>
+      <label><span>Phase</span><select value={phase} onChange={(event) => setPhase(event.target.value)}><option value="all">All phases</option>{phases.map((id) => <option key={id} value={id}>{data.initiative.state.phases[id]?.label ?? id}</option>)}</select></label>
+      <div><span>Visible</span><strong>{visible.length}</strong><small>of {documents.length} configured outputs</small></div>
+    </section>
+    <div className="initiative-document-groups">
+      {(phase === 'all' ? phases : [phase]).map((phaseId) => {
+        const phaseDocuments = visible.filter((document) => document.phase === phaseId);
+        if (!phaseDocuments.length) return null;
+        const phaseState = data.initiative.state.phases[phaseId];
+        return <section className="panel initiative-document-group" key={phaseId}>
+          <header className="panel-heading"><div><span className="eyebrow">{phaseId}</span><h2>{phaseState?.label ?? phaseId}</h2></div><Pill tone={phaseState?.status === 'approved' ? 'good' : 'neutral'}>{phaseState?.status?.replaceAll('_', ' ') ?? 'not started'}</Pill></header>
+          <div>{phaseDocuments.map((document) => <button type="button" className={document.status === 'not_generated' ? 'initiative-document-card pending' : 'initiative-document-card'} key={`${document.phase}:${document.id}`} onClick={() => openArtifact(document)}>
+            <span className={`artifact-reader-icon ${artifactFormat(document)}`}>{kindTag(document.path ?? document.kind)}</span>
+            <span className="initiative-document-card-copy"><small>{document.id} · generation {document.generation ?? 0}</small><strong>{document.label}</strong><code>{artifactPath(document) ?? 'not written yet'}</code></span>
+            <span className="initiative-document-card-meta"><Pill tone={document.status === 'approved' ? 'good' : document.status === 'not_generated' ? 'neutral' : 'accent'}>{businessStatusLabel(document.status)}</Pill><small>{document.sha256 ? `${document.sha256.slice(0, 12)} · ${document.bytes ? formatBytes(document.bytes) : 'hash-bound'}` : 'awaiting generation'}</small><em>Open artifact →</em></span>
+          </button>)}</div>
+        </section>;
+      })}
+      {!visible.length && <Empty title="No matching artifacts" detail={documents.length ? 'Change the search or phase filter to see other configured outputs.' : 'This Epic has no configured artifacts yet.'} />}
+    </div>
+    {artifactViewer}
   </div>;
 }
 
@@ -5862,7 +6048,7 @@ export default function App() {
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
         ? <EpicPlanningCliPage downloadFile={downloadFile} data={data} action={action} reload={reload} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} downloadFile={downloadFile} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} downloadFile={downloadFile} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && (data.initiative ? <InitiativeDocuments data={data} downloadFile={downloadFile} /> : <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />)}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

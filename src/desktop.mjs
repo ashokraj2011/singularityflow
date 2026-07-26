@@ -168,12 +168,16 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
         label: `Initiative document '${currentPhase}/${output.id}'`,
         type: 'file'
       });
-      const renderable = ['markdown', 'yaml', 'interface-contract'].includes(output.kind);
+      const extension = path.extname(output.path).toLowerCase();
+      const renderable = ['markdown', 'yaml', 'json', 'text', 'interface-contract'].includes(output.kind)
+        || ['.md', '.markdown', '.json', '.jsonl', '.yml', '.yaml', '.txt'].includes(extension);
+      const content = renderable && target.exists ? await readFile(target.absolute, 'utf8') : null;
       documents.push({
         ...output,
         phase: currentPhase,
         repositoryPath: target.relative,
-        content: renderable && target.exists ? await readFile(target.absolute, 'utf8') : null
+        content,
+        bytes: content == null ? null : Buffer.byteLength(content)
       });
     }
   }

@@ -379,7 +379,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Generated artifacts in one place/);
   assert.match(source, /Who approved/);
   assert.match(source, /approvalDisplayName/);
-  assert.match(source, /if \(data\.initiative\) return <EpicBusinessOverview data=\{data\} \/>/);
+  assert.match(source, /if \(data\.initiative\) return <EpicBusinessOverview data=\{data\} downloadFile=\{downloadFile\} \/>/);
   assert.match(source, /Copilot capture inactive/);
   assert.match(source, /Telemetry setup is outdated/);
   assert.match(source, /Waiting for Copilot export/);
@@ -660,7 +660,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /initiative:materialize/);
   assert.match(main, /\['documents', 'preview'/);
   assert.match(main, /Only HTTPS document links can be opened/);
-  assert.match(source, /openDocument=\{openRequirementWorkspace\}/);
+  assert.match(source, /<ArtifactStudio data=\{data\} openWorkspace=\{\(\) => openRequirementWorkspace\(\)\} downloadFile=\{downloadFile\} \/>/);
   assert.match(source, /Open in default app/);
   assert.doesNotMatch(source, /onClick=\{\(\) => document\.path \? downloadFile\(document\.path\) : openWorkspace\(\)\}/);
   assert.doesNotMatch(main, /figma\.com\/embed/);
@@ -1030,6 +1030,27 @@ test('icon tiles use a short type tag, not truncated prose', async () => {
   assert.match(app, /className="source-icon"[^>]*>\{kindTag\(/);
   assert.match(app, /className="artifact-icon"[^>]*>\{kindTag\(/);
   assert.equal([...app.matchAll(/documentKind\([^)]*\)\.slice\(0, 3\)/g)].length, 1, 'only kindTag may truncate');
+});
+
+test('generated artifacts open as governed Markdown and JSON documents across desktop views', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const styles = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'styles.css'), 'utf8');
+  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
+
+  assert.match(app, /function ArtifactPreviewDialog/);
+  assert.match(app, /function JsonArtifactNode/);
+  assert.match(app, /function InitiativeDocuments/);
+  assert.match(app, /function StoryArtifactOverview/);
+  assert.match(app, /Structured view/);
+  assert.match(app, /Open artifact →/);
+  assert.match(app, /window\.singularity\.previewDocument/);
+  assert.match(app, /page === 'documents' && \(data\.initiative \? <InitiativeDocuments/);
+  assert.match(styles, /\.artifact-reader/);
+  assert.match(styles, /\.artifact-markdown-preview/);
+  assert.match(styles, /\.json-artifact-preview/);
+  assert.match(styles, /\.initiative-document-library/);
+  assert.match(desktop, /\['markdown', 'yaml', 'json', 'text', 'interface-contract'\]/);
+  assert.match(desktop, /Buffer\.byteLength\(content\)/);
 });
 
 test('the governed contract is composed by the Copilot CLI skill, not sent by Electron', async () => {

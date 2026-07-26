@@ -2782,6 +2782,24 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (result) await reload(undefined, selected.state.initiative.id);
   }
 
+  const phaseWork = phaseId === selected.state.currentPhase ? selected.phaseWork ?? [] : [];
+
+
+  // Every step here already had a control somewhere on this page. What was missing was the order
+  // and the knowledge of which one is next, so the buttons route to those same controls.
+  function runPhaseStep(step) {
+    if (step.kind === 'author') {
+      setSelectedArtifact(step.outputId);
+      document.querySelector('.requirements-composer textarea')?.focus();
+      return;
+    }
+    // The judgement and approval controls live in the governance panel below; this brings the
+    // reader to them rather than pretending to be them.
+    if (step.kind === 'attest' || step.kind === 'approve') { document.querySelector('.phase-governance')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (step.kind === 'publish') { void publishPhase(); return; }
+
+  }
+
   const requiredOutputIds = useMemo(() => new Set(
     (selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [])
       .filter((output) => output.required)
@@ -2852,6 +2870,29 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <strong>{phaseLabel} is not the active phase yet.</strong>
       <p>Finish and approve <b>{selected.state.currentPhase ?? 'the preceding phase'}</b> first. This page is intentionally read-only until the workflow reaches {phaseLabel}.</p>
       <button className="secondary compact" onClick={() => onJourneyStage?.(selected.journey?.stage ?? 'intake')}>Open current phase</button>
+    </section>}
+
+    {/* The whole of what is left in this phase, in order, with exactly one step marked as now.
+        The strip below answers "what is the single next command", which is the right answer for a
+        CLI and the wrong one here: it told someone standing in the workspace to open the
+        workspace, while four separate things were outstanding in three different panels. */}
+    {phaseWork.length > 0 && <section className="phase-work" aria-label={`What is left in ${phaseLabel}`}>
+      <header>
+        <strong>What is left in {phaseLabel}</strong>
+        <small>{phaseWork.filter((step) => step.done).length} of {phaseWork.length} done</small>
+      </header>
+      <ol>
+        {phaseWork.map((step) => <li key={step.id} className={step.state}>
+          <span className="phase-work-mark" aria-hidden="true">{step.done ? '✓' : step.state === 'now' ? '→' : '·'}</span>
+          <span className="phase-work-copy"><strong>{step.label}</strong><small>{step.detail}</small></span>
+          {step.state === 'now' && <button className="primary compact" disabled={running || promoting} onClick={() => runPhaseStep(step)}>{{
+            author: 'Compose',
+            attest: 'Open judgement',
+            publish: 'Publish',
+            approve: 'Open approval'
+          }[step.kind] ?? 'Open'}</button>}
+        </li>)}
+      </ol>
     </section>}
 
     <NextActionStrip

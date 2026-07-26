@@ -47,7 +47,7 @@ import {
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
-import { epicJourney } from './initiative-next.mjs';
+import { epicJourney, initiativePhaseWork } from './initiative-next.mjs';
 import { availableInitiativeOutputs } from './initiative-state.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
@@ -225,6 +225,9 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     // Every profile gets a journey. Withholding it from the others is what left the delivery
     // workspace with no statement of where the work stood or what to do next.
     journey: epicJourney(initiative, nextActions),
+    // The ordered account of what is left in this phase. nextActions answers "what is the single
+    // next command", which told someone already standing in the workspace to open the workspace.
+    phaseWork: initiativePhaseWork(initiative),
     // Every output the current phase could produce, with what this Epic has chosen. The app cannot
     // offer a choice it cannot see, and the pinned resolution alone does not show an output the
     // profile has gained since the Epic started.

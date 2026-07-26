@@ -3690,3 +3690,20 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .artifact-choice label.locked strong { color: var(--muted); }
 .artifact-choice > .row { margin-top: 12px; gap: 8px; }
 .artifact-choice > .row input { flex: 1 1 auto; min-width: 0; }
+
+/* What is left in this phase — the ordered account, with exactly one step marked as now. */
+.phase-work { margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.phase-work > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.phase-work > header strong { font-size: 12px; font-weight: 660; color: var(--ink); }
+.phase-work > header small { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.phase-work ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.phase-work li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 9px; }
+.phase-work li.now { background: rgba(47,109,79,.07); }
+.phase-work-mark { flex: 0 0 auto; width: 16px; text-align: center; font-size: 11px; color: var(--muted); }
+.phase-work li.now .phase-work-mark { color: var(--brand, #2f6d4f); font-weight: 700; }
+.phase-work li.done .phase-work-mark { color: var(--brand, #2f6d4f); }
+.phase-work-copy { display: grid; gap: 1px; flex: 1 1 auto; min-width: 0; }
+.phase-work-copy strong { font-size: 11.5px; font-weight: 600; color: var(--ink); }
+.phase-work li.done .phase-work-copy strong { color: var(--muted); text-decoration: line-through; }
+.phase-work li.later .phase-work-copy strong { color: var(--muted); }
+.phase-work-copy small { font-size: 10px; color: var(--muted); }

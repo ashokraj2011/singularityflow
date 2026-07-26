@@ -186,3 +186,46 @@ test('a non-Epic-planning profile gets a journey built from its own phases', asy
   assert.equal(done.completionPercent, 100);
   assert.equal(done.nextAction.id, 'report');
 });
+
+test('the phase reports everything left in it, in order, with one step marked now', async () => {
+  // initiativeNextActions answers "what is the single next command" — the right answer for a CLI
+  // and the wrong one for a workspace. On a phase with three unwritten outputs and an unsatisfied
+  // check it returned `prepare`: "open the Discover & Define workspace", to someone standing in it.
+  const { initiativePhaseWork } = await import('../src/initiative-next.mjs');
+  const initiative = {
+    currentPhase: 'discover-define',
+    phaseOrder: ['discover-define'],
+    resolution: { profile: 'enterprise-delivery', phases: [{
+      id: 'discover-define',
+      label: 'Discover & Define',
+      outputs: [
+        { id: 'requirements', label: 'Requirement and impact analysis', required: true },
+        { id: 'business-case', label: 'Business case', required: false }
+      ],
+      checklist: [{ id: 'opportunity-defined', label: 'Opportunity and measurable outcomes defined', requirement: 'must', acceptedAssurance: ['human-approved'] }]
+    }] },
+    phases: { 'discover-define': {
+      id: 'discover-define',
+      label: 'Discover & Define',
+      status: 'in_progress',
+      outputs: {
+        requirements: { id: 'requirements', status: 'not_generated', sha256: null },
+        'business-case': { id: 'business-case', status: 'not_generated', sha256: null }
+      },
+      checklist: { 'opportunity-defined': { id: 'opportunity-defined', status: 'missing' } }
+    } }
+  };
+
+  const work = initiativePhaseWork(initiative);
+  // The optional output this Epic declined is not work it has to do.
+  assert.deepEqual(work.map((step) => step.id), ['author:requirements', 'attest:opportunity-defined', 'publish', 'approve']);
+  assert.deepEqual(work.map((step) => step.state), ['now', 'later', 'later', 'later']);
+  assert.equal(work[0].label, 'Draft Requirement and impact analysis');
+  assert.match(work[1].detail, /accepts human-approved/);
+
+  // Finish the document and the next thing becomes now — exactly one step ever is.
+  initiative.phases['discover-define'].outputs.requirements = { id: 'requirements', status: 'draft', sha256: 'abc' };
+  const next = initiativePhaseWork(initiative);
+  assert.deepEqual(next.map((step) => step.state), ['done', 'now', 'later', 'later']);
+  assert.equal(next.filter((step) => step.state === 'now').length, 1);
+});

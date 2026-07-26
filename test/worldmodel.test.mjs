@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { validateWorldModelDirectory, verifyGroundingRecord, worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -393,4 +393,41 @@ test('governed state does not make the world model stale', async () => {
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'change source'], root);
   assert.notEqual((await worldModelSourceSnapshot(root, definition)).sha256, before.sha256);
+});
+
+test('legacy world-model hashes are accepted when only governed state changed', async () => {
+  // Repositories that already generated a model before the source-tree hash stopped counting
+  // singularity/ governance files should not be nagged forever. If the model commit and current
+  // HEAD differ only by governed state, the model is still valid for application planning.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-legacy-hash-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.email', 'wm@example.com'], root);
+  run('git', ['config', 'user.name', 'World Model'], root);
+  await writeFile(path.join(root, 'README.md'), '# app\n');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/Main.java'), 'class Main {}\n');
+  await initializeDefinition(root);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+  const definition = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const modelCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
+
+  await mkdir(path.join(root, 'singularity/world-model'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/world-model/manifest.json'), JSON.stringify({
+    schema_version: '2.0',
+    repository_commit: modelCommit,
+    source_tree_sha256: `sha256:${'a'.repeat(64)}`
+  }, null, 2));
+  run('git', ['add', 'singularity/world-model/manifest.json'], root);
+  run('git', ['commit', '-m', 'legacy world model'], root);
+
+  await mkdir(path.join(root, 'singularity/initiatives/EPIC-1/artifacts'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/state.json'), '{"currentPhase":"epic-intake"}\n');
+  run('git', ['add', 'singularity/initiatives'], root);
+  run('git', ['commit', '-m', 'start epic'], root);
+
+  assert.equal(await worldModelRebuildReason(root, definition), null);
+
+  await writeFile(path.join(root, 'README.md'), '# app changed\n');
+  assert.match(await worldModelRebuildReason(root, definition), /source changes: README\.md/);
 });

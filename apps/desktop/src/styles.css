@@ -1507,14 +1507,22 @@ body {
 .topbar select:focus, .session-control select:focus { border-color: #75a48a; box-shadow: 0 0 0 4px rgba(17,122,77,.1); }
 .topbar-actions { display: flex; align-items: center; gap: 7px; }
 
-/* Read-only view of the Jira Epic pinned at import. */
-.imported-epic { display: grid; gap: 14px; }
-.imported-epic-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 18px; margin: 0; }
+/* Read-only view of the Jira Epic pinned at import. Keep every content row on the
+   same horizontal inset as the panel heading; the panel itself supplies no body padding. */
+.imported-epic { display: grid; gap: 0; overflow: hidden; }
+.imported-epic-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+  padding: 16px 20px 4px;
+}
 .imported-epic-facts div { min-width: 0; display: grid; gap: 2px; }
 .imported-epic-facts dt { color: var(--subtle); font-size: 8px; font-weight: 720; letter-spacing: .12em; text-transform: uppercase; }
 .imported-epic-facts dd { margin: 0; overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
-.imported-epic-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.imported-epic-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 20px 0; }
 .imported-epic-tags code { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--muted); font-size: 10px; }
+.imported-epic-body { padding: 14px 20px 0; }
 .imported-epic-body h3 { margin: 0 0 6px; color: var(--ink); font-size: 11px; font-weight: 640; }
 .imported-epic-body pre {
   max-height: 260px;
@@ -1530,11 +1538,12 @@ body {
   word-break: break-word;
 }
 .imported-epic-empty { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.imported-epic > .imported-epic-empty { padding: 16px 20px 18px; }
 .imported-epic-attachments { display: grid; gap: 5px; margin: 8px 0 0; padding: 0; list-style: none; }
 .imported-epic-attachments li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .imported-epic-attachments strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .imported-epic-attachments small { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
-.imported-epic-note { margin: 0; padding-top: 4px; border-top: 1px solid var(--line); color: var(--subtle); font-size: 10px; line-height: 1.5; }
+.imported-epic-note { margin: 16px 0 0; padding: 10px 20px 12px; border-top: 1px solid var(--line); color: var(--subtle); font-size: 10px; line-height: 1.5; }
 .epic-workspace-exits { margin-top: 12px; }
 
 /* Grounding prompt shown under the top bar when the repository has no usable world model. */

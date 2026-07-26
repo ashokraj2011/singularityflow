@@ -852,6 +852,7 @@ test('Copilot CLI handoff carries the active phase without opening an embedded s
 
 test('the Epic workspace can reach the Epic list, and an imported Jira Epic is visible', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const styles = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'styles.css'), 'utf8');
 
   // Selecting an Epic replaces EpicsHome with the workspace, so the list, "Fetch latest" and the
   // start wizard were only reachable by blanking the top-bar Epic selector.
@@ -872,6 +873,11 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.match(source, /source\.description/);
   assert.match(source, /source\.acceptanceCriteria/);
   assert.match(source, /is not refreshed automatically/);
+  // Panel bodies do not inherit the heading inset. Keep facts, descriptions, tags, and the
+  // provenance footer aligned with the title rather than flush against the card border.
+  assert.match(styles, /\.imported-epic-facts \{[\s\S]*padding: 16px 20px 4px;/);
+  assert.match(styles, /\.imported-epic-body \{ padding: 14px 20px 0; \}/);
+  assert.match(styles, /\.imported-epic-note \{ margin: 16px 0 0; padding: 10px 20px 12px;/);
   // Intake shows it inline; the Requirements workspace keeps it collapsed above the panes, since
   // requirements are derived from it and deleting the old screen would otherwise have lost it.
   assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);

@@ -348,16 +348,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Self-approval warning/);
   assert.match(source, /Story Work ID/);
   assert.match(source, /Create Jira & Git stories/);
-  assert.match(source, /Question from Copilot/);
-  assert.match(source, /Copilot logs/);
-  assert.match(source, /Copilot backend/);
+  assert.match(source, /Use Singularity Flow in Copilot CLI/);
+  assert.match(source, /The Electron app no longer starts a Copilot backend/);
+  assert.match(source, /\/sflow-upload/);
   assert.match(source, /Token usage by model/);
   assert.match(source, /Total tokens/);
-  assert.match(source, /Apply model/);
-  assert.match(source, /Connected/);
-  assert.match(source, /Start backend/);
-  assert.match(source, /Stop backend/);
-  assert.match(source, /Planning context released; the Copilot backend remains ready/);
+  assert.match(source, /Run from/);
+  assert.match(source, /Shell equivalent/);
   assert.match(source, /Epic decomposition analysis/);
   assert.match(source, /Interface contracts/);
   assert.match(source, /Branches stay isolated/);
@@ -417,19 +414,19 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /\['templates', 'Artifact templates'\]/);
   assert.match(source, /\['business-stories', 'Create Stories'\]/);
   assert.doesNotMatch(source, /\['planning', 'Copilot Studio'\]/);
-  assert.match(source, /function EpicPlanningPage/);
-  assert.match(source, /focus=\{\{ phase: 'epic-planning', target: PHASE_SCOPE \}\}/);
+  assert.match(source, /function EpicPlanningCliPage/);
+  assert.match(source, /function CopilotCliHandoff/);
   // Requirements is no longer a tab of the Epic workspace: sources, the Copilot conversation, and
   // the artifacts it produces are one phase, so they are one screen.
   assert.doesNotMatch(source, /entryTab="requirements"/);
   // Asserted on the tag, not on prop order — adding a prop is not a regression.
-  assert.match(source, /<PhaseWorkspace [^>]*data=\{data\}/);
-  assert.match(preload, /listPlanningSessions:/);
-  assert.match(preload, /resumePlanningSession:/);
-  assert.match(main, /planningSessionRegistryPath/);
-  assert.match(main, /planning:sessions/);
-  assert.match(main, /planning:resume/);
-  assert.match(main, /attachPlanning/);
+  assert.match(source, /<PhaseCliWorkspace [^>]*data=\{data\}/);
+  assert.doesNotMatch(preload, /listPlanningSessions:/);
+  assert.doesNotMatch(preload, /resumePlanningSession:/);
+  assert.doesNotMatch(main, /planningSessionRegistryPath/);
+  assert.doesNotMatch(main, /planning:sessions/);
+  assert.doesNotMatch(main, /planning:resume/);
+  assert.doesNotMatch(main, /attachPlanning/);
   // Planning is no longer a tab of the Epic workspace either: it uses the same sources /
   // conversation / artifacts workspace as Requirements.
   assert.doesNotMatch(source, /entryTab="planning"/);
@@ -516,11 +513,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(styles, /\.onboarding-ready-summary/);
   assert.match(styles, /\.onboarding-recovery/);
   assert.match(styles, /\.onboarding-failure/);
-  assert.match(styles, /\.copilot-service-control/);
-  assert.match(styles, /\.copilot-service-log/);
-  assert.match(styles, /\.copilot-service-trigger\.stopped \{/);
-  assert.match(styles, /\.copilot-service-trigger\.stopped \.copilot-service-orb/);
-  assert.match(styles, /\.copilot-service-trigger\.stopped > i/);
+  assert.match(styles, /\.cli-handoff/);
+  assert.match(styles, /\.cli-command-list/);
+  assert.match(styles, /\.cli-review-grid/);
   assert.match(styles, /\.repository-menu/);
   assert.match(styles, /\.studio-flow-track/);
   assert.match(styles, /\.requirement-layout/);
@@ -598,7 +593,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /staged-not-governed are excluded/);
   assert.match(main, /jira:workspace-anchors/);
   assert.match(preload, /promoteWorkspaceDocument/);
-  assert.match(main, /copilotBackend\.stop\(activeRepository\)/);
+  assert.doesNotMatch(main, /copilotBackend/);
   assert.match(main, /Migrate folder/);
   assert.match(main, /\['migrate-config'\]/);
   assert.match(main, /does not commit, push, merge, or rewrite Git history/);
@@ -609,7 +604,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /importFile/);
   assert.match(preload, /exportBundle/);
   assert.match(preload, /initiativeId/);
-  assert.match(preload, /answerPlanningQuestion/);
+  assert.doesNotMatch(preload, /answerPlanningQuestion/);
   assert.match(preload, /bootstrapPortfolio/);
   assert.match(preload, /bootstrapWorkspacePortfolio/);
   assert.match(preload, /workspaceJiraContext/);
@@ -620,14 +615,14 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /updateWorkspaceConfiguration/);
   assert.match(preload, /archiveWorkspace/);
   assert.match(preload, /restoreWorkspace/);
-  assert.match(preload, /startCopilotService/);
-  assert.match(preload, /setCopilotServiceModel/);
-  assert.match(preload, /stopCopilotService/);
-  assert.match(preload, /onCopilotServiceEvent/);
+  assert.doesNotMatch(preload, /startCopilotService/);
+  assert.doesNotMatch(preload, /setCopilotServiceModel/);
+  assert.doesNotMatch(preload, /stopCopilotService/);
+  assert.doesNotMatch(preload, /onCopilotServiceEvent/);
   assert.match(preload, /materializeInitiative/);
   assert.match(preload, /syncInitiative/);
   assert.match(main, /--initiative/);
-  assert.match(main, /planning:answer/);
+  assert.doesNotMatch(main, /planning:answer/);
   assert.match(main, /configuration:bootstrap-portfolio/);
   assert.match(main, /configuration:bootstrap-workspace-portfolio/);
   assert.match(main, /workspace:jira-context/);
@@ -640,10 +635,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /workspace:configuration-update/);
   assert.match(main, /workspace:archive/);
   assert.match(main, /workspace:restore/);
-  assert.match(main, /copilot-service:start/);
-  assert.match(main, /copilot-service:model/);
-  assert.match(await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8'), /session:\s*\{\s*configOptions:\s*\{\}\s*\}/);
-  assert.match(main, /copilot-service:stop/);
+  assert.doesNotMatch(main, /copilot-service:start/);
+  assert.doesNotMatch(main, /copilot-service:model/);
+  assert.doesNotMatch(main, /copilot-service:stop/);
+  assert.match(main, /worldmodel:generate/);
+  assert.match(preload, /generateWorldModel/);
   assert.match(main, /initiative:materialize/);
   assert.match(main, /\['documents', 'preview'/);
   assert.match(main, /Only HTTPS document links can be opened/);
@@ -714,7 +710,7 @@ test('every Epic is reachable and states where its work stands', async () => {
   // a page of their own may route to one; every other phase opens the workspace for itself.
   assert.doesNotMatch(openStudio, /startsWith\('epic-'\)/);
   assert.match(source, /page === 'phase' && \(data\.initiative && planningFocus\?\.phase/);
-  assert.match(source, /<PhaseWorkspace requestedPhaseId=\{planningFocus\.phase\}/);
+  assert.match(source, /<PhaseCliWorkspace requestedPhaseId=\{planningFocus\.phase\}/);
 });
 
 test('an Epic that already exists is opened from the wizard, not started again', async () => {
@@ -799,50 +795,32 @@ test('no DOM handler is bound bare to a function whose first argument crosses IP
   assert.match(source, /typeof repositoryOrLocal === 'boolean' \? repositoryOrLocal : true/);
 });
 
-test('Copilot Studio releases the previous session when the governed context is rebuilt', async () => {
+test('desktop delegates phase authoring to Copilot CLI and keeps only world-model invocation', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  const build = source.slice(source.indexOf('async function buildContext()'), source.indexOf('async function startCopilot()'));
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  const preload = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'preload.cjs'), 'utf8');
+  const renderedRoutes = source.slice(source.lastIndexOf('return <div className={`shell'));
 
-  // Rebuilding mints a new sessionId. If the connection state survives it, 'Start Copilot Plan
-  // mode' stays disabled (it is gated on started), the Frame stays locked, and the session-id
-  // guard drops every event — the studio reads 'connected' and does nothing at all.
-  assert.match(build, /stopPlanningSession/);
-  assert.match(build, /setStarted\(false\)/);
-  assert.match(build, /setRunning\(false\)/);
-
-  // Switching the selected work item must clear running too: it gates the build button, so a
-  // turn in flight at that moment would otherwise lock every control on the page.
-  const switchEffect = source.slice(source.indexOf("const selectedPhase = selected.phases.find"), source.indexOf('[data.selectedWorkId, data.selectedInitiativeId]'));
-  assert.match(switchEffect, /resetSession\(\)/);
-  assert.doesNotMatch(switchEffect, /setStarted\(false\);\s*\}/);
+  assert.match(renderedRoutes, /<PhaseCliWorkspace/);
+  assert.match(renderedRoutes, /<EpicPlanningCliPage/);
+  assert.match(renderedRoutes, /<CopilotCliPage/);
+  assert.match(source, /\/sflow-epic-requirements/);
+  assert.match(source, /\/sflow-epic-planning/);
+  assert.match(source, /\/sflow-upload/);
+  assert.doesNotMatch(main, /planning:start|planning:prompt|planning:answer|copilot-service:/);
+  assert.doesNotMatch(preload, /startPlanningSession|promptPlanningSession|answerPlanningQuestion|copilotService/);
+  assert.match(main, /worldmodel:generate/);
+  assert.match(preload, /generateWorldModel/);
 });
 
-test('a hand-off frames Copilot Studio on the phase it came from, and the sidebar does not', async () => {
+test('Copilot CLI handoff carries the active phase without opening an embedded session', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
 
-  // The studio serves every phase, so arriving from a phase screen must carry that phase across.
   assert.match(source, /function openStudio\(phase = null, target = null\)/);
   assert.match(source, /setPlanningFocus\(phase \? \{ phase, target \} : null\)/);
-  assert.match(source, /focus=\{planningFocus\}/);
-  // Requirements and Planning both own the shared workspace, framed on whatever phase the
-  // initiative is actually on, rather than handing off to the studio.
-  assert.match(source, /focus: \{ phase: activePhaseId \}/);
-  assert.match(source, /openPlanning\('epic-planning'\)/);
-  assert.match(source, /openPlanning\('epic-planning'\)/);
-  assert.match(source, /openPlanning\(phases\[0\]\)/);
-
-  // Reaching the studio from the sidebar clears a previous hand-off instead of re-framing it.
+  assert.match(source, /<CopilotCliPage data=\{data\} phaseId=\{planningFocus\?\.phase\}/);
   assert.match(source, /id === 'planning' \? openStudio\(\) :/);
-
-  // The work-selection effect also runs on mount, so it must resolve the focused phase rather
-  // than currentPhase — otherwise it immediately overwrites the framing the caller asked for.
-  const effect = source.slice(source.indexOf('const available = data.planning?.targets'), source.indexOf('[data.selectedWorkId, data.selectedInitiativeId]'));
-  assert.match(effect, /focusPhase \?\? selected\.currentPhase/);
-
-  // A stale link must not frame a phase this group does not have.
-  assert.match(source, /defaultGroup\?\.phases\.some\(\(item\) => item\.id === focus\.phase\)/);
-
-  // Buttons must pass a phase, never the click event.
+  assert.match(source, /function copilotCliCommands\(\{ phaseId, epicId = null, workId = null \}\)/);
   assert.doesNotMatch(source, /onClick=\{openPlanning\}/);
 });
 
@@ -873,24 +851,19 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);
 });
 
-test('Requirements is a dedicated phase page and explains sequence locks', async () => {
+test('Requirements is a dedicated CLI-handoff phase page and explains sequence locks', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  const workspace = source.slice(source.indexOf('function PhaseWorkspace('), source.indexOf('function PhaseGovernance('));
+  const workspace = source.slice(source.indexOf('function PhaseCliWorkspace('), source.indexOf('function PhaseWorkspace('));
 
   // Requirements owns one phase; it must not silently switch to Intake or Planning based on the
   // currently selected Epic.
   assert.match(workspace, /requestedPhaseId = null/);
-  assert.match(workspace, /const activePhaseId = requestedPhaseId \?\? selected\.state\.currentPhase \?\? 'epic-intake'/);
-  assert.match(workspace, /focus: \{ phase: activePhaseId \}/);
-  assert.match(source, /<PhaseWorkspace requestedPhaseId="epic-requirements"/);
-  assert.match(workspace, /phaseIsCurrent/);
+  assert.match(workspace, /const phaseId = requestedPhaseId \?\? state\.currentPhase \?\? 'epic-intake'/);
+  assert.match(source, /<PhaseCliWorkspace requestedPhaseId="epic-requirements"/);
+  assert.match(workspace, /const current = state\.currentPhase === phaseId/);
   assert.match(workspace, /phase-lock notice/);
-
-  // A blocking checklist item stops the phase advancing, so it belongs on the screen rather than
-  // in the error of whatever command the user tries next.
-  assert.match(workspace, /blockingChecks/);
-  assert.match(workspace, /check\.requirement === 'must' && check\.status !== 'satisfied'/);
-  assert.match(workspace, /cannot be approved yet/);
+  assert.match(workspace, /<PhaseGovernance/);
+  assert.match(workspace, /<CopilotCliHandoff/);
 });
 
 test('publication waits on required outputs only, and says which ones', async () => {
@@ -974,7 +947,8 @@ test('the Epic journey is drawn once, from the engine resolution', async () => {
   assert.doesNotMatch(app, /epic-lifecycle-wizard/);
   assert.doesNotMatch(app, /requirements-output-map/);
   assert.doesNotMatch(app, /wizardSteps/);
-  assert.equal([...app.matchAll(/<EpicJourneyRail/g)].length, 2, 'one rail per workspace, no more');
+  const cliWorkspace = app.slice(app.indexOf('function PhaseCliWorkspace('), app.indexOf('function PhaseWorkspace('));
+  assert.equal([...cliWorkspace.matchAll(/<EpicJourneyRail/g)].length, 1, 'one rail in the rendered CLI phase workspace');
   // Removing the wizard removed the only route to Configuration; it must still be reachable.
   assert.match(app, /⚙ Configuration/);
 });
@@ -1022,23 +996,13 @@ test('icon tiles use a short type tag, not truncated prose', async () => {
   assert.equal([...app.matchAll(/documentKind\([^)]*\)\.slice\(0, 3\)/g)].length, 1, 'only kindTag may truncate');
 });
 
-test('the governed contract is sent to Copilot, not pointed at', async () => {
-  // Plan mode declares fs.readTextFile: false and denies every session/requestPermission, so a
-  // prompt saying "read the contract at <path>" asked Copilot for the one thing the client forbids.
-  // The observable symptom was a copilot.permission-denied for "Read governed planning contract"
-  // and a turn that ran with no contract, no pinned sources and no world model.
+test('the governed contract is composed by the Copilot CLI skill, not sent by Electron', async () => {
   const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
-  assert.doesNotMatch(main, /Read and follow the complete governed planning contract at/);
-  assert.match(main, /await readFile\(pack\.contextPath, 'utf8'\)/);
-  assert.match(main, /Follow the governed planning contract above/);
-
-  // The guarantee that matters is that Copilot cannot change anything of its own accord. Reads
-  // were later allowed deliberately — see 'read-only Plan mode denies writes, not reads' — and a
-  // mode switch was added later still, but the client never writes, and Plan mode still refuses.
-  const acp = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'copilot-acp.mjs'), 'utf8');
-  assert.match(acp, /writeTextFile: false/);
-  const decide = acp.slice(acp.indexOf('decidePermission(params) {'), acp.indexOf('answerPermission(requestId'));
-  assert.match(decide, /if \(this\.inPlanMode\(\)\) \{[\s\S]*?return rejectPermission\(params\);/);
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const skill = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
+  assert.doesNotMatch(main, /planning:start|planning:prompt/);
+  assert.match(app, /persona, world model, pinned sources, approved inputs/);
+  assert.match(skill, /wm compose --phase/);
 });
 
 test('a human-approved check can be attested from the app', async () => {
@@ -1151,22 +1115,13 @@ test('initiative-scoped actions do not clear the selected work item', async () =
   assert.doesNotMatch(governance, /reload\(null,/);
 });
 
-test('a planning context whose repository moved says so before promotion fails', async () => {
-  // Promotion refuses a pack whose HEAD has moved, and pinning a source or recording evidence both
-  // commit — so the conversation was silently unpromotable, discovered only after the work was done.
+test('the CLI handoff makes Git the planning state-transfer boundary', async () => {
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  assert.match(app, /contextPack\?\.stale/);
-  assert.match(app, /contextPack\?\.changedSources/);
-  assert.match(app, /This context is out of date/);
-  assert.match(app, /Rebuild context/);
-  assert.match(app, /disabled=\{running \|\| started \|\| contextStale\}/);
-  assert.match(app, /disabled=\{!contextPack \|\| contextStale \|\| running/);
   const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
-  assert.match(main, /changedSources: pack\.changedSources/);
-  assert.match(main, /savedStatus: pack\.stale \? 'context-ready' : entry\.status/);
-  // The comparison needs HEAD on the snapshot, which it did not carry.
-  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
-  assert.match(desktop, /head: head\(root\)/);
+  assert.match(app, /return here and press <b>Refresh<\/b>/);
+  assert.match(app, /see the committed documents, Jira receipts, approvals, and progress/);
+  assert.doesNotMatch(main, /planning:promote/);
+  assert.doesNotMatch(main, /planning:resume/);
 });
 
 test('shared planning constants stay free of node built-ins', async () => {
@@ -1305,25 +1260,16 @@ test('the Requirements workspace layout does not depend on how many children it 
   assert.match(styles, /\.requirements-workspace > \.requirements-panes \{ flex: 1 1 auto; min-height:/);
 });
 
-test('every surface that starts Copilot work warns when Copilot cannot run it', async () => {
+test('world-model generation is the only desktop surface that starts Copilot work', async () => {
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  // Preflight was read separately by each component and only at mount, so Copilot dying while the
-  // app was open went unnoticed. One check, refreshed when the window regains focus.
-  assert.match(app, /const refreshCopilotHealth = React\.useCallback/);
-  assert.match(app, /window\.addEventListener\('focus', onFocus\)/);
-
-  // The world-model build shells out to `copilot` for minutes and never consulted preflight at all;
-  // it failed at the end for a reason knowable at the start.
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  const preload = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'preload.cjs'), 'utf8');
   const generate = app.slice(app.indexOf('async function generateWorldModel(repositoryOrLocal'));
-  assert.match(generate.slice(0, 1200), /const health = await refreshCopilotHealth\(\)/);
-  assert.match(generate.slice(0, 1200), /Copilot is not available/);
-
-  // One banner, worded once, on each surface where Copilot work can start.
-  assert.match(app, /function CopilotUnavailable\(/);
-  assert.equal([...app.matchAll(/<CopilotUnavailable/g)].length, 4);
-  // It distinguishes "not installed" from "installed but the wrong build" instead of one vague line.
-  assert.match(app, /health\.installed === false/);
-  assert.match(app, /health\.acp === false \|\| health\.planMode === false/);
+  assert.match(generate, /window\.singularity\.generateWorldModel/);
+  assert.match(main, /worldmodel:generate/);
+  assert.match(preload, /generateWorldModel/);
+  assert.doesNotMatch(main, /planning:start|planning:prompt|copilot-service:/);
+  assert.doesNotMatch(preload, /startPlanningSession|promptPlanningSession|startCopilotService/);
 });
 
 test('a Copilot session that dies mid-turn says so', async () => {

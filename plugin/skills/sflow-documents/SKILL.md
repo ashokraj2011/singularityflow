@@ -10,6 +10,8 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 
 Use the deterministic document catalog; never copy inputs into arbitrary repository locations.
 
+For a short upload-first experience, use `/sflow-upload`. This skill remains the complete list, view, preview, and upload interface.
+
 - In an experimental Copilot CLI session, the bare `/documents` extension command opens the searchable Documents canvas; `/documents view <DOCUMENT-ID>` opens a specific item. If canvas rendering is unavailable, it falls back to timeline output.
 - List all uploaded inputs, generated phase documents, status, and source context with `singularity-flow documents list [WORK-ID]`.
 - View text documents with `singularity-flow documents view <DOCUMENT-ID>`. For images, PDFs, `.fig`, and other binary formats, use the returned absolute path with the appropriate viewer.

@@ -5,8 +5,6 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
 import { forgetRecentRepository, readRecentRepositories, rememberRecentRepository } from './recent-repositories.mjs';
-import { CopilotPlanningBridge, copilotPlanningPreflight } from './copilot-acp.mjs';
-import { CopilotBackendController } from './copilot-service.mjs';
 import { isTrustedRendererUrl, safeExternalUrl } from './desktop-security.mjs';
 import {
   requireActiveRepository,
@@ -41,106 +39,13 @@ const preload = path.join(here, 'preload.cjs');
 let activeRepository = null;
 let activeWorkspace = null;
 let mainWindow = null;
-const planningPacks = new Map();
 const jiraCache = new Map();
-// One logger per repository for ACP planning events. Cached because a turn emits many chunks and
-// resolving configuration per event would be wasteful.
-const planningLoggers = new Map();
-async function planningLogger(repository) {
-  if (planningLoggers.has(repository)) return planningLoggers.get(repository);
-  const pending = (async () => {
-    try {
-      const [{ repositoryLogger }, { loadDefinition }] = await Promise.all([
-        importCliModule('logging.mjs'),
-        importCliModule('config.mjs')
-      ]);
-      const definition = await loadDefinition(repository).catch(() => null);
-      return repositoryLogger(repository, definition, { context: { surface: 'copilot-studio' } });
-    } catch {
-      return null;
-    }
-  })();
-  planningLoggers.set(repository, pending);
-  return pending;
-}
-
-// Record every ACP event. A planning turn that produced nothing used to leave no trace of what
-// Copilot actually did — whether a tool was denied, a permission refused, or the turn simply ended
-// empty. Message and thought chunks are recorded by size rather than content: the transcript is
-// already in the UI, and copying it here would bloat the log without adding information.
-const PLANNING_EVENT_LEVEL = {
-  error: 'error',
-  'permission-denied': 'warn',
-  'permission-allowed': 'debug',
-  'question-unsupported': 'warn',
-  'process-exit': 'warn',
-  ready: 'info',
-  'turn-started': 'info',
-  'turn-complete': 'info',
-  question: 'info',
-  'question-answered': 'info',
-  plan: 'info',
-  plan_update: 'info',
-  plan_removed: 'info',
-  tool_call: 'debug',
-  tool_call_update: 'debug',
-  usage_update: 'debug'
-};
-function logPlanningEvent(repository, payload) {
-  void planningLogger(repository).then((log) => {
-    if (!log) return;
-    const type = payload?.type ?? 'unknown';
-    const level = PLANNING_EVENT_LEVEL[type] ?? 'trace';
-    const detail = { planningSessionId: payload?.planningSessionId ?? null };
-    if (typeof payload?.text === 'string') detail.textChars = payload.text.length;
-    for (const key of ['stopReason', 'title', 'status', 'code', 'signal', 'version', 'questionId', 'messageId']) {
-      if (payload?.[key] != null) detail[key] = payload[key];
-    }
-    log[level](`copilot.${type}`, payload?.message ?? payload?.detail ?? null, detail);
-  }).catch(() => {});
-}
-
-const copilotBackend = new CopilotBackendController({
-  bridgeFactory: ({ repository, emit }) => new CopilotPlanningBridge({
-    repository,
-    emit: (payload) => { logPlanningEvent(repository, payload); emit(payload); }
-  }),
-  preflight: () => copilotPlanningPreflight(),
-  emit: (channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
-  }
-});
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
 function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
 function storageCredentialsPath() { return path.join(app.getPath('userData'), 'storage-credentials.json'); }
 function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
-function planningSessionRegistryPath(repository) { return path.join(repository, '.git', 'singularity-flow', 'planning-sessions.json'); }
-async function readPlanningSessionRegistry(repository) {
-  try {
-    const parsed = JSON.parse(await readFile(planningSessionRegistryPath(repository), 'utf8'));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-async function writePlanningSessionRegistry(repository, entries) {
-  const target = planningSessionRegistryPath(repository);
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
-}
-async function updatePlanningSessionRegistry(repository, sessionId, patch, { remove = false } = {}) {
-  const entries = await readPlanningSessionRegistry(repository);
-  const index = entries.findIndex((entry) => entry.sessionId === sessionId);
-  if (remove) {
-    if (index >= 0) entries.splice(index, 1);
-  } else if (index >= 0) {
-    entries[index] = { ...entries[index], ...patch, lastActivityAt: new Date().toISOString() };
-  } else {
-    entries.push({ sessionId, ...patch, lastActivityAt: new Date().toISOString() });
-  }
-  await writePlanningSessionRegistry(repository, entries);
-  return entries;
-}
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
 function storageCredentialStore() { return new StorageCredentialStore(storageCredentialsPath(), safeStorage); }
 
@@ -472,10 +377,6 @@ async function openRepository(repository, { workspace = null } = {}) {
     root = await validateRepositoryDirectory(error.repository);
     migration = { from: error.legacyRoot, to: 'singularity', output: migrated.output };
   }
-  if (activeRepository && path.resolve(activeRepository) !== path.resolve(root)) {
-    await copilotBackend.stop(activeRepository).catch(() => null);
-    planningPacks.clear();
-  }
   activeWorkspace = workspace;
   const result = await snapshot(root);
   if (workspace) result.workspace = workspace;
@@ -776,124 +677,6 @@ function registerHandlers() {
     }
   });
   trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
-  trustedHandle('planning:preflight', (event, { repository }) => {
-    assertTrustedSender(event);
-    assertRepository(repository);
-    return copilotPlanningPreflight();
-  });
-  trustedHandle('copilot-service:status', (event, { repository }) => {
-    assertTrustedSender(event);
-    return copilotBackend.status(assertRepository(repository));
-  });
-  trustedHandle('copilot-service:start', (event, { repository, model }) => {
-    assertTrustedSender(event);
-    return copilotBackend.start(assertRepository(repository), { model: model?.trim() || null });
-  });
-  trustedHandle('copilot-service:model', (event, { repository, model }) => {
-    assertTrustedSender(event);
-    return copilotBackend.setModel(assertRepository(repository), model?.trim() || null);
-  });
-  trustedHandle('copilot-service:mode', (event, { repository, modeId }) => {
-    assertTrustedSender(event);
-    return copilotBackend.setMode(assertRepository(repository), String(modeId ?? '').trim());
-  });
-  trustedHandle('copilot-service:permission', (event, { repository, requestId, allow }) => {
-    assertTrustedSender(event);
-    return copilotBackend.answerPermission(assertRepository(repository), String(requestId ?? '').trim(), allow === true);
-  });
-  trustedHandle('copilot-service:stop', (event, { repository }) => {
-    assertTrustedSender(event);
-    return copilotBackend.stop(assertRepository(repository));
-  });
-  trustedHandle('copilot-service:logs', (event, { repository }) => {
-    assertTrustedSender(event);
-    return copilotBackend.logs(assertRepository(repository));
-  });
-  trustedHandle('planning:context', async (event, {
-    repository, scope, id, phase, persona, target, objective
-  }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const result = await invokeCli(root, [
-      'desktop', 'planning-context',
-      '--scope', scope,
-      '--id', id,
-      '--phase', phase,
-      '--persona', persona,
-      '--target', target,
-      ...(objective?.trim() ? ['--objective', objective.trim()] : []),
-      '--json'
-    ], { timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
-    planningPacks.set(result.sessionId, {
-      repository: root,
-      contextPath: result.contextPath,
-      manifestPath: result.manifestPath,
-      scope,
-      id,
-      phase,
-      persona
-    });
-    await updatePlanningSessionRegistry(root, result.sessionId, {
-      scope,
-      id,
-      phase,
-      persona,
-      target,
-      objective: objective?.trim() || '',
-      contextPath: result.contextPath,
-      manifestPath: result.manifestPath,
-      status: 'context-ready',
-      createdAt: new Date().toISOString()
-    });
-    return result;
-  });
-  trustedHandle('planning:sessions', async (event, { repository }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    return readPlanningSessionRegistry(root);
-  });
-  trustedHandle('planning:resume', async (event, { repository, planningSessionId }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const entries = await readPlanningSessionRegistry(root);
-    const entry = entries.find((item) => item.sessionId === planningSessionId);
-    if (!entry) throw new Error(`No saved planning session '${planningSessionId}' exists for this repository.`);
-    const { loadPlanningPack } = await importCliModule('planning.mjs');
-    // Resuming restores a conversation; it writes nothing. A HEAD that has moved since makes the
-    // pack unpromotable, which the workspace already says with its rebuild banner — it is not a
-    // reason to lose the transcript.
-    const pack = await loadPlanningPack(root, planningSessionId, { requireCurrentHead: false });
-    const context = await readFile(pack.contextPath, 'utf8');
-    planningPacks.set(planningSessionId, {
-      repository: root,
-      contextPath: pack.contextPath,
-      manifestPath: pack.manifestPath,
-      scope: entry.scope ?? pack.manifest.scope,
-      id: entry.id ?? pack.manifest.id,
-      phase: entry.phase ?? pack.manifest.phase?.id,
-      persona: entry.persona ?? pack.manifest.persona?.id
-    });
-    // A stale session remains readable, but reconnecting it as writable would invite more work on
-    // context that promotion is guaranteed to reject. Rebuild first; the old transcript remains
-    // in the local journal and the saved context pack.
-    if (entry.status === 'active' && !pack.stale) await copilotBackend.attachPlanning(root, planningSessionId);
-    return {
-      sessionId: planningSessionId,
-      contextPath: pack.contextPath,
-      manifestPath: pack.manifestPath,
-      context,
-      manifest: pack.manifest,
-      phase: pack.manifest.phase,
-      target: pack.manifest.target,
-      outputs: pack.manifest.outputs ?? [],
-      warnings: pack.manifest.warnings ?? [],
-      headMoved: pack.headMoved,
-      changedSources: pack.changedSources,
-      stale: pack.stale,
-      savedStatus: pack.stale ? 'context-ready' : entry.status,
-      previousStatus: entry.status
-    };
-  });
   trustedHandle('initiative:restart', async (event, { repository, initiativeId, confirmation, reason = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -952,101 +735,6 @@ function registerHandlers() {
       { appendOnly: true }
     );
     return { checkId, sha256: appended.sha256, commit: publication.sha, pushed: publication.pushed };
-  });
-  trustedHandle('planning:start', async (event, { repository, planningSessionId, model }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const pack = planningPacks.get(planningSessionId);
-    if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
-    // The contract travels as content, not as a path. Plan mode declares fs.readTextFile: false and
-    // denies every session/requestPermission, so telling Copilot to "read the contract at <path>"
-    // asked it for something the client structurally forbids: the read was denied, and the turn ran
-    // with no contract, no pinned sources and no world model. The pack is already budgeted to
-    // maxContextBytes and already labels uploaded documents as source material rather than
-    // instructions, so it is built to be sent. Read-only Plan mode is unchanged.
-    const result = await copilotBackend.beginPlanning(root, planningSessionId, {
-      model: model?.trim() || null,
-      prompt: `${await readFile(pack.contextPath, 'utf8')}
-
----
-
-Follow the governed planning contract above. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
-    });
-    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active', model: result.model ?? model ?? null });
-    return result;
-  });
-  trustedHandle('planning:prompt', async (event, { repository, planningSessionId, text }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const result = copilotBackend.prompt(root, planningSessionId, text);
-    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active' });
-    return result;
-  });
-  trustedHandle('planning:answer', async (event, {
-    repository, planningSessionId, questionId, content, action
-  }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const response = await copilotBackend.answer(root, planningSessionId, questionId, { content, action });
-    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active' });
-    const pack = planningPacks.get(planningSessionId);
-    let governance = null;
-    if (
-      pack?.scope === 'initiative'
-      && ['epic-requirements', 'epic-planning'].includes(pack.phase)
-      && action !== 'dismiss'
-      && String(content ?? '').trim()
-    ) {
-      const [{ registerEpicTextSource }, { commitInitiativeChange }] = await Promise.all([
-        importCliModule('epic-sources.mjs'),
-        importCliModule('initiative-state.mjs')
-      ]);
-      const registered = await registerEpicTextSource(root, {
-        initiativeId: pack.id,
-        text: `# Copilot question\n\n${questionId}\n\n# Governed answer\n\n${String(content).trim()}`,
-        label: `Copilot question ${questionId}`,
-        kind: 'question-answer'
-      });
-      const publication = await commitInitiativeChange(
-        root,
-        registered.portfolio,
-        registered.initiative,
-        `[${pack.id}][epic:answer] ${registered.record.sourceId}`,
-        { appendOnly: true }
-      );
-      governance = { sourceId: registered.record.sourceId, publication };
-    }
-    return { ...response, governance };
-  });
-  trustedHandle('planning:interrupt', async (event, { repository, planningSessionId }) => {
-    assertTrustedSender(event);
-    return copilotBackend.interruptPlanning(assertRepository(repository), planningSessionId);
-  });
-  trustedHandle('planning:stop', async (event, { repository, planningSessionId }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const result = await copilotBackend.releasePlanning(root, planningSessionId);
-    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'context-ready' });
-    return result;
-  });
-  // `artifacts` promotes a whole phase-scoped set in one governed commit; `content` remains the
-  // single-artifact form for output-scoped sessions.
-  trustedHandle('planning:promote', async (event, { repository, planningSessionId, persona, content, artifacts = null }) => {
-    assertTrustedSender(event);
-    const root = assertRepository(repository);
-    const pack = planningPacks.get(planningSessionId);
-    if (!pack || pack.repository !== root) throw new Error('Planning context is not available for promotion.');
-    const result = await invokeCli(root, [
-      'desktop', 'planning-promote',
-      '--session', planningSessionId,
-      ...(persona ? ['--persona', persona] : []),
-      ...(artifacts ? ['--set'] : []),
-      '--json'
-    ], { input: artifacts ? JSON.stringify(artifacts) : content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
-    await copilotBackend.releasePlanning(root, planningSessionId);
-    planningPacks.delete(planningSessionId);
-    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'promoted' });
-    return result;
   });
   trustedHandle('initiative:materialize-preview', (_event, { repository, initiativeId }) => invokeCli(
     assertRepository(repository),
@@ -2338,9 +2026,5 @@ app.whenReady().then(() => {
   registerHandlers();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
-app.on('before-quit', () => {
-  void copilotBackend.stopAll();
-  planningPacks.clear();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

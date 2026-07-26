@@ -678,6 +678,22 @@ test('epic start requires world-model generation before requirements', async () 
   assert.match(source, /setWorldModelError/);
 });
 
+test('an Epic that already exists is opened from the wizard, not started again', async () => {
+  // Selecting an Epic that already had a branch called epic:start, which fails with "KAN-8 already
+  // exists. Use singularity-flow initiative resume KAN-8." — a CLI command the desktop has no way
+  // to run, printed as a raw IPC error. The resume path already existed as initiative:open; the
+  // wizard simply never offered it.
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const wizard = source.slice(source.indexOf('function EpicStartWizard('), source.indexOf('function InitiativeStudio('));
+  assert.match(wizard, /const startedEpics = new Map\(\(data\.initiatives \?\? \[\]\)\.map/);
+  // The start action is withheld, so the engine's refusal is never reached from here.
+  assert.match(wizard, /&& !alreadyStarted/);
+  assert.match(wizard, /alreadyStarted \? <button className="primary" onClick=\{\(\) => openEpic\(alreadyStarted\.id\)\}>Open \{alreadyStarted\.id\}<\/button>/);
+  // openEpic is declared in App, so it reaches the wizard as a prop or not at all.
+  assert.match(source, /function EpicStartWizard\(\{[^}]*\bopenEpic\b/);
+  for (const render of source.match(/<EpicStartWizard\b[^>]*\/>/g) ?? []) assert.match(render, /openEpic=\{openEpic\}/);
+});
+
 test('no DOM handler is bound bare to a function whose first argument crosses IPC', async () => {
   // `onClick={handler}` hands the handler a React SyntheticEvent. When that handler's first
   // parameter is a repository path or a file list rather than an event, the event travels to

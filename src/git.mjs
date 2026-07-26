@@ -133,6 +133,21 @@ export function remoteBranches(root, remote = 'origin') {
     .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== 'HEAD');
 }
 
+/**
+ * Local branch names, excluding the one checked out.
+ *
+ * An Epic whose branch exists only locally — because its push failed, or the remote is not
+ * reachable — is otherwise invisible from every other branch: not in the working tree, not on the
+ * remote, and so absent from the Epic list while `initiative start` still refuses to create it.
+ */
+export function localBranches(root) {
+  const prefix = 'refs/heads/';
+  const current = branch(root);
+  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root }).stdout
+    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+    .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== current);
+}
+
 export function fileAtRef(root, ref, file) {
   const result = git(['show', `${ref}:${file}`], { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout : null;

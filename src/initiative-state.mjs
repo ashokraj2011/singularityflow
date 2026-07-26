@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { add, branch, commit, fileAtRef, head, identity, pushBranch, remoteBranches } from './git.mjs';
+import { add, branch, commit, fileAtRef, head, identity, localBranches, pushBranch, remoteBranches } from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
   validatePortfolioWorldModelViews
@@ -583,20 +583,29 @@ export async function listInitiatives(root, portfolio = null) {
     }
   }
   const remote = definition.git?.remote ?? 'origin';
-  for (const name of remoteBranches(root, remote)) {
+  // Local branches as well as remote ones. An Epic whose push failed exists on exactly one branch
+  // and nowhere else, so from any other branch it vanished from this list entirely — while
+  // `initiative start` still refused to create it, leaving the Epic unreachable from the app.
+  // Remote first, so a branch that exists in both places is reported as the shared copy it is;
+  // a local branch only wins when its state is strictly newer, or when there is no remote one.
+  const branches = [
+    ...remoteBranches(root, remote).map((name) => ({ name, ref: `${remote}/${name}`, source: `${remote}/${name}` })),
+    ...localBranches(root).map((name) => ({ name, ref: name, source: `local/${name}` }))
+  ];
+  for (const { name, ref, source } of branches) {
     try { validateInitiativeId(name); } catch { continue; }
     const statePath = posix(path.join(definition.initiativeRoot, name, 'state.json'));
-    const content = fileAtRef(root, `${remote}/${name}`, statePath);
+    const content = fileAtRef(root, ref, statePath);
     if (!content) continue;
     try {
       const state = JSON.parse(content);
       if (state.initiative?.id !== name || state.initiative?.branch !== name) continue;
-      const candidate = summarize(state, name, `${remote}/${name}`);
+      const candidate = summarize(state, name, source);
       const current = results.get(name);
       if (!current || String(candidate.updatedAt ?? '') > String(current.updatedAt ?? '')) results.set(name, candidate);
     } catch {
-      // Invalid remote branches are surfaced only when selected; one malformed
-      // branch must not hide healthy Epics from the business home.
+      // Invalid branches are surfaced only when selected; one malformed branch must not hide
+      // healthy Epics from the business home.
     }
   }
   return [...results.values()].sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));

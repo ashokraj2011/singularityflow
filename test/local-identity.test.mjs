@@ -116,3 +116,41 @@ test('Epic home discovers committed initiative state from remote branches', asyn
   assert.equal(items[0].percentage, 50);
   assert.equal(items[0].source, 'origin/SF-E-001');
 });
+
+test('an Epic whose branch was never pushed is still listed from another branch', async () => {
+  // The Epic list read the working tree and the remote, so an Epic whose push failed existed on
+  // exactly one local branch and nowhere the app could see it. From main it was invisible, while
+  // `initiative start` still refused to create it — the Epic was unreachable from the desktop,
+  // which reported "use singularity-flow initiative resume" for a command it cannot run.
+  const root = await repository();
+  run('git', ['switch', '-c', 'SF-E-002'], { cwd: root });
+  const directory = path.join(root, 'singularity/initiatives/SF-E-002');
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'state.json'), JSON.stringify({
+    initiative: {
+      id: 'SF-E-002',
+      branch: 'SF-E-002',
+      title: 'Unpushed business Epic',
+      profile: 'epic-planning',
+      profileLabel: 'Epic planning',
+      createdAt: '2026-07-25T00:00:00.000Z'
+    },
+    lineage: { idAuthority: 'local', primaryId: 'SF-E-002', aliases: [] },
+    phaseOrder: ['epic-intake', 'epic-requirements'],
+    phases: {
+      'epic-intake': { id: 'epic-intake', label: 'Epic intake', status: 'approved' },
+      'epic-requirements': { id: 'epic-requirements', label: 'Requirements', status: 'in_progress' }
+    },
+    currentPhase: 'epic-requirements',
+    status: 'in_progress',
+    history: [{ at: '2026-07-25T01:00:00.000Z', actor: 'owner@example.com', event: 'initiative_started' }]
+  }));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Start SF-E-002'], { cwd: root });
+  run('git', ['switch', 'main'], { cwd: root });
+
+  const items = await listInitiatives(root, policy('required'));
+  assert.deepEqual(items.map((item) => item.id), ['SF-E-002']);
+  assert.equal(items[0].source, 'local/SF-E-002');
+  assert.equal(items[0].currentPhaseLabel, 'Requirements');
+});

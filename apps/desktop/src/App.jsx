@@ -5195,20 +5195,91 @@ function Templates({ data, editor, setEditor, chooseTemplate, saveEditor, create
   </div>;
 }
 
-function Resources({ data, editor, setEditor, chooseResource, saveEditor, createSkill, deleteFile, downloadFile, importResource, materializeWorldModelPrompt, materializePlanningPrompt }) {
-  const [category, setCategory] = useState(editor.kind === 'skill' ? 'skills' : 'prompts');
+function Resources({ data, editor, setEditor, chooseResource, saveEditor, createSkill, customizeFlowSkill, deleteFile, downloadFile, importResource, materializeWorldModelPrompt, materializePlanningPrompt }) {
+  const [category, setCategory] = useState(editor.kind === 'flow-skill' ? 'flow' : editor.kind === 'skill' ? 'repository' : 'prompts');
+  const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
   const promptFiles = [
     ...data.personaPrompts,
     { ...data.worldModelPrompt, name: `world-model/${data.worldModelPrompt.name}`, worldModelBuilder: true },
     { ...data.planning.prompt, name: `planning/${data.planning.prompt.name}`, planningPrompt: true }
   ];
-  const files = category === 'skills' ? data.repositorySkills : promptFiles;
+  const flowSkills = data.flowSkills ?? [];
+  const repositorySkills = data.repositorySkills ?? [];
+  const sourceFiles = category === 'flow' ? flowSkills : category === 'repository' ? repositorySkills : promptFiles;
+  const normalizedQuery = query.trim().toLowerCase();
+  const files = sourceFiles.filter((file) => !normalizedQuery || `${file.id ?? ''} ${file.name} ${file.description ?? ''} ${file.content}`.toLowerCase().includes(normalizedQuery));
   const current = files.find((file) => file.path === editor.path) ?? files[0];
-  useEffect(() => { if (current && editor.path !== current.path) chooseResource(current, category === 'skills' ? 'skill' : 'prompt'); }, [category]);
+  const isFlowSkill = category === 'flow';
+  const isRepositorySkill = category === 'repository';
+  const override = isFlowSkill && current ? repositorySkills.find((file) => file.path === current.repositoryPath) : null;
+  const flowOrigin = isRepositorySkill && current ? flowSkills.find((skill) => skill.repositoryPath === current.path) : null;
+  useEffect(() => {
+    if (!current || editor.path === current.path) return;
+    chooseResource(current, isFlowSkill ? 'flow-skill' : isRepositorySkill ? 'skill' : 'prompt');
+  }, [category, query, current?.path]);
   async function submitSkill() { const result = await createSkill(modal.id.trim()); if (result) setModal(null); }
-  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Repository Markdown</span><h2>Prompts & skills</h2></div><button className="icon-button" title={category === 'skills' ? 'Create skill' : 'Import prompt'} onClick={() => category === 'skills' ? setModal({ kind: 'skill', id: '', error: null }) : importResource('prompt')}>＋</button></div><div className="segmented resource-tabs"><button className={category === 'prompts' ? 'active' : ''} onClick={() => setCategory('prompts')}>Prompts</button><button className={category === 'skills' ? 'active' : ''} onClick={() => setCategory('skills')}>Skills</button></div></header>{files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => chooseResource(file, category === 'skills' ? 'skill' : 'prompt')}><span>{category === 'skills' ? 'SK' : 'PR'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.planningPrompt ? 'Copilot planning contract' : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : category === 'skills' ? 'repository skill' : 'persona prompt'}</small></div></button>)}</aside>
-    <main className="template-main">{current ? <><div className="resource-summary"><div><Pill tone="accent">{current.worldModelBuilder ? 'Builder prompt' : current.planningPrompt ? 'Planning contract' : category === 'skills' ? 'Repository skill' : 'Persona prompt'}</Pill><span>{current.worldModelBuilder ? 'Controls repository world-model generation.' : current.planningPrompt ? 'Controls phase-aware Copilot Plan-mode behavior and promotion output.' : category === 'skills' ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span></div><div className="row"><button className="ghost compact" onClick={() => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : category === 'skills' ? 'skill' : 'prompt')}>Import</button>{!current.missing && <button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>}{category === 'skills' && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}{current.worldModelBuilder && current.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}{current.planningPrompt && current.missing && <button className="primary compact" onClick={() => materializePlanningPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}</div></div><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={editor.path === current.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: current.path, content, original: current.content, kind: category === 'skills' ? 'skill' : 'prompt' })} onSave={current.worldModelBuilder && current.missing ? () => materializeWorldModelPrompt(editor.content) : current.planningPrompt && current.missing ? () => materializePlanningPrompt(editor.content) : saveEditor} onDownload={current.missing ? null : () => downloadFile(current.path)} onImport={() => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : category === 'skills' ? 'skill' : 'prompt')} /></> : <Empty title={category === 'skills' ? 'No repository skills yet' : 'No prompts found'} detail={category === 'skills' ? 'Create or import Markdown skills under .github/skills.' : 'Persona, world-model, and planning prompts live in the repository.'} action={category === 'skills' && <button className="primary" onClick={() => setModal({ kind: 'skill', id: '', error: null })}>Create first skill</button>} />}</main>
+  return <div className="template-layout skill-library-layout">
+    <aside className="file-list skill-library-list">
+      <header>
+        <div className="row-between"><div><span className="eyebrow">Copilot instruction library</span><h2>Prompts &amp; skills</h2></div>{category !== 'flow' && <button className="icon-button" title={isRepositorySkill ? 'Create repository skill' : 'Import prompt'} onClick={() => isRepositorySkill ? setModal({ kind: 'skill', id: '', error: null }) : importResource('prompt')}>＋</button>}</div>
+        <div className="segmented resource-tabs skill-scope-tabs">
+          <button className={category === 'prompts' ? 'active' : ''} onClick={() => setCategory('prompts')}>Prompts <span>{promptFiles.length}</span></button>
+          <button className={category === 'flow' ? 'active' : ''} onClick={() => setCategory('flow')}>Flow skills <span>{flowSkills.length}</span></button>
+          <button className={category === 'repository' ? 'active' : ''} onClick={() => setCategory('repository')}>Repository <span>{repositorySkills.length}</span></button>
+        </div>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={category === 'flow' ? 'Search /sflow commands…' : 'Search Markdown…'} />
+      </header>
+      {files.map((file) => {
+        const customized = category === 'flow' && repositorySkills.some((item) => item.path === file.repositoryPath);
+        const overridesFlow = category === 'repository' && flowSkills.some((item) => item.repositoryPath === file.path);
+        return <button key={file.path} className={current?.path === file.path ? 'active skill-library-item' : 'skill-library-item'} onClick={() => chooseResource(file, isFlowSkill ? 'flow-skill' : isRepositorySkill ? 'skill' : 'prompt')}>
+          <span>{category === 'prompts' ? 'PR' : 'SK'}</span>
+          <div><strong>{file.id ?? (file.name.endsWith('/SKILL.md') ? file.name.split('/')[0] : file.name.split('/').at(-1))}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.planningPrompt ? 'Copilot planning contract' : customized ? 'repository customization active' : overridesFlow ? 'overrides bundled Flow skill' : isFlowSkill ? file.command : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : isRepositorySkill ? 'repository skill' : 'persona prompt'}</small></div>
+          {(customized || overridesFlow) && <em>Customized</em>}
+        </button>;
+      })}
+      {!files.length && <div className="inline-empty">{normalizedQuery ? 'No skills match this search.' : isRepositorySkill ? 'No repository skills yet.' : 'No resources found.'}</div>}
+    </aside>
+    <main className="template-main skill-library-main">{current ? <>
+      <div className="resource-summary skill-resource-summary">
+        <div>
+          <div className="row"><Pill tone={isFlowSkill ? 'accent' : isRepositorySkill ? 'good' : 'neutral'}>{isFlowSkill ? 'Bundled Flow skill' : flowOrigin ? 'Repository override' : isRepositorySkill ? 'Repository skill' : current.worldModelBuilder ? 'Builder prompt' : current.planningPrompt ? 'Planning contract' : 'Persona prompt'}</Pill>{isFlowSkill && <code>{current.command}</code>}</div>
+          <strong>{isFlowSkill ? current.id : flowOrigin?.id ?? current.name.split('/').at(-1)}</strong>
+          <span>{isFlowSkill ? current.description : flowOrigin ? `This project copy takes precedence over the bundled ${flowOrigin.command} skill.` : current.worldModelBuilder ? 'Controls repository world-model generation.' : current.planningPrompt ? 'Controls phase-aware Copilot Plan-mode behavior and promotion output.' : isRepositorySkill ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span>
+          {isFlowSkill && current.argumentHint && <small>Usage: <code>{current.command} {current.argumentHint}</code></small>}
+        </div>
+        <div className="row">
+          {isFlowSkill && <button className="ghost compact" onClick={() => copyText(current.command)}>Copy command</button>}
+          {isFlowSkill && <button className={override ? 'secondary compact' : 'primary compact'} onClick={async () => {
+            if (override) {
+              setCategory('repository');
+              chooseResource(override, 'skill');
+              return;
+            }
+            const customized = await customizeFlowSkill(current);
+            if (customized) setCategory('repository');
+          }}>{override ? 'Edit repository customization' : 'Customize for this repository'}</button>}
+          {!isFlowSkill && <button className="ghost compact" onClick={() => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : isRepositorySkill ? 'skill' : 'prompt')}>Import</button>}
+          {!isFlowSkill && !current.missing && <button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>}
+          {isRepositorySkill && <button className="ghost compact danger-text" onClick={() => deleteFile(current)}>Delete</button>}
+          {current.worldModelBuilder && current.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}
+          {current.planningPrompt && current.missing && <button className="primary compact" onClick={() => materializePlanningPrompt(editor.path === current.path ? editor.content : current.content)}>Create repository copy</button>}
+        </div>
+      </div>
+      {isFlowSkill && <div className="skill-precedence-note"><span>Protected product source</span><p>The installed plugin is read-only. A repository customization with the same skill name is committed under <code>{current.repositoryPath}</code> and takes precedence in Copilot for this project.</p></div>}
+      <SourceEditor
+        path={current.path}
+        value={editor.path === current.path ? editor.content : current.content}
+        dirty={editor.path === current.path && editor.content !== editor.original}
+        readOnly={isFlowSkill}
+        onChange={(content) => setEditor({ path: current.path, content, original: current.content, kind: isRepositorySkill ? 'skill' : 'prompt' })}
+        onSave={current.worldModelBuilder && current.missing ? () => materializeWorldModelPrompt(editor.content) : current.planningPrompt && current.missing ? () => materializePlanningPrompt(editor.content) : saveEditor}
+        onDownload={!isFlowSkill && !current.missing ? () => downloadFile(current.path) : null}
+        onImport={!isFlowSkill ? () => importResource(current.worldModelBuilder ? 'world-prompt' : current.planningPrompt ? 'planner-prompt' : isRepositorySkill ? 'skill' : 'prompt') : null}
+        height={isFlowSkill ? 'calc(100vh - 365px)' : 'calc(100vh - 315px)'}
+      />
+    </> : <Empty title={isRepositorySkill ? 'No repository skills yet' : 'No resources found'} detail={isRepositorySkill ? 'Create a new project skill or customize one of the bundled Flow skills.' : 'Clear the search to see available Markdown.'} action={isRepositorySkill && <button className="primary" onClick={() => setModal({ kind: 'skill', id: '', error: null })}>Create first skill</button>} />}</main>
     {modal?.kind === 'skill' && <DesignerModal title="Create repository skill" detail="The skill is stored as .github/skills/<id>/SKILL.md and is loaded by Copilot for this repository." submitLabel="Create skill" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitSkill}><label><span>Skill ID</span><input autoFocus value={modal.id} placeholder="security-review" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
@@ -5832,8 +5903,8 @@ export default function App() {
   function chooseResource(file, kind) { setEditor({ path: file.path, content: file.content, original: file.content, kind }); }
   function resourcesPage() {
     setPage('resources');
-    const file = data.personaPrompts[0] ?? data.worldModelPrompt ?? data.repositorySkills[0];
-    if (file) chooseResource(file, data.repositorySkills.includes(file) ? 'skill' : 'prompt');
+    const file = data.personaPrompts[0] ?? data.worldModelPrompt ?? data.flowSkills?.[0] ?? data.repositorySkills[0];
+    if (file) chooseResource(file, data.repositorySkills.includes(file) ? 'skill' : data.flowSkills?.includes(file) ? 'flow-skill' : 'prompt');
   }
   async function importResource(kind) {
     const options = kind === 'skill'
@@ -5870,6 +5941,26 @@ export default function App() {
     const file = snapshot?.repositorySkills.find((item) => item.path === skillPath);
     if (file) chooseResource(file, 'skill');
     return result;
+  }
+  async function customizeFlowSkill(skill) {
+    if (!skill?.id || !skill?.content) return null;
+    let skillPath;
+    try { skillPath = repositorySkillPath(skill.id); }
+    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
+    const existing = data.repositorySkills.find((item) => item.path === skillPath);
+    if (existing) {
+      chooseResource(existing, 'skill');
+      return existing;
+    }
+    const result = await action(
+      () => window.singularity.saveFile(data.repository.root, skillPath, skill.content),
+      `${skill.command} is now customized for this repository`
+    );
+    if (!result) return null;
+    const snapshot = await reload();
+    const file = snapshot?.repositorySkills.find((item) => item.path === skillPath);
+    if (file) chooseResource(file, 'skill');
+    return file ?? result;
   }
   async function deleteFile(file) {
     if (!file?.path) return null;
@@ -6048,7 +6139,7 @@ export default function App() {
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
         ? <EpicPlanningCliPage downloadFile={downloadFile} data={data} action={action} reload={reload} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} downloadFile={downloadFile} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} downloadFile={downloadFile} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && (data.initiative ? <InitiativeDocuments data={data} downloadFile={downloadFile} /> : <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />)}{page === 'help' && <Help />}</div></div>
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} downloadFile={downloadFile} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} downloadFile={downloadFile} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} customizeFlowSkill={customizeFlowSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && (data.initiative ? <InitiativeDocuments data={data} downloadFile={downloadFile} /> : <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />)}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

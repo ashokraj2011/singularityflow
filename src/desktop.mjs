@@ -93,6 +93,46 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
   return output.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function skillFrontmatter(content, fallbackId) {
+  const match = String(content).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return { name: fallbackId, description: '', argumentHint: null };
+  try {
+    const metadata = YAML.parse(match[1]) ?? {};
+    return {
+      name: String(metadata.name ?? fallbackId),
+      description: String(metadata.description ?? ''),
+      argumentHint: metadata['argument-hint'] == null ? null : String(metadata['argument-hint'])
+    };
+  } catch {
+    return { name: fallbackId, description: '', argumentHint: null };
+  }
+}
+
+async function bundledFlowSkills() {
+  const skillsRoot = path.join(packageRoot, 'plugin', 'skills');
+  const entries = (await readdir(skillsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'));
+  const output = await Promise.all(entries.map(async (entry) => {
+    const skillPath = path.join(skillsRoot, entry.name, 'SKILL.md');
+    const content = await readFile(skillPath, 'utf8');
+    const metadata = skillFrontmatter(content, entry.name);
+    return {
+      id: metadata.name,
+      name: metadata.name,
+      description: metadata.description,
+      argumentHint: metadata.argumentHint,
+      command: `/${metadata.name}`,
+      path: `plugin/skills/${entry.name}/SKILL.md`,
+      repositoryPath: `${REPOSITORY_SKILLS_ROOT}/${metadata.name}/SKILL.md`,
+      content,
+      bytes: Buffer.byteLength(content),
+      scope: 'flow',
+      readOnly: true
+    };
+  }));
+  return output.sort((left, right) => left.id.localeCompare(right.id));
+}
+
 async function worldModelPrompt(root, definition) {
   const configured = definition.worldModel?.promptSource ?? DEFAULT_WORLD_MODEL_PROMPT;
   const builtin = configured === 'builtin';
@@ -330,6 +370,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
+    flowSkills: await bundledFlowSkills(),
     planning: {
       ...await planningTargetCatalog(root, { workId: selectedId, initiativeId: selectedInitiativeId }),
       config: normalizePlanning(definition.planning ?? {}),

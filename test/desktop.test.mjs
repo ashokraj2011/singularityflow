@@ -87,6 +87,16 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.match(snapshot.planning.prompt.content, /Stay in Copilot Plan mode/);
   assert.deepEqual(snapshot.planning.targets, []);
   assert.deepEqual(snapshot.repositorySkills, []);
+  assert.ok(snapshot.flowSkills.length > 50);
+  assert.deepEqual(
+    Object.keys(snapshot.flowSkills[0]).sort(),
+    ['argumentHint', 'bytes', 'command', 'content', 'description', 'id', 'name', 'path', 'readOnly', 'repositoryPath', 'scope'].sort()
+  );
+  const startSkill = snapshot.flowSkills.find((item) => item.id === 'sflow-start');
+  assert.equal(startSkill.command, '/sflow-start');
+  assert.equal(startSkill.repositoryPath, '.github/skills/sflow-start/SKILL.md');
+  assert.equal(startSkill.readOnly, true);
+  assert.match(startSkill.description, /workflow template and persona/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
@@ -325,6 +335,11 @@ test('desktop manages repository prompts and skills and exports portable YAML an
 
   const snapshot = await desktopSnapshot(root);
   assert.ok(snapshot.repositorySkills.some((item) => item.path === skillPath));
+  const bundled = snapshot.flowSkills.find((item) => item.id === 'sflow-status');
+  await saveDesktopFile(root, bundled.repositoryPath, `${bundled.content}\n<!-- Repository customization -->\n`);
+  const customized = await desktopSnapshot(root);
+  assert.ok(customized.repositorySkills.some((item) => item.path === bundled.repositoryPath));
+  assert.equal(customized.flowSkills.find((item) => item.id === 'sflow-status').readOnly, true);
   const bundle = await desktopExportBundle(root);
   assert.equal(bundle.worldModelRepositoryOwned, true);
   assert.ok(bundle.files.some((item) => item.path === 'singularity/workflow.yml'));

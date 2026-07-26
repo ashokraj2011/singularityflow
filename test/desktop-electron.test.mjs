@@ -220,6 +220,15 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Create artifact template/);
   assert.match(source, /Create persona and prompt/);
   assert.match(source, /Create repository skill/);
+  assert.match(source, /Flow skills <span>\{flowSkills\.length\}<\/span>/);
+  assert.match(source, /Customize for this repository/);
+  assert.match(source, /Edit repository customization/);
+  assert.match(source, /Protected product source/);
+  assert.match(source, /This project copy takes precedence over the bundled/);
+  assert.match(source, /async function customizeFlowSkill/);
+  assert.match(source, /customizeFlowSkill=\{customizeFlowSkill\}/);
+  assert.match(styles, /\.skill-library-layout/);
+  assert.match(styles, /\.skill-precedence-note/);
   assert.match(source, /Repository-owned world model/);
   assert.match(source, /Editable builder prompt/);
   assert.match(source, /World-model views/);

@@ -694,6 +694,61 @@ Non-dry-run composition writes both a JSON provenance record and the exact rende
 
 Agents under `.github/agents`, `.claude/agents`, or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. No URLs ship in the bundled agent, and local-only repositories perform no network access.
 
+### Configure a repository agent
+
+Create an agent Markdown file in the lead repository. For a Copilot-oriented
+agent, use `.github/agents/<agent-id>.agent.md`; `.claude/agents/<agent-id>.md`
+is also discovered. Agent and dependency IDs must use lower-case kebab-case.
+
+For example, create `.github/agents/architecture.agent.md`:
+
+```markdown
+---
+name: architecture
+description: Architecture agent with governed remote Markdown dependencies.
+---
+
+# Architecture agent
+
+Review requirements, architecture, security, operability, and implementation
+boundaries.
+
+## Remote skills
+
+| ID | URL | Phases | Personas | Optional | Max bytes |
+|---|---|---|---|---|---|
+| secure-design | https://example.com/agents/secure-design.md | design,implementation-spec | architect | false | 262144 |
+| api-review | https://example.com/agents/api-review.md | design | architect,developer | true | 262144 |
+
+## Remote artifact templates
+
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| design-template | https://example.com/templates/design.md | design | false | 262144 |
+
+## Remote generated artifacts
+
+| ID | URL template | Phase | Target | Optional | Max bytes |
+|---|---|---|---|---|---|
+| threat-model | https://example.com/output/{workId}/{generation}/threat-model.md | design | artifacts/design/threat-model.md | true | 1048576 |
+```
+
+The headings, column names, and column order are exact. Use comma-separated
+phase and persona IDs; `*`, `-`, or an empty value means all. `Optional` accepts
+`true` or `false`. The default size limit is 1 MiB and the hard ceiling is
+10 MiB.
+
+Remote resources must be non-empty UTF-8 Markdown available through public
+HTTPS without embedded credentials, cookies, or authorization headers.
+Generated-output URLs may use only the URL-encoded `{workId}`, `{workType}`,
+`{phase}`, and `{generation}` variables. Their targets must be Markdown paths
+under the declared phase's `artifacts/<phase>/` directory. Links outside these
+three dependency tables are treated as ordinary prose and never fetched.
+
+### Trust and activate the agent
+
+Run these commands from the repository root:
+
 ```bash
 singularity-flow agents list
 singularity-flow agents lock architecture
@@ -701,7 +756,70 @@ singularity-flow agents sync architecture
 singularity-flow agents status architecture
 ```
 
-First trust and updates require exact agent-name confirmation. `singularity/agents.lock.yml` pins hashes; sync only verifies and caches them. Remote skills are scoped prompt context, remote templates require an explicit `agent:<agent>/<resource>` workflow reference, and generated Markdown stays under the current phase artifact directory. See [HELP.md](HELP.md#remote-agent-markdown) for table schemas and refresh behavior.
+The first lock operation displays the agent source and dependency hashes and
+requires typing the exact agent name. It writes `singularity/agents.lock.yml`.
+Review, commit, and push that file so every contributor uses the same trusted
+content.
+
+`agents sync` never changes trust. It verifies the committed lock, caches the
+Markdown atomically under `.git/singularity-flow/`, and makes the agent active
+for the local session without changing the selected persona. Matching remote
+skills are then added to the normal prompt composition:
+
+```text
+phase contract and template
++ selected persona prompt
++ repository world model
++ active-agent remote skill Markdown
++ approved phase inputs
+```
+
+Remote skills are agent-scoped prompt context; they do not become global slash
+commands.
+
+### Use a remote artifact template
+
+A remote template replaces a workflow template only through an explicit
+reference in `singularity/workflow.yml`:
+
+```yaml
+workTypes:
+  feature:
+    templateOverrides:
+      design: agent:architecture/design-template
+```
+
+When a work item uses the template, Singularity Flow copies it into committed
+work-item context and pins its hash in workflow resolution. Later URL changes
+therefore cannot silently alter active work.
+
+### Update or refresh remote content
+
+Agent-file or dependency changes require a deliberate lock update:
+
+```bash
+singularity-flow agents lock architecture --update
+singularity-flow agents sync architecture
+singularity-flow agents status architecture
+```
+
+Inspect the old and new hashes, type the exact agent name, and commit and push
+the updated `singularity/agents.lock.yml`.
+
+Dynamic generated output is fetched once for the prospective generation and
+then reused. Refresh it deliberately when its remote result changes:
+
+```bash
+singularity-flow agents refresh-output threat-model
+# Use --replace only when intentionally discarding local edits.
+singularity-flow agents refresh-output threat-model --replace
+```
+
+The desktop **Agents & remote Markdown** page can edit repository agent
+Markdown and display lock status. Lock creation and updates remain explicit CLI
+trust operations. Authenticated private Git, Artifactory, cookie, and bearer
+token downloads are not supported in this delivery. See
+[HELP.md](HELP.md#remote-agent-markdown) for lifecycle and integrity details.
 
 ## Useful commands
 

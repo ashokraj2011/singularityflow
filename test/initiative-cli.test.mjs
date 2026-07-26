@@ -134,3 +134,55 @@ test('initiative CLI remains inert when portfolio configuration is absent', asyn
   assert.match(result.stderr, /No singularity\/portfolio\.yml exists/);
   assert.equal(git(root, ['status', '--short']), '');
 });
+
+test('an Epic chooses which of its phase optional outputs it will produce', async () => {
+  // A profile describes a delivery model, not one Epic. discover-define pins a requirement document
+  // plus three long-form business artifacts; carrying all four on every Epic is ceremony, and there
+  // was no way to say so — the phase could not be approved until every one of them existed.
+  const root = await repository();
+  const started = spawnSync(process.execPath, [bin, 'initiative', 'start', 'INIT-OUT', '--title', 'Output selection'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: actor,
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+      SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' })
+    }
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const stateFile = path.join(root, 'singularity/initiatives/INIT-OUT/state.json');
+  const read = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  const before = await read();
+  assert.equal(before.currentPhase, 'discover-define');
+  const outputs = before.resolution.phases.find((phase) => phase.id === 'discover-define').outputs;
+  assert.deepEqual(outputs.filter((output) => output.required !== false).map((output) => output.id), ['requirements']);
+  assert.deepEqual(outputs.filter((output) => output.required === false).map((output) => output.id), ['business-case', 'opportunity-brief', 'product-roadmap']);
+
+  const listed = execute(root, ['initiative', 'outputs', 'discover-define']);
+  assert.match(listed.stdout, /\[x\] requirements/);
+  assert.match(listed.stdout, /\[ \] business-case/);
+
+  // Governance cannot be narrowed away: the required document stays.
+  const refused = execute(root, ['initiative', 'outputs', 'discover-define', '--include', 'business-case'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}${refused.stderr}`, /'requirements' is required by profile 'enterprise-delivery'/);
+
+  // Ceremony can: this Epic takes the requirement document and a business case, nothing else.
+  const chosen = execute(root, ['initiative', 'outputs', 'discover-define', '--include', 'requirements,business-case', '--reason', 'Small change; the roadmap adds nothing.']);
+  assert.match(chosen.stdout, /discover-define will produce requirements, business-case/);
+
+  const after = await read();
+  assert.deepEqual(after.phases['discover-define'].outputSelection.included, ['requirements', 'business-case']);
+  const event = after.history.at(-1);
+  assert.equal(event.event, 'initiative_outputs_selected');
+  assert.match(event.detail, /→ requirements, business-case/);
+  assert.match(event.detail, /Small change/);
+  assert.ok(event.actor, 'the change records who made it');
+
+  // And the phase now asks for two documents rather than four.
+  const status = execute(root, ['initiative', 'status']);
+  assert.doesNotMatch(status.stdout, /product-roadmap/);
+});

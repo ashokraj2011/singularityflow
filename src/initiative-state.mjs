@@ -418,6 +418,98 @@ export async function verifyInitiativePhaseInputs(root, portfolio, initiative, p
   return verified;
 }
 
+/**
+ * Every output this phase could produce: the ones pinned when the Epic started, plus any the
+ * profile has gained since. An Epic that started before an output existed can adopt it; one that
+ * started with an output keeps it on offer even if the profile has since dropped it, because work
+ * already authored against it must stay describable.
+ */
+export function availableInitiativeOutputs(portfolio, initiative, phaseId) {
+  const pinned = initiative.resolution.phases.find((item) => item.id === phaseId)?.outputs ?? [];
+  const configured = resolveInitiativeProfile(portfolio, initiative.resolution.profile)
+    ?.phases.find((item) => item.id === phaseId)?.outputs ?? [];
+  const byId = new Map(pinned.map((output) => [output.id, { ...output, pinned: true }]));
+  for (const output of configured) if (!byId.has(output.id)) byId.set(output.id, { ...output, pinned: false });
+  return [...byId.values()];
+}
+
+/**
+ * Record which of a phase's outputs this Epic will produce.
+ *
+ * The pinned resolution is what makes an Epic reproducible, so this is the one sanctioned way to
+ * move it, and it is written down: who, when, why, and the set before and after. Three things it
+ * will not do — touch an approved phase, drop an output the profile requires, or drop one that
+ * already has content — because each of those would make committed work unexplainable.
+ *
+ * Adopting an output the Epic never pinned brings its template hash with it, so the adopted output
+ * is governed on exactly the same terms as one pinned at the start.
+ */
+export async function selectInitiativePhaseOutputs(root, id, phaseId, includedIds, { reason = null, persona = null } = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, id);
+  const phase = initiative.phases[phaseId];
+  if (!phase) throw new SingularityFlowError(`Initiative '${id}' has no phase '${phaseId}'.`);
+  if (phase.status === 'approved') throw new SingularityFlowError(`Phase '${phaseId}' is approved; its outputs can no longer be changed.`);
+
+  const available = availableInitiativeOutputs(portfolio, initiative, phaseId);
+  const availableById = new Map(available.map((output) => [output.id, output]));
+  const requested = [...new Set(includedIds ?? [])];
+  const unknown = requested.filter((outputId) => !availableById.has(outputId));
+  if (unknown.length) throw new SingularityFlowError(`Phase '${phaseId}' has no output ${unknown.map((value) => `'${value}'`).join(', ')}. Available: ${available.map((output) => output.id).join(', ')}.`);
+
+  const mandatory = available.filter((output) => output.required !== false).map((output) => output.id);
+  const dropped = mandatory.filter((outputId) => !requested.includes(outputId));
+  if (dropped.length) throw new SingularityFlowError(`${dropped.map((value) => `'${value}'`).join(', ')} ${dropped.length === 1 ? 'is' : 'are'} required by profile '${initiative.resolution.profile}' and cannot be removed from this Epic.`);
+
+  const authored = Object.values(phase.outputs ?? {}).filter((output) => output.sha256 && !requested.includes(output.id)).map((output) => output.id);
+  if (authored.length) throw new SingularityFlowError(`${authored.map((value) => `'${value}'`).join(', ')} already ${authored.length === 1 ? 'has' : 'have'} content in this Epic. Remove the file through a governed change before dropping the output.`);
+
+  const before = Object.keys(phase.outputs ?? {}).filter((outputId) => initiativeOutputRequired(initiative, phaseId, availableById.get(outputId) ?? { id: outputId }));
+  const phaseDefinition = initiative.resolution.phases.find((item) => item.id === phaseId);
+  const adopted = [];
+  for (const outputId of requested) {
+    const definition = availableById.get(outputId);
+    if (!phaseDefinition.outputs.some((output) => output.id === outputId)) {
+      const { pinned, ...pinnedDefinition } = definition;
+      phaseDefinition.outputs.push(pinnedDefinition);
+      if (definition.template) {
+        const template = await secureRepositoryPath(root, path.join(portfolio.templatesRoot, definition.template), {
+          label: `Initiative template for '${phaseId}/${outputId}'`,
+          mustExist: true,
+          type: 'file'
+        });
+        initiative.resolution.templates[outputKey(phaseId, outputId)] = { path: template.relative, ...(await snapshot(template.absolute)) };
+      }
+      adopted.push(outputId);
+    }
+    phase.outputs[outputId] ??= {
+      id: outputId,
+      label: definition.label,
+      kind: definition.kind,
+      path: posix(path.join('artifacts', phaseId, definition.path)),
+      required: definition.required !== false,
+      status: 'not_generated',
+      generation: 0,
+      sha256: null,
+      bytes: 0,
+      generatedBy: null,
+      generatedPersona: null
+    };
+  }
+
+  const actor = identity(root);
+  phase.outputSelection = { included: requested, updatedAt: nowIso(), actor: actorKey(actor), reason: reason ?? null };
+  initiative.history.push({
+    at: nowIso(),
+    actor: actorKey(actor),
+    persona,
+    event: 'initiative_outputs_selected',
+    phase: phaseId,
+    detail: `${before.join(', ') || 'none'} → ${requested.join(', ') || 'none'}${adopted.length ? ` (adopted ${adopted.join(', ')})` : ''}${reason ? `: ${reason}` : ''}`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, phaseId, included: requested, adopted, before };
+}
+
 export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { persona = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phaseId = requestedPhase ?? initiative.currentPhase;

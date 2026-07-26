@@ -94,7 +94,8 @@ import {
 import { loadPortfolio } from './initiative-config.mjs';
 import {
   commitInitiativeChange, createInitiative, initiativeProgress, listInitiatives,
-  loadInitiative, prepareInitiativePhase, secureInitiativePath, syncInitiativePublication, validateInitiativeId
+  availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, secureInitiativePath,
+  selectInitiativePhaseOutputs, syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
 import {
   approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
@@ -113,6 +114,7 @@ import {
   deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
 } from './initiative-report.mjs';
 import { epicJourney } from './initiative-next.mjs';
+import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
@@ -250,6 +252,7 @@ Usage:
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
+  singularity-flow initiative outputs [PHASE] [--include a,b,c] [--reason TEXT]
   singularity-flow initiative phase [publish] [PHASE]
   singularity-flow initiative context [PHASE] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
@@ -1763,6 +1766,29 @@ async function initiativeCommand(positionals, options) {
       console.log(`Profile: ${initiative.initiative.profileLabel} · Status: ${initiative.status} · Current: ${initiative.currentPhase ?? 'complete'}`);
       console.log(`${initiativeFlowText(progress)}\n${progress.percentage}% complete`);
     }
+    return;
+  }
+  if (subcommand === 'outputs') {
+    const phaseId = positionals[2] ?? initiative.currentPhase;
+    const available = availableInitiativeOutputs(portfolio, initiative, phaseId);
+    const include = optionString(options, 'include');
+    if (include === undefined) {
+      // Listing is the default: choosing outputs blind is how an Epic loses one it needed.
+      for (const output of available) {
+        const included = initiativeOutputRequired(initiative, phaseId, output);
+        console.log(`${included ? '[x]' : '[ ]'} ${output.id.padEnd(28)} ${output.required === false ? 'optional' : 'required'}  ${output.label}`);
+      }
+      console.log(`\nsingularity-flow initiative outputs ${phaseId} --include ${available.filter((output) => initiativeOutputRequired(initiative, phaseId, output)).map((output) => output.id).join(',')} --reason "..."`);
+      return;
+    }
+    const session = await loadSession(root, { required: false });
+    const result = await selectInitiativePhaseOutputs(root, initiativeId, phaseId, include.split(',').map((value) => value.trim()).filter(Boolean), {
+      reason: optionString(options, 'reason') ?? null,
+      persona: session?.persona ?? null
+    });
+    const state = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'phase') {

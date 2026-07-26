@@ -1455,3 +1455,41 @@ test('starting an Epic again is confirmed by its ID, at both layers', async () =
   // The modal states what is kept, because that is the whole reason to restart instead of delete.
   assert.match(app, /the Epic identity, the pinned sources and the repository world model are kept/);
 });
+
+test('configuration is committed to the Epic branch from the tab that edits it', async () => {
+  // The editor, the branch and the commit already existed, but in three different places: you
+  // edited portfolio.yml here, and the only control that would commit it was an unlabelled icon in
+  // the topbar that never said which branch it wrote to. Someone changing their Epic's phase
+  // outputs had no way to tell the change had not landed.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const panel = app.slice(app.indexOf('function ConfigurationPublish('), app.indexOf('function InitiativeStudio('));
+  assert.ok(panel.length > 0, 'the Configuration tab must carry its own publish panel');
+  // The branch is named on the action, not left to be inferred from the topbar.
+  assert.match(panel, /Commit & push to \$\{branchName\}/);
+  assert.match(panel, /data\.repository\.branch/);
+  // Saving and committing are separate steps in the engine, so the panel must say which one is
+  // outstanding rather than offering a commit that would silently omit the unsaved buffer.
+  assert.match(panel, /Save the editor first/);
+  assert.match(panel, /const ready = changes\.length > 0 && blocked\.length === 0 && !dirty;/);
+  // publishDesktopConfiguration refuses a working tree with unrelated changes; the reader learns
+  // that here rather than from a toast after pressing a button that looked available.
+  assert.match(panel, /unrelated working-tree change/);
+  // The Epic's phases were resolved at start and a later portfolio edit does not rewrite them.
+  assert.match(panel, /stay pinned/);
+  assert.equal([...app.matchAll(/<ConfigurationPublish/g)].length, 1);
+});
+
+test('the publish action carries a message and is never bound straight to a click', async () => {
+  // publish() gained a message parameter; onClick={publish} would then hand a React SyntheticEvent
+  // to the IPC bridge, which fails structured cloning with "An object could not be cloned" — the
+  // same defect the world-model button shipped with.
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  // Scoped to the App component: PhaseGovernance has its own unrelated publish() taking no args.
+  const appComponent = app.slice(app.indexOf("export default function App()"));
+  assert.match(appComponent, /async function publish\(message\)/);
+  assert.doesNotMatch(appComponent, /onClick=\{publish\}/);
+  assert.match(appComponent, /onClick=\{\(\) => publish\(\)\}/);
+  // The toast names the branch, because "published" without a branch is the ambiguity that started
+  // this: configuration commits land on whatever is checked out, which for an Epic is its branch.
+  assert.match(app, /Configuration committed and pushed to \$\{data\.repository\.branch\}/);
+});

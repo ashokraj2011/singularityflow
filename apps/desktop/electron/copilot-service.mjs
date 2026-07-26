@@ -324,6 +324,27 @@ export class CopilotBackendController {
     return { ...this.status(key), planningSessionId, sessionId: service.sessionId, reusedBackend: true };
   }
 
+  /** Reconnect a renderer to an already-created phase context without sending a duplicate prompt. */
+  async attachPlanning(repository, planningSessionId) {
+    const key = this.#key(repository);
+    await this.start(key, {});
+    const service = this.services.get(key);
+    if (service.activePlanningSessionId && service.activePlanningSessionId !== planningSessionId) {
+      await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+      service.activePlanningSessionId = null;
+    }
+    service.activePlanningSessionId = planningSessionId;
+    this.emit('planning:event', {
+      planningSessionId,
+      type: 'ready',
+      sessionId: service.sessionId,
+      version: service.version,
+      modes: { currentModeId: service.mode },
+      reattached: true
+    });
+    return { ...this.status(key), planningSessionId, sessionId: service.sessionId, reattached: true };
+  }
+
   prompt(repository, planningSessionId, text) {
     const key = this.#key(repository);
     const service = this.services.get(key);

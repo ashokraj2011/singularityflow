@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('singularity', {
   stopCopilotService: (repository) => ipcRenderer.invoke('copilot-service:stop', { repository }),
   copilotServiceLogs: (repository) => ipcRenderer.invoke('copilot-service:logs', { repository }),
   buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),
+  listPlanningSessions: (repository) => ipcRenderer.invoke('planning:sessions', { repository }),
+  resumePlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:resume', { repository, planningSessionId }),
   startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
   promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
   answerPlanningQuestion: (repository, planningSessionId, questionId, content, action = 'accept') => ipcRenderer.invoke('planning:answer', { repository, planningSessionId, questionId, content, action }),

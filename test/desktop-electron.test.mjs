@@ -416,11 +416,20 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /\['business-planning', 'Planning'\]/);
   assert.match(source, /\['templates', 'Artifact templates'\]/);
   assert.match(source, /\['business-stories', 'Create Stories'\]/);
+  assert.doesNotMatch(source, /\['planning', 'Copilot Studio'\]/);
+  assert.match(source, /function EpicPlanningPage/);
+  assert.match(source, /focus=\{\{ phase: 'epic-plan', target: PHASE_SCOPE \}\}/);
   // Requirements is no longer a tab of the Epic workspace: sources, the Copilot conversation, and
   // the artifacts it produces are one phase, so they are one screen.
   assert.doesNotMatch(source, /entryTab="requirements"/);
   // Asserted on the tag, not on prop order — adding a prop is not a regression.
   assert.match(source, /<PhaseWorkspace [^>]*data=\{data\}/);
+  assert.match(preload, /listPlanningSessions:/);
+  assert.match(preload, /resumePlanningSession:/);
+  assert.match(main, /planningSessionRegistryPath/);
+  assert.match(main, /planning:sessions/);
+  assert.match(main, /planning:resume/);
+  assert.match(main, /attachPlanning/);
   // Planning is no longer a tab of the Epic workspace either: it uses the same sources /
   // conversation / artifacts workspace as Requirements.
   assert.doesNotMatch(source, /entryTab="planning"/);
@@ -731,15 +740,18 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.equal(source.split('<ImportedEpicView selected={selected} />').length - 1, 2);
 });
 
-test('the Requirements workspace follows the initiative phase and shows what blocks approval', async () => {
+test('Requirements is a dedicated phase page and explains sequence locks', async () => {
   const source = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   const workspace = source.slice(source.indexOf('function PhaseWorkspace('), source.indexOf('function PhaseGovernance('));
 
-  // The engine is sequence-aware: a context for any phase other than the current one is refused.
-  // Naming a fixed phase here broke the screen for every Epic that had not reached it yet.
-  assert.match(workspace, /const activePhaseId = selected\.state\.currentPhase \?\? 'epic-intake'/);
+  // Requirements owns one phase; it must not silently switch to Intake or Planning based on the
+  // currently selected Epic.
+  assert.match(workspace, /requestedPhaseId = null/);
+  assert.match(workspace, /const activePhaseId = requestedPhaseId \?\? selected\.state\.currentPhase \?\? 'epic-intake'/);
   assert.match(workspace, /focus: \{ phase: activePhaseId \}/);
-  assert.doesNotMatch(workspace, /focus: \{ phase: 'epic-requirements' \}/);
+  assert.match(source, /<PhaseWorkspace requestedPhaseId="epic-requirements"/);
+  assert.match(workspace, /phaseIsCurrent/);
+  assert.match(workspace, /phase-lock notice/);
 
   // A blocking checklist item stops the phase advancing, so it belongs on the screen rather than
   // in the error of whatever command the user tries next.

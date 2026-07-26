@@ -3619,6 +3619,7 @@ input:disabled, select:disabled, textarea:disabled {
 .evidence-attest-form { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
 .evidence-attest-form textarea { width: 100%; }
 .evidence-attest-form .row { justify-content: flex-end; gap: 8px; }
+.external-evidence-command { flex: 1 1 430px; max-width: 620px; border: 1px solid #d9e6dd; border-radius: 8px; padding: 8px 10px; color: #22543b !important; background: #f3f8f4; font-size: 9.5px !important; line-height: 1.5; overflow-wrap: anywhere; white-space: normal; }
 
 /* A planning context whose repository HEAD has moved can no longer be promoted */
 .requirements-stale {

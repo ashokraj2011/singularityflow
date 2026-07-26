@@ -714,7 +714,7 @@ test('every Epic is reachable and states where its work stands', async () => {
   // a tab that does not exist is the dead-button pattern again.
   const studio = source.slice(source.indexOf('function InitiativeStudio('));
   assert.match(studio, /selected\?\.state\.phaseOrder\?\.includes\(stage\)\) return void openPlanning\?\.\(stage\)/);
-  assert.match(studio, /!epicStage && selected\?\.state\.phaseOrder\?\.includes\(phaseId\)\) return void openPlanning\?\.\(phaseId\)/);
+  assert.match(studio, /!epicStage && selected\?\.state\.phaseOrder\?\.includes\(phaseId\)\)[\s\S]{0,160}openPlanning\?\.\(phaseId\)/);
 
   // ...and that workspace is the phase's own. Requirements, Planning and Create Stories are pages
   // about the Epic-planning phases — EpicPlanningPage is hard-wired to epic-planning, heading and
@@ -932,6 +932,9 @@ test('journey actions dispatch on one vocabulary, and an unmapped action is repo
 
   // The fallthrough must surface an unwired action instead of absorbing it.
   const journey = source.slice(source.indexOf('function continueEpicJourney('), source.indexOf('function continueEpicJourney(') + 1400);
+  assert.match(journey, /NEXT_ACTIONS\.EVIDENCE/);
+  assert.match(journey, /openStudio\(phaseId\)/);
+  assert.match(journey, /revealPhaseAction\(actionId\)/);
   assert.match(journey, /No action is wired for/);
   assert.match(journey, /Nothing was changed/);
   assert.doesNotMatch(journey, /next\?\.id === 'materialize'/);
@@ -979,7 +982,23 @@ test('the Epic workspace rail dispatches on the same vocabulary as the phase wor
   assert.match(fn, /normalizeNextActionId\(next\?\.action \?\? next\?\.id\)/);
   assert.doesNotMatch(fn, /'author-and-publish'/);
   assert.doesNotMatch(fn, /'prepare'/);
+  assert.match(fn, /NEXT_ACTIONS\.EVIDENCE/);
+  assert.match(fn, /focusJourneyPhase\([^)]*actionId\)/);
   assert.match(fn, /No action is wired for/);
+});
+
+test('evidence guidance reveals an actionable governance area', async () => {
+  const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
+  const reveal = app.slice(app.indexOf('function revealPhaseAction('), app.indexOf('function revealPhaseAction(') + 1300);
+  const governance = app.slice(app.indexOf('function PhaseGovernance('), app.indexOf('function EpicsHome('));
+
+  assert.match(reveal, /NEXT_ACTIONS\.EVIDENCE/);
+  assert.match(reveal, /\.evidence-attest/);
+  assert.match(reveal, /\.stage-evidence/);
+  assert.match(reveal, /\.phase-governance/);
+  assert.match(governance, /Checks awaiting verified evidence/);
+  assert.match(governance, /initiative evidence add \$\{check\.id\}/);
+  assert.match(governance, /Record judgement/);
 });
 
 test('the phase workbench shows what the phase owes before any session starts', async () => {

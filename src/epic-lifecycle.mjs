@@ -3,6 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { loadDefinition } from './config.mjs';
+import { identity } from './git.mjs';
 import { registerInitiativeEvidence, recordSha256 } from './initiative-evidence.mjs';
 import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
@@ -208,33 +209,39 @@ export async function verifyEpicPlanningPackage(root, portfolio, initiative) {
   };
 }
 
-export async function updateEpicStory(root, initiativeId, planId, changes = {}) {
-  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+function assertStoryPlanningEditable(initiative) {
   const phase = initiative.phases[EPIC_PHASES.planning];
   if (!phase) throw new SingularityFlowError('Epic does not configure the Planning package.');
   if (!['in_progress', 'approved'].includes(phase.status)) {
     throw new SingularityFlowError(`Story edits are available when Planning is in progress or approved; it is '${phase.status}'.`);
   }
-  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
-  const story = breakdown.stories.find((entry) => entry.planId === planId);
-  if (!story) throw new SingularityFlowError(`Epic '${initiativeId}' has no planned Story '${planId}'.`);
-  const allowed = new Set([
-    'title', 'description', 'repository', 'suggestedWorkType', 'blocking',
-    'requirements', 'acceptanceCriteria', 'dependsOn', 'specification'
-  ]);
-  const unexpected = Object.keys(changes).filter((key) => !allowed.has(key));
-  if (unexpected.length) throw new SingularityFlowError(`Unsupported Story fields: ${unexpected.join(', ')}.`);
-  Object.assign(story, structuredClone(changes));
-  validateInitiativeBreakdown(breakdown, portfolio);
-  const document = YAML.stringify(initiativeBreakdownDocument(breakdown));
-  const breakdownTarget = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
-    label: `Epic '${initiativeId}' Story plan`,
+  return phase;
+}
+
+function nextStoryPlanId(breakdown) {
+  const highest = breakdown.stories.reduce((maximum, story) => {
+    const match = String(story.planId ?? story.id).match(/^STORY-(\d+)$/);
+    return match ? Math.max(maximum, Number(match[1])) : maximum;
+  }, 0);
+  return `STORY-${String(highest + 1).padStart(3, '0')}`;
+}
+
+async function persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
+  event,
+  detail
+}) {
+  const phase = assertStoryPlanningEditable(initiative);
+  const normalized = validateInitiativeBreakdown(initiativeBreakdownDocument(breakdown), portfolio);
+  normalized.initiativeId = initiative.initiative.id;
+  const document = YAML.stringify(initiativeBreakdownDocument(normalized));
+  const breakdownTarget = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'breakdown.yml', {
+    label: `Epic '${initiative.initiative.id}' Story plan`,
     mustExist: true,
     type: 'file'
   });
   await writeText(breakdownTarget.absolute, document);
   const output = planningOutput(initiative, 'story-plan');
-  const outputTarget = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
+  const outputTarget = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
     label: 'Epic Story-plan artifact'
   });
   await writeText(outputTarget.absolute, document);
@@ -253,10 +260,16 @@ export async function updateEpicStory(root, initiativeId, planId, changes = {}) 
   phase.approvedAt = null;
   initiative.currentPhase = EPIC_PHASES.planning;
   initiative.status = 'in_progress';
+  initiative.materialization = { status: 'not_started', attempts: [] };
+  initiative.childStories = {};
   const publishPhase = initiative.phases[EPIC_PHASES.publish];
   if (publishPhase) {
     publishPhase.status = 'not_started';
     publishPhase.startedAt = null;
+    publishPhase.approvedAt = null;
+    for (const outputState of Object.values(publishPhase.outputs ?? {})) {
+      Object.assign(outputState, { status: 'not_generated', generation: 0, sha256: null, bytes: 0 });
+    }
     for (const approval of publishPhase.approvals ?? []) {
       if (!approval.invalidatedAt) approval.invalidatedAt = invalidatedAt;
     }
@@ -264,12 +277,281 @@ export async function updateEpicStory(root, initiativeId, planId, changes = {}) 
   initiative.history.push({
     at: invalidatedAt,
     actor: 'singularity-flow',
-    event: 'epic_story_updated',
+    event,
     phase: EPIC_PHASES.planning,
-    detail: `${planId}: ${Object.keys(changes).join(', ')}`
+    detail
   });
   await saveInitiative(root, portfolio, initiative);
-  const specifications = await prepareEpicStorySpecifications(root, initiativeId);
-  const fresh = await loadInitiative(root, initiativeId);
-  return { ...fresh, story, specifications, changed: Object.keys(changes) };
+  const specifications = await prepareEpicStorySpecifications(root, initiative.initiative.id);
+  const fresh = await loadInitiative(root, initiative.initiative.id);
+  return { ...fresh, breakdown: normalized, specifications };
+}
+
+export async function updateEpicStory(root, initiativeId, planId, changes = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertStoryPlanningEditable(initiative);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const story = breakdown.stories.find((entry) => entry.planId === planId);
+  if (!story) throw new SingularityFlowError(`Epic '${initiativeId}' has no planned Story '${planId}'.`);
+  const allowed = new Set([
+    'title', 'description', 'repository', 'suggestedWorkType', 'blocking',
+    'requirements', 'acceptanceCriteria', 'dependsOn', 'specification', 'metadata', 'tasks'
+  ]);
+  const unexpected = Object.keys(changes).filter((key) => !allowed.has(key));
+  if (unexpected.length) throw new SingularityFlowError(`Unsupported Story fields: ${unexpected.join(', ')}.`);
+  Object.assign(story, structuredClone(changes));
+  const saved = await persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
+    event: 'epic_story_updated',
+    detail: `${planId}: ${Object.keys(changes).join(', ')}`
+  });
+  return {
+    ...saved,
+    story: saved.breakdown.stories.find((entry) => entry.planId === planId),
+    changed: Object.keys(changes)
+  };
+}
+
+export async function splitEpicStory(root, initiativeId, sourcePlanId, changes = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertStoryPlanningEditable(initiative);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const source = breakdown.stories.find((entry) => entry.planId === sourcePlanId);
+  if (!source) throw new SingularityFlowError(`Epic '${initiativeId}' has no planned Story '${sourcePlanId}'.`);
+  const epic = breakdown.epics.find((entry) => entry.stories.some((story) => story.planId === sourcePlanId));
+  const planId = nextStoryPlanId(breakdown);
+  const split = {
+    ...structuredClone(source),
+    id: planId,
+    planId,
+    workId: planId,
+    title: changes.title?.trim() || `${source.title} — split`,
+    description: changes.description ?? source.description,
+    specification: changes.specification ?? source.specification,
+    repository: changes.repository ?? source.repository,
+    suggestedWorkType: changes.suggestedWorkType ?? source.suggestedWorkType,
+    requirements: changes.requirements ?? structuredClone(source.requirements),
+    acceptanceCriteria: changes.acceptanceCriteria ?? structuredClone(source.acceptanceCriteria),
+    dependsOn: changes.dependsOn ?? [],
+    blocking: changes.blocking ?? source.blocking,
+    metadata: changes.metadata ?? structuredClone(source.metadata ?? {}),
+    tasks: changes.tasks ?? [],
+    jiraKey: null,
+    initialJiraKey: null,
+    jiraAliases: [],
+    jiraIssueId: null,
+    epicKey: null,
+    parentMode: 'managed',
+    idAuthority: null
+  };
+  epic.stories.push(split);
+  breakdown.stories.push(split);
+  const saved = await persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
+    event: 'epic_story_split',
+    detail: `${sourcePlanId} -> ${planId}`
+  });
+  return {
+    ...saved,
+    sourcePlanId,
+    story: saved.breakdown.stories.find((entry) => entry.planId === planId)
+  };
+}
+
+export async function adoptEpicStory(root, initiativeId, issue, changes = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertStoryPlanningEditable(initiative);
+  if (!issue?.key || !issue?.id) throw new SingularityFlowError('Adopting a Jira Story requires its key and stable issue ID.');
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  if (breakdown.stories.some((story) => story.jiraKey === issue.key)) {
+    throw new SingularityFlowError(`Jira Story '${issue.key}' is already present in this Epic plan.`);
+  }
+  if (!changes.repository) throw new SingularityFlowError('Adopting a Jira Story requires a configured repository.');
+  if (!changes.requirements?.length || !changes.acceptanceCriteria?.length) {
+    throw new SingularityFlowError('Adopting a Jira Story requires at least one REQ-nnn and AC-nnn mapping.');
+  }
+  const epic = breakdown.epics[0];
+  if (!epic) throw new SingularityFlowError(`Epic '${initiativeId}' has no planning Epic record.`);
+  const planId = nextStoryPlanId(breakdown);
+  const story = {
+    id: planId,
+    planId,
+    workId: issue.key,
+    title: changes.title?.trim() || issue.title || issue.key,
+    description: changes.description ?? issue.description ?? '',
+    specification: changes.specification ?? [
+      `## Intended outcome`,
+      '',
+      issue.description || `Deliver ${issue.title || issue.key}.`,
+      '',
+      '## Acceptance expectations',
+      '',
+      ...(changes.acceptanceCriteria ?? []).map((criterion) => `- ${criterion}`)
+    ].join('\n'),
+    requirements: structuredClone(changes.requirements),
+    acceptanceCriteria: structuredClone(changes.acceptanceCriteria),
+    epicId: epic.id,
+    repository: changes.repository,
+    blocking: changes.blocking !== false,
+    suggestedWorkType: changes.suggestedWorkType ?? 'feature',
+    dependsOn: structuredClone(changes.dependsOn ?? []),
+    consumesContracts: structuredClone(changes.consumesContracts ?? []),
+    jiraKey: issue.key,
+    initialJiraKey: issue.key,
+    jiraAliases: [],
+    jiraIssueId: String(issue.id),
+    epicKey: issue.parent?.key ?? null,
+    estimate: issue.storyPoints ?? null,
+    idAuthority: 'jira',
+    parentMode: 'external',
+    metadata: {
+      adoptedDirectly: 'true',
+      originalParent: issue.parent?.key ?? 'unlinked',
+      ...(changes.metadata ?? {})
+    },
+    tasks: (issue.subtasks ?? []).map((task, index) => ({
+      id: `TASK-${String(index + 1).padStart(3, '0')}`,
+      title: task.title ?? task.key,
+      description: '',
+      acceptanceCriteria: [],
+      metadata: { adoptedDirectly: 'true' },
+      jiraKey: task.key,
+      jiraIssueId: task.id == null ? null : String(task.id)
+    }))
+  };
+  epic.stories.push(story);
+  breakdown.stories.push(story);
+  const saved = await persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
+    event: 'epic_story_adopted',
+    detail: `${issue.key} as ${planId}; Jira parent remains externally managed`
+  });
+  return {
+    ...saved,
+    story: saved.breakdown.stories.find((entry) => entry.planId === planId)
+  };
+}
+
+function publicationReport(initiative, breakdown, attempt, jiraPlan) {
+  const lines = [
+    `# Story Publication Report — ${initiative.initiative.id}`,
+    '',
+    `- Completed: ${attempt.completedAt ?? nowIso()}`,
+    `- Identity authority: ${initiative.lineage?.idAuthority ?? 'local'}`,
+    `- Approved Planning generation: ${initiative.phases[EPIC_PHASES.planning]?.generation ?? 0}`,
+    `- Jira write plan: ${jiraPlan?.sha256 ?? 'not applicable'}`,
+    `- Materialization status: ${attempt.status}`,
+    '',
+    '## Published Stories',
+    '',
+    '| Plan ID | Jira / Work ID | Repository | Canonical branch | Seed commit | Tasks |',
+    '| --- | --- | --- | --- | --- | --- |'
+  ];
+  for (const story of breakdown.stories) {
+    const receipt = attempt.stories.find((entry) => entry.storyId === story.id);
+    lines.push(`| ${story.planId} | ${story.jiraKey ?? story.workId} | ${story.repository} | ${story.workId} | ${receipt?.commit?.slice(0, 12) ?? 'unavailable'} | ${story.tasks?.length ?? 0} |`);
+  }
+  lines.push(
+    '',
+    'The planning workflow is complete. Developers now fetch a governed Story with',
+    '`/sflow-story-fetch <JIRA-KEY>` and complete its repository workflow independently.',
+    '',
+    'Product Owner completion remains open until every blocking Story has a finalized review',
+    'packet, exact-SHA checks, and approved spec-to-code conformance.',
+    ''
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Jira/Git publication is a deterministic operation, not another authored phase.
+ * Once every reviewed Story and canonical branch has a receipt, project the exact
+ * plan and receipts into artifacts and finish the planning lifecycle automatically.
+ */
+export async function completeEpicPublication(root, initiativeId) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  if (initiative.resolution.profile !== 'epic-planning') {
+    return { portfolio, initiative, completed: false, reason: 'not-epic-planning' };
+  }
+  const planning = initiative.phases[EPIC_PHASES.planning];
+  const phase = initiative.phases[EPIC_PHASES.publish];
+  if (planning?.status !== 'approved') throw new SingularityFlowError('Story publication requires the approved Planning package.');
+  if (initiative.materialization?.status !== 'complete') {
+    throw new SingularityFlowError('Story publication cannot complete until every Jira/Git Story receipt is present.');
+  }
+  if (phase.status === 'approved' && initiative.status === 'complete') {
+    return { portfolio, initiative, completed: false, reason: 'already-complete' };
+  }
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+  const attempt = initiative.materialization.attempts.at(-1);
+  let jiraPlan = null;
+  const jiraPlanSource = await secureInitiativePath(root, portfolio, initiativeId, 'context/jira/write-plan.yml', {
+    label: `Epic '${initiativeId}' Jira write plan`,
+    type: 'file'
+  });
+  if (jiraPlanSource.exists) jiraPlan = YAML.parse(await readFile(jiraPlanSource.absolute, 'utf8'));
+  const planArtifact = {
+    version: 1,
+    epicId: initiativeId,
+    authority: initiative.lineage?.idAuthority ?? 'local',
+    approvedPlanning: {
+      generation: planning.generation,
+      outputs: Object.fromEntries(Object.values(planning.outputs).map((output) => [output.id, output.sha256]))
+    },
+    jira: jiraPlan
+      ? { writePlanSha256: jiraPlan.sha256, operations: jiraPlan.operations, artifacts: jiraPlan.artifacts ?? [] }
+      : { writePlanSha256: null, operations: [], artifacts: [] },
+    stories: breakdown.stories.map((story) => {
+      const receipt = attempt.stories.find((entry) => entry.storyId === story.id);
+      return {
+        planId: story.planId,
+        jiraKey: story.jiraKey,
+        workId: story.workId,
+        repository: story.repository,
+        canonicalBranch: story.workId,
+        seedCommit: receipt?.commit ?? null,
+        parentMode: story.parentMode ?? 'managed',
+        metadata: story.metadata ?? {},
+        tasks: story.tasks ?? []
+      };
+    })
+  };
+  const contents = {
+    'jira-write-plan': YAML.stringify(planArtifact),
+    'materialization-report': publicationReport(initiative, breakdown, attempt, jiraPlan)
+  };
+  const actor = identity(root);
+  const generation = phase.generation + 1;
+  for (const [outputId, content] of Object.entries(contents)) {
+    const output = phase.outputs[outputId];
+    if (!output) throw new SingularityFlowError(`Publish Stories phase has no '${outputId}' output.`);
+    const target = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
+      label: `Epic publication output '${outputId}'`
+    });
+    await writeText(target.absolute, content);
+    const current = await snapshot(target.absolute);
+    Object.assign(output, {
+      status: 'approved',
+      generation,
+      sha256: current.sha256,
+      bytes: current.size,
+      generatedBy: actor,
+      generatedPersona: null,
+      publishedAt: nowIso(),
+      approvedAt: nowIso()
+    });
+  }
+  const completedAt = nowIso();
+  phase.generation = generation;
+  phase.status = 'approved';
+  phase.submittedAt = completedAt;
+  phase.approvedAt = completedAt;
+  initiative.currentPhase = null;
+  initiative.status = 'complete';
+  initiative.history.push({
+    at: completedAt,
+    actor: actor.email?.toLowerCase() ?? actor.name,
+    event: 'epic_publication_completed',
+    phase: EPIC_PHASES.publish,
+    detail: `${breakdown.stories.length} Stories and canonical branches published; downstream delivery tracking opened`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, completed: true, generation, stories: breakdown.stories.length };
 }

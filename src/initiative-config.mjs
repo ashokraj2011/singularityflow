@@ -18,6 +18,7 @@ export const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
 export const JIRA_WRITE_OPERATIONS = new Set([
   'create-epic',
   'create-story',
+  'create-subtask',
   'update-owned-fields',
   'add-comment',
   'attach-artifact',
@@ -179,7 +180,8 @@ export function normalizeJiraPolicy(value = {}) {
     writePolicy: { mode: writeMode, operations, allowedFields, forbiddenFields },
     projectKey,
     epicIssueType: value.epicIssueType ?? value.issueTypes?.epic ?? 'Epic',
-    storyIssueType: value.storyIssueType ?? value.issueTypes?.story ?? 'Story'
+    storyIssueType: value.storyIssueType ?? value.issueTypes?.story ?? 'Story',
+    subtaskIssueType: value.subtaskIssueType ?? value.issueTypes?.subtask ?? 'Sub-task'
   };
 }
 

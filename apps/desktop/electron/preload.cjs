@@ -110,6 +110,12 @@ contextBridge.exposeInMainWorld('singularity', {
   updateEpicStory: (repository, initiativeId, planId, changes) => ipcRenderer.invoke('epic:story-update', {
     repository, initiativeId, planId, changes
   }),
+  splitEpicStory: (repository, initiativeId, planId, changes) => ipcRenderer.invoke('epic:story-split', {
+    repository, initiativeId, planId, changes
+  }),
+  adoptEpicStory: (repository, initiativeId, jiraKey, changes) => ipcRenderer.invoke('epic:story-adopt', {
+    repository, initiativeId, jiraKey, changes
+  }),
   runEpicChecks: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:checks', {
     repository, initiativeId, storyId, packetSha256
   }),

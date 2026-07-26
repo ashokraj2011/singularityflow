@@ -54,11 +54,12 @@
         },
         "write": { "type": ["boolean", "object"] },
         "writeMode": { "enum": ["off", "preview", "approved"] },
-        "writeOperations": { "type": "array", "items": { "enum": ["create-epic", "create-story", "update-owned-fields", "add-comment", "attach-artifact"] }, "uniqueItems": true },
+        "writeOperations": { "type": "array", "items": { "enum": ["create-epic", "create-story", "create-subtask", "update-owned-fields", "add-comment", "attach-artifact", "set-lineage-property"] }, "uniqueItems": true },
         "allowedFields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "projectKey": { "type": "string" },
         "epicIssueType": { "type": "string" },
-        "storyIssueType": { "type": "string" }
+        "storyIssueType": { "type": "string" },
+        "subtaskIssueType": { "type": "string" }
       },
       "additionalProperties": true
     },

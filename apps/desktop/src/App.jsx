@@ -2870,9 +2870,9 @@ function copilotCliCommands({ phaseId, epicId = null, workId = null }) {
       purpose: 'Ask questions, use the repository world model, formalize requirements, and publish the Requirements bundle.'
     },
     'epic-planning': {
-      skill: `/sflow-epic-planning${epic}`,
+      skill: `/sflow-epic-story-draft${epic}`,
       shell: 'singularity-flow epic planning status --json',
-      purpose: 'Decompose approved requirements into editable Stories, a parent specification, and per-Story specifications.'
+      purpose: 'Decompose approved requirements into editable Stories and specifications, then stop for business approval in this UI.'
     },
     'epic-publish': {
       skill: `/sflow-epic-stories${epic}`,
@@ -4459,7 +4459,8 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   </div>;
 }
 
-function EditableEpicStory({ data, selected, story, action, reload }) {
+function EditableEpicStory({ data, selected, story, action, reload, onSplit }) {
+  const pairList = (value = {}) => Object.entries(value).map(([key, entryValue]) => ({ key, value: String(entryValue) }));
   const [draft, setDraft] = useState(() => ({
     title: story.title ?? '',
     description: story.description ?? '',
@@ -4469,12 +4470,36 @@ function EditableEpicStory({ data, selected, story, action, reload }) {
     acceptanceCriteria: (story.acceptanceCriteria ?? []).join(', '),
     dependsOn: (story.dependsOn ?? []).map((item) => item.story ?? item).join(', '),
     specification: story.specification ?? '',
-    blocking: story.blocking !== false
+    blocking: story.blocking !== false,
+    metadata: pairList(story.metadata),
+    tasks: (story.tasks ?? []).map((task) => ({
+      ...task,
+      acceptanceCriteria: (task.acceptanceCriteria ?? []).join(', '),
+      metadata: pairList(task.metadata)
+    }))
   }));
   const planId = story.planId ?? story.id;
   const repositoryIds = Object.keys(selected.state.resolution?.repositories ?? data.portfolio?.repositories ?? {});
   const workTypes = Object.keys(data.definition?.workTypes ?? {});
   function field(key, value) { setDraft((current) => ({ ...current, [key]: value })); }
+  function pairs(entries) {
+    return Object.fromEntries(entries.map((entry) => [entry.key.trim(), entry.value.trim()]).filter(([key]) => key));
+  }
+  function metadataField(index, key, value) {
+    field('metadata', draft.metadata.map((entry, entryIndex) => entryIndex === index ? { ...entry, [key]: value } : entry));
+  }
+  function taskField(index, key, value) {
+    field('tasks', draft.tasks.map((task, taskIndex) => taskIndex === index ? { ...task, [key]: value } : task));
+  }
+  function taskMetadataField(taskIndex, metadataIndex, key, value) {
+    field('tasks', draft.tasks.map((task, index) => index === taskIndex
+      ? { ...task, metadata: task.metadata.map((entry, entryIndex) => entryIndex === metadataIndex ? { ...entry, [key]: value } : entry) }
+      : task));
+  }
+  function addTask() {
+    const id = `TASK-${String(draft.tasks.length + 1).padStart(3, '0')}`;
+    field('tasks', [...draft.tasks, { id, title: '', description: '', acceptanceCriteria: '', metadata: [] }]);
+  }
   async function save() {
     const split = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
     const result = await action(
@@ -4487,14 +4512,24 @@ function EditableEpicStory({ data, selected, story, action, reload }) {
         acceptanceCriteria: split(draft.acceptanceCriteria),
         dependsOn: split(draft.dependsOn),
         specification: draft.specification,
-        blocking: draft.blocking
+        blocking: draft.blocking,
+        metadata: pairs(draft.metadata),
+        tasks: draft.tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description ?? '',
+          acceptanceCriteria: split(task.acceptanceCriteria ?? ''),
+          metadata: pairs(task.metadata ?? []),
+          jiraKey: task.jiraKey ?? null,
+          jiraIssueId: task.jiraIssueId ?? null
+        }))
       }),
       `${planId} saved; Planning approval invalidated until the combined package is reviewed again`
     );
     if (result) await reload(null, selected.state.initiative.id);
   }
   return <article className="editable-story-card">
-    <div><code>{planId}</code><label className="story-blocking"><input type="checkbox" checked={draft.blocking} onChange={(event) => field('blocking', event.target.checked)} /> Blocks Epic completion</label></div>
+    <div><span className="story-identity"><code>{planId}</code>{story.jiraKey && <small>{story.jiraKey}</small>}{story.parentMode === 'external' && <Pill tone="accent">Direct Jira Story</Pill>}</span><label className="story-blocking"><input type="checkbox" checked={draft.blocking} onChange={(event) => field('blocking', event.target.checked)} /> Blocks Epic completion</label></div>
     <label><span>Story title</span><input value={draft.title} onChange={(event) => field('title', event.target.value)} /></label>
     <label><span>Description</span><textarea rows="3" value={draft.description} onChange={(event) => field('description', event.target.value)} /></label>
     <div className="story-edit-grid">
@@ -4505,22 +4540,82 @@ function EditableEpicStory({ data, selected, story, action, reload }) {
       <label><span>Depends on</span><input value={draft.dependsOn} onChange={(event) => field('dependsOn', event.target.value)} placeholder="STORY-002, STORY-003" /></label>
     </div>
     <details><summary>Story specification</summary><textarea rows="12" value={draft.specification} onChange={(event) => field('specification', event.target.value)} /></details>
-    <footer><span>Assignment stays in Jira.</span><button className="secondary" onClick={save}>Save Story</button></footer>
+    <details className="story-structured-editor"><summary>Jira metadata · {draft.metadata.length} fields</summary><div className="story-key-values">{draft.metadata.map((entry, index) => <div key={index}><input aria-label={`Story metadata key ${index + 1}`} value={entry.key} placeholder="component" onChange={(event) => metadataField(index, 'key', event.target.value)} /><input aria-label={`Story metadata value ${index + 1}`} value={entry.value} placeholder="checkout" onChange={(event) => metadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" onClick={() => field('metadata', draft.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}<button type="button" className="ghost compact" onClick={() => field('metadata', [...draft.metadata, { key: '', value: '' }])}>＋ Add key/value</button></div></details>
+    <details className="story-structured-editor"><summary>Jira tasks · {draft.tasks.length}</summary><div className="story-task-list">{draft.tasks.map((task, taskIndex) => <section key={`${task.id}-${taskIndex}`} className="story-task-editor"><header><input aria-label={`Task ID ${taskIndex + 1}`} value={task.id} onChange={(event) => taskField(taskIndex, 'id', event.target.value)} /><button type="button" className="ghost compact" onClick={() => field('tasks', draft.tasks.filter((_, index) => index !== taskIndex))}>Remove</button></header><input aria-label={`Task title ${taskIndex + 1}`} value={task.title} placeholder="Task title" onChange={(event) => taskField(taskIndex, 'title', event.target.value)} /><textarea rows="2" aria-label={`Task description ${taskIndex + 1}`} value={task.description ?? ''} placeholder="Task details" onChange={(event) => taskField(taskIndex, 'description', event.target.value)} /><input aria-label={`Task acceptance criteria ${taskIndex + 1}`} value={task.acceptanceCriteria ?? ''} placeholder="AC-001, AC-002" onChange={(event) => taskField(taskIndex, 'acceptanceCriteria', event.target.value)} /><div className="story-key-values">{(task.metadata ?? []).map((entry, metadataIndex) => <div key={metadataIndex}><input value={entry.key} aria-label={`Task metadata key ${taskIndex + 1}.${metadataIndex + 1}`} placeholder="type" onChange={(event) => taskMetadataField(taskIndex, metadataIndex, 'key', event.target.value)} /><input value={entry.value} aria-label={`Task metadata value ${taskIndex + 1}.${metadataIndex + 1}`} placeholder="frontend" onChange={(event) => taskMetadataField(taskIndex, metadataIndex, 'value', event.target.value)} /><button type="button" className="ghost compact" onClick={() => taskField(taskIndex, 'metadata', task.metadata.filter((_, index) => index !== metadataIndex))}>×</button></div>)}<button type="button" className="ghost compact" onClick={() => taskField(taskIndex, 'metadata', [...(task.metadata ?? []), { key: '', value: '' }])}>＋ Task metadata</button></div></section>)}<button type="button" className="secondary compact" onClick={addTask}>＋ Create Jira task</button></div></details>
+    <footer><span>Assignment stays in Jira. Saving reopens Planning review.</span><div className="row"><button className="ghost compact" onClick={() => onSplit(story)}>Split Story</button><button className="secondary" onClick={save}>Save Story</button></div></footer>
   </article>;
 }
 
 function EpicStoryPlanView({ data, selected, openPlanning, downloadFile, action, reload }) {
   const epics = selected.report?.children?.epics ?? [];
+  const [modal, setModal] = useState(null);
+  const repositoryIds = Object.keys(selected.state.resolution?.repositories ?? data.portfolio?.repositories ?? {});
+  const jiraEnabled = selected.state.resolution?.jira?.enabled;
+  const splitList = (value) => String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  function openSplit(story) {
+    setModal({
+      kind: 'split',
+      source: story.planId ?? story.id,
+      jiraKey: '',
+      title: `${story.title} — split`,
+      description: story.description ?? '',
+      repository: story.repository ?? repositoryIds[0] ?? '',
+      suggestedWorkType: story.suggestedWorkType ?? 'feature',
+      requirements: (story.requirements ?? []).join(', '),
+      acceptanceCriteria: (story.acceptanceCriteria ?? []).join(', '),
+      specification: story.specification ?? ''
+    });
+  }
+  function openAdopt() {
+    setModal({
+      kind: 'adopt',
+      jiraKey: '',
+      title: '',
+      description: '',
+      repository: repositoryIds[0] ?? '',
+      suggestedWorkType: 'feature',
+      requirements: '',
+      acceptanceCriteria: '',
+      specification: ''
+    });
+  }
+  function modalField(key, value) { setModal((current) => ({ ...current, [key]: value })); }
+  async function submitStoryModal() {
+    const changes = {
+      ...(modal.title.trim() ? { title: modal.title.trim() } : {}),
+      ...(modal.description.trim() ? { description: modal.description.trim() } : {}),
+      repository: modal.repository,
+      suggestedWorkType: modal.suggestedWorkType,
+      requirements: splitList(modal.requirements),
+      acceptanceCriteria: splitList(modal.acceptanceCriteria),
+      ...(modal.specification.trim() ? { specification: modal.specification.trim() } : {})
+    };
+    const result = modal.kind === 'split'
+      ? await action(
+        () => window.singularity.splitEpicStory(data.repository.root, selected.state.initiative.id, modal.source, changes),
+        `${modal.source} split into a new governed Story; Planning returned to UI review`
+      )
+      : await action(
+        () => window.singularity.adoptEpicStory(data.repository.root, selected.state.initiative.id, modal.jiraKey.trim().toUpperCase(), changes),
+        `Existing Jira Story ${modal.jiraKey.trim().toUpperCase()} added without changing its current parent`
+      );
+    if (!result) return;
+    setModal(null);
+    await reload(null, selected.state.initiative.id);
+  }
+  const phaseStatus = selected.state.phases['epic-planning']?.status;
   return <div className="epic-workspace-view">
-    <EpicArtifactView selected={selected} phases={['epic-planning']} title="Plan and review the generated Stories" detail="The /sflow-epic-planning skill decomposes approved REQ and AC identifiers into repository-owned Stories and writes the parent and per-Story specifications in the same governed package." downloadFile={downloadFile} openPlanning={openPlanning} />
+    <EpicArtifactView selected={selected} phases={['epic-planning']} title="Plan and review the generated Stories" detail="The /sflow-epic-story-draft skill decomposes approved REQ and AC identifiers into repository-owned Stories, writes the parent and per-Story specifications, and stops for review here." downloadFile={downloadFile} openPlanning={openPlanning} />
+    {phaseStatus === 'awaiting_approval' && <section className="notice accent copilot-ui-stop" role="status"><strong>Copilot has finished the Story package and is waiting for this UI.</strong><span>Review, edit, split, or add existing Jira Stories here. Copilot must not create Jira issues until the complete package is approved below.</span></section>}
     <section className="panel planned-story-review">
-      <header className="panel-heading"><div><span className="eyebrow">Planning output</span><h2>{selected.report.children.total} generated User Stories</h2><p>This editable list, the parent specification, and every Story specification share one approval hash before Jira publication.</p></div><Pill tone={selected.state.phases['epic-planning']?.status === 'approved' ? 'good' : 'warn'}>{selected.state.phases['epic-planning']?.status ?? 'not started'}</Pill></header>
-      {!epics.length ? <Empty title="No Stories generated yet" detail="Run /sflow-epic-planning in Copilot CLI, then refresh this page." /> : epics.map((epic) => <div className="planned-epic" key={epic.id}><header><span><small>Epic</small><code>{epic.jiraKey ?? epic.id}</code></span><h3>{epic.title}</h3><strong>{epic.stories.length} Stories</strong></header><div className="planned-story-grid">{epic.stories.map((story) => <EditableEpicStory key={story.id} data={data} selected={selected} story={story} action={action} reload={reload} />)}</div></div>)}
+      <header className="panel-heading"><div><span className="eyebrow">Planning output</span><h2>{selected.report.children.total} generated User Stories</h2><p>This editable list, parent specification, and per-Story specifications share one approval hash. Directly created Jira Stories can be adopted without rewriting their parent.</p></div><div className="row">{jiraEnabled && <button className="secondary compact" onClick={openAdopt}>＋ Add existing Jira Story</button>}<Pill tone={phaseStatus === 'approved' ? 'good' : 'warn'}>{phaseStatus ?? 'not started'}</Pill></div></header>
+      {!epics.length ? <Empty title="No Stories generated yet" detail="Run /sflow-epic-story-draft in Copilot CLI, then refresh this page." /> : epics.map((epic) => <div className="planned-epic" key={epic.id}><header><span><small>Epic</small><code>{epic.jiraKey ?? epic.id}</code></span><h3>{epic.title}</h3><strong>{epic.stories.length} Stories</strong></header><div className="planned-story-grid">{epic.stories.map((story) => <EditableEpicStory key={story.id} data={data} selected={selected} story={story} action={action} reload={reload} onSplit={openSplit} />)}</div></div>)}
     </section>
+    {modal && <DesignerModal title={modal.kind === 'split' ? `Split ${modal.source}` : 'Add an existing Jira Story'} detail={modal.kind === 'split' ? 'Create a separately governed Story and move or refine its requirement and acceptance-criteria allocation before approval.' : 'Use this when the real Jira Story exists outside the Epic relationship. Singularity records it as a direct lineage edge and never changes its current Jira parent.'} submitLabel={modal.kind === 'split' ? 'Create split Story' : 'Add to Epic plan'} submitDisabled={modal.kind === 'adopt' && !modal.jiraKey.trim()} onCancel={() => setModal(null)} onSubmit={submitStoryModal}><div className="modal-grid">{modal.kind === 'adopt' && <label><span>Exact Jira Story key</span><input autoFocus value={modal.jiraKey} placeholder="MOB-123" onChange={(event) => modalField('jiraKey', event.target.value)} /></label>}<label className={modal.kind === 'split' ? 'full' : ''}><span>Story title {modal.kind === 'adopt' && '(optional override)'}</span><input autoFocus={modal.kind === 'split'} value={modal.title} onChange={(event) => modalField('title', event.target.value)} /></label><label><span>Repository</span><select value={modal.repository} onChange={(event) => modalField('repository', event.target.value)}>{repositoryIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label><label><span>Developer workflow</span><select value={modal.suggestedWorkType} onChange={(event) => modalField('suggestedWorkType', event.target.value)}>{Object.entries(data.definition?.workTypes ?? {}).map(([id, item]) => <option value={id} key={id}>{item.label ?? id}</option>)}</select></label><label className="full"><span>Requirements</span><input value={modal.requirements} placeholder="REQ-001, REQ-002" onChange={(event) => modalField('requirements', event.target.value)} /></label><label className="full"><span>Acceptance criteria</span><input value={modal.acceptanceCriteria} placeholder="AC-001, AC-002" onChange={(event) => modalField('acceptanceCriteria', event.target.value)} /></label><label className="full"><span>Description</span><textarea rows="3" value={modal.description} onChange={(event) => modalField('description', event.target.value)} /></label><label className="full"><span>Story specification</span><textarea rows="8" value={modal.specification} onChange={(event) => modalField('specification', event.target.value)} /></label></div></DesignerModal>}
   </div>;
 }
 
-function EpicCompletionPanel({ data, selected, action, reload, synchronizeStories }) {
+function EpicCompletionPanel({ data, selected, action, reload, synchronizeStories, reviewExternalStory }) {
   const [confirmation, setConfirmation] = useState('');
   const delivery = selected.delivery;
   const initiativeId = selected.state.initiative.id;
@@ -4535,9 +4630,9 @@ function EpicCompletionPanel({ data, selected, action, reload, synchronizeStorie
     }
   }
   return <section className={`panel epic-completion-panel ${delivery?.status === 'complete' ? 'complete' : ''}`}>
-    <header className="panel-heading"><div><span className="eyebrow">Final Product Owner gate</span><h2>Spec-to-code completion</h2><p>Every blocking Story must be complete, conformant, and backed by exact-SHA checks before the Epic can close.</p></div><Pill tone={delivery?.status === 'complete' ? 'good' : delivery?.ready ? 'accent' : 'warn'}>{delivery?.status === 'complete' ? 'Epic complete' : delivery?.ready ? 'Ready to complete' : `${delivery?.readyStories ?? 0}/${delivery?.requiredStories ?? 0} ready`}</Pill></header>
-    <div className="epic-completion-stories">{delivery?.stories?.map((story) => <div key={story.planId} className={story.ready ? 'ready' : story.blocking ? 'blocked' : 'optional'}><StatusDot status={story.ready ? 'approved' : 'awaiting_approval'} /><span><strong>{story.workId}</strong><small>{story.repository} · {story.jiraKey ?? 'Jira pending'}</small></span><code>{story.observedCommit?.slice(0, 12) ?? 'not synchronized'}</code><Pill tone={story.ready ? 'good' : 'warn'}>{story.ready ? 'matched' : story.problems[0] ?? 'deferred'}</Pill></div>)}</div>
-    {delivery?.status === 'complete' ? <div className="epic-completion-result"><strong>Completion decision {delivery.completion?.sha256?.slice(0, 12)}</strong><span>The committed report is immutable and remains bound to the listed Story commits, packets, checks, and conformance trees.</span></div> : <footer><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button><label><span>Exact Epic confirmation</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value.toUpperCase())} placeholder={`Type ${initiativeId}`} /></label><button className="primary" disabled={!delivery?.ready || confirmation !== initiativeId} onClick={complete}>Mark Epic complete</button></footer>}
+    <header className="panel-heading"><div><span className="eyebrow">Final Product Owner gate</span><h2>Spec-to-code completion</h2><p>Every blocking Story—including directly adopted or externally parented Jira Stories—must be complete, conformant to the approved parent/Story specification, and backed by exact-SHA checks before the Epic can close.</p></div><Pill tone={delivery?.status === 'complete' ? 'good' : delivery?.ready ? 'accent' : 'warn'}>{delivery?.status === 'complete' ? 'Epic complete' : delivery?.ready ? 'Ready to complete' : `${delivery?.readyStories ?? 0}/${delivery?.requiredStories ?? 0} ready`}</Pill></header>
+    <div className="epic-completion-stories">{delivery?.stories?.map((story) => <div key={story.planId} className={story.ready ? 'ready' : story.blocking ? 'blocked' : 'optional'}><StatusDot status={story.ready ? 'approved' : 'awaiting_approval'} /><span><strong>{story.workId}</strong><small>{story.repository} · {story.jiraKey ?? 'Jira pending'}{story.parentMode === 'external' ? ' · direct lineage' : ''}</small></span><code>{story.observedCommit?.slice(0, 12) ?? 'not synchronized'}</code><Pill tone={story.ready ? 'good' : 'warn'}>{story.ready ? 'matched' : story.problems[0] ?? 'deferred'}</Pill></div>)}</div>
+    {delivery?.status === 'complete' ? <div className="epic-completion-result"><strong>Completion decision {delivery.completion?.sha256?.slice(0, 12)}</strong><span>The committed report is immutable and remains bound to the listed Story commits, packets, checks, and conformance trees.</span></div> : <footer><button className="ghost" onClick={reviewExternalStory}>＋ Add external Jira Story</button><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button><label><span>Exact Epic confirmation</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value.toUpperCase())} placeholder={`Type ${initiativeId}`} /></label><button className="primary" disabled={!delivery?.ready || confirmation !== initiativeId} onClick={complete}>Mark Epic complete</button></footer>}
   </section>;
 }
 
@@ -4566,7 +4661,7 @@ function EpicPlanningCliPage({ data, action, reload, downloadFile }) {
   const approved = phase?.status === 'approved';
   return <div className="page epic-phase-page">
     <header className="page-heading row-between"><div><span className="eyebrow">Epic planning · phase 3 of 4</span><h1>Turn approved requirements into Stories</h1><p>{initiative.state.initiative.title} · Copilot CLI generates one editable Story plan, a parent solution contract, and a specification for every Story.</p></div><Pill tone={approved ? 'good' : current ? 'accent' : 'warn'}>{approved ? 'Planning approved' : current ? 'Planning active' : `Waiting for ${initiative.state.currentPhase ?? 'requirements'}`}</Pill></header>
-    {!current && !approved && <section className="phase-lock notice" role="status"><strong>Planning is locked until Requirements is approved.</strong><p>The `/sflow-epic-planning` skill enforces the same sequence and will stop without changing state.</p></section>}
+    {!current && !approved && <section className="phase-lock notice" role="status"><strong>Planning is locked until Requirements is approved.</strong><p>The `/sflow-epic-story-draft` skill enforces the same sequence and will stop without changing state.</p></section>}
     <CopilotCliHandoff data={data} phaseId="epic-planning" title="Generate the Story package in Copilot CLI" />
     <EpicStoryPlanView data={data} selected={initiative} openPlanning={null} downloadFile={downloadFile} action={action} reload={reload} />
     <PhaseGovernance data={data} selected={initiative} phaseId="epic-planning" action={action} reload={reload} />
@@ -4699,7 +4794,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         planning: {
           step: 'Business planning',
           title: 'Decompose requirements into governed User Stories',
-          detail: 'The /sflow-epic-planning skill allocates requirements and acceptance criteria to repository-owned Stories, then produces the high-level specification.',
+          detail: 'The /sflow-epic-story-draft skill allocates requirements and acceptance criteria to repository-owned Stories, produces the high-level specification, then waits for UI approval.',
           activeStep: 2,
           prerequisite: state.phases['epic-requirements']?.status === 'approved',
           prerequisiteLabel: 'Approve requirements first'
@@ -4781,7 +4876,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     }
     const result = await action(
       () => window.singularity.materializeInitiative(data.repository.root, initiativeId, materializationModal.confirmation),
-      `Created or attached ${materializationModal.preview.stories.length} governed Story branches and published the receipts`
+      `Published ${materializationModal.preview.stories.length} governed Stories and branches; Epic planning is complete and developer delivery tracking is open`
     );
     if (!result) return;
     setMaterializationModal(null);
@@ -4882,7 +4977,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       </section>
       <EpicArtifactView selected={selected} phases={['epic-publish']} title="Publication records" detail="After Jira and Git materialization, generate the final write-plan and receipt report, then complete the planning governance gate." downloadFile={downloadFile} openPlanning={openPlanning} />
       <PhaseGovernance data={data} selected={selected} phaseId="epic-publish" action={action} reload={reload} />
-    </div> : tab === 'complete' ? <div className="epic-workspace-view"><section className="panel epic-delivery-summary"><header className="panel-heading"><div><span className="eyebrow">Read-only downstream view</span><h2>Story delivery progress</h2><p>Developers continue in their own tools. Singularity aggregates the canonical Story branches and returns review packets here.</p></div><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button></header></section><EpicReviewView data={data} selected={selected} action={action} reload={reload} /><EpicCompletionPanel data={data} selected={selected} action={action} reload={reload} synchronizeStories={synchronizeStories} /></div> : <>
+    </div> : tab === 'complete' ? <div className="epic-workspace-view"><section className="panel epic-delivery-summary"><header className="panel-heading"><div><span className="eyebrow">Read-only downstream view</span><h2>Story delivery progress</h2><p>Developers continue in their own tools. Singularity aggregates the canonical Story branches and returns review packets here.</p></div><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button></header></section><EpicReviewView data={data} selected={selected} action={action} reload={reload} /><EpicCompletionPanel data={data} selected={selected} action={action} reload={reload} synchronizeStories={synchronizeStories} reviewExternalStory={() => setTab('planning')} /></div> : <>
       <section className="initiative-hero">
         <div><div className="row gap"><Pill tone="accent">{state.initiative.profileLabel}</Pill><Pill tone={state.status === 'complete' ? 'good' : 'neutral'}>{state.status}</Pill><Pill>configured-local identity</Pill></div><h2>{state.initiative.title}</h2><p>{state.initiative.id} · branch {state.initiative.branch} · current phase {state.currentPhase ?? 'complete'}</p></div><ProgressRing value={progress.percentage} />
       </section>
@@ -4896,7 +4991,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       </div>
       <section className="panel initiative-stories">
         <header className="panel-heading"><div><span className="eyebrow">Repository delivery graph</span><h2>Epic-level story progress</h2></div><div className="row gap"><span>{report.children.materialized}/{children.length} materialized</span><button className="secondary compact" onClick={synchronizeStories} disabled={!report.children.materialized}>↻ Sync story branches</button><button className="primary compact" onClick={previewMaterialization} disabled={selected.materialization.phaseStatus !== 'approved'}>Create Jira & Git stories</button></div></header>
-        {!epics.length ? <div className="inline-empty">The story plan has no Epics yet. Run <code>/sflow-epic-planning</code> in Copilot CLI, then refresh and review its Epic IDs and Story Work IDs here.</div> : <div className="epic-progress-list">{epics.map((epic) => <section key={epic.id} className={epic.stale ? 'stale' : ''}>
+        {!epics.length ? <div className="inline-empty">The story plan has no Epics yet. Run <code>/sflow-epic-story-draft</code> in Copilot CLI, then refresh and review its Epic IDs and Story Work IDs here.</div> : <div className="epic-progress-list">{epics.map((epic) => <section key={epic.id} className={epic.stale ? 'stale' : ''}>
           <header><div><span className="id-pair"><b>Epic ID</b><code>{epic.id}</code></span><span className="id-pair"><b>Jira ID</b><code>{epic.jiraKey ?? 'not created'}</code></span><h3>{epic.title}</h3></div><div className="epic-progress-summary"><strong>{epic.percentage}%</strong><span>{epic.complete}/{epic.total} complete</span><div><i style={{ width: `${epic.percentage}%` }} /></div></div></header>
           <div className="epic-story-table"><div className="epic-story-head"><span>Story Work ID / Jira ID</span><span>Repository</span><span>Phase</span><span>Progress</span><span>State</span></div>{epic.stories.map((story) => <article key={story.id} className={`${story.stale ? 'stale' : ''} ${story.blocked ? 'blocked' : ''}`}><span><strong>{story.workId}</strong><small>Jira: {story.jiraKey ?? 'not created'}</small></span><span>{story.repository}</span><span>{story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')}</span><span className="story-progress"><i><b style={{ width: `${story.progress?.percentage ?? 0}%` }} /></i><em>{story.progress?.percentage ?? 0}%</em></span><span><Pill tone={story.stale || story.blocked ? 'warn' : story.status === 'complete' ? 'good' : story.materialized ? 'accent' : 'neutral'}>{story.stale ? 'stale' : story.blocked ? 'blocked' : story.status}</Pill>{story.blocking && <small>blocking</small>}</span></article>)}</div>
         </section>)}</div>}
@@ -4920,7 +5015,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       <label><span>Type {selected.state.initiative.id} to confirm</span><input value={restartModal.confirmation} onChange={(event) => setRestartModal({ ...restartModal, confirmation: event.target.value })} placeholder={selected.state.initiative.id} /></label>
       {restartModal.confirmation.trim() && restartModal.confirmation.trim() !== selected.state.initiative.id && <small className="field-error">That is not {selected.state.initiative.id}.</small>}
     </DesignerModal>}
-    {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This applies the exact reviewed Jira plan, uploads the selected hash-bound artifacts, adopts returned Jira keys as immutable Work IDs, creates one canonical branch per Story, writes governed seeds and approved Epic inputs, and publishes every receipt. It is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div><div><span>Selected artifacts</span><strong>{materializationModal.writePlan?.artifacts?.length ?? 0}</strong></div></div>{materializationModal.writePlan && <><div className="notice neutral"><strong>Exact Jira Story and artifact plan</strong><br />Plan hash: <code>{materializationModal.writePlan.sha256}</code><br />Source breakdown: <code>{materializationModal.writePlan.source.breakdownSha256}</code></div>{materializationModal.writePlan.artifacts?.length > 0 && <div className="jira-modal-artifacts">{materializationModal.writePlan.artifacts.map((artifact) => <div key={artifact.reference}><span><strong>{artifact.label}</strong><small>{artifact.filename}</small></span><code>{artifact.sha256.slice(0, 12)}</code><Pill>{artifact.targets.join(' + ')}</Pill></div>)}</div>}</>}<label><span>Type the Epic ID to confirm the exact plan</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
+    {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This applies the exact reviewed Jira plan, creates configured Jira tasks, uploads selected hash-bound artifacts, adopts returned Jira keys as immutable Work IDs, creates one canonical branch per Story, and publishes every receipt. Success completes Epic planning and opens developer delivery tracking. It is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div><div><span>Selected artifacts</span><strong>{materializationModal.writePlan?.artifacts?.length ?? 0}</strong></div></div>{materializationModal.writePlan && <><div className="notice neutral"><strong>Exact Jira Story and artifact plan</strong><br />Jira tasks are included in the governed operation list and receipts.<br />Plan hash: <code>{materializationModal.writePlan.sha256}</code><br />Source breakdown: <code>{materializationModal.writePlan.source.breakdownSha256}</code></div>{materializationModal.writePlan.artifacts?.length > 0 && <div className="jira-modal-artifacts">{materializationModal.writePlan.artifacts.map((artifact) => <div key={artifact.reference}><span><strong>{artifact.label}</strong><small>{artifact.filename}</small></span><code>{artifact.sha256.slice(0, 12)}</code><Pill>{artifact.targets.join(' + ')}</Pill></div>)}</div>}</>}<label><span>Type the Epic ID to confirm the exact plan</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
     {artifactViewer}
   </div>;
 }

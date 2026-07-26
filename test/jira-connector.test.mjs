@@ -831,10 +831,11 @@ test('governed Jira write plan creates Epic then child story and persists receip
     connection: 'corporate-jira',
     deployment: 'cloud',
     writeMode: 'approved',
-    writeOperations: ['create-epic', 'create-story', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'],
+    writeOperations: ['create-epic', 'create-story', 'create-subtask', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'],
     projectKey: 'APP',
     epicIssueType: 'Epic',
-    storyIssueType: 'Story'
+    storyIssueType: 'Story',
+    subtaskIssueType: 'Sub-task'
   };
   await writeFile(portfolioPath, YAML.stringify(portfolio));
   run('git', ['add', '.'], { cwd: root });
@@ -862,7 +863,13 @@ test('governed Jira write plan creates Epic then child story and persists receip
     epics: [{
       id: 'EPIC-001',
       title: 'Mobile onboarding',
-      stories: [{ id: 'STORY-001', title: 'Build mobile screen', repository: 'mobile' }]
+      stories: [{
+        id: 'STORY-001',
+        title: 'Build mobile screen',
+        repository: 'mobile',
+        metadata: { component: 'onboarding' },
+        tasks: [{ id: 'TASK-001', title: 'Implement UI', metadata: { discipline: 'mobile' } }]
+      }]
     }]
   }));
   const connection = { baseUrl: 'https://office.atlassian.net', email: 'owner@example.com', token: 'token' };
@@ -873,7 +880,7 @@ test('governed Jira write plan creates Epic then child story and persists receip
   });
   assert.deepEqual(
     planned.plan.operations.map((operation) => operation.action),
-    ['create-epic', 'create-story', 'set-lineage-property', 'add-comment', 'attach-artifact']
+    ['create-epic', 'create-story', 'create-subtask', 'set-lineage-property', 'add-comment', 'attach-artifact']
   );
   assert.equal(planned.plan.artifacts[0].sha256, created.initiative.phases.define.outputs['business-case'].sha256);
   let sequence = 100;
@@ -911,6 +918,16 @@ test('governed Jira write plan creates Epic then child story and persists receip
         attachment: []
       }
     });
+    if (url.includes('/issue/APP-102?')) return response({
+      id: '102',
+      key: 'APP-102',
+      fields: {
+        summary: 'Implement UI',
+        issuetype: { name: 'Sub-task' },
+        project: { key: 'APP' },
+        labels: []
+      }
+    });
     if (url.includes('/issue/APP-101/properties/com.singularity.flow.lineage') && init.method === 'PUT') {
       return response({}, 204);
     }
@@ -927,12 +944,14 @@ test('governed Jira write plan creates Epic then child story and persists receip
     fetchImpl,
     actor: 'owner@example.com'
   });
-  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101', 'APP-101', 'APP-101', 'APP-100']);
-  assert.equal(applied.results[4].attachment.sha256, planned.plan.artifacts[0].sha256);
+  assert.deepEqual(applied.results.map((receipt) => receipt.jiraKey), ['APP-100', 'APP-101', 'APP-102', 'APP-101', 'APP-101', 'APP-100']);
+  assert.equal(applied.results[5].attachment.sha256, planned.plan.artifacts[0].sha256);
   assert.equal(bodies[1].fields.parent.key, 'APP-100');
+  assert.equal(bodies[2].fields.parent.key, 'APP-101');
   const breakdown = YAML.parse(await readFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'breakdown.yml'), 'utf8'));
   assert.equal(breakdown.epics[0].jiraKey, 'APP-100');
   assert.equal(breakdown.epics[0].stories[0].jiraKey, 'APP-101');
+  assert.equal(breakdown.epics[0].stories[0].tasks[0].jiraKey, 'APP-102');
   const receipt = JSON.parse(await readFile(path.join(initiativeDir(root, created.portfolio, 'INIT-JIRA'), 'context/jira/receipts/create-story-STORY-001.json'), 'utf8'));
   assert.equal(receipt.planSha256, planned.plan.sha256);
   assert.equal(receipt.actor, 'owner@example.com');

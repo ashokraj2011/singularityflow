@@ -40,7 +40,7 @@ jira:
     attachmentPolicy: metadata-only
     cacheMinutes: 10
   writeMode: off
-  writeOperations: [create-epic, create-story, update-owned-fields, add-comment, attach-artifact, set-lineage-property]
+  writeOperations: [create-epic, create-story, create-subtask, update-owned-fields, add-comment, attach-artifact, set-lineage-property]
   allowedFields: [summary, description, parent, labels, components]
   # Backward-compatible materialization switch. New Jira writes additionally
   # require writeMode: approved and an exact reviewed write-plan hash.
@@ -48,6 +48,7 @@ jira:
   projectKey: ""
   epicIssueType: Epic
   storyIssueType: Story
+  subtaskIssueType: Sub-task
 
 # Initiative approvals are authorized by normalized local Git email. Populate
 # these groups before starting an initiative. Personas remain prompt behavior
@@ -157,7 +158,9 @@ initiativePhases:
     checklist:
       - { id: jira-permission-verified, label: Selected identity authority can create Story records, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: stories-materialized, label: Jira Stories and canonical Git branches have receipts, requirement: must, acceptedAssurance: [system-verified, machine-verified], gate: block }
-    bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
+    # The Planning package already carries the Product Owner decision. This operational phase
+    # completes automatically only after exact Jira and Git receipts exist for every Story.
+    bundleApproval: { mode: none, authorities: [], minimum: 0, allowSelfApproval: true }
 
   define:
     label: Define

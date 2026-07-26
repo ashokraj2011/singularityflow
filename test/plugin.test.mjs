@@ -28,6 +28,14 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /commit, and push result/);
 });
 
+test('Epic Story drafting stops for UI review before Jira publication', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-story-draft', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-epic-story-draft/);
+  assert.match(content, /singularity-flow epic stories validate/);
+  assert.match(content, /I will proceed only after approval in the Singularity Flow UI/);
+  assert.match(content, /Do not approve Planning, create or edit Jira issues, create Story branches/);
+});
+
 test('plugin provides workspace discovery and switching skills', async () => {
   const list = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspaces', 'SKILL.md'), 'utf8');
   const select = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');

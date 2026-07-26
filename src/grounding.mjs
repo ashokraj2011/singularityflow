@@ -68,6 +68,16 @@ export async function worldModelSourceSnapshot(root, definition = {}) {
   return { sha256: `sha256:${hash.digest('hex')}`, files: records };
 }
 
+function sourcePathsChangedSince(root, definition, ref) {
+  if (!/^[0-9a-f]{40}$/i.test(ref ?? '')) return null;
+  const changedBetweenCommits = run('git', ['diff', '--name-only', '-z', ref, 'HEAD'], { cwd: root, allowFailure: true });
+  if (changedBetweenCommits.status !== 0) return null;
+  return [...new Set([
+    ...changedBetweenCommits.stdout.split('\0').filter(Boolean),
+    ...changedFiles(root)
+  ])].map(posix).filter((file) => !excludedSourcePath(file, definition)).sort();
+}
+
 export async function repositoryContentSnapshot(root) {
   const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
   const files = [...new Set([...tracked, ...changedFiles(root)])].map(posix).sort();
@@ -263,7 +273,16 @@ export async function worldModelRebuildReason(root, config) {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     const currentSource = await worldModelSourceSnapshot(root, config);
     if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
-    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) return 'The repository world model is stale for the current source tree.';
+    if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) {
+      const changedSources = sourcePathsChangedSince(root, config, manifest.repository_commit ?? manifest.repository?.commit);
+      if (changedSources?.length === 0) return null;
+      if (changedSources?.length) {
+        const visible = changedSources.slice(0, 6).join(', ');
+        const suffix = changedSources.length > 6 ? ` and ${changedSources.length - 6} more` : '';
+        return `The repository world model is stale for source changes: ${visible}${suffix}.`;
+      }
+      return 'The repository world model is stale for the current source tree.';
+    }
     return null;
   } catch (error) {
     return `The repository world model is invalid: ${error.message}`;

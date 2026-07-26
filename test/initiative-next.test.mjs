@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { epicJourney, nextInitiativeAction, NEXT_ACTIONS } from '../src/initiative-next.mjs';
+import { epicJourney, nextInitiativeAction, normalizeNextActionId as normalizeNextActionIdRef, NEXT_ACTIONS } from '../src/initiative-next.mjs';
 
 const definition = {
   id: 'epic-requirements',
@@ -119,4 +119,114 @@ test('completed Epic journey exposes a report CTA and reaches 100 percent', () =
   assert.equal(journey.stage, 'complete');
   assert.equal(journey.completionPercent, 100);
   assert.equal(journey.nextAction.id, 'report');
+});
+
+test('every action name the journey can emit maps to exactly one canonical action', async () => {
+  const { normalizeNextActionId } = await import('../src/initiative-next.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const path = (await import('node:path')).default;
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+  // initiativeNextActions is the older generator and feeds the Epic journey button. Two
+  // vocabularies for one concept is what made "Approve Intake & continue" a no-op: it carried
+  // 'approve-phase', the renderer compared against 'approve', nothing matched, and the click fell
+  // through to a fallback that navigated to the stage the user was already on.
+  const report = await readFile(path.join(packageRoot, 'src', 'initiative-report.mjs'), 'utf8');
+  const emitted = [...new Set([...report.matchAll(/action: '([a-z-]+)'/g)].map((match) => match[1]))];
+  assert.ok(emitted.includes('approve-phase'), 'fixture should still cover the action that regressed');
+
+  for (const id of emitted) {
+    assert.ok(normalizeNextActionId(id), `journey action '${id}' has no canonical mapping and would fall through silently`);
+  }
+  // The specific regression, pinned by name.
+  assert.equal(normalizeNextActionId('approve-phase'), NEXT_ACTIONS.APPROVE);
+  // An unknown id must resolve to null so callers report it rather than guessing.
+  assert.equal(normalizeNextActionId('not-a-real-action'), null);
+  assert.equal(normalizeNextActionId(undefined), null);
+});
+
+test('canonical ids pass through normalization unchanged', () => {
+  for (const id of Object.values(NEXT_ACTIONS)) {
+    assert.equal(normalizeNextActionIdRef(id), id, `${id} must be stable under normalization`);
+  }
+});
+
+test('a non-Epic-planning profile gets a journey built from its own phases', async () => {
+  // The journey was withheld from every profile but epic-planning, so the delivery workspace
+  // showed artifacts and lineage but never where the work stood or what to do next — and the Epic
+  // could not be told apart from one that had not been started.
+  const { epicJourney } = await import('../src/initiative-next.mjs');
+  const state = {
+    initiative: { id: 'KAN-8', profile: 'enterprise-delivery' },
+    currentPhase: 'design-iterate',
+    status: 'in_progress',
+    phaseOrder: ['discover-define', 'design-iterate', 'inception', 'construction'],
+    phases: {
+      'discover-define': { label: 'Discover & Define', status: 'approved' },
+      'design-iterate': { label: 'Design & Iterate', status: 'in_progress' },
+      inception: { label: 'Inception', status: 'not_started' },
+      construction: { label: 'Construction', status: 'not_started' }
+    }
+  };
+  const journey = epicJourney(state, [{ action: 'prepare', phaseId: 'design-iterate', reason: 'Create the configured output documents.' }]);
+
+  assert.equal(journey.stage, 'design-iterate');
+  assert.equal(journey.stageLabel, 'Design & Iterate');
+  assert.equal(journey.activeStep, 1);
+  assert.deepEqual(journey.stages.map((stage) => stage.id), ['discover-define', 'design-iterate', 'inception', 'construction', 'complete']);
+  assert.deepEqual(journey.stages.map((stage) => stage.status), ['complete', 'current', 'upcoming', 'upcoming', 'upcoming']);
+  assert.equal(journey.completionPercent, 25);
+  // The action carries the real phase, so the workspace it opens is the one the work is in.
+  assert.equal(journey.nextAction.phaseId, 'design-iterate');
+  assert.equal(journey.nextAction.label, 'Open Design & Iterate workspace');
+
+  // A completed one reports rather than asking for status.
+  const done = epicJourney({ ...state, status: 'complete', currentPhase: null }, []);
+  assert.equal(done.stage, 'complete');
+  assert.equal(done.completionPercent, 100);
+  assert.equal(done.nextAction.id, 'report');
+});
+
+test('the phase reports everything left in it, in order, with one step marked now', async () => {
+  // initiativeNextActions answers "what is the single next command" — the right answer for a CLI
+  // and the wrong one for a workspace. On a phase with three unwritten outputs and an unsatisfied
+  // check it returned `prepare`: "open the Discover & Define workspace", to someone standing in it.
+  const { initiativePhaseWork } = await import('../src/initiative-next.mjs');
+  const initiative = {
+    currentPhase: 'discover-define',
+    phaseOrder: ['discover-define'],
+    resolution: { profile: 'enterprise-delivery', phases: [{
+      id: 'discover-define',
+      label: 'Discover & Define',
+      outputs: [
+        { id: 'requirements', label: 'Requirement and impact analysis', required: true },
+        { id: 'business-case', label: 'Business case', required: false }
+      ],
+      checklist: [{ id: 'opportunity-defined', label: 'Opportunity and measurable outcomes defined', requirement: 'must', acceptedAssurance: ['human-approved'] }]
+    }] },
+    phases: { 'discover-define': {
+      id: 'discover-define',
+      label: 'Discover & Define',
+      status: 'in_progress',
+      outputs: {
+        requirements: { id: 'requirements', status: 'not_generated', sha256: null },
+        'business-case': { id: 'business-case', status: 'not_generated', sha256: null }
+      },
+      checklist: { 'opportunity-defined': { id: 'opportunity-defined', status: 'missing' } }
+    } }
+  };
+
+  const work = initiativePhaseWork(initiative);
+  // The optional output this Epic declined is not work it has to do.
+  assert.deepEqual(work.map((step) => step.id), ['author:requirements', 'attest:opportunity-defined', 'publish', 'approve']);
+  assert.deepEqual(work.map((step) => step.state), ['now', 'later', 'later', 'later']);
+  assert.equal(work[0].label, 'Draft Requirement and impact analysis');
+  assert.match(work[1].detail, /accepts human-approved/);
+
+  // Finish the document and the next thing becomes now — exactly one step ever is.
+  initiative.phases['discover-define'].outputs.requirements = { id: 'requirements', status: 'draft', sha256: 'abc' };
+  const next = initiativePhaseWork(initiative);
+  assert.deepEqual(next.map((step) => step.state), ['done', 'now', 'later', 'later']);
+  assert.equal(next.filter((step) => step.state === 'now').length, 1);
 });

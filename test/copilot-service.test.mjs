@@ -146,10 +146,6 @@ test('Copilot backend starts once, routes planning events, releases context, and
   assert.equal(controller.status(repository).state, 'ready');
   assert.equal(controller.status(repository).usage.totalTokens, 42);
   assert.equal(controller.status(repository).usage.byModel[0].model, 'claude-sonnet');
-  await assert.rejects(
-    () => controller.beginPlanning(repository, 'planning-2', { prompt: 'Competing context.' }),
-    /already attached/
-  );
 
   const answer = controller.answer(repository, 'planning-1', 'question-1', { content: { repository: 'mobile' } });
   assert.equal(answer.accepted, true);
@@ -334,7 +330,12 @@ test('a backend stop failure leaves an actionable error state instead of remaini
   assert.match(status.lastEvent.message, /could not be stopped cleanly/i);
 });
 
-test('release keeps the planning context attached when the active turn cannot be cancelled', async () => {
+test('release still releases when the agent never acknowledges the cancellation', async () => {
+  // This used to throw and keep the pointer set. Because beginPlanning also refuses while
+  // bridge.running is true, the user could then neither stop nor start: Stop reported "could not
+  // be cancelled" and Start reported "still finishing the previous turn", with no way out short of
+  // killing the backend. Refusing to release is what created the deadlock, so release now reports
+  // the un-acked turn and lets go.
   const repository = path.join(os.tmpdir(), 'sflow-copilot-release-failure');
   let bridge;
   const controller = new CopilotBackendController({
@@ -346,12 +347,25 @@ test('release keeps the planning context attached when the active turn cannot be
     }
   });
   await controller.beginPlanning(repository, 'planning-cancel-failure', { prompt: 'Long-running plan.' });
-  await assert.rejects(
-    () => controller.releasePlanning(repository, 'planning-cancel-failure'),
-    /could not be cancelled/
-  );
-  assert.equal(controller.status(repository).activePlanningSessionId, 'planning-cancel-failure');
-  assert.equal(bridge.running, true);
+  const released = await controller.releasePlanning(repository, 'planning-cancel-failure');
+  assert.equal(released.released, true);
+  assert.equal(controller.status(repository).activePlanningSessionId, null);
+  bridge.finishPrompt();
+});
+
+test('interrupting a turn keeps the session attached', async () => {
+  // Stop meant "discard the session". Halting a runaway answer and throwing away the conversation
+  // that produced it are different intents and now have different actions.
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-interrupt');
+  let bridge;
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => { bridge = new HoldingBridge(options); return bridge; }
+  });
+  await controller.beginPlanning(repository, 'planning-interrupt', { prompt: 'Long-running plan.' });
+  const result = await controller.interruptPlanning(repository, 'planning-interrupt');
+  assert.equal(result.interrupted, true);
+  assert.equal(controller.status(repository).activePlanningSessionId, 'planning-interrupt');
   bridge.finishPrompt();
 });
 
@@ -373,4 +387,24 @@ test('stopping during startup cannot be overwritten when delayed initialization 
   const completedStart = await starting;
   assert.equal(completedStart.state, 'stopped');
   assert.equal(controller.status(repository).state, 'stopped');
+});
+
+test('a new planning session supersedes one abandoned by an unmounted renderer', async () => {
+  // beginPlanning used to refuse, naming the attached session id. key={page} unmounts the phase
+  // workspace on every navigation and nothing released the session, so that id belonged to a screen
+  // the user could no longer reach: the only escape was stopping the whole backend.
+  const repository = path.join(os.tmpdir(), 'sflow-copilot-supersede');
+  const bridges = [];
+  const controller = new CopilotBackendController({
+    preflight: () => ({ ready: true, version: '1.0.73' }),
+    bridgeFactory: (options) => { const bridge = new HoldingBridge(options); bridges.push(bridge); return bridge; }
+  });
+  await controller.beginPlanning(repository, 'planning-abandoned', { prompt: 'First context.' });
+  bridges[0].finishPrompt();
+
+  const taken = await controller.beginPlanning(repository, 'planning-new', { prompt: 'Second context.' });
+  assert.equal(taken.planningSessionId, 'planning-new');
+  assert.equal(controller.status(repository).activePlanningSessionId, 'planning-new');
+  assert.ok(controller.logs(repository).some((entry) => /Superseded abandoned planning session planning-abandoned/.test(entry.message ?? '')));
+  bridges[0].finishPrompt();
 });

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { artifactBlockMarkers, PHASE_SCOPE } from './planning-scope.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
@@ -111,18 +112,11 @@ function renderTemplate(template, replacements) {
   return rendered.endsWith('\n') ? rendered : `${rendered}\n`;
 }
 
-// A session may target one output, or the whole phase. Phase scope is what lets a single
-// conversation produce a complete artifact set.
-export const PHASE_SCOPE = '*';
 const PROMOTABLE_KINDS = ['markdown', 'yaml', 'interface-contract'];
 
-// When one conversation produces several artifacts they have to be separable without guesswork,
-// so each is fenced by its output ID. Parsing is exact: an unrecognised or duplicated ID is an
-// error rather than a silent mis-file into the wrong governed path.
-export function artifactBlockMarkers(outputId) {
-  return { start: `<<<SFLOW-ARTIFACT:${outputId}`, end: `SFLOW-ARTIFACT:${outputId}>>>` };
-}
-
+// Parsing is exact: an unrecognised or duplicated ID is an error rather than a silent mis-file
+// into the wrong governed path. The markers themselves live in planning-scope.mjs so the renderer
+// can share them without pulling node:crypto into the browser bundle.
 export function parseArtifactBlocks(text, allowedIds) {
   const found = new Map();
   const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n([\s\S]*?)\r?\nSFLOW-ARTIFACT:\1>>>/g;
@@ -159,6 +153,25 @@ function phaseTargetInstructions(outputs) {
   ].join('\n');
 }
 
+// Promotion only recognises fenced artifacts, and this text is the single-output counterpart of
+// phaseTargetInstructions. It never described the fence, so a single-output session asked for "a
+// complete Markdown document" and its reply could never be promoted — the artifact pane stayed
+// empty no matter how well Copilot answered.
+function singleTargetFence(target) {
+  const { start, end } = artifactBlockMarkers(target.id);
+  return [
+    'Wrap the finished artifact in its own fence, using exactly this form:',
+    '',
+    start,
+    `<the complete ${target.label} as ${target.kind}>`,
+    end,
+    '',
+    'Emit nothing between the fences except the artifact content itself, and do not wrap a fenced artifact in a Markdown code fence.',
+    'Discuss and ask questions freely outside the fence; only fenced content is promoted.',
+    `Governed destination: ${target.id} (${target.kind}) → ${target.path}`
+  ].join('\n');
+}
+
 function targetInstructions(target) {
   if (target.kind === 'yaml') {
     return [
@@ -166,10 +179,16 @@ function targetInstructions(target) {
       'Do not wrap the final artifact in a Markdown code fence.',
       target.id === 'story-plan'
         ? 'Use executable breakdown version 2: initiativeId and epics[]. The existing Jira Epic uses planId plus its governed jiraKey. Every Story uses an immutable temporary planId such as STORY-001; Jira returns workId/jiraKey later. Include title, description, REQ-nnn requirements, AC-nnn acceptanceCriteria, repository, blocking, suggestedWorkType, dependsOn, consumesContracts, and estimate. Never invent Jira Story keys.'
-        : 'Preserve stable IDs and express dependencies as structured values.'
+        : 'Preserve stable IDs and express dependencies as structured values.',
+      '',
+      singleTargetFence(target)
     ].join('\n');
   }
-  return 'The proposed artifact must be a complete Markdown document, not a summary or a patch. Preserve explicit IDs, evidence, decisions, risks, dependencies, owners, and open questions.';
+  return [
+    'The proposed artifact must be a complete Markdown document, not a summary or a patch. Preserve explicit IDs, evidence, decisions, risks, dependencies, owners, and open questions.',
+    '',
+    singleTargetFence(target)
+  ].join('\n');
 }
 
 function initiativePhaseContract(initiative, phase) {
@@ -481,16 +500,25 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
       id: initiativeId,
       title: initiative.initiative.title,
       currentPhase: initiative.currentPhase,
-      phases: initiative.resolution.phases.map((phase) => ({
-        id: phase.id,
-        label: phase.label,
-        status: initiative.phases[phase.id].status,
-        current: phase.id === initiative.currentPhase,
-        lanes: phase.lanes,
-        targets: phase.outputs
-          .filter((output) => ['markdown', 'yaml', 'interface-contract'].includes(output.kind))
-          .map((output) => ({ id: output.id, label: output.label, kind: output.kind, path: initiative.phases[phase.id].outputs[output.id].path }))
-      }))
+      phases: initiative.resolution.phases.map((phase) => {
+        const promotable = phase.outputs
+          .filter((output) => PROMOTABLE_KINDS.includes(output.kind))
+          .map((output) => ({ id: output.id, label: output.label, kind: output.kind, path: initiative.phases[phase.id].outputs[output.id].path }));
+        return {
+          id: phase.id,
+          label: phase.label,
+          status: initiative.phases[phase.id].status,
+          current: phase.id === initiative.currentPhase,
+          lanes: phase.lanes,
+          // A phase whose artifacts are one decision is offered as one target, first, so a caller
+          // that takes targets[0] gets the whole set. Without this entry nothing could ever send
+          // PHASE_SCOPE, so phaseTargetInstructions — the only text that teaches Copilot the
+          // promotion fence — was unreachable and no artifact could be recognised.
+          targets: promotable.length > 1
+            ? [{ id: PHASE_SCOPE, label: `${phase.label} artifacts`, kind: 'phase', outputs: promotable.map((output) => output.id) }, ...promotable]
+            : promotable
+        };
+      })
     });
   }
   return { enabled: normalizePlanning(definition.planning ?? {}).enabled, targets };
@@ -572,7 +600,17 @@ export async function createPlanningContext(root, {
   };
 }
 
-async function loadPlanningPack(root, sessionId) {
+/**
+ * Load a saved planning pack.
+ *
+ * `requireCurrentHead` is the difference between reading a conversation and writing to Git. Promotion
+ * needs the repository to be exactly where the context was built, or the artifacts describe a tree
+ * that no longer exists. Resuming needs no such thing: it restores a transcript. Refusing to load
+ * on a moved HEAD meant any governed commit in between — publishing another phase, pinning a
+ * source, restarting the Epic — destroyed the conversation rather than marking it unpromotable,
+ * which is the opposite of the stale-context banner the app was given to show.
+ */
+async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } = {}) {
   const directory = planningDirectory(root, sessionId);
   const manifestPath = path.join(directory, 'manifest.json');
   const contextPath = path.join(directory, 'context.md');
@@ -582,7 +620,8 @@ async function loadPlanningPack(root, sessionId) {
   if (manifest.sessionId !== sessionId || manifest.repository.root !== root) throw new SingularityFlowError('Planning context identity does not match this repository.');
   if (current.sha256 !== manifest.context.sha256) throw new SingularityFlowError('Planning context changed after Copilot received it.');
   if (branch(root) !== manifest.repository.branch) throw new SingularityFlowError(`Planning started on branch '${manifest.repository.branch}', but '${branch(root)}' is now checked out.`);
-  if (head(root) !== manifest.repository.head) throw new SingularityFlowError('Repository HEAD changed after the planning context was created. Rebuild the context before promotion.');
+  const headMoved = head(root) !== manifest.repository.head;
+  if (headMoved && requireCurrentHead) throw new SingularityFlowError('Repository HEAD changed after the planning context was created. Rebuild the context before promotion.');
   const pinnedFiles = [
     ...(manifest.prompt?.path && !manifest.prompt.path.startsWith('builtin:') ? [{ kind: 'planning-prompt', ...manifest.prompt }] : []),
     ...(manifest.sources ?? [])
@@ -599,7 +638,7 @@ async function loadPlanningPack(root, sessionId) {
       throw new SingularityFlowError(`Governed planning source changed after context creation: ${source.path}. Rebuild the context before promotion.`);
     }
   }
-  return { directory, manifestPath, contextPath, manifest };
+  return { directory, manifestPath, contextPath, manifest, headMoved };
 }
 
 function preserveManagedMetadata(previous, next, pattern) {
@@ -829,3 +868,5 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     next: `singularity-flow phase publish ${phase.id}`
   };
 }
+
+export { artifactBlockMarkers, PHASE_SCOPE, loadPlanningPack };

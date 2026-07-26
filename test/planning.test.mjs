@@ -326,6 +326,68 @@ test('ACP form elicitation pauses for an inline answer and cancels unsupported m
   assert.equal(events.at(-1).type, 'question-unsupported');
 });
 
+test('the session mode decides tool permissions, and leaving Plan asks rather than allows', async () => {
+  // Plan mode was the only mode the bridge could be in, and every non-read tool call was refused
+  // with no way to say otherwise — so 'run the tests' or 'write this file' was permanently out of
+  // reach, whatever the operator wanted. Switching modes must move the gate; it must not open it.
+  const events = [];
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });
+  bridge.availableModes = [{ id: 'copilot#plan', name: 'Plan' }, { id: 'copilot#agent', name: 'Agent' }];
+  bridge.currentModeId = 'copilot#plan';
+  const params = (kind) => ({
+    toolCall: { kind, title: `${kind} something` },
+    options: [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'reject', kind: 'reject_once' }]
+  });
+
+  // Reads are allowed in every mode: that is what makes the session useful at all.
+  assert.deepEqual(await bridge.decidePermission(params('read')), { outcome: { outcome: 'selected', optionId: 'allow' } });
+  // In Plan mode a write is refused outright, with no prompt and no waiting.
+  assert.deepEqual(await bridge.decidePermission(params('edit')), { outcome: { outcome: 'selected', optionId: 'reject' } });
+  assert.equal(events.at(-1).type, 'permission-denied');
+  assert.match(events.at(-1).detail, /Plan mode is read-only/);
+  assert.equal(bridge.pendingPermissions.size, 0);
+
+  bridge.currentModeId = 'copilot#agent';
+  assert.equal(bridge.inPlanMode(), false);
+  // Outside Plan the same call is put to the operator — the turn waits, nothing is decided for them.
+  const pending = bridge.decidePermission(params('edit'));
+  const request = events.at(-1);
+  assert.equal(request.type, 'permission-request');
+  assert.equal(request.mode, 'Agent');
+  assert.equal(bridge.pendingPermissions.size, 1);
+  bridge.answerPermission(request.requestId, true);
+  assert.deepEqual(await pending, { outcome: { outcome: 'selected', optionId: 'allow' } });
+
+  // A refusal is a refusal, and an unanswered request dies closed when the session ends.
+  const refused = bridge.decidePermission(params('execute'));
+  bridge.answerPermission(events.at(-1).requestId, false);
+  assert.deepEqual(await refused, { outcome: { outcome: 'selected', optionId: 'reject' } });
+  const abandoned = bridge.decidePermission(params('delete'));
+  bridge.cancelPendingPermissions();
+  assert.deepEqual(await abandoned, { outcome: { outcome: 'selected', optionId: 'reject' } });
+  assert.equal(bridge.pendingPermissions.size, 0);
+});
+
+test('a mode change is refused mid-turn and rejected for a mode the session never advertised', async () => {
+  const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: () => {} });
+  bridge.session = { sessionId: 'session-mode' };
+  bridge.availableModes = [{ id: 'copilot#plan', name: 'Plan' }, { id: 'copilot#agent', name: 'Agent' }];
+  bridge.currentModeId = 'copilot#plan';
+  const requested = [];
+  bridge.connection = { agent: { request: async (_method, params) => { requested.push(params); return {}; } } };
+
+  bridge.running = true;
+  await assert.rejects(bridge.setMode('copilot#agent'), /before changing its mode/);
+  bridge.running = false;
+  await assert.rejects(bridge.setMode('copilot#yolo'), /did not advertise mode/);
+  assert.deepEqual(requested, [], 'nothing reaches the agent until the request is valid');
+
+  const result = await bridge.setMode('copilot#agent');
+  assert.equal(result.mode, 'Agent');
+  assert.equal(result.readOnly, false);
+  assert.equal(requested.at(-1).modeId, 'copilot#agent');
+});
+
 test('ACP shutdown always cancels questions and terminates the process after partial cleanup failures', async () => {
   const events = [];
   const bridge = new CopilotPlanningBridge({ repository: os.tmpdir(), emit: (event) => events.push(event) });
@@ -485,4 +547,70 @@ test('Epic intake is non-authoring and Requirements consumes the pinned source m
 
   const state = await readFile(path.join(packageRoot, 'src', 'initiative-state.mjs'), 'utf8');
   assert.match(state, /producerOutput\?\.required === false && !producerOutput\.sha256\) continue/);
+});
+
+test('every promotion target teaches Copilot the fence it will be parsed by', async () => {
+  // Promotion recognises artifacts only by <<<SFLOW-ARTIFACT:id …>>>. That format was described
+  // solely in phaseTargetInstructions, reachable only for a phase-scoped target — which nothing
+  // ever sent. A single-output session was told to produce "a complete Markdown document" and its
+  // reply could never be recognised, so no artifact could be promoted from any surface.
+  const root = await repository();
+  run(root, process.execPath, [bin, 'initiative', 'start', 'INIT-FENCE', '--title', 'Fence coverage']);
+  const catalog = await planningTargetCatalog(root, { initiativeId: 'INIT-FENCE' });
+  const phase = catalog.targets[0].phases.find((item) => item.targets.length > 2);
+  assert.ok(phase, 'expected a phase with more than one promotable output');
+
+  // The whole set is offered first, so a caller taking targets[0] gets every artifact.
+  assert.equal(phase.targets[0].id, PHASE_SCOPE);
+  const ids = phase.targets.slice(1).map((item) => item.id);
+
+  const whole = await createPlanningContext(root, {
+    scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
+    persona: 'product-owner', target: PHASE_SCOPE, objective: 'set'
+  });
+  const wholeText = await readFile(whole.contextPath, 'utf8');
+  for (const id of ids) assert.ok(wholeText.includes(`<<<SFLOW-ARTIFACT:${id}`), `${id} fence missing from phase contract`);
+
+  const single = await createPlanningContext(root, {
+    scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
+    persona: 'product-owner', target: ids[0], objective: 'one'
+  });
+  const singleText = await readFile(single.contextPath, 'utf8');
+  assert.ok(singleText.includes(`<<<SFLOW-ARTIFACT:${ids[0]}`), 'single-target contract must describe its own fence');
+  assert.ok(!singleText.includes(`<<<SFLOW-ARTIFACT:${ids[1]}`), 'a single-output contract must not invite artifacts it is not scoped to');
+});
+
+test('a moved HEAD blocks promotion but does not destroy the conversation', async () => {
+  // loadPlanningPack refused outright on a HEAD that had moved, and resume used the same door. So
+  // any governed commit in between — publishing another phase, pinning a source, restarting the
+  // Epic — took the transcript with it, when all it should do is make the pack unpromotable. The
+  // workspace already had a stale-context banner to say exactly that; it never got the chance.
+  const { loadPlanningPack, promotePlanningArtifacts } = await import('../src/planning.mjs');
+  const root = await repository();
+  run(root, process.execPath, [bin, 'start', 'PLAN-STALE', '--title', 'Stale context']);
+  const context = await createPlanningContext(root, {
+    scope: 'work-item',
+    id: 'PLAN-STALE',
+    phase: 'intake',
+    persona: 'product-owner',
+    target: 'artifact',
+    objective: 'Define the outcome.'
+  });
+
+  await writeFile(path.join(root, 'UNRELATED.md'), '# a governed commit lands\n');
+  run(root, 'git', ['add', 'UNRELATED.md']);
+  run(root, 'git', ['commit', '-m', 'Something else was committed']);
+
+  // Reading it back is fine, and it says plainly that the repository has moved on.
+  const pack = await loadPlanningPack(root, context.sessionId, { requireCurrentHead: false });
+  assert.equal(pack.headMoved, true);
+  assert.equal(pack.manifest.sessionId, context.sessionId);
+
+  // Writing to Git is not: promotion still demands the tree the context was built against.
+  await assert.rejects(
+    promotePlanningArtifacts(root, { sessionId: context.sessionId, artifacts: [{ id: 'artifact', content: '# Draft\n' }] }),
+    /Repository HEAD changed after the planning context was created/
+  );
+  // …and the default is still the strict one, so no caller gets the loose rule by accident.
+  await assert.rejects(loadPlanningPack(root, context.sessionId), /Repository HEAD changed/);
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import YAML from 'yaml';
 import helpMarkdown from '../../../HELP.md?raw';
 import {
@@ -38,7 +38,8 @@ import {
 } from './artifact-builder.mjs';
 import { workspaceLandingPage } from './workspace-routing.mjs';
 // Shared with the CLI so the app and the terminal agree on what comes next.
-import { nextInitiativeAction, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
+import { nextInitiativeAction, normalizeNextActionId, NEXT_ACTIONS } from '../../../src/initiative-next.mjs';
+import { PHASE_SCOPE } from '../../../src/planning-scope.mjs';
 import {
   GovernedMedia,
   MediaLightbox,
@@ -58,7 +59,6 @@ const navSections = [
       ['business-requirements', 'Requirements'],
       ['business-planning', 'Planning'],
       ['business-stories', 'Create Stories'],
-      ['planning', 'Copilot Studio'],
       ['templates', 'Artifact templates']
     ]
   },
@@ -235,7 +235,20 @@ function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
 // it has never seen. A freshly cloned or newly onboarded repository always starts in that state,
 // so this asks on open — wherever the user is — instead of waiting for a phase to silently produce
 // ungrounded work or for a grounding gate to fail much later.
-function WorldModelPrompt({ reason, busy, onGenerate }) {
+function WorldModelPrompt({ reason, busy, onGenerate, copilotHealth = null, onCopilotRetry = null }) {
+  const down = copilotHealth?.ready === false;
+  if (down) {
+    return <div className="world-model-prompt-stack">
+      <CopilotUnavailable health={copilotHealth} action="building the world model" onRetry={onCopilotRetry} />
+      <section className="world-model-prompt" role="status">
+        <span className="world-model-prompt-mark" aria-hidden="true">◈</span>
+        <div>
+          <strong>Ground this repository before planning</strong>
+          <p>{reason} Copilot must be available to generate, validate, commit, and push the repository world model before Requirements can open.</p>
+        </div>
+      </section>
+    </div>;
+  }
   return <section className="world-model-prompt" role="status">
     <span className="world-model-prompt-mark" aria-hidden="true">◈</span>
     <div>
@@ -243,7 +256,9 @@ function WorldModelPrompt({ reason, busy, onGenerate }) {
       <p>{reason} Requirements, impact analysis, and Story planning read the repository world model as governed context. Building it now keeps those phases grounded in this codebase.</p>
     </div>
     <div className="row">
-      <button className="primary compact" onClick={onGenerate} disabled={busy}>Generate world model</button>
+      {/* Called with no argument on purpose: a bare onClick hands the handler a React event, and
+          this one's first parameter is a repository path that goes straight over IPC. */}
+      <button className="primary compact" onClick={() => onGenerate()} disabled={busy}>Generate world model</button>
     </div>
   </section>;
 }
@@ -590,6 +605,24 @@ function CopilotServiceControl({ repository, notify }) {
     }
   }
 
+  async function applyMode(modeId) {
+    setOperation('mode');
+    try {
+      const result = await window.singularity.setCopilotServiceMode(repository, modeId);
+      setStatus(result);
+      notify({
+        tone: result.readOnly ? 'good' : 'warn',
+        text: result.readOnly
+          ? `Copilot mode is ${result.mode}: read-only, nothing reaches Git except through promotion.`
+          : `Copilot mode is ${result.mode}. Tool calls that change the repository are now put to you one at a time.`
+      });
+    } catch (error) {
+      notify({ tone: 'bad', text: error?.message || String(error) });
+    } finally {
+      setOperation(null);
+    }
+  }
+
   async function stop() {
     setOperation('stop');
     try {
@@ -608,6 +641,7 @@ function CopilotServiceControl({ repository, notify }) {
   const connectedAt = Date.parse(status.connectedAt ?? status.startedAt);
   const connectedFor = status.running && Number.isFinite(connectedAt) ? Math.max(0, clock - connectedAt) : null;
   const availableModels = status.availableModels ?? [];
+  const availableModes = status.availableModes ?? [];
   const selectedModelKnown = !model || availableModels.some((candidate) => candidate.value === model);
   const modelChanged = Boolean(model && model !== status.model);
   const usage = status.usage ?? { status: 'unavailable', byModel: [] };
@@ -622,7 +656,18 @@ function CopilotServiceControl({ repository, notify }) {
       <header><div><span className="eyebrow">Local ACP process</span><h2>Copilot backend</h2></div><Pill tone={status.running ? 'good' : status.state === 'error' ? 'bad' : 'neutral'}>{status.state}</Pill></header>
       <p>Start Copilot once, then reuse that native Plan-mode process across governed planning turns. Stopping it cancels any active turn; it never changes Git state by itself.</p>
       <div className="copilot-service-facts"><div><span>Model</span><strong title={modelLabel}>{modelLabel}</strong></div><div><span>Connected</span><strong>{connectedFor === null ? '—' : formatDuration(connectedFor)}</strong></div><div><span>Total tokens</span><strong>{formatServiceTokens(usage.totalTokens)}</strong></div><div><span>Planning</span><strong>{status.activePlanningSessionId ? 'attached' : 'idle'}</strong></div></div>
-      <div className="copilot-service-meta"><span>Plan mode</span><span>PID {status.processId ?? '—'}</span><span>{status.version ?? status.preflight?.version ?? 'Version unavailable'}</span></div>
+      <div className="copilot-service-meta"><span>{status.mode ? `${status.mode} mode` : 'Plan mode'}</span><span>PID {status.processId ?? '—'}</span><span>{status.version ?? status.preflight?.version ?? 'Version unavailable'}</span></div>
+      <label className="copilot-model-control"><span>Session mode</span>
+        <select value={status.modeId ?? ''} disabled={working || !status.running || !status.modeSwitchSupported} onChange={(event) => applyMode(event.target.value)}>
+          {!status.running && <option value="">Plan (on connection)</option>}
+          {availableModes.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}{candidate.readOnly ? ' · read-only' : ''}</option>)}
+        </select>
+        <small>{!status.running
+          ? 'Every session starts in Plan. Switch it here once the backend is connected.'
+          : status.readOnly
+            ? 'Plan mode refuses every tool call that could change the repository. Artifacts reach Git through promotion.'
+            : 'Copilot may ask to edit or run things. Each request is put to you before it happens.'}</small>
+      </label>
       <label className="copilot-model-control"><span>{status.running ? 'Active model' : 'Model for next connection'}</span>{availableModels.length
         ? <select value={selectedModelKnown ? model : ''} disabled={working || (status.running && !status.modelSwitchSupported)} onChange={(event) => setModel(event.target.value)}>
           {!selectedModelKnown && <option value="">{model}</option>}
@@ -804,18 +849,20 @@ function StoryPlanAnalysis({ analysis }) {
 
 function StatusDot({ status }) { return <span className={`status-dot ${String(status).replaceAll('_', '-')}`} title={status} />; }
 
-function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false }) {
+// height is a prop because this editor is no longer always the only thing in its column; where it
+// shares space it fills what is left instead of assuming the viewport minus a constant.
+function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false, height = 'calc(100vh - 245px)' }) {
   return <section className="editor-panel">
     <header className="editor-header"><div><span className="eyebrow">{readOnly ? 'Repository-owned source' : 'Repository source'}</span><strong>{path}</strong></div><div className="row">{onImport && <button className="ghost compact" onClick={onImport}>Import</button>}{onDownload && <button className="secondary compact" onClick={onDownload}>Download</button>}<Pill tone={readOnly ? 'neutral' : dirty ? 'warn' : 'good'}>{readOnly ? 'Read only' : dirty ? 'Unsaved' : 'Saved'}</Pill>{!readOnly && <button className="primary compact" disabled={!dirty} onClick={onSave}>Save</button>}</div></header>
-    <Editor height="calc(100vh - 245px)" language={language} theme="vs-light" value={value} onChange={(next) => !readOnly && onChange(next ?? '')} options={{ readOnly, minimap: { enabled: false }, fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace', fontSize: 14, lineHeight: 23, wordWrap: 'on', padding: { top: 18 }, scrollBeyondLastLine: false, automaticLayout: true }} />
+    <Editor height={height} language={language} theme="vs-light" value={value} onChange={(next) => !readOnly && onChange(next ?? '')} options={{ readOnly, minimap: { enabled: false }, fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace', fontSize: 14, lineHeight: 23, wordWrap: 'on', padding: { top: 18 }, scrollBeyondLastLine: false, automaticLayout: true }} />
   </section>;
 }
 
-function DesignerModal({ title, detail, children, submitLabel, danger = false, error, onCancel, onSubmit }) {
+function DesignerModal({ title, detail, children, submitLabel, danger = false, submitDisabled = false, error, onCancel, onSubmit }) {
   return <div className="modal-backdrop" onClick={onCancel}><form className="designer-modal" onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
     <header><div><span className="eyebrow">Guided configuration</span><h2>{title}</h2></div><button type="button" onClick={onCancel}>×</button></header>
     <div className="designer-modal-body">{detail && <p>{detail}</p>}{children}{error && <div className="form-error" role="alert">{error}</div>}</div>
-    <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit" className={danger ? 'danger-button' : 'primary'}>{submitLabel}</button></footer>
+    <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit" className={danger ? 'danger-button' : 'primary'} disabled={submitDisabled}>{submitLabel}</button></footer>
   </form></div>;
 }
 
@@ -1680,7 +1727,7 @@ function ApprovalInbox({ data, busy, refresh, attach }) {
 // Extracted so more than one screen can present it — Copilot Studio shows it phase-by-phase,
 // while the Requirements workspace wraps the same session in a sources/chat/artifacts layout.
 // One implementation, because the ACP event handling here is subtle and must not drift.
-function useCopilotPlanningSession({ data, action, reload, profileRole = null, focus = null }) {
+function useCopilotPlanningSession({ data, action, reload, profileRole = null, focus = null, onCopilotLost = null }) {
   const groups = data.planning?.targets ?? [];
   const defaultGroup = groups.find((item) => item.scope === 'initiative') ?? groups[0] ?? null;
   // A hand-off from a phase screen names the phase and output it wants. Honour it only when that
@@ -1710,15 +1757,21 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   const [reviewed, setReviewed] = useState(false);
   const [usage, setUsage] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [permissions, setPermissions] = useState([]);
   const [logs, setLogs] = useState([]);
   const [activity, setActivity] = useState('Build a governed context pack to begin.');
   const transcriptRef = useRef('');
   const planRef = useRef('');
   const questionsRef = useRef([]);
+  const permissionsRef = useRef([]);
   const group = groups.find((item) => `${item.scope}:${item.id}` === groupKey) ?? defaultGroup;
   const phase = group?.phases.find((item) => item.id === phaseId) ?? group?.phases.find((item) => item.current) ?? null;
   const target = phase?.targets.find((item) => item.id === targetId) ?? phase?.targets[0] ?? null;
   const currentReady = Boolean(group && phase?.current && phase.status === 'in_progress' && target);
+  const sessionStorageKey = useMemo(
+    () => `singularity.phase-session:${data.repository.root}:${data.selectedInitiativeId ?? data.selectedWorkId ?? 'none'}:${focusPhase ?? phaseId}`,
+    [data.repository.root, data.selectedInitiativeId, data.selectedWorkId, focusPhase, phaseId]
+  );
   const storyPlanAnalysis = useMemo(
     () => target?.id === 'story-plan' && plan.trim() ? parseStoryPlan(plan) : null,
     [target?.id, plan]
@@ -1754,7 +1807,56 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     // running=true with no session to clear it, and running gates every control here — including
     // the build button — so the studio locked up completely.
     resetSession();
+    let active = true;
+    const resumePhase = focusPhase ?? selected?.currentPhase;
+    const resumeId = data.selectedInitiativeId;
+    if (resumeId && resumePhase && window.singularity.listPlanningSessions && window.singularity.resumePlanningSession) {
+      window.singularity.listPlanningSessions(data.repository.root)
+        .then((entries) => entries.find((entry) => entry.id === resumeId && entry.phase === resumePhase && entry.status !== 'promoted'))
+        .then((entry) => entry ? window.singularity.resumePlanningSession(data.repository.root, entry.sessionId) : null)
+        .then((pack) => {
+          if (!active || !pack) return;
+          setContextPack(pack);
+          setTargetId(pack.target?.id ?? targetId);
+          setActivity(`Restored the saved ${resumePhase} context. Start Copilot to continue this phase session.`);
+          try {
+            const journal = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? 'null');
+            if (journal?.sessionId === pack.sessionId) {
+              setMessages(journal.messages ?? []);
+              setPlan(journal.plan ?? '');
+              planRef.current = journal.plan ?? '';
+              setQuestions(journal.questions ?? []);
+              questionsRef.current = journal.questions ?? [];
+              setUsage(journal.usage ?? null);
+              setPersona(journal.persona ?? persona);
+              setObjective(journal.objective ?? objective);
+            }
+          } catch { /* stale local journals are disposable */ }
+          if (pack.savedStatus === 'active') {
+            setStarted(true);
+            setActivity(`Reconnected to the active ${resumePhase} Copilot session.`);
+          }
+        })
+        .catch(() => { /* a stale context is rebuilt explicitly by the user */ });
+    }
+    return () => { active = false; };
   }, [data.selectedWorkId, data.selectedInitiativeId]);
+
+  useEffect(() => {
+    if (!contextPack?.sessionId) return;
+    try {
+      window.localStorage.setItem(sessionStorageKey, JSON.stringify({
+        sessionId: contextPack.sessionId,
+        messages: messages.slice(-120),
+        plan,
+        questions,
+        usage,
+        persona,
+        objective,
+        updatedAt: new Date().toISOString()
+      }));
+    } catch { /* local journal is an enhancement, never a governance dependency */ }
+  }, [sessionStorageKey, contextPack?.sessionId, messages, plan, questions, usage, persona, objective]);
 
   useEffect(() => {
     if (!window.singularity.onPlanningEvent) return undefined;
@@ -1813,8 +1915,30 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         setActivity('Copilot withdrew its structured plan; continue the conversation to produce a replacement.');
       } else if (event.type === 'tool_call') {
         setActivity(`${event.title} · ${event.status}`);
+      } else if (event.type === 'permission-request') {
+        // Outside Plan mode the backend asks rather than refuses, so the request has to reach the
+        // operator: an unanswered one blocks Copilot's turn until the session ends.
+        permissionsRef.current = [...permissionsRef.current, {
+          id: event.requestId,
+          title: event.title,
+          kind: event.kind,
+          locations: event.locations ?? [],
+          mode: event.mode ?? null
+        }];
+        setPermissions(permissionsRef.current);
+        setActivity(`Copilot is asking to ${event.kind ?? 'act'}: ${event.title}`);
+      } else if (event.type === 'permission-allowed') {
+        permissionsRef.current = permissionsRef.current.filter((request) => request.id !== event.requestId);
+        setPermissions(permissionsRef.current);
+        setActivity(`${event.title} · ${event.requestId ? 'allowed' : 'reading'}`);
       } else if (event.type === 'permission-denied') {
-        setActivity(`${event.title} was blocked by Copilot Studio read-only policy.`);
+        permissionsRef.current = permissionsRef.current.filter((request) => request.id !== event.requestId);
+        setPermissions(permissionsRef.current);
+        setActivity(event.detail ?? `${event.title} was blocked.`);
+      } else if (event.type === 'mode-changed' || event.type === 'current_mode_update') {
+        setActivity(event.readOnly === false
+          ? `Copilot is in ${event.mode} mode: it may ask to change the repository.`
+          : `Copilot is in ${event.mode ?? 'Plan'} mode: read-only.`);
       } else if (event.type === 'usage_update') {
         setUsage((current) => ({
           ...(current ?? {}),
@@ -1857,6 +1981,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       } else if (event.type === 'process-exit' && started) {
         setRunning(false);
         setStarted(false);
+        setActivity(event.code === 0
+          ? 'Copilot ended the session. Start it again to continue.'
+          : `Copilot stopped unexpectedly (exit ${event.code ?? 'unknown'}${event.signal ? `, ${event.signal}` : ''}). The conversation is kept; start again to continue.`);
+        onCopilotLost?.();
       }
     });
   }, [contextPack?.sessionId, started]);
@@ -1872,6 +2000,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     setReviewed(false);
     setUsage(null);
     questionsRef.current = [];
+    permissionsRef.current = [];
+    setPermissions([]);
     setQuestions([]);
     setLogs([]);
   }
@@ -1916,7 +2046,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       target: target.id,
       objective
     }), 'Governed planning context built');
-    if (!result) return;
+    if (!result) return null;
+    try { window.localStorage.removeItem(sessionStorageKey); } catch { /* ignore unavailable storage */ }
     setContextPack(result);
     setMessages([]);
     setPlan('');
@@ -1924,9 +2055,28 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     transcriptRef.current = '';
     setReviewed(false);
     questionsRef.current = [];
+    permissionsRef.current = [];
+    setPermissions([]);
     setQuestions([]);
     setLogs([]);
     setActivity(`${result.manifest.sources.length} hashed sources ready for Copilot.`);
+    // Returned so a caller can start the session on the same pack without waiting for the state
+    // round-trip — the two-step existed partly because contextPack was only readable next render.
+    return result;
+  }
+
+  // One action. The prompt stays inspectable afterwards — reviewing it was always optional, but the
+  // two-step made it feel mandatory and left the screen with two "start" buttons in different places.
+  async function beginSession() {
+    const pack = await buildContext();
+    if (!pack?.sessionId) return null;
+    setRunning(true);
+    const result = await action(
+      () => window.singularity.startPlanningSession(data.repository.root, pack.sessionId, model),
+      'Copilot received the governed context'
+    );
+    if (!result) setRunning(false);
+    return result;
   }
 
   async function startCopilot() {
@@ -1946,6 +2096,16 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     if (!result) setRunning(false);
   }
 
+  async function answerPermission(request, allow) {
+    const result = await action(
+      () => window.singularity.answerCopilotPermission(data.repository.root, request.id, allow),
+      allow ? `Allowed: ${request.title}` : `Refused: ${request.title}`
+    );
+    if (!result) return;
+    permissionsRef.current = permissionsRef.current.filter((item) => item.id !== request.id);
+    setPermissions(permissionsRef.current);
+  }
+
   async function answerQuestion(question, values) {
     if (question.native) {
       const result = await action(() => window.singularity.answerPlanningQuestion(
@@ -1956,6 +2116,8 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         'accept'
       ), 'Answer sent to Copilot');
       if (!result) return;
+      questionsRef.current = questionsRef.current.map((item) => item.id === question.id ? { ...item, status: 'accept' } : item);
+      setQuestions(questionsRef.current);
       setMessages((current) => [...current, {
         role: 'user',
         id: `answer-${question.id}`,
@@ -1994,6 +2156,15 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     if (!result) setRunning(false);
   }
 
+  // Halting a runaway answer and discarding the conversation are different intents. Stop used to
+  // do the second, and threw when the agent did not acknowledge — leaving the session unable to
+  // stop or start.
+  async function interruptTurn() {
+    if (!contextPack) return;
+    await action(() => window.singularity.interruptPlanningTurn(data.repository.root, contextPack.sessionId), 'Asked Copilot to stop the current turn');
+    setRunning(false);
+    setActivity('Turn interrupted. The session is still attached.');
+  }
   async function stopCopilot() {
     await action(() => window.singularity.stopPlanningSession(data.repository.root, contextPack.sessionId), 'Planning context released; the Copilot backend remains ready');
     setRunning(false);
@@ -2001,27 +2172,48 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   }
 
   async function promote() {
+    // A phase-scoped session produces several fenced artifacts from one conversation, so the
+    // single-artifact call would send the fences themselves as one document and the engine would
+    // reject '*' as a promotion target. Parse the set and promote it as one commit instead.
+    const phaseScoped = contextPack?.target?.id === PHASE_SCOPE || targetId === PHASE_SCOPE;
+    const outputs = contextPack?.outputs ?? [];
+    const set = phaseScoped ? readArtifactBlocks(plan, outputs.map((output) => output.id)) : null;
+    if (phaseScoped && !set.size) {
+      setActivity(`No fenced artifact was found. Copilot must wrap each artifact in its <<<SFLOW-ARTIFACT:id …>>> fence.`);
+      return;
+    }
     const result = await action(
-      () => window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan),
-      `Reviewed plan promoted to ${target.path}, committed, and pushed`
+      () => (phaseScoped
+        ? window.singularity.promotePlanningArtifacts(
+          data.repository.root, contextPack.sessionId, persona,
+          [...set].map(([outputId, content]) => ({ outputId, content }))
+        )
+        : window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan)),
+      phaseScoped
+        ? `Promoted ${set.size} artifact${set.size === 1 ? '' : 's'}, committed, and pushed`
+        : `Reviewed plan promoted to ${target.path}, committed, and pushed`
     );
     if (!result) return;
     setReviewed(false);
     await reload(data.selectedWorkId, data.selectedInitiativeId);
   }
 
+  // Phase navigation must not release the session. The registry and context pack are the durable
+  // hand-off; only the explicit Stop button releases the Copilot planning context.
+
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
-function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null }) {
+function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
     <header className="page-heading planning-heading"><div><span className="eyebrow">Copilot-native decision workspace</span><h1>Copilot Studio</h1><p>Move from business intent to a reviewable, phase-specific plan without allowing the planning session to mutate source or lifecycle state.</p></div><div className="row"><Pill tone={preflight?.ready ? 'good' : 'warn'}>{preflight?.ready ? 'Copilot Plan mode ready' : 'Copilot setup needed'}</Pill><button className="secondary" onClick={openPlanningPrompt}>Edit planning prompt</button></div></header>
+    {preflight?.ready === false && <CopilotUnavailable health={preflight} action="Copilot Studio" onRetry={onCopilotRetry} />}
     <section className="planning-safety">
       <span>◈</span><div><strong>Read-only reasoning; explicit Git-backed promotion</strong><p>Copilot receives the selected phase context through ACP in native Plan mode. The chat stays local. Only the reviewed artifact you promote is written, audited, committed, and pushed.</p></div>
     </section>
@@ -2255,6 +2447,124 @@ function readArtifactBlocks(text, allowedIds) {
   return found;
 }
 
+// A short badge for the icon tile. documentKind returns prose ("Markdown"), which truncates to
+// "Mar"; and an output's kind is a type name rather than a file name, so neither works alone.
+function kindTag(nameOrKind = '') {
+  const value = String(nameOrKind).toLowerCase();
+  const byKind = {
+    markdown: 'MD', yaml: 'YML', 'interface-contract': 'API', json: 'JSN', text: 'TXT'
+  }[value];
+  if (byKind) return byKind;
+  return {
+    Markdown: 'MD', YAML: 'YML', JSON: 'JSN', Text: 'TXT', Image: 'IMG',
+    PDF: 'PDF', DOC: 'DOC', DOCX: 'DOC', XLS: 'XLS', XLSX: 'XLS', CSV: 'CSV', Figma: 'FIG'
+  }[documentKind(nameOrKind)] ?? documentKind(nameOrKind).slice(0, 3).toUpperCase();
+}
+
+// Fenced artifacts are promoted, not read: leaving a whole requirements specification inline
+// buries the reasoning the conversation exists to capture.
+function stripArtifactFences(text) {
+  const pattern = /<<<SFLOW-ARTIFACT:([A-Za-z0-9._-]+)\r?\n[\s\S]*?\r?\nSFLOW-ARTIFACT:\1>>>/g;
+  let stripped = 0;
+  const value = String(text ?? '').replace(pattern, () => { stripped += 1; return ''; });
+  return { text: value.replace(/\n{3,}/g, '\n\n').trim(), stripped };
+}
+
+function copyText(value) {
+  try { void navigator.clipboard?.writeText(String(value ?? '')); } catch { /* Clipboard access is a convenience, never load-bearing. */ }
+}
+
+function formatBytes(bytes = 0) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// One row shape for every kind of source, so a pinned upload and a Jira attachment are told apart
+// by their stated status rather than by which list they happen to sit in.
+/**
+ * Shown wherever Copilot work can be started and Copilot cannot do it.
+ *
+ * The preflight already distinguishes "not installed" from "installed but the wrong build", so the
+ * banner states which, rather than a single unhelpful "unavailable".
+ */
+/**
+ * What a phase session is usually asked to do, phrased once.
+ *
+ * The composer was an empty box, so each turn started by re-inventing the request for work the
+ * phase contract already describes. `outputs` comes from the built context, so the wording names
+ * the artifacts this phase actually owes rather than a generic list.
+ */
+function phaseCommands(outputs = []) {
+  const names = outputs.map((output) => output.label).filter(Boolean);
+  const list = names.length ? names.join(', ') : 'the configured artifacts';
+  return [
+    {
+      id: 'draft',
+      label: 'Draft every artifact',
+      hint: 'Produce the full set from the pinned sources',
+      prompt: `Produce ${list}. Use only the pinned sources, cite the source id in every derived requirement and acceptance criterion, and wrap each artifact in its own promotion fence.`
+    },
+    {
+      id: 'gaps',
+      label: 'What the sources do not answer',
+      hint: 'Find the holes before drafting',
+      prompt: 'List everything this phase needs that the pinned sources do not answer. Do not guess at any of it — record each as an open question with the decision it blocks.'
+    },
+    {
+      id: 'trace',
+      label: 'Check traceability',
+      hint: 'Every REQ and AC back to a pinned source',
+      prompt: 'Check that every REQ and AC traces to a pinned source id, and list any that do not along with what evidence they would need.'
+    },
+    {
+      id: 'challenge',
+      label: 'Challenge the assumptions',
+      hint: 'Argue against the current draft',
+      prompt: 'Challenge the assumptions in the current draft. Name each one, say what it would take to be wrong, and what would change if it were.'
+    },
+    {
+      id: 'tighten',
+      label: 'Tighten acceptance criteria',
+      hint: 'Make each one testable',
+      prompt: 'Rewrite the acceptance criteria so each is independently testable, with an unambiguous pass condition. Flag any that cannot be made testable from the pinned sources.'
+    }
+  ];
+}
+
+function CopilotUnavailable({ health, onRetry = null, action = 'this' }) {
+  if (!health || health.ready !== false) return null;
+  const cause = health.installed === false
+    ? 'The GitHub Copilot CLI was not found on your PATH.'
+    : health.acp === false || health.planMode === false
+      ? 'The installed Copilot CLI does not support the ACP Plan mode this needs.'
+      : 'Copilot is installed but did not respond.';
+  return <section className="copilot-down" role="alert">
+    <div>
+      <strong>Copilot is not available — {action} cannot run</strong>
+      <p>{cause}</p>
+      {health.message && <p className="copilot-down-detail">{health.message}</p>}
+      {health.version && <p className="copilot-down-detail">Detected: {health.version}</p>}
+    </div>
+    {onRetry && <button className="secondary compact" onClick={onRetry}>Check again</button>}
+  </section>;
+}
+
+function SourceCard({ name, detail, title = undefined, state = 'ready', onOpen = null }) {
+  const body = <>
+    <span className="source-icon" aria-hidden="true">{kindTag(name)}</span>
+    <span className="source-body">
+      <strong>{name}</strong>
+      <small>{detail}</small>
+    </span>
+    <span className={`source-state ${state}`} aria-hidden="true">{state === 'ready' ? '✓' : '○'}</span>
+  </>;
+  // A pinned source used to be a dead card: a name, a size and a hash, with no way to see what had
+  // actually been attached.
+  if (!onOpen) return <div className={`source-card ${state}`} title={title}>{body}</div>;
+  return <button type="button" className={`source-card ${state} openable`} title={title ?? 'Open this source'} onClick={onOpen}>{body}</button>;
+}
+
 function documentKind(name = '') {
   const extension = String(name).split('.').pop()?.toLowerCase() ?? '';
   return {
@@ -2285,8 +2595,10 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
     [NEXT_ACTIONS.AUTHOR]: 'Compose',
     [NEXT_ACTIONS.PUBLISH]: 'Publish',
     'author-and-publish': 'Publish',
-    [NEXT_ACTIONS.APPROVE]: 'Approve',
-    [NEXT_ACTIONS.EVIDENCE]: 'Record evidence'
+    // These two scroll to the governance panel rather than deciding anything. A button labelled
+    // "Approve" that only moves the page is the same defect this strip exists to remove.
+    [NEXT_ACTIONS.APPROVE]: 'Go to approval',
+    [NEXT_ACTIONS.EVIDENCE]: 'Go to evidence'
   }[next.action] ?? null;
   return <section className={`next-action next-action-${next.action}`} role="status">
     <span className="next-action-mark" aria-hidden="true">→</span>
@@ -2299,8 +2611,12 @@ function NextActionStrip({ initiative, phaseId = null, checklist = null, busy, o
   </section>;
 }
 
-function EpicJourneyRail({ journey, onSelect, onNext }) {
+function EpicJourneyRail({ journey, onSelect, onNext, ownsPhase = null }) {
   if (!journey) return null;
+  // A screen that already owns this phase's work offers it directly — the next-action strip and the
+  // governance panel are right below. Repeating it in the rail produced "Open Requirements
+  // workspace" for someone standing in the Requirements workspace: the dead-button pattern again.
+  const ownedHere = Boolean(ownsPhase && journey.nextAction?.phaseId === ownsPhase);
   return <section className="epic-journey-rail" aria-label="Epic journey progress">
     <div className="epic-journey-steps">
       {journey.stages.map((stage, index) => <React.Fragment key={stage.id}>
@@ -2318,27 +2634,42 @@ function EpicJourneyRail({ journey, onSelect, onNext }) {
       </React.Fragment>)}
     </div>
     <div className="epic-journey-next">
-      <span><small>{journey.completionPercent}% complete</small><strong>{journey.nextAction.label}</strong></span>
-      {onNext && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
+      {/* Where the work stands, next to what to do about it. Printing the action in both places
+          said the same sentence twice and never answered the first question. */}
+      <span><small>{journey.completionPercent}% complete</small><strong>{ownedHere ? `You are here · ${journey.stageLabel ?? 'this phase'}` : `In ${journey.stageLabel ?? 'setup'}`}</strong></span>
+      {onNext && !ownedHere && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
     </div>
   </section>;
 }
 
-// One workspace for any authored phase: sources, the Copilot conversation, and the artifacts the
-// phase owes. The session and artifact panes were always driven by the initiative's current phase;
-// only the wording assumed Requirements.
-function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt, onJourneyStage, onJourneyNext }) {
-  // Follow the phase the initiative is actually on. The engine is sequence-aware and will refuse a
-  // context for any other phase, so naming a fixed one here breaks the screen for every Epic that
-  // has not reached it yet.
-  const activePhaseId = selected.state.currentPhase ?? 'epic-intake';
-  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId } });
+// Requirements owns one phase page: sources, the Copilot conversation, and the artifacts that
+// Requirements owes. Other Epic phases use their own dedicated page so their context cannot drift.
+function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileRole = null, openPlanningPrompt, onJourneyStage, onJourneyNext, requestedPhaseId = null, copilotHealth = null, onCopilotRetry = null, onCopilotLost = null }) {
+  // The route can intentionally show a future phase, but the engine remains sequence-aware and
+  // disables authoring until that phase is current.
+  const activePhaseId = requestedPhaseId ?? selected.state.currentPhase ?? 'epic-intake';
+  const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId }, onCopilotLost });
   const {
-    contextPack, messages, questions, running, started, activity, plan, followup, setFollowup,
-    objective, setObjective, persona, setPersona, preflight, phase, group,
-    buildContext, startCopilot, sendFollowup, answerQuestion, dismissQuestion, stopCopilot
+    contextPack, messages, questions, permissions, running, started, activity, plan, followup, setFollowup,
+    objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
+    buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, answerPermission, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
+  const messageRef = useRef(null);
+  const stickToBottom = useRef(true);
+  const [activityOpen, setActivityOpen] = useState(true);
+  useEffect(() => {
+    const node = messageRef.current;
+    if (!node || !stickToBottom.current) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, activity]);
+  const [edits, setEdits] = useState({});
+  const [reviewed, setReviewed] = useState(false);
+  const [fullView, setFullView] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [localNote, setLocalNote] = useState(null);
+  const setToastLocal = (text) => setLocalNote(text);
   const [selectedArtifact, setSelectedArtifact] = useState(null);
   const [promoting, setPromoting] = useState(false);
   const providers = Object.entries(selected.state.resolution.storage?.providers ?? {});
@@ -2346,12 +2677,48 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   // Same governed path as the full sources view: bytes go to the configured provider and Git keeps
   // the hash, so a pinned document is citable evidence rather than an attachment.
-  async function addSources() {
+  async function addSources(paths = null) {
+    // Only a real list survives. Everything here crosses the IPC boundary, where a React event —
+    // which a bare onClick would hand us as this argument — fails structured clone with the
+    // useless message 'An object could not be cloned.'
+    const filePaths = Array.isArray(paths) ? paths : null;
     const result = await action(
-      () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId),
+      () => window.singularity.uploadEpicSources(data.repository.root, selected.state.initiative.id, providerId, undefined, filePaths),
       'Pinned source files uploaded and published'
     );
-    if (result && !result.canceled) await reload(null, selected.state.initiative.id);
+    if (result && !result.canceled) await reload(undefined, selected.state.initiative.id);
+  }
+
+  // Electron removed File.path, so the location comes from the preload's webUtils bridge. Anything
+  // without a resolvable path (a browser-synthesised file, a dragged selection) is reported rather
+  // than silently dropped.
+  async function dropSources(event) {
+    event.preventDefault();
+    setDragging(false);
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    const paths = files.map((file) => window.singularity?.pathForFile?.(file)).filter(Boolean);
+    if (!paths.length) {
+      setToastLocal('Those files have no readable path. Use Add source instead.');
+      return;
+    }
+    await addSources(paths);
+  }
+
+  async function pinJiraAttachments() {
+    const result = await action(
+      () => window.singularity.pinJiraAttachments(data.repository.root, selected.state.initiative.id),
+      'Jira attachments pinned as citable evidence'
+    );
+    if (result) await reload(undefined, selected.state.initiative.id);
+  }
+
+  async function openSource(sourceId) {
+    setPreview({ loading: true, sourceId });
+    const result = await action(
+      () => window.singularity.previewEpicSource(data.repository.root, selected.state.initiative.id, sourceId)
+    );
+    setPreview(result ? { ...result, loading: false } : null);
   }
 
   const state = selected.state;
@@ -2361,11 +2728,41 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const requirements = state.phases['epic-requirements'];
   const intakeApproved = intake?.status === 'approved';
   const phaseId = activePhaseId;
-  const outputs = contextPack?.outputs ?? [];
-  const proposed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+  const phaseIsCurrent = selected.state.currentPhase === phaseId && activePhase?.status === 'in_progress';
+  const phaseIsApproved = activePhase?.status === 'approved';
+  // The phase's outputs are known from its pinned resolution, so the pane can show what this phase
+  // owes from the moment it opens. Waiting for a session made it read as "nothing to produce".
+  const outputs = contextPack?.outputs
+    ?? selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs
+    ?? [];
+  const parsed = useMemo(() => readArtifactBlocks(plan, outputs.map((output) => output.id)), [plan, outputs]);
+  // What is promoted is what is on screen: an edited artifact wins over the parsed one, so the
+  // reviewer's corrections are what reaches Git rather than being silently discarded.
+  const proposed = useMemo(() => {
+    const merged = new Map(parsed);
+    for (const [id, value] of Object.entries(edits)) if (merged.has(id) && value.trim()) merged.set(id, value);
+    return merged;
+  }, [parsed, edits]);
+  const edited = useMemo(
+    () => [...parsed].filter(([id, value]) => edits[id] !== undefined && edits[id] !== value).map(([id]) => id),
+    [parsed, edits]
+  );
+  // A new proposal supersedes edits made against the previous one.
+  useEffect(() => { setEdits({}); setReviewed(false); }, [plan]);
+  // Compared here rather than at promotion time so the user learns while the conversation is still
+  // cheap to redo.
+  const contextStale = Boolean(contextPack && data.repository.head && contextPack.manifest.repository.head !== data.repository.head);
 
   const sources = selected.sources?.sources ?? [];
   const jiraAttachments = state.initiative.source?.type === 'jira' ? (state.initiative.source.attachments ?? []) : [];
+  const jiraSnapshot = useMemo(() => {
+    const source = state.initiative.source;
+    if (source?.type !== 'jira') return null;
+    // Mirrors jiraSnapshotSource in src/epic-sources.mjs; shown so the user can see the id that
+    // verifyEpicTraceability will accept in a citation.
+    return { sourceId: selected.sources?.jiraSnapshot?.sourceId ?? null, name: `Jira Epic ${source.key ?? state.initiative.id} snapshot` };
+  }, [state.initiative.source, state.initiative.id, selected.sources]);
+  const citableCount = sources.length + (jiraSnapshot ? 1 : 0);
   const documents = selected.documents.filter((document) => document.phase === phaseId);
 
   // The whole set lands as one commit: a traceability matrix and the requirements it cites are one
@@ -2383,8 +2780,72 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       `Wrote and pushed ${proposed.size} artifact${proposed.size === 1 ? '' : 's'}`
     );
     setPromoting(false);
-    if (result) await reload(null, state.initiative.id);
+    if (result) await reload(undefined, state.initiative.id);
   }
+
+  const phaseOutputs = useMemo(
+    () => selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [],
+    [selected.state.resolution, activePhaseId]
+  );
+  // Only the current phase can have its documents chosen; a phase that is done is done.
+  // Any phase whose decisions are still open — not just the one in progress. Knowing you do not
+  // need a document is most useful before you reach the phase that would demand it.
+  const outputChoiceEntry = selected.outputChoicesByPhase?.[activePhaseId] ?? null;
+  const outputChoices = outputChoiceEntry?.editable ? outputChoiceEntry.choices : [];
+  const includedOutputIds = outputChoices.filter((choice) => choice.included).map((choice) => choice.id);
+  const [chosenOutputs, setChosenOutputs] = useState(includedOutputIds);
+  const [outputReason, setOutputReason] = useState('');
+  useEffect(() => {
+    setChosenOutputs(includedOutputIds);
+    setOutputReason('');
+  }, [includedOutputIds.join(','), activePhaseId]);
+  const outputChoiceChanged = [...chosenOutputs].sort().join(',') !== [...includedOutputIds].sort().join(',');
+
+  async function applyOutputChoice() {
+    const result = await action(
+      () => window.singularity.selectInitiativeOutputs(data.repository.root, selected.state.initiative.id, activePhaseId, chosenOutputs, outputReason.trim()),
+      `${activePhaseId} will produce ${chosenOutputs.length} document${chosenOutputs.length === 1 ? '' : 's'}`
+    );
+    if (result) await reload(undefined, selected.state.initiative.id);
+  }
+
+  const phaseWork = phaseId === selected.state.currentPhase ? selected.phaseWork ?? [] : [];
+
+
+  // Every step here already had a control somewhere on this page. What was missing was the order
+  // and the knowledge of which one is next, so the buttons route to those same controls.
+  function runPhaseStep(step) {
+    if (step.kind === 'author') {
+      setSelectedArtifact(step.outputId);
+      document.querySelector('.requirements-composer textarea')?.focus();
+      return;
+    }
+    // The judgement and approval controls live in the governance panel below; this brings the
+    // reader to them rather than pretending to be them.
+    if (step.kind === 'attest' || step.kind === 'approve') { document.querySelector('.phase-governance')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (step.kind === 'publish') { void publishPhase(); return; }
+
+  }
+
+  const requiredOutputIds = useMemo(() => new Set(
+    (selected.state.resolution?.phases?.find((item) => item.id === activePhaseId)?.outputs ?? [])
+      .filter((output) => output.required)
+      .map((output) => output.id)
+  ), [selected.state.resolution, activePhaseId]);
+
+  const artifactGroups = useMemo(() => {
+    const rows = outputs.map((output) => ({
+      output,
+      content: proposed.get(output.id),
+      committed: selected.documents.find((document) => document.id === output.id && document.phase === phaseId)
+    }));
+    return [
+      { id: 'proposed', label: 'Proposed in this session', items: rows.filter((row) => row.content) },
+      { id: 'draft', label: 'Draft', items: rows.filter((row) => !row.content && row.committed?.sha256 && row.committed.status !== 'approved') },
+      { id: 'approved', label: 'Approved', items: rows.filter((row) => !row.content && row.committed?.status === 'approved') },
+      { id: 'awaiting', label: 'Not generated yet', items: rows.filter((row) => !row.content && !row.committed?.sha256) }
+    ];
+  }, [outputs, proposed, selected.documents, phaseId]);
 
   const intakeIsNonBlocking = state.initiative?.profile === 'epic-planning' && phaseId === 'epic-intake';
   const blockingChecks = Object.values(state.phases[phaseId]?.checklist ?? {})
@@ -2397,18 +2858,24 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       () => window.singularity.publishInitiativePhase(data.repository.root, state.initiative.id, phaseId, persona),
       `${phaseLabel} published, committed, and pushed`
     );
-    if (result) await reload(null, state.initiative.id);
+    if (result) await reload(undefined, state.initiative.id);
   }
 
+  // Dispatch on the canonical vocabulary only. Comparing against a mix of canonical and legacy
+  // names is what let 'approve-phase' slip past every branch and fall through to a no-op.
   function nextAction(next) {
-    const actionId = next.action ?? next.id;
-    if (actionId === NEXT_ACTIONS.AUTHOR || actionId === 'prepare') return void buildContext();
-    if (actionId === NEXT_ACTIONS.PUBLISH || actionId === 'author-and-publish') return void publishPhase();
+    const actionId = normalizeNextActionId(next.action ?? next.id);
+    if (actionId === NEXT_ACTIONS.AUTHOR) return void buildContext();
+    if (actionId === NEXT_ACTIONS.PUBLISH) return void publishPhase();
     if (actionId === NEXT_ACTIONS.APPROVE || actionId === NEXT_ACTIONS.EVIDENCE) {
-      document.querySelector('.phase-governance')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // The decision itself lives in the governance panel, which owns the persona and the typed
+      // confirmation. Bring it into view and focus it so the action is unmistakably next.
+      const panel = document.querySelector('.phase-governance');
+      panel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      panel?.querySelector('input, select')?.focus({ preventScroll: true });
       return;
     }
-    onJourneyNext?.(next);
+    onJourneyNext?.({ ...next, id: actionId ?? next.action ?? next.id, sourceId: next.sourceId ?? next.action ?? next.id });
   }
 
   return <div className="requirements-workspace">
@@ -2424,7 +2891,36 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       </div>
     </header>
 
-    <EpicJourneyRail journey={selected.journey} onSelect={onJourneyStage} onNext={nextAction} />
+    <EpicJourneyRail journey={selected.journey} onSelect={onJourneyStage} onNext={nextAction} ownsPhase={phaseId} />
+
+    {!phaseIsCurrent && !phaseIsApproved && <section className="phase-lock notice" role="status">
+      <strong>{phaseLabel} is not the active phase yet.</strong>
+      <p>Finish and approve <b>{selected.state.currentPhase ?? 'the preceding phase'}</b> first. This page is intentionally read-only until the workflow reaches {phaseLabel}.</p>
+      <button className="secondary compact" onClick={() => onJourneyStage?.(selected.journey?.stage ?? 'intake')}>Open current phase</button>
+    </section>}
+
+    {/* The whole of what is left in this phase, in order, with exactly one step marked as now.
+        The strip below answers "what is the single next command", which is the right answer for a
+        CLI and the wrong one here: it told someone standing in the workspace to open the
+        workspace, while four separate things were outstanding in three different panels. */}
+    {phaseWork.length > 0 && <section className="phase-work" aria-label={`What is left in ${phaseLabel}`}>
+      <header>
+        <strong>What is left in {phaseLabel}</strong>
+        <small>{phaseWork.filter((step) => step.done).length} of {phaseWork.length} done</small>
+      </header>
+      <ol>
+        {phaseWork.map((step) => <li key={step.id} className={step.state}>
+          <span className="phase-work-mark" aria-hidden="true">{step.done ? '✓' : step.state === 'now' ? '→' : '·'}</span>
+          <span className="phase-work-copy"><strong>{step.label}</strong><small>{step.detail}</small></span>
+          {step.state === 'now' && <button className="primary compact" disabled={running || promoting} onClick={() => runPhaseStep(step)}>{{
+            author: 'Compose',
+            attest: 'Open judgement',
+            publish: 'Publish',
+            approve: 'Open approval'
+          }[step.kind] ?? 'Open'}</button>}
+        </li>)}
+      </ol>
+    </section>}
 
     <NextActionStrip
       initiative={state}
@@ -2446,40 +2942,66 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <ul>{blockingChecks.map((check) => <li key={check.id}><code>{check.id}</code> — {check.label}</li>)}</ul>
     </section>}
 
+    {copilotHealth?.ready === false && <CopilotUnavailable health={copilotHealth} action="Copilot work" onRetry={onCopilotRetry} />}
+
+    {state.initiative.source?.type === 'jira' && <details className="requirements-origin">
+      <summary>Imported Jira Epic — the source these requirements derive from</summary>
+      <ImportedEpicView selected={selected} />
+    </details>}
+
     <div className="requirements-panes">
-      <aside className="requirements-sources">
-        <header><h2>Sources</h2><Pill>{sources.length}</Pill></header>
+      <aside
+        className={`requirements-sources ${dragging ? 'dropping' : ''}`}
+        data-accepts-drop=""
+
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+        onDrop={dropSources}
+      >
+        <header><h2>Sources</h2><Pill tone={citableCount ? 'good' : 'neutral'}>{citableCount} citable</Pill></header>
+        {dragging && <div className="requirements-dropzone" aria-hidden="true">Drop files to pin them as evidence</div>}
+        {localNote && <p className="field-error" role="alert">{localNote}</p>}
         <p className="requirements-hint">Everything pinned here is hashed and becomes part of the governed prompt. Requirements may only cite what is listed.</p>
-        <div className="requirements-source-actions">
+
+        {jiraSnapshot && <SourceCard
+          name={jiraSnapshot.name}
+          detail={`${jiraSnapshot.sourceId} · imported Epic · citable`}
+          title="Requirements may cite this source id"
+          state="ready"
+        />}
+        {!sources.length
+          ? <p className="requirements-hint">{jiraSnapshot
+            ? 'The imported Epic above is already citable. Drop a file here, or use Add source, to pin more evidence.'
+            : 'Nothing pinned yet. Drop the specification, research, designs, or spreadsheets this phase must be based on, or use Add source.'}</p>
+          : sources.map((source) => <SourceCard
+            key={source.sourceId}
+            name={source.name ?? source.path}
+            detail={`${source.sourceId} · ${formatBytes(source.bytes ?? 0)}`}
+            title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}
+            state="ready"
+            onOpen={() => openSource(source.sourceId)}
+          />)}
+        {jiraAttachments.length > 0 && <section className="requirements-jira-attachments">
+          <h3>From Jira ({jiraAttachments.length})</h3>
+          <p className="requirements-hint">Listed from the Epic import. Pinning fetches and hashes each one so requirements may cite it.</p>
+          <button className="secondary full compact" onClick={pinJiraAttachments}>Pin all as evidence</button>
+          {jiraAttachments.map((file) => <SourceCard
+            key={file.id ?? file.filename}
+            name={file.filename}
+            detail={`Jira attachment${file.size ? ` · ${formatBytes(file.size)}` : ''} · not pinned`}
+            state="pending"
+          />)}
+        </section>}
+        <details className="requirements-advanced">
+          <summary>Manage providers, credentials and URL sources</summary>
+          <EpicSourcesView data={data} selected={selected} action={action} reload={reload} />
+        </details>
+        <footer className="requirements-source-actions">
           <select aria-label="Storage provider" value={providerId} onChange={(event) => setProviderId(event.target.value)}>
             {providers.map(([id, provider]) => <option key={id} value={id}>{id} · {provider.type}</option>)}
           </select>
-          <button className="secondary compact" disabled={!providers.length} onClick={addSources}>＋ Add files</button>
-        </div>
-        {!sources.length
-          ? <p className="requirements-hint">Nothing pinned yet. Upload the specification, research, designs, or spreadsheets this phase must be based on.</p>
-          : sources.map((source) => <div key={source.sourceId} className="requirements-source-row">
-            <span className="requirements-kind">{documentKind(source.name ?? source.path)}</span>
-            <strong title={`${source.sourceId} · ${source.sha256?.slice(0, 12) ?? ''}`}>{source.name ?? source.path}</strong>
-            <small>{source.bytes ? `${Math.ceil(source.bytes / 1024)} KB` : ''}</small>
-          </div>)}
-        {jiraAttachments.length > 0 && <section className="requirements-jira-attachments">
-          <h3>From Jira ({jiraAttachments.length})</h3>
-          <p className="requirements-hint">Listed from the Epic import. Pin one above to make it citable evidence with its own hash.</p>
-          {jiraAttachments.map((file) => <div key={file.id ?? file.filename} className="requirements-source-row">
-            <span className="requirements-kind">{documentKind(file.filename)}</span>
-            <strong title={file.filename}>{file.filename}</strong>
-            <small>{file.size ? `${Math.ceil(file.size / 1024)} KB` : ''}</small>
-          </div>)}
-        </section>}
-        {documents.length > 0 && <section>
-          <h3>Generated ({documents.length})</h3>
-          {documents.map((document) => <div key={document.id} className="requirements-source-row">
-            <span className="requirements-kind">{document.status}</span>
-            <strong title={document.label}>{document.label}</strong>
-            <button className="ghost compact" disabled={!document.sha256} onClick={() => downloadFile(document.repositoryPath)}>Preview</button>
-          </div>)}
-        </section>}
+          <button className="secondary full" disabled={!providers.length} onClick={() => addSources()}>＋ Add source</button>
+        </footer>
       </aside>
 
       <section className="requirements-conversation">
@@ -2492,40 +3014,134 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             onChange={(event) => setObjective(event.target.value)}
             placeholder={`What must ${phase?.label ?? 'this phase'} settle? For example: turn the pinned specification into REQ/AC records, and flag anything the sources do not answer.`}
           />
+          <div className="composer-commands start-commands">
+            {phaseCommands(phaseOutputs).map((command) => <button
+              key={command.id}
+              type="button"
+              className="composer-command"
+              disabled={!ready || running}
+              title={command.hint}
+              onClick={() => setObjective(command.prompt)}
+            >{command.label}</button>)}
+          </div>
           <div className="row">
             <select aria-label="Persona" value={persona} onChange={(event) => setPersona(event.target.value)}>
               {Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}
             </select>
-            <button className="primary" disabled={!ready || running || !group} onClick={buildContext}>Start with Copilot</button>
+            <button className="primary" disabled={!ready || running || !group} onClick={beginSession}>Start with Copilot</button>
           </div>
-          {!ready && <p className="requirements-hint">{preflight?.message ?? 'Copilot CLI is not available for Plan mode yet.'}</p>}
+          {!ready && <CopilotUnavailable health={preflight} action="a planning session" onRetry={onCopilotRetry} />}
         </div> : <>
+          {contextStale && <div className="requirements-stale" role="status">
+            <div>
+              <strong>This context is out of date</strong>
+              <p>
+                The repository moved to <code>{data.repository.head?.slice(0, 10)}</code> since Copilot was given
+                this context at <code>{contextPack.manifest.repository.head.slice(0, 10)}</code> — pinning a source or
+                recording evidence both commit. Promotion will be refused until the context is rebuilt.
+                Rebuilding starts a fresh turn; this conversation is not carried over.
+              </p>
+            </div>
+            <button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button>
+          </div>}
+          {(contextPack.warnings ?? []).length > 0 && <div className="context-warnings" role="status">
+            {contextPack.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+          </div>}
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
-            {!started && <button className="primary compact" disabled={running} onClick={startCopilot}>Send to Copilot</button>}
+            {!started && !running && <button className="ghost compact" disabled={running} onClick={startCopilot} title="The session did not start — send this context again">Retry send</button>}
+          </div>
+          <div className="copilot-identity">
+            <span className="copilot-avatar" aria-hidden="true">✦</span>
+            <div>
+              <strong>Copilot</strong>
+              <small>{data.definition.personas[persona]?.label ?? persona}</small>
+            </div>
+            <Pill tone={running ? 'accent' : started ? 'good' : 'neutral'}>
+              {running ? 'Working' : started ? 'Ready for input' : 'Not started'}
+            </Pill>
           </div>
           <div className="requirements-activity">{activity}</div>
-          {pendingQuestions.length > 0 && <div className="copilot-question-stack">
-            {pendingQuestions.map((question) => <CopilotQuestionCard key={question.id} question={question} disabled={!started} onAnswer={answerQuestion} onDismiss={dismissQuestion} />)}
-          </div>}
-          <div className="requirements-messages">
-            {messages.length ? messages.map((message, index) => <div className={message.role} key={`${message.id}:${index}`}>
-              <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
-              <pre>{message.text}</pre>
-            </div>) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
+          {pendingQuestions.length > 1 && <p className="requirements-hint">{pendingQuestions.length} questions are waiting.</p>}
+          <div
+            className="requirements-messages"
+            ref={messageRef}
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              // Yield to a reader who has scrolled up; resume when they return to the bottom.
+              stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40;
+            }}
+          >
+            {messages.length ? messages.map((message, index) => {
+              // Artifact fences belong in the Artifacts pane; repeating a whole specification inside
+              // the transcript buries the reasoning the conversation is actually for.
+              const visible = stripArtifactFences(message.text);
+              return <div className={`chat-turn ${message.role}`} key={`${message.id}:${index}`}>
+                <span className="chat-avatar" aria-hidden="true">{message.role === 'user' ? '·' : '✦'}</span>
+                <div className="chat-bubble">
+                  <header>
+                    <strong>{message.role === 'user' ? 'You' : 'Copilot'}</strong>
+                    <button className="ghost compact" title="Copy this message" onClick={() => copyText(message.text)}>Copy</button>
+                  </header>
+                  {message.role === 'assistant'
+                    ? <TemplatePreview content={visible.text} />
+                    : <pre>{visible.text}</pre>}
+                  {visible.stripped > 0 && <small className="chat-fenced">{visible.stripped} artifact{visible.stripped === 1 ? '' : 's'} proposed — review them in Artifacts</small>}
+                </div>
+              </div>;
+            }) : <div className="inline-empty">Copilot's reasoning appears here. Ask it to challenge an assumption, tighten an acceptance criterion, or justify a requirement against its source.</div>}
           </div>
+          <div className="requirements-telemetry">
+            <span>{usage?.contextTokens ? `${formatTokens(usage.contextTokens)} context tokens` : 'Usage appears once Copilot reports it'}{usage?.contextWindow ? ` of ${formatTokens(usage.contextWindow)}` : ''}</span>
+            {/* Open by default, and it stays wherever the reader leaves it. Copilot's tool calls,
+                refusals and diagnostics are the only account of what it actually did; behind a
+                closed summary the turn looked like silence. */}
+            <details className="requirements-console" open={activityOpen} onToggle={(event) => setActivityOpen(event.currentTarget.open)}>
+              <summary>Copilot activity ({logs.length})</summary>
+              <div className="requirements-console-lines">
+                {logs.length
+                  ? logs.slice(-80).map((entry, index) => <div className={entry.level} key={`${entry.id}:${index}`}>
+                    <time>{new Date(entry.at).toLocaleTimeString()}</time><code>{entry.type}</code><span>{entry.detail}</span>
+                  </div>)
+                  : <div className="inline-empty">Tool calls, thinking and diagnostics appear here.</div>}
+              </div>
+            </details>
+          </div>
+          <div className="composer-commands">
+            {phaseCommands(outputs).map((command) => <button
+              key={command.id}
+              type="button"
+              className="composer-command"
+              disabled={!started || running}
+              title={command.hint}
+              onClick={() => { setFollowup(command.prompt); }}
+            >{command.label}</button>)}
+          </div>
+          {/* Enter sends and Shift+Enter breaks the line, the convention every chat surface uses.
+              The hint under the box is only honest if the keys actually behave that way. */}
           <div className="requirements-composer">
             <textarea
               rows="3"
               value={followup}
               disabled={!started || running}
               onChange={(event) => setFollowup(event.target.value)}
-              placeholder="Add an instruction, answer a question, or ask for a revision…"
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.shiftKey) return;
+                event.preventDefault();
+                if (started && !running && followup.trim()) void sendFollowup();
+              }}
+              placeholder={started ? 'Add an instruction, answer a question, or ask for a revision…' : 'Start Copilot with the governed context first.'}
             />
-            <div className="row">
-              <button className="ghost compact" disabled={!started} onClick={stopCopilot}>Stop</button>
-              <button className="secondary compact" disabled={!started || running || !followup.trim()} onClick={sendFollowup}>Send</button>
+            <div className="composer-bar">
+              <small>{started ? 'Shift + Enter for a new line' : 'Start Copilot above to begin the conversation.'}</small>
+              {started && <div className="row">
+                {/* Stop halts the turn and keeps the conversation; ending the session is separate
+                    and explicit, because losing the transcript is not what "stop" means. */}
+                <button className="ghost compact" disabled={!running} onClick={interruptTurn} title="Halt the current turn; the conversation stays">Stop</button>
+                <button className="ghost compact" onClick={stopCopilot} title="Discard this session and release Copilot">End session</button>
+                <button className="secondary compact" disabled={running || !followup.trim()} onClick={sendFollowup}>Send ➤</button>
+              </div>}
             </div>
           </div>
         </>}
@@ -2533,58 +3149,172 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
       <aside className="requirements-artifacts">
         <header><h2>Artifacts</h2><Pill tone={proposed.size ? 'accent' : 'neutral'}>{proposed.size}/{outputs.length || '—'}</Pill></header>
+        {/* What this phase demands is a property of the profile; what this Epic needs is a
+            decision. Optional outputs are chosen here, and the choice is a governed change. */}
+        {outputChoices.length > 0 && <details className="artifact-choice">
+          <summary>Documents for this Epic ({outputChoices.filter((choice) => choice.included).length} of {outputChoices.length})</summary>
+          {outputChoices.map((choice) => <label key={choice.id} className={choice.required ? 'locked' : undefined}>
+            <input
+              type="checkbox"
+              checked={chosenOutputs.includes(choice.id)}
+              disabled={choice.required || choice.authored}
+              onChange={(event) => setChosenOutputs((current) => event.target.checked
+                ? [...current, choice.id]
+                : current.filter((id) => id !== choice.id))}
+            />
+            <span><strong>{choice.label}</strong><small>{choice.required
+              ? 'Required by this delivery profile'
+              : choice.authored ? 'Already has content — remove the file first' : 'Optional'}{choice.pinned ? '' : ' · added to the profile since this Epic started'}</small></span>
+          </label>)}
+          {outputChoiceChanged && <div className="row">
+            <input aria-label="Why this Epic's documents changed" value={outputReason} onChange={(event) => setOutputReason(event.target.value)} placeholder="Why — recorded with the change" />
+            <button className="primary compact" disabled={!outputReason.trim()} onClick={applyOutputChoice}>Apply</button>
+          </div>}
+        </details>}
         {!outputs.length ? <p className="requirements-hint">Start a session to see what this phase must produce.</p> : <>
-          {outputs.map((output) => {
-            const content = proposed.get(output.id);
-            const committed = selected.documents.find((document) => document.id === output.id);
-            return <button
+          {artifactGroups.map((group) => group.items.length > 0 && <section key={group.id} className="artifact-group">
+            <h3>{group.label}</h3>
+            {group.items.map(({ output, content, committed }) => <button
               key={output.id}
               type="button"
               className={`requirements-artifact ${selectedArtifact === output.id ? 'active' : ''} ${content ? 'proposed' : ''}`}
               onClick={() => setSelectedArtifact(selectedArtifact === output.id ? null : output.id)}
             >
-              <span className="requirements-kind">{output.kind}</span>
-              <strong>{output.label}</strong>
-              <small>{content ? `proposed · ${Math.ceil(content.length / 1024) || 1} KB` : committed?.sha256 ? `committed · ${committed.status}` : 'not proposed yet'}</small>
-            </button>;
-          })}
-          {selectedArtifact && proposed.get(selectedArtifact) && <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>}
+              <span className="artifact-icon" aria-hidden="true">{kindTag(committed?.path ?? output.kind)}</span>
+              <span className="artifact-body">
+                <strong>{output.label}</strong>
+                <small className="artifact-id">{output.id}{committed?.generation ? ` · v${committed.generation}` : ''}</small>
+                <small>{content
+                  ? `Proposed in this session · ${formatBytes(content.length)}`
+                  : committed?.sha256
+                    ? `${committed.status.replaceAll('_', ' ')}${committed.bytes ? ` · ${formatBytes(committed.bytes)}` : ''}${committed.generatedPersona ? ` · ${committed.generatedPersona}` : ''}`
+                    : requiredOutputIds.has(output.id) ? 'Required · not generated yet' : 'Optional · not generated yet'}</small>
+              </span>
+              {content && <span className="artifact-state proposed" title="Proposed, not yet written">●</span>}
+              {!content && committed?.status === 'approved' && <span className="artifact-state approved" title="Approved">✓</span>}
+            </button>)}
+          </section>)}
+          {selectedArtifact && proposed.get(selectedArtifact) && <>
+            <pre className="requirements-artifact-preview">{proposed.get(selectedArtifact)}</pre>
+            <button className="secondary full compact" onClick={() => setFullView(selectedArtifact)}>Open full size · review &amp; edit</button>
+          </>}
           <div className="requirements-approval">
             <p className="requirements-hint">
               Approving writes every proposed artifact and pushes them as one commit. The phase gate stays a separate decision, and approval can happen from anywhere on the pushed branch.
             </p>
-            <button className="primary full" disabled={!proposed.size || promoting || running} onClick={approveArtifacts}>
+            {edited.length > 0 && <p className="requirements-hint"><b>{edited.length} edited</b> — your version is what gets written.</p>}
+            {proposed.size > 0 && <label className="self-approval-ack">
+              <input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />
+              <span>I have read {proposed.size === 1 ? 'this artifact' : `all ${proposed.size} artifacts`} in full.</span>
+            </label>}
+            <button className="primary full" disabled={!proposed.size || !reviewed || promoting || running} onClick={approveArtifacts}>
               {promoting ? 'Writing…' : `Approve ${proposed.size || ''} artifact${proposed.size === 1 ? '' : 's'} & push`}
             </button>
+            {proposed.size > 0 && !reviewed && <small className="field-error">Confirm you have read the artifacts before they are written and pushed.</small>}
           </div>
         </>}
       </aside>
     </div>
     <PhaseGovernance data={data} selected={selected} phaseId={phaseId} action={action} reload={reload} />
-  </div>;
-}
-
-function EpicRequirementsView({ data, selected, action, reload, openPlanning, downloadFile }) {
-  const intake = selected.state.phases['epic-intake'];
-  const requirements = selected.state.phases['epic-requirements'];
-  const intakeApproved = intake?.status === 'approved';
-  const requirementsApproved = requirements?.status === 'approved';
-  const identitySource = selected.state.lineage?.idAuthority === 'jira' ? 'Jira Epic' : 'Provided Epic details';
-  return <div className="epic-workspace-view">
-    <section className="panel epic-requirements-context">
-      <div><span className="eyebrow">Requirements source</span><h2>{selected.state.initiative.title}</h2><p><code>{selected.state.initiative.id}</code> · {identitySource}. Add the supporting evidence and resolve source gaps before generating the formatted requirement set.</p></div>
-      <div className="requirements-output-map"><span className={intakeApproved ? 'complete' : 'active'}><b>{intakeApproved ? '✓' : '1'}</b>Epic details & sources</span><i>→</i><span className={requirementsApproved ? 'complete' : intakeApproved ? 'active' : ''}><b>{requirementsApproved ? '✓' : '2'}</b>Requirements specification</span><i>→</i><span><b>3</b>Planning input</span></div>
-    </section>
-    <ImportedEpicView selected={selected} />
-    <EpicSourcesView data={data} selected={selected} action={action} reload={reload} />
-    {!intakeApproved ? <>
-      <EpicArtifactView selected={selected} phases={['epic-intake']} title="Review the Epic intake" detail="The Jira snapshot or supplied Epic details are enough to continue. Source catalog, source gaps, and intake summary documents are optional enrichment." downloadFile={downloadFile} openPlanning={openPlanning} />
-      <PhaseGovernance data={data} selected={selected} phaseId="epic-intake" action={action} reload={reload} />
-    </> : <>
-      <EpicArtifactView selected={selected} phases={['epic-requirements']} title="Generate the formatted requirements artifact" detail="Copilot produces the requirements specification, REQ-nnn / AC-nnn traceability, non-functional requirements, exclusions, and open questions. The approved hashes become mandatory Planning inputs." downloadFile={downloadFile} openPlanning={requirementsApproved ? null : openPlanning} />
-      <PhaseGovernance data={data} selected={selected} phaseId="epic-requirements" action={action} reload={reload} />
-      {requirementsApproved && <div className="requirements-ready-note"><span>✓</span><div><strong>Requirements are approved for Planning</strong><p>The Story plan consumes the exact approved requirements specification and traceability hashes. Later edits create a new generation and invalidate affected planning outputs.</p></div></div>}
-    </>}
+    {permissions[0] && <div className="modal-backdrop copilot-ask" role="dialog" aria-modal="true">
+      <div className="preview-modal question-modal">
+        <header>
+          <div>
+            <strong>Copilot wants to {permissions[0].kind ?? 'act on'} the repository</strong>
+            <small>{permissions.length > 1 ? `${permissions.length} requests waiting · deciding one at a time` : `${permissions[0].mode ?? 'This'} mode puts each of these to you before it happens`}</small>
+          </div>
+        </header>
+        <div className="copilot-permission-request">
+          <p><strong>{permissions[0].title}</strong></p>
+          {!!permissions[0].locations.length && <ul className="copilot-permission-paths">{permissions[0].locations.map((location) => <li key={location}><code>{location}</code></li>)}</ul>}
+          <p className="field-help">Refusing is safe: Copilot is told no and continues. Nothing here is committed — publishing and approval still run through the governed phase.</p>
+          <div className="row">
+            <button className="primary" onClick={() => answerPermission(permissions[0], true)}>Allow once</button>
+            <button className="ghost" onClick={() => answerPermission(permissions[0], false)}>Refuse</button>
+          </div>
+        </div>
+      </div>
+    </div>}
+    {pendingQuestions[0] && <div className="modal-backdrop copilot-ask" role="dialog" aria-modal="true">
+      <div className="preview-modal question-modal">
+        <header>
+          <div>
+            <strong>Copilot needs an answer to continue</strong>
+            <small>{pendingQuestions.length > 1 ? `${pendingQuestions.length} waiting · answering one at a time` : 'The turn is paused until you answer or skip'}</small>
+          </div>
+        </header>
+        <CopilotQuestionCard
+          question={pendingQuestions[0]}
+          disabled={!started}
+          onAnswer={answerQuestion}
+          onDismiss={dismissQuestion}
+        />
+      </div>
+    </div>}
+    {fullView && (() => {
+      const output = outputs.find((item) => item.id === fullView);
+      const committed = selected.documents.find((document) => document.id === fullView && document.phase === phaseId);
+      const current = proposed.get(fullView) ?? '';
+      const language = output?.kind === 'yaml' ? 'yaml' : 'markdown';
+      return <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setFullView(null)}>
+        <div className="preview-modal artifact-modal" onClick={(event) => event.stopPropagation()}>
+          <header>
+            <div>
+              <strong>{output?.label ?? fullView}</strong>
+              <small>{fullView} · {output?.kind}{committed?.sha256 ? ` · comparing against generation ${committed.generation}` : ' · nothing committed yet'}</small>
+            </div>
+            <div className="row">
+              {edits[fullView] !== undefined && <button className="ghost compact" onClick={() => setEdits((rest) => { const next = { ...rest }; delete next[fullView]; return next; })}>Revert edits</button>}
+              <button className="ghost compact" onClick={() => setFullView(null)}>Close</button>
+            </div>
+          </header>
+          {/* A diff only means something once there is a committed generation to compare with. */}
+          {committed?.content
+            ? <DiffEditor
+              height="min(620px, 68vh)"
+              language={language}
+              original={committed.content}
+              modified={current}
+              options={{ renderSideBySide: true, readOnly: false, minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }}
+              onMount={(editor) => {
+                // Edits are made on the modified side; Monaco's diff editor exposes it separately.
+                editor.getModifiedEditor().onDidChangeModelContent(() => {
+                  setEdits((rest) => ({ ...rest, [fullView]: editor.getModifiedEditor().getValue() }));
+                });
+              }}
+            />
+            : <Editor
+              height="min(620px, 68vh)"
+              language={language}
+              value={current}
+              options={{ minimap: { enabled: false }, fontSize: 12, wordWrap: 'on', scrollBeyondLastLine: false }}
+              onChange={(value) => setEdits((rest) => ({ ...rest, [fullView]: value ?? '' }))}
+            />}
+        </div>
+      </div>;
+    })()}
+    {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPreview(null)}>
+      <div className="preview-modal" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <strong>{preview.name ?? 'Pinned source'}</strong>
+            <small>{preview.sourceId}{preview.bytes ? ` · ${formatBytes(preview.bytes)}` : ''}{preview.verified ? ' · hash verified' : ''}</small>
+          </div>
+          <button className="ghost compact" onClick={() => setPreview(null)}>Close</button>
+        </header>
+        {preview.loading
+          ? <p className="requirements-hint">Materialising the pinned bytes…</p>
+          : preview.tooLarge
+            ? <p className="requirements-hint">This source is {formatBytes(preview.bytes)} — too large to preview here. Its hash is still governed evidence.</p>
+            : preview.text != null
+              ? <TemplatePreview content={preview.text} />
+              : preview.dataUrl?.startsWith('data:application/pdf')
+                ? <iframe title={preview.name} src={preview.dataUrl} />
+                : preview.dataUrl?.startsWith('data:image/')
+                  ? <img alt={preview.name} src={preview.dataUrl} />
+                  : <p className="requirements-hint">No inline view for {preview.mimeType}. The bytes are pinned and hashed; open the cached file to inspect it.</p>}
+      </div>
+    </div>}
   </div>;
 }
 
@@ -2597,8 +3327,41 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       ?? ''
   );
   const [confirmation, setConfirmation] = useState('');
+  // Why the approve action is unavailable, in the words of what to do about it.
+  const approvalBlocker = !persona
+    ? 'Select your review persona first.'
+    : confirmation.trim() === ''
+      ? `Type ${phaseId}:phase in the confirmation field to approve this exact document set.`
+      : confirmation !== `${phaseId}:phase`
+        ? `The confirmation phrase does not match. Type exactly ${phaseId}:phase.`
+        : null;
   const [selfApproval, setSelfApproval] = useState(false);
+  const [attesting, setAttesting] = useState(null);
+  const [attestation, setAttestation] = useState('');
+
   if (!phase) return null;
+  // A check whose acceptedAssurance includes human-approved is one a person may attest to; the rest
+  // can only be earned by a verifier at publish. Read it from the pinned resolution, which is the
+  // per-initiative source of truth — the phase-state projection does not carry it.
+  const checkDefinitions = selected.state.resolution?.phases?.find((item) => item.id === phaseId)?.checklist ?? [];
+  const attestable = Object.values(phase.checklist ?? {})
+    .filter((check) => check.status !== 'satisfied' && check.requirement !== 'optional')
+    .map((check) => ({ ...check, definition: checkDefinitions.find((item) => item.id === check.id) }))
+    .filter((check) => check.definition?.acceptedAssurance?.includes('human-approved'));
+
+  async function recordEvidence(checkId) {
+    const result = await action(
+      () => window.singularity.recordInitiativeEvidence(
+        data.repository.root, selected.state.initiative.id, phaseId, checkId, attestation, attestation
+      ),
+      `Evidence recorded for ${checkId}`
+    );
+    if (!result) return;
+    setAttesting(null);
+    setAttestation('');
+    await reload(undefined, selected.state.initiative.id);
+  }
+
   const outputs = Object.values(phase.outputs ?? {});
   // Publication needs every REQUIRED output authored. The engine already works this way
   // (verifyInitiativePhaseOutputs only reports a missing output when definition.required), so
@@ -2627,7 +3390,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       () => window.singularity.publishInitiativePhase(data.repository.root, selected.state.initiative.id, phaseId, persona),
       `${phase.label} generation published, committed, and pushed`
     );
-    if (result) await reload(null, selected.state.initiative.id);
+    if (result) await reload(undefined, selected.state.initiative.id);
   }
   async function approve() {
     const result = await action(
@@ -2644,7 +3407,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     if (result) {
       setConfirmation('');
       setSelfApproval(false);
-      await reload(null, selected.state.initiative.id);
+      await reload(undefined, selected.state.initiative.id);
     }
   }
   return <section className="panel phase-governance">
@@ -2652,8 +3415,31 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       {!readyToPublish && !awaitingApproval && !approved && authoredOutputs.length > 0 && <p className="stage-progress">{authoredOutputs.length} of {effectiveRequiredOutputs.length} required outputs authored.</p>}
     </div>
     <label><span>Your review persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></label>
-    {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={`${phaseId}:phase`} /></label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
-    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={!persona || confirmation !== `${phaseId}:phase`} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
+    {attestable.length > 0 && <section className="evidence-attest">
+      <header><strong>Checks awaiting your judgement</strong><small>Recorded as human-approved evidence against your Git identity, committed append-only. The engine refuses an actor outside the check's approval authority.</small></header>
+      {attestable.map((check) => <div key={check.id} className="evidence-attest-row">
+        <div>
+          <code>{check.id}</code>
+          <span>{check.label}</span>
+          {check.definition?.acceptedAssurance?.includes('machine-verified') && <em>Normally earned automatically at publish — attest only if you are accepting it deliberately.</em>}
+        </div>
+        {attesting === check.id ? <div className="evidence-attest-form">
+          <textarea
+            rows="2"
+            value={attestation}
+            onChange={(event) => setAttestation(event.target.value)}
+            placeholder="What did you review, and what did you conclude? This is recorded with your name."
+          />
+          <div className="row">
+            <button className="ghost compact" onClick={() => { setAttesting(null); setAttestation(''); }}>Cancel</button>
+            <button className="primary compact" disabled={!attestation.trim()} onClick={() => void recordEvidence(check.id)}>Record evidence</button>
+          </div>
+          {!attestation.trim() && <small className="field-error">Say what you reviewed — an attestation with no reasoning is not evidence.</small>}
+        </div> : <button className="secondary compact" onClick={() => { setAttesting(check.id); setAttestation(''); }}>Record judgement</button>}
+      </div>)}
+    </section>}
+    {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} className={confirmation.trim() && confirmation !== `${phaseId}:phase` ? 'confirmation-mismatch' : undefined} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Type the phrase here" />{approvalBlocker && <small className="field-error">{approvalBlocker}</small>}</label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
+    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={Boolean(approvalBlocker)} title={approvalBlocker ?? undefined} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a persona first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
     {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}
   </section>;
 }
@@ -2667,11 +3453,14 @@ function epicStageLabel(item) {
   return item.currentPhaseLabel ?? 'Not started';
 }
 
-function EpicsHome({ data, action, reload, openEpic, onSetupJira, startNew = false }) {
+function EpicsHome({ data, action, reload, openEpic, generateWorldModel, onSetupJira, startNew = false }) {
   // "New Epic" from inside an Epic workspace clears the selection and lands here; honour that
   // intent by opening the wizard directly instead of dropping the user on the list.
   const [starting, setStarting] = useState(Boolean(startNew));
-  const epics = data.initiatives.filter((item) => item.profile === 'epic-planning');
+  // Every initiative, whatever its delivery profile. Filtering to epic-planning meant an Epic
+  // like an enterprise-delivery one appeared in no list anywhere: this page showed an empty state
+  // and offered to start it, which the engine then refused because it already existed.
+  const epics = data.initiatives;
   async function refreshEpics() {
     const result = await action(
       () => window.singularity.refreshInitiatives(data.repository.root),
@@ -2679,14 +3468,14 @@ function EpicsHome({ data, action, reload, openEpic, onSetupJira, startNew = fal
     );
     if (result) await reload(null, null);
   }
-  if (!epics.length || starting) return <div className="page epics-home"><header className="page-heading"><div><span className="eyebrow">Epic delivery workspace</span><h1>Turn requirements into ready-to-build Stories</h1><p>Bring an Epic from Jira or describe the work, ground it in source evidence, plan with Copilot, and publish governed Stories.</p></div>{epics.length > 0 && <button className="secondary" onClick={() => setStarting(false)}>← Back to Epics</button>}</header><EpicStartWizard data={data} action={action} reload={reload} onSetupJira={onSetupJira} /></div>;
+  if (!epics.length || starting) return <div className="page epics-home"><header className="page-heading"><div><span className="eyebrow">Epic delivery workspace</span><h1>Turn requirements into ready-to-build Stories</h1><p>Bring an Epic from Jira or describe the work, ground it in source evidence, plan with Copilot, and publish governed Stories.</p></div>{epics.length > 0 && <button className="secondary" onClick={() => setStarting(false)}>← Back to Epics</button>}</header><EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={onSetupJira} /></div>;
   return <div className="page epics-home">
     <header className="page-heading epics-home-heading"><div><span className="eyebrow">Epic delivery workspace</span><h1>Your Epics</h1><p>One clear view of requirements, planning, Story publication, and downstream delivery readiness.</p></div><div className="row gap"><button className="secondary" onClick={refreshEpics}>↻ Fetch latest</button><button className="primary" onClick={() => setStarting(true)}>＋ Start Epic</button></div></header>
     <section className="epics-summary"><div><strong>{epics.length}</strong><span>Active Epics</span></div><div><strong>{epics.filter((item) => item.currentPhase === 'epic-publish').length}</strong><span>Ready for Stories</span></div><div><strong>{epics.filter((item) => item.status === 'complete').length}</strong><span>Completed</span></div></section>
     <section className="epic-card-grid">{epics.map((item) => {
       const waitingMs = item.waitingSince ? Date.now() - Date.parse(item.waitingSince) : null;
       return <button className="epic-home-card" key={item.id} onClick={() => openEpic(item.id)}>
-        <header><span><code>{item.id}</code><Pill tone={item.idAuthority === 'jira' ? 'accent' : 'neutral'}>{item.idAuthority}</Pill></span><Pill tone={item.status === 'complete' ? 'good' : item.currentPhaseStatus === 'awaiting_approval' ? 'warn' : 'neutral'}>{epicStageLabel(item)}</Pill></header>
+        <header><span><code>{item.id}</code><Pill tone={item.idAuthority === 'jira' ? 'accent' : 'neutral'}>{item.idAuthority}</Pill>{item.profileLabel && <Pill tone="neutral">{item.profileLabel}</Pill>}</span><Pill tone={item.status === 'complete' ? 'good' : item.currentPhaseStatus === 'awaiting_approval' ? 'warn' : 'neutral'}>{epicStageLabel(item)}</Pill></header>
         <h2>{item.title}</h2>
         <p>{item.currentPhaseStatus === 'awaiting_approval' ? `Waiting for approval in ${item.currentPhaseLabel}` : `Currently in ${item.currentPhaseLabel ?? 'setup'}`}{Number.isFinite(waitingMs) ? ` · ${formatDuration(waitingMs)}` : ''}</p>
         <div className="epic-home-progress"><i><b style={{ width: `${item.percentage ?? 0}%` }} /></i><span>{item.percentage ?? 0}%</span></div>
@@ -2794,7 +3583,11 @@ function EpicJourneyDiagram({ activeStep = 0 }) {
   </div>;
 }
 
-function EpicStartWizard({ data, action, reload, onSetupJira = () => window.dispatchEvent(new Event('singularity:setup-jira')) }) {
+// `generateWorldModel` is the App-level runner: it drives the progress modal, checks Copilot health
+// before spending minutes, and toasts failures. It has to be passed in — it is declared inside
+// `App`, so a bare call from here is a ReferenceError inside a floating promise, which is exactly
+// how "Generate world model" came to do nothing at all when clicked.
+function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, onSetupJira = () => window.dispatchEvent(new Event('singularity:setup-jira')) }) {
   const initiativeProfiles = data.portfolio?.initiativeProfiles ?? {
     'epic-planning': { label: 'Epic planning' }
   };
@@ -2810,6 +3603,7 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
   // Offered, never forced: generating the world model runs Copilot and can take minutes, so the
   // epic starts either way and the model can be built onto the epic branch from here.
   const [worldModelOffer, setWorldModelOffer] = useState(null);
+  const [worldModelError, setWorldModelError] = useState('');
   const [epicKey, setEpicKey] = useState('');
   const [selectedEpicKey, setSelectedEpicKey] = useState('');
   const [fetchedEpic, setFetchedEpic] = useState(null);
@@ -3019,15 +3813,30 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     await reload(null, fetchedEpic.key);
   }
   async function generateWorldModelForEpic() {
-    // local=false: publish normally so the model is pushed with the epic branch.
-    const built = await generateWorldModel(data.repository.root, false);
-    const target = worldModelOffer?.initiativeId;
-    if (built) { setWorldModelOffer(null); await reload(null, target); }
+    // Nothing below is allowed to fail silently: this button is the only way forward from this
+    // card, so a thrown error has to land on the card rather than in an unhandled rejection.
+    setWorldModelError('');
+    try {
+      if (typeof generateWorldModel !== 'function') throw new Error('The world-model builder is not wired into this screen. Build it from the World model page instead.');
+      // local=false: publish normally so the model is pushed with the epic branch.
+      const built = await generateWorldModel(data.repository.root, false);
+      if (!built) return; // generateWorldModel already reported why.
+      const target = worldModelOffer?.initiativeId;
+      setWorldModelOffer(null);
+      await reload(null, target);
+    } catch (error) {
+      setWorldModelError(error?.message || String(error));
+    }
   }
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
   const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
+  // An Epic that already has a branch cannot be started again — the engine refuses it, and
+  // rightly. What was missing was the other door: the wizard offered 'start' for work that only
+  // needed opening, and then reported a CLI command this app has no way to run.
+  const startedEpics = new Map((data.initiatives ?? []).map((item) => [item.id, item]));
+  const alreadyStarted = source === 'jira' && fetchedEpic ? startedEpics.get(fetchedEpic.key) ?? null : null;
   const canStart = source === 'jira'
-    ? connected && fetchedEpic?.key === epicKey && profile && persona
+    ? connected && fetchedEpic?.key === epicKey && profile && persona && !alreadyStarted
     : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
   if (worldModelOffer) return <div className="epic-start-wizard">
     <section className="epic-start-form">
@@ -3036,10 +3845,11 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
         <div>
           <span className="eyebrow">Epic started</span>
           <h3>Ground {worldModelOffer.initiativeId} in a repository world model?</h3>
-          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The live run window shows the exact prompt, progress, and Copilot output. The model is committed and pushed with the Epic branch; Intake then advances automatically to Requirements.</p>
+          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The live run window shows the exact prompt, progress, and Copilot output. The model must be validated, committed, and pushed before Intake advances automatically to Requirements.</p>
           <div className="row" style={{ marginTop: 14 }}>
             <button className="primary" onClick={generateWorldModelForEpic}>Generate world model</button>
           </div>
+          {worldModelError && <p className="field-error" role="alert">{worldModelError}</p>}
         </div>
       </div>
     </section>
@@ -3056,11 +3866,11 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
       <div className="epic-origin-choice" role="group" aria-label="Epic identity source"><button className={`${source === 'jira' ? 'active' : ''} ${jiraConfigured ? '' : 'needs-setup'}`} onClick={() => jiraConfigured ? setSource('jira') : onSetupJira()}><strong>Bring from Jira</strong><small>{jiraConfigured ? `Fetch an Epic from ${workspaceProjectKeys.join(', ') || data.portfolio?.jira?.projectKey || 'the configured project'}` : 'Add Jira routing to the workspace first'}</small>{!jiraConfigured && <b>Set up Jira →</b>}</button><button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><strong>Describe the work</strong><small>Enter Epic-like details without Jira</small></button></div>
       {source === 'jira' ? <>
         <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Workspace Jira connection</span><h3>Use the Jira routing already configured</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}. Allowed projects: ${status.routing?.projectKeys?.join(', ') || data.portfolio?.jira?.allowedProjects?.join(', ') || 'repository policy'}.` : 'This workspace has Jira project routing, but this operating-system user still needs a valid Jira connection.'}</p></div>{connected ? <Pill tone="good">ready</Pill> : <button className="secondary" onClick={onSetupJira}>Connect Jira</button>}</div>
-        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={selectedEpicKey} disabled={!connected || epicsLoading} onChange={(event) => { setSelectedEpicKey(event.target.value); setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !selectedEpicKey} onClick={() => fetchEpic(selectedEpicKey)}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn epic-routing-warning"><div><strong>Some configured Jira projects could not be loaded.</strong><span>{epicsError} Valid projects are still listed above.</span></div>{routingCorrection ? <button className="secondary" onClick={correctJiraRouting}>Change {routingCorrection.repositoryIds.join(', ')} from {routingCorrection.projectKey} to {referenceProjectKey}</button> : <span>Correct the Jira project key under Workspace configuration → Edit workspace.</span>}</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setSelectedEpicKey(''); setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone="good">Fetched from Jira</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{fetchedEpic.issueType} · {fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded</small></article>}</div></div>
+        <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={selectedEpicKey} disabled={!connected || epicsLoading} onChange={(event) => { setSelectedEpicKey(event.target.value); setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({startedEpics.has(epic.key) ? 'already started' : epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !selectedEpicKey} onClick={() => fetchEpic(selectedEpicKey)}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn epic-routing-warning"><div><strong>Some configured Jira projects could not be loaded.</strong><span>{epicsError} Valid projects are still listed above.</span></div>{routingCorrection ? <button className="secondary" onClick={correctJiraRouting}>Change {routingCorrection.repositoryIds.join(', ')} from {routingCorrection.projectKey} to {referenceProjectKey}</button> : <span>Correct the Jira project key under Workspace configuration → Edit workspace.</span>}</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setSelectedEpicKey(''); setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone={alreadyStarted ? 'accent' : 'good'}>{alreadyStarted ? 'Already started' : 'Fetched from Jira'}</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{alreadyStarted ? `This Epic already has a branch — ${alreadyStarted.currentPhaseLabel ?? alreadyStarted.currentPhase ?? 'in progress'} on branch ${alreadyStarted.branch ?? alreadyStarted.id}. Open it to carry on; starting it again is refused.` : `${fetchedEpic.issueType} · ${fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded`}</small></article>}</div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
       <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working persona</h3><div className="epic-start-controls"><select value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select></div>{!data.portfolio && <p className="epic-defaults-note">The governed Epic defaults will be created when you start. No separate portfolio setup is required.</p>}</div></div>
       {source === 'local' && !localStartReady && <div className="notice warn epic-start-blocker"><strong>Local Epic creation starts from a clean {defaultBranch} branch.</strong><span>{data.repository.changes.length ? `Commit or set aside the ${data.repository.changes.length} current working-tree change(s), then switch to ${defaultBranch}.` : `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.`}</span></div>}
-      <footer><div><strong>Next: source details → formatted requirements → Planning.</strong><span>The requirements specification and traceability file are committed to the Epic branch and become the approved inputs to Story planning.</span></div><button className="primary" disabled={!canStart} onClick={start}>{source === 'jira' ? 'Use Epic & start requirements' : 'Create requirements workspace'}</button></footer>
+      <footer><div><strong>Next: source details → formatted requirements → Planning.</strong><span>The requirements specification and traceability file are committed to the Epic branch and become the approved inputs to Story planning.</span></div>{alreadyStarted ? <button className="primary" onClick={() => openEpic(alreadyStarted.id)}>Open {alreadyStarted.id}</button> : <button className="primary" disabled={!canStart} onClick={start}>{source === 'jira' ? 'Use Epic & start requirements' : 'Create requirements workspace'}</button>}</footer>
     </section>
   </div>;
 }
@@ -3147,9 +3957,75 @@ function EpicCompletionPanel({ data, selected, action, reload, synchronizeStorie
   </section>;
 }
 
-function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio, openPlanning, setupJira, localRole, jiraAccount, entryTab = null, onAllEpics = null }) {
+// Planning is deliberately a separate phase page. The Story list, parent specification, and
+// per-Story specifications are generated and reviewed as one exact-hash package.
+function EpicPlanningPage({ data, action, reload, openPlanningPrompt, downloadFile, profileRole = null, copilotHealth = null, onCopilotRetry = null }) {
+  const initiative = data.initiative;
+  if (!initiative) return <div className="page"><Empty title="Select an Epic first" detail="Choose an Epic from the top bar or open one from the Epics page before planning its Stories." /></div>;
+  const phase = initiative.state.phases['epic-planning'];
+  const current = initiative.state.currentPhase === 'epic-planning' && phase?.status === 'in_progress';
+  const approved = phase?.status === 'approved';
+  return <div className="epic-phase-page">
+    <header className="page-heading planning-heading"><div><span className="eyebrow">Epic planning · phase 3 of 4</span><h1>Turn approved requirements into Stories</h1><p>{initiative.state.initiative.title} · Planning produces one editable Story plan, a parent solution contract, and a specification for every Story before Jira and Git publication.</p></div><div className="row"><Pill tone={current ? 'accent' : approved ? 'good' : 'warn'}>{approved ? 'Planning approved' : current ? 'Planning active' : `Waiting for ${initiative.state.currentPhase ?? 'requirements'}`}</Pill></div></header>
+    {!current && !approved && <section className="phase-lock notice" role="status"><strong>Planning is locked until Requirements is approved.</strong><p>The approved requirements artifact is the only planning input. Return to Requirements, finish its phase gate, then come back here.</p></section>}
+    <PlanningStudio onCopilotRetry={onCopilotRetry} data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={profileRole} focus={{ phase: 'epic-planning', target: PHASE_SCOPE }} />
+    <EpicStoryPlanView data={data} selected={initiative} openPlanning={null} downloadFile={downloadFile} action={action} reload={reload} />
+    <PhaseGovernance data={data} selected={initiative} phaseId="epic-planning" action={action} reload={reload} />
+  </div>;
+}
+
+// Editing portfolio.yml here always wrote to the checked-out branch and the topbar always
+// committed it, but nothing on this tab said either thing. Someone editing their Epic's
+// configuration could not tell whether the change was saved, which branch it would land on, or
+// that a separate control across the window was the one that would commit it. This panel puts the
+// branch, the pending files, and the commit in the place the edit happens.
+function ConfigurationPublish({ data, initiativeId, dirty, busy, publishConfiguration }) {
+  const changes = data.repository.configurationChanges ?? [];
+  const blocked = data.repository.unrelatedChanges ?? [];
+  const branchName = data.repository.branch ?? 'the current branch';
+  const [message, setMessage] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const subject = message.trim() || `Update ${data.portfolioPath.split('/').at(-1)}${initiativeId ? ` for ${initiativeId}` : ''}`;
+  const ready = changes.length > 0 && blocked.length === 0 && !dirty;
+
+  async function commitAndPush() {
+    setPublishing(true);
+    try { await publishConfiguration(subject); setMessage(''); } finally { setPublishing(false); }
+  }
+
+  return <section className="panel configuration-publish">
+    <header className="panel-heading"><div><span className="eyebrow">Working tree</span><h2>Commit to <code>{branchName}</code></h2><p>Saving writes the file; this commits it and pushes it to this Epic's branch. Nothing is merged anywhere else.</p></div><Pill tone={dirty ? 'warn' : changes.length ? 'accent' : 'good'}>{dirty ? 'Unsaved edits' : changes.length ? `${changes.length} to commit` : 'Nothing pending'}</Pill></header>
+    {dirty && <p className="configuration-publish-note warn">Save the editor first — unsaved edits are not part of a commit.</p>}
+    {changes.length > 0 && <ul className="configuration-publish-files">{changes.map((file) => <li key={file}><code>{file}</code></li>)}</ul>}
+    {!changes.length && !dirty && <p className="configuration-publish-note">No configuration changes are waiting. Edit the file below and save to stage one.</p>}
+    {blocked.length > 0 && <p className="configuration-publish-note warn">Blocked by {blocked.length} unrelated working-tree change{blocked.length === 1 ? '' : 's'}: {blocked.map((file, index) => <React.Fragment key={file}>{index > 0 && ', '}<code>{file}</code></React.Fragment>)}. Commit or discard them first.</p>}
+    <footer>
+      <label className="configuration-publish-message"><span>Commit message</span><input value={message} placeholder={subject} onChange={(event) => setMessage(event.target.value)} /></label>
+      <button className="primary" disabled={!ready || busy || publishing} onClick={() => commitAndPush()}>{publishing ? 'Publishing…' : `Commit & push to ${branchName}`}</button>
+    </footer>
+    {/* An Epic resolves its phases once, at start; a later portfolio edit does not retroactively
+        change a running Epic, and saying so here avoids the "I changed it and nothing happened"
+        report this panel would otherwise invite. */}
+    {initiativeId && <p className="configuration-publish-note">Phases already resolved for {initiativeId} stay pinned. Use the document chooser on a phase, or ↺ Start again, to adopt what you change here.</p>}
+  </section>;
+}
+
+function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio, openPlanning, setupJira, generateWorldModel, openEpic, localRole, jiraAccount, publishConfiguration = null, busy = false, entryTab = null, onAllEpics = null, reportProblem = null, onStagePage = null }) {
   const [tab, setTab] = useState('intake');
   const [materializationModal, setMaterializationModal] = useState(null);
+  // Starting again keeps the branch, the identity, the pinned sources and the world model; only
+  // this attempt's artifacts go. The typed ID is the same bar the CLI sets, for the same reason.
+  const [restartModal, setRestartModal] = useState(null);
+  async function restartEpic() {
+    if (restartModal.confirmation.trim() !== selected.state.initiative.id) return;
+    const result = await action(
+      () => window.singularity.restartInitiative(data.repository.root, selected.state.initiative.id, restartModal.confirmation.trim(), restartModal.reason.trim() || null),
+      `${selected.state.initiative.id} restarted at its first phase`
+    );
+    if (!result) return;
+    setRestartModal(null);
+    await reload(undefined, selected.state.initiative.id);
+  }
   const [repositoryModal, setRepositoryModal] = useState(null);
   const [jiraArtifacts, setJiraArtifacts] = useState({});
   const [artifactDestination, setArtifactDestination] = useState('epic');
@@ -3158,7 +4034,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   useEffect(() => {
     const defaults = {};
     for (const document of selected?.documents ?? []) {
-      if (['requirements-specification', 'requirements-traceability', 'high-level-specification'].includes(document.id) && document.sha256) {
+      if (['requirements-specification', 'requirements-traceability', 'parent-specification', 'story-specification-index'].includes(document.id) && document.sha256) {
         defaults[`${document.phase}/${document.id}`] = true;
       }
     }
@@ -3170,20 +4046,18 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       return;
     }
     const phase = selected?.state.currentPhase;
-    const nextTab = phase === 'epic-intake'
+    // Requirements and Planning are canonical sidebar pages. The Epic page remains an overview
+    // plus intake surface, so opening an Epic never creates a second copy of either phase.
+    const nextTab = ['epic-intake', 'epic-requirements', 'epic-planning'].includes(phase)
       ? 'intake'
-      : phase === 'epic-requirements'
-        ? 'requirements'
-        : phase === 'epic-planning'
-          ? 'planning'
-          : phase === 'epic-publish'
-            ? 'publish'
-            : selected?.state.status === 'complete'
-              ? 'complete'
-              : null;
+      : phase === 'epic-publish'
+        ? 'publish'
+        : selected?.state.status === 'complete'
+          ? 'complete'
+          : null;
     if (nextTab) setTab(nextTab);
   }, [entryTab, selected?.state.initiative.id, selected?.state.currentPhase, selected?.state.status]);
-  if (!portfolio) return <div className="page initiative-page"><EpicStartWizard data={data} action={action} reload={reload} onSetupJira={setupJira} /></div>;
+  if (!portfolio) return <div className="page initiative-page"><EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={setupJira} /></div>;
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
   const configOriginal = editor.path === data.portfolioPath ? editor.original : data.portfolioText;
   let portfolioDraft = portfolio;
@@ -3232,20 +4106,6 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
   const jiraArtifactCandidates = selected?.documents.filter((document) =>
     ['epic-requirements', 'epic-planning'].includes(document.phase) && document.sha256
   ) ?? [];
-  const wizardSteps = selected?.state.initiative.profile === 'epic-planning' ? [
-    { id: 'intake', label: 'Sources', phase: 'epic-intake' },
-    { id: 'requirements', label: 'Requirements', phase: 'epic-requirements' },
-    {
-      id: 'planning',
-      label: 'Planning',
-      phase: 'epic-planning'
-    },
-    { id: 'publish', label: 'Stories', phase: 'epic-publish' },
-    { id: 'complete', label: 'Complete', complete: selected?.delivery?.status === 'complete' }
-  ].filter((step) => !step.phase || state.phases[step.phase]).map((step) => ({
-    ...step,
-    status: step.phase ? state.phases[step.phase]?.status ?? 'not_started' : step.complete ? 'approved' : 'in_progress'
-  })) : [];
   const leadBaseBranch = data.definition.defaultBaseBranch ?? 'main';
   function openRepositoryModal() {
     setRepositoryModal({
@@ -3325,32 +4185,54 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     if (result) await reload(null, initiativeId);
   }
   function selectJourneyStage(stage) {
-    setTab({ intake: 'intake', requirements: 'requirements', planning: 'planning', stories: 'publish', complete: 'complete' }[stage] ?? 'intake');
+    // Requirements, Planning and Stories each have a full workspace page. Routing them to a tab
+    // here opened a second, older Requirements screen for the same phase, so which UI you got
+    // depended on whether you arrived from the rail or the sidebar.
+    if (onStagePage && ['requirements', 'planning', 'stories'].includes(stage)) return void onStagePage(stage);
+    // Only Epic planning has business stages that map to tabs here. Every other profile names its
+    // stages after its own phases, and each of those opens the phase workspace — without this the
+    // rail set a tab that does not exist and the click did nothing at all.
+    if (stage !== 'complete' && selected?.state.phaseOrder?.includes(stage)) return void openPlanning?.(stage);
+    setTab({ intake: 'intake', complete: 'complete' }[stage] ?? 'intake');
   }
   function focusJourneyPhase(phaseId) {
-    const stage = {
+    const epicStage = {
       'epic-intake': 'intake',
       'epic-requirements': 'requirements',
       'epic-planning': 'planning',
-      'epic-publish': 'publish'
-    }[phaseId] ?? selected?.journey?.stage ?? 'intake';
-    setTab(stage);
+      'epic-publish': 'stories'
+    }[phaseId];
+    if (!epicStage && selected?.state.phaseOrder?.includes(phaseId)) return void openPlanning?.(phaseId);
+    const stage = epicStage ?? selected?.journey?.stage ?? 'intake';
+    if (onStagePage && ['requirements', 'planning', 'stories'].includes(stage)) {
+      onStagePage(stage);
+      return;
+    }
+    setTab(stage === 'stories' ? 'publish' : stage);
     window.setTimeout(() => document.querySelector('.epic-artifact-hero')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
   }
   function continueJourney(next) {
-    if (next.id === 'materialize') return void previewMaterialization();
-    if (next.id === 'report') return setTab('complete');
-    if (['prepare', 'author', 'author-and-publish'].includes(next.id)) {
-      return void focusJourneyPhase(next.phaseId ?? selected?.state.currentPhase ?? 'epic-intake');
+    const actionId = normalizeNextActionId(next?.action ?? next?.id);
+    if (actionId === NEXT_ACTIONS.MATERIALIZE) return void previewMaterialization();
+    if (actionId === NEXT_ACTIONS.REPORT) return setTab('complete');
+    if ([NEXT_ACTIONS.AUTHOR, NEXT_ACTIONS.PUBLISH, NEXT_ACTIONS.APPROVE, NEXT_ACTIONS.EVIDENCE].includes(actionId)) {
+      return void focusJourneyPhase(next?.phaseId ?? selected?.state.currentPhase ?? 'epic-intake');
     }
-    selectJourneyStage(selected?.journey?.stage ?? 'intake');
+    if (actionId === NEXT_ACTIONS.ADVANCE || actionId === NEXT_ACTIONS.STATUS || actionId === NEXT_ACTIONS.SOURCES) {
+      return selectJourneyStage(selected?.journey?.stage ?? 'intake');
+    }
+    // Navigating to the stage already open is indistinguishable from a dead button, which is what
+    // hid this defect on the other rail. Say so instead.
+    reportProblem?.(`No action is wired for '${next?.sourceId ?? next?.id ?? 'unknown'}'. Nothing was changed — please report this.`);
   }
   return <div className="page initiative-page">
     <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p>{onAllEpics && <div className="row gap epic-workspace-exits">
       {/* Selecting an Epic replaces the Epic list with this workspace, so without these the list
           and the start wizard are only reachable by blanking the top-bar Epic selector. */}
       <button className="ghost compact" onClick={() => onAllEpics()}>← All Epics</button>
+      {selected && <button className="ghost compact" onClick={() => setRestartModal({ confirmation: '', reason: '' })} title="Return this Epic to its first phase on the same branch">↺ Start again</button>}
       <button className="secondary compact" onClick={() => onAllEpics('new')}>＋ New Epic</button>
+      <button className={`ghost compact ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab(tab === 'configuration' ? (selected?.journey?.stage === 'stories' ? 'publish' : selected?.journey?.stage ?? 'intake') : 'configuration')}>⚙ Configuration</button>
     </div>}</div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
     {selected?.journey && <EpicJourneyRail journey={selected.journey} onSelect={selectJourneyStage} onNext={continueJourney} />}
     {businessStage && <section className={`business-stage-intro ${businessStage.prerequisite ? 'ready' : 'waiting'}`}>
@@ -3359,7 +4241,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       <Pill tone={businessStage.prerequisite ? 'good' : 'warn'}>{businessStage.prerequisite ? 'Ready to work' : businessStage.prerequisiteLabel}</Pill>
       {entryTab === 'publish' && <div className="business-lineage-handoff"><span><b>1</b>Approved Story plan</span><i>→</i><span><b>2</b>Jira Story key</span><i>→</i><span><b>3</b>Canonical Git branch</span><i>→</i><span><b>4</b>Governed seed & receipts</span></div>}
     </section>}
-    {selected?.state.initiative.profile === 'epic-planning' ? !entryTab && <nav className="epic-lifecycle-wizard" aria-label="Epic lifecycle wizard">{wizardSteps.map((step, index) => <React.Fragment key={step.id}><button className={`${tab === step.id ? 'active' : ''} ${step.status === 'approved' ? 'complete' : ''}`} onClick={() => setTab(step.id)}><span>{step.status === 'approved' ? '✓' : index + 1}</span><small>Step {index + 1}</small><strong>{step.label}</strong></button>{index < wizardSteps.length - 1 && <i>→</i>}</React.Fragment>)}<button className={`wizard-config ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab('configuration')}><span>⚙</span><small>Manage</small><strong>Configuration</strong></button></nav> : <nav className="epic-workspace-nav" aria-label="Initiative workspace">{[['delivery', 'Overview'], ['requirements', 'Documents'], ['configuration', 'Configuration']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>}
+    {selected?.state.initiative.profile !== 'epic-planning' && <nav className="epic-workspace-nav" aria-label="Initiative workspace">{[['delivery', 'Overview'], ['requirements', 'Documents'], ['configuration', 'Configuration']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</nav>}
     {['delivery', 'publish'].includes(tab) && selected && <div className="branch-baseline-note"><span>⑂</span><div><strong>Branches stay isolated</strong><p><code>{leadBaseBranch}</code> supplies the starting source and configuration baseline. Epic and Story branches receive their own commits; Singularity never merges them into a default branch automatically. Accepted canonical Story results alone advance Epic progress.</p></div></div>}
     {tab === 'configuration' ? <div className="initiative-config-layout">
       <aside className="initiative-config-summary">
@@ -3368,8 +4250,11 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Issue materialization</span><h2>Jira {portfolio.jira?.enabled ? portfolio.jira.writeMode : 'off'}</h2></div><Pill tone={portfolio.jira?.writeMode === 'approved' ? 'good' : 'neutral'}>{portfolio.jira?.projectKey || 'Git only'}</Pill></header><div className="initiative-mini-list"><div><strong>Epic → Story hierarchy</strong><span>{portfolio.jira?.writeMode === 'approved' ? 'Guarded apply' : portfolio.jira?.writeMode === 'preview' ? 'Plan only' : 'Git only'}</span><small>{portfolio.jira?.writeMode === 'approved' ? `${portfolio.jira.epicIssueType ?? 'Epic'} / ${portfolio.jira.storyIssueType ?? 'Story'} · exact approved write plan required` : portfolio.jira?.writeMode === 'preview' ? 'Create and commit Jira write plans without mutating Jira.' : 'Enable Jira policy and choose a write mode in portfolio.yml; no network is used while off.'}</small></div></div></section>
         <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Approval authorities</span><h2>{authorities.length} groups</h2></div></header><div className="initiative-mini-list">{authorities.map(([id, authority]) => <div key={id}><strong>{id}</strong><span>{authority.members.length} identities</span><small>{authority.members.map((member) => member.email).join(', ') || 'Configure members before starting.'}</small></div>)}</div></section>
       </aside>
-      <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" />
-    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><ImportedEpicView selected={selected} /><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Optional intake notes" detail="The pinned Jira Epic and repository world model are sufficient to continue. Add files or text only when they improve the requirements context." downloadFile={downloadFile} openPlanning={openPlanning} /></div> : tab === 'requirements' ? <EpicRequirementsView data={data} selected={selected} action={action} reload={reload} openPlanning={openPlanning} downloadFile={downloadFile} /> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView data={data} selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-planning']} title="Parent and Story specifications" detail="Review the parent solution contract and every Story-specific specification together with the editable Story list. One exact bundle approval covers the complete handoff." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-planning" action={action} reload={reload} /></div> : tab === 'publish' ? <div className="epic-workspace-view">
+      <div className="initiative-config-editor">
+        {publishConfiguration && <ConfigurationPublish data={data} initiativeId={selected?.state.initiative.id ?? null} dirty={configValue !== configOriginal} busy={busy} publishConfiguration={publishConfiguration} />}
+        <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" height="100%" />
+      </div>
+    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><ImportedEpicView selected={selected} /><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Optional intake notes" detail="The pinned Jira Epic and repository world model are sufficient to continue. Add files or text only when they improve the requirements context." downloadFile={downloadFile} openPlanning={openPlanning} /></div> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView data={data} selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-planning']} title="Parent and Story specifications" detail="Review the parent solution contract and every Story-specific specification together with the editable Story list. One exact bundle approval covers the complete handoff." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-planning" action={action} reload={reload} /></div> : tab === 'publish' ? <div className="epic-workspace-view">
       <section className="panel jira-artifact-publish">
         <header className="panel-heading"><div><span className="eyebrow">Reviewed outbound package</span><h2>Select what Jira receives</h2><p>The exact file hashes become part of the Jira write plan. Selected Markdown/YAML files are attached with hash-stamped filenames; retries reuse matching attachments.</p></div><Pill tone={state.phases['epic-planning']?.status === 'approved' ? 'good' : 'warn'}>{state.phases['epic-planning']?.status === 'approved' ? 'Planning package approved' : 'Approve Planning first'}</Pill></header>
         <div className="jira-artifact-options">{jiraArtifactCandidates.map((document) => { const reference = `${document.phase}/${document.id}`; return <label key={reference} className={jiraArtifacts[reference] ? 'selected' : ''}><input type="checkbox" checked={Boolean(jiraArtifacts[reference])} onChange={(event) => setJiraArtifacts((current) => ({ ...current, [reference]: event.target.checked }))} /><span><strong>{document.label}</strong><small>{reference} · {document.sha256.slice(0, 12)}</small></span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status}</Pill></label>; })}</div>
@@ -3402,6 +4287,19 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       </div>
     </>}
     {repositoryModal && <DesignerModal title="Add a participating repository" detail="Application identity and custom key/value pairs are stored as governed Git metadata under repositories.<id>.metadata in singularity/portfolio.yml." submitLabel="Add to YAML draft" error={repositoryModal.error} onCancel={() => setRepositoryModal(null)} onSubmit={addRepository}><div className="modal-grid"><label><span>Repository ID</span><input autoFocus value={repositoryModal.values.id} placeholder="mobile" onChange={(event) => repositoryField('id', event.target.value)} /></label><label><span>Application ID</span><input value={repositoryModal.values.appId} placeholder="APP-1001" onChange={(event) => repositoryField('appId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={repositoryModal.values.name} placeholder="Mobile application" onChange={(event) => repositoryField('name', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={repositoryModal.values.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => repositoryField('url', event.target.value)} /></label><label><span>Default branch</span><input value={repositoryModal.values.defaultBranch} onChange={(event) => repositoryField('defaultBranch', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={repositoryModal.values.required} onChange={(event) => repositoryField('required', event.target.checked)} />Required for initiative delivery</label></div><div className="repository-metadata-fields"><header><div><strong>Custom metadata</strong><span>Examples: owner, businessUnit, costCenter, criticality.</span></div><button type="button" className="ghost compact" onClick={() => repositoryField('metadata', [...repositoryModal.values.metadata, { key: '', value: '' }])}>＋ Add field</button></header>{repositoryModal.values.metadata.map((entry, index) => <div key={index}><input aria-label={`Repository metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => repositoryMetadataField(index, 'key', event.target.value)} /><input aria-label={`Repository metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => repositoryMetadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" aria-label={`Remove repository metadata ${index + 1}`} onClick={() => repositoryField('metadata', repositoryModal.values.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}</div></DesignerModal>}
+    {restartModal && <DesignerModal
+      title={`Start ${selected.state.initiative.id} again?`}
+      detail={`This returns the Epic to its first phase and discards this attempt's artifacts. It stays on branch ${selected.state.initiative.branch}: the Epic identity, the pinned sources and the repository world model are kept, and this attempt stays on the record. The phase shape is resolved again from current configuration.`}
+      submitLabel="Start again"
+      danger
+      submitDisabled={restartModal.confirmation.trim() !== selected.state.initiative.id}
+      onCancel={() => setRestartModal(null)}
+      onSubmit={restartEpic}
+    >
+      <label><span>Why</span><input value={restartModal.reason} onChange={(event) => setRestartModal({ ...restartModal, reason: event.target.value })} placeholder="Recorded with the restart" /></label>
+      <label><span>Type {selected.state.initiative.id} to confirm</span><input value={restartModal.confirmation} onChange={(event) => setRestartModal({ ...restartModal, confirmation: event.target.value })} placeholder={selected.state.initiative.id} /></label>
+      {restartModal.confirmation.trim() && restartModal.confirmation.trim() !== selected.state.initiative.id && <small className="field-error">That is not {selected.state.initiative.id}.</small>}
+    </DesignerModal>}
     {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This applies the exact reviewed Jira plan, uploads the selected hash-bound artifacts, adopts returned Jira keys as immutable Work IDs, creates one canonical branch per Story, writes governed seeds and approved Epic inputs, and publishes every receipt. It is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div><div><span>Selected artifacts</span><strong>{materializationModal.writePlan?.artifacts?.length ?? 0}</strong></div></div>{materializationModal.writePlan && <><div className="notice neutral"><strong>Exact Jira Story and artifact plan</strong><br />Plan hash: <code>{materializationModal.writePlan.sha256}</code><br />Source breakdown: <code>{materializationModal.writePlan.source.breakdownSha256}</code></div>{materializationModal.writePlan.artifacts?.length > 0 && <div className="jira-modal-artifacts">{materializationModal.writePlan.artifacts.map((artifact) => <div key={artifact.reference}><span><strong>{artifact.label}</strong><small>{artifact.filename}</small></span><code>{artifact.sha256.slice(0, 12)}</code><Pill>{artifact.targets.join(' + ')}</Pill></div>)}</div>}</>}<label><span>Type the Epic ID to confirm the exact plan</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
   </div>;
 }
@@ -3697,6 +4595,16 @@ function Resources({ data, editor, setEditor, chooseResource, saveEditor, create
 function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importResource, materializeWorldModelPrompt, generateWorldModel, addView, removeView }) {
   const [selected, setSelected] = useState('registry');
   const [modal, setModal] = useState(null);
+  // wm build accepts --views; the desktop never passed it, so a rebuild from here could only
+  // produce whatever `views: auto` routed to and the views the phases need were never generated.
+  const builtViews = useMemo(
+    () => data.worldModel.files.filter((file) => file.path.includes('/views/')).map((file) => file.path.split('/').pop().replace(/\.md$/, '')),
+    [data.worldModel.files]
+  );
+  const [buildViews, setBuildViews] = useState(() => {
+    const referenced = data.worldModel.views.filter((view) => (view.structuredReferences ?? []).length).map((view) => view.id);
+    return [...new Set([...referenced, ...data.worldModel.files.filter((file) => file.path.includes('/views/')).map((file) => file.path.split('/').pop().replace(/\.md$/, ''))])];
+  });
   const current = data.worldModel.files.find((file) => file.path === selected) ?? null;
   const prompt = data.worldModelPrompt;
   function selectPrompt() {
@@ -3708,7 +4616,18 @@ function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importR
     if (result) setModal(null);
   }
   return <div className="template-layout"><aside className="file-list world-model-list"><header><span className="eyebrow">Repository grounding</span><h2>World model</h2><div className="repo-only"><StatusDot status="approved" /><span>Repository only</span></div></header><button className={selected === 'registry' ? 'active' : ''} onClick={() => setSelected('registry')}><span>VW</span><div><strong>View registry</strong><small>{data.worldModel.views.length} governed views</small></div></button><button className={selected === 'prompt' ? 'active' : ''} onClick={selectPrompt}><span>PR</span><div><strong>Builder prompt</strong><small>{prompt.missing ? 'create repository copy' : 'editable repository source'}</small></div></button><div className="file-list-divider"><span>Generated outputs</span></div>{data.worldModel.files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => setSelected(file.path)}><span>{file.name.endsWith('.md') ? 'MD' : 'JS'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
-    <main className="template-main">{selected === 'registry' ? <><div className="world-model-banner"><div><span className="eyebrow">Governed repository context</span><h1>Repository-owned world model</h1><p>Define the approved views that prompts, personas, stages, workflow overrides, and injection rules may consume. A referenced view cannot be removed until every dependency is cleared.</p></div><dl><div><dt>Output</dt><dd>{data.worldModel.root}</dd></div><div><dt>Grounding</dt><dd>{data.definition.worldModel?.grounding ?? 'off'}</dd></div><div><dt>Builder</dt><dd>{data.definition.worldModel?.promptSource ?? 'builtin'}</dd></div><div><dt>Generated</dt><dd>{data.worldModel.generatedAt ? new Date(data.worldModel.generatedAt).toLocaleString() : 'Not generated'}</dd></div></dl><div className="row"><button className="secondary compact" onClick={() => generateWorldModel?.()} title="Run the world-model builder and commit locally without pushing to the remote default branch">Generate world model</button><button className="primary compact" onClick={() => setModal({ id: '', error: null })}>＋ Add view</button></div></div><section className="view-registry"><header><div><span className="eyebrow">Dependency-safe catalog</span><h2>World-model views</h2></div><Pill tone="accent">Validated on every save</Pill></header><div className="view-table"><div className="view-table-head"><span>View</span><span>Structured use</span><span>Markdown prompt use</span><span>Action</span></div>{data.worldModel.views.map((view) => <div className="view-row" key={view.id}><div><span className="view-glyph">{view.id.slice(0, 2).toUpperCase()}</span><strong>{view.id}</strong></div><div className="dependency-list">{view.structuredReferences.length ? view.structuredReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><div className="dependency-list">{view.promptReferences.length ? view.promptReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><button className="ghost compact danger-text" disabled={view.references.length > 0} title={view.references.length ? `Used by ${view.references.join(', ')}` : 'Remove unused view'} onClick={() => removeView(view)}>Remove</button></div>)}</div><div className="dependency-note"><strong>Safe deletion policy</strong><span>Update stage, persona, workflow, injection-rule, and Markdown references first. Invalid YAML or prompt edits are rejected and rolled back atomically.</span></div></section></> : selected === 'prompt' ? <><div className="resource-summary"><div><Pill tone="accent">Editable builder prompt</Pill><span>This prompt controls how repository evidence becomes the governed views above.</span></div><div className="row"><button className="ghost compact" onClick={() => importResource('world-prompt')}>Import</button>{!prompt.missing && <button className="secondary compact" onClick={() => downloadFile(prompt.path)}>Download</button>}{prompt.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === prompt.path ? editor.content : prompt.content)}>Create repository copy</button>}</div></div><SourceEditor path={prompt.path} value={editor.path === prompt.path ? editor.content : prompt.content} dirty={editor.path === prompt.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: prompt.path, content, original: prompt.content, kind: 'prompt' })} onSave={prompt.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={prompt.missing ? null : () => downloadFile(prompt.path)} onImport={() => importResource('world-prompt')} /></> : current ? <><div className="resource-summary"><div><Pill>Generated view</Pill><span>Read-only repository snapshot; regenerate it through the world-model lifecycle.</span></div><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button></div><SourceEditor path={current.path} value={current.content} readOnly onChange={() => {}} onDownload={() => downloadFile(current.path)} /></> : <Empty title="World model output not found" detail="Run singularity-flow wm build to generate repository-grounded Markdown and evidence." />}</main>
+    <main className="template-main">{selected === 'registry' ? <><div className="world-model-banner"><div><span className="eyebrow">Governed repository context</span><h1>Repository-owned world model</h1><p>Define the approved views that prompts, personas, stages, workflow overrides, and injection rules may consume. A referenced view cannot be removed until every dependency is cleared.</p></div><dl><div><dt>Output</dt><dd>{data.worldModel.root}</dd></div><div><dt>Grounding</dt><dd>{data.definition.worldModel?.grounding ?? 'off'}</dd></div><div><dt>Builder</dt><dd>{data.definition.worldModel?.promptSource ?? 'builtin'}</dd></div><div><dt>Generated</dt><dd>{data.worldModel.generatedAt ? new Date(data.worldModel.generatedAt).toLocaleString() : 'Not generated'}</dd></div></dl><div className="row"><button className="secondary compact" disabled={!buildViews.length} onClick={() => generateWorldModel?.(undefined, undefined, buildViews)} title={buildViews.length ? `Build ${buildViews.join(', ')} and commit locally without pushing` : 'Choose at least one view to build'}>{buildViews.length === builtViews.length && buildViews.every((view) => builtViews.includes(view)) ? 'Rebuild selected views' : `Build ${buildViews.length} view${buildViews.length === 1 ? '' : 's'}`}</button><button className="primary compact" onClick={() => setModal({ id: '', error: null })}>＋ Add view</button></div>
+<div className="view-picker">
+  <span className="view-picker-label">Views to build</span>
+  <div className="view-picker-options">{data.worldModel.views.map((view) => {
+    const built = builtViews.includes(view.id);
+    const needed = (view.structuredReferences ?? []).length > 0;
+    return <label key={view.id} className={`view-pick ${built ? 'built' : ''}`} title={needed ? `Referenced by ${(view.structuredReferences ?? []).join(', ')}` : 'Not referenced by any phase or persona'}>
+      <input type="checkbox" checked={buildViews.includes(view.id)} onChange={(event) => setBuildViews((current) => event.target.checked ? [...current, view.id] : current.filter((id) => id !== view.id))} />
+      <span><b>{view.id}</b><small>{built ? 'built' : needed ? 'needed · not built' : 'not built'}</small></span>
+    </label>;
+  })}</div>
+</div></div><section className="view-registry"><header><div><span className="eyebrow">Dependency-safe catalog</span><h2>World-model views</h2></div><Pill tone="accent">Validated on every save</Pill></header><div className="view-table"><div className="view-table-head"><span>View</span><span>Structured use</span><span>Markdown prompt use</span><span>Action</span></div>{data.worldModel.views.map((view) => <div className="view-row" key={view.id}><div><span className="view-glyph">{view.id.slice(0, 2).toUpperCase()}</span><strong>{view.id}</strong></div><div className="dependency-list">{view.structuredReferences.length ? view.structuredReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><div className="dependency-list">{view.promptReferences.length ? view.promptReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><button className="ghost compact danger-text" disabled={view.references.length > 0} title={view.references.length ? `Used by ${view.references.join(', ')}` : 'Remove unused view'} onClick={() => removeView(view)}>Remove</button></div>)}</div><div className="dependency-note"><strong>Safe deletion policy</strong><span>Update stage, persona, workflow, injection-rule, and Markdown references first. Invalid YAML or prompt edits are rejected and rolled back atomically.</span></div></section></> : selected === 'prompt' ? <><div className="resource-summary"><div><Pill tone="accent">Editable builder prompt</Pill><span>This prompt controls how repository evidence becomes the governed views above.</span></div><div className="row"><button className="ghost compact" onClick={() => importResource('world-prompt')}>Import</button>{!prompt.missing && <button className="secondary compact" onClick={() => downloadFile(prompt.path)}>Download</button>}{prompt.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === prompt.path ? editor.content : prompt.content)}>Create repository copy</button>}</div></div><SourceEditor path={prompt.path} value={editor.path === prompt.path ? editor.content : prompt.content} dirty={editor.path === prompt.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: prompt.path, content, original: prompt.content, kind: 'prompt' })} onSave={prompt.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={prompt.missing ? null : () => downloadFile(prompt.path)} onImport={() => importResource('world-prompt')} /></> : current ? <><div className="resource-summary"><div><Pill>Generated view</Pill><span>Read-only repository snapshot; regenerate it through the world-model lifecycle.</span></div><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button></div><SourceEditor path={current.path} value={current.content} readOnly onChange={() => {}} onDownload={() => downloadFile(current.path)} /></> : <Empty title="World model output not found" detail="Run singularity-flow wm build to generate repository-grounded Markdown and evidence." />}</main>
     {modal && <DesignerModal title="Add world-model view" detail="Use a stable lower-case kebab-case ID. Once referenced by a stage, persona, rule, or prompt, the view is protected from deletion." submitLabel="Add view" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitView}><label><span>View ID</span><input autoFocus value={modal.id} placeholder="data-governance" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
@@ -3807,9 +4726,29 @@ export default function App() {
   const [standaloneHelp, setStandaloneHelp] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState([]);
   const [repositoryMenu, setRepositoryMenu] = useState(false);
-  // Dismissal is per repository, so opening a different clone asks again rather than inheriting
-  // a "not now" from the previous one.
-  const [worldModelDismissed, setWorldModelDismissed] = useState(null);
+  // Copilot can be missing, unauthenticated, or the wrong version, and it can stop while the app is
+  // open. Checked in one place and refreshed when the window regains focus, so every surface that
+  // starts Copilot work reads the same answer instead of each holding its own stale copy.
+  const [copilotHealth, setCopilotHealth] = useState(null);
+  const refreshCopilotHealth = React.useCallback(async () => {
+    if (!data?.repository?.root) return null;
+    try {
+      const result = await window.singularity.planningPreflight(data.repository.root);
+      setCopilotHealth(result);
+      return result;
+    } catch (error) {
+      const failed = { ready: false, message: error?.message || 'Copilot could not be reached.' };
+      setCopilotHealth(failed);
+      return failed;
+    }
+  }, [data?.repository?.root]);
+  useEffect(() => {
+    void refreshCopilotHealth();
+    const onFocus = () => void refreshCopilotHealth();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshCopilotHealth]);
+
   const [worldModelRun, setWorldModelRun] = useState(null);
   // Which phase/output a hand-off into Copilot Studio wants framed. Null means "decide from the
   // current phase", which is what reaching the studio from the sidebar should do.
@@ -3893,7 +4832,12 @@ export default function App() {
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
   const activeNavigation = useMemo(() => navSections
     .flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label })))
-    .find((item) => item.id === page) ?? { id: page, label: 'Workspace', section: 'Singularity' }, [page]);
+    .find((item) => item.id === page)
+    // The phase workspace is reached from the journey rail, not the sidebar, so it names itself
+    // after the phase it is showing rather than reading 'Workspace'.
+    ?? (page === 'phase' && planningFocus?.phase
+      ? { id: page, label: data?.initiative?.state.phases?.[planningFocus.phase]?.label ?? planningFocus.phase, section: data?.initiative?.state.initiative.id ?? 'Epic phase' }
+      : { id: page, label: 'Workspace', section: 'Singularity' }), [page, planningFocus, data?.initiative]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
@@ -3986,14 +4930,38 @@ export default function App() {
     }[stage] ?? 'epics';
     setPage(pageForStage);
   }
+  // The single place journey actions that are not phase transitions are handled. Anything
+  // unrecognised is reported rather than absorbed: the previous fallback navigated to the stage the
+  // user was already on, so an unmapped action produced a clickable button that changed nothing and
+  // left no trace.
   function continueEpicJourney(next) {
-    if (next?.id === 'materialize') return setPage('business-stories');
-    if (next?.id === 'report') return setPage('epics');
-    openEpicJourneyStage(data?.initiative?.journey?.stage ?? 'intake');
+    const actionId = normalizeNextActionId(next?.id ?? next?.action);
+    if (actionId === NEXT_ACTIONS.MATERIALIZE) return setPage('business-stories');
+    if (actionId === NEXT_ACTIONS.REPORT) return setPage('epics');
+    if (actionId === NEXT_ACTIONS.SOURCES) return openEpicJourneyStage('intake');
+    if (actionId === NEXT_ACTIONS.STATUS || actionId === NEXT_ACTIONS.ADVANCE) {
+      return void reload(null, data?.initiative?.state?.initiative?.id ?? null);
+    }
+    if (actionId === NEXT_ACTIONS.BLOCKED || actionId === NEXT_ACTIONS.COMPLETE) {
+      return openEpicJourneyStage(data?.initiative?.journey?.stage ?? 'intake');
+    }
+    setToast({
+      tone: 'bad',
+      text: `No action is wired for '${next?.sourceId ?? next?.id ?? 'unknown'}'. Nothing was changed — please report this.`
+    });
   }
   async function saveEditor() { const result = await action(() => window.singularity.saveFile(data.repository.root, editor.path, editor.content), `${editor.path} saved and validated`); if (result) { setEditor({ ...editor, original: editor.content }); await reload(); } }
   async function validate() { await action(() => window.singularity.validate(data.repository.root), 'Configuration is valid'); }
-  async function publish() { if (!publishReady) return setToast({ tone: 'bad', text: publishHint }); const result = await action(() => window.singularity.publish(data.repository.root, 'Configure Singularity Flow desktop workflow'), 'Configuration committed and published'); if (result) await reload(); }
+  // The message is a parameter because configuration is now publishable from the Epic workspace
+  // too, where the branch and the reason for the change are both in front of the reader; a fixed
+  // 'Configure Singularity Flow desktop workflow' told the branch history nothing about why.
+  async function publish(message) {
+    if (!publishReady) return setToast({ tone: 'bad', text: publishHint });
+    const subject = typeof message === 'string' && message.trim() ? message.trim() : 'Configure Singularity Flow desktop workflow';
+    const result = await action(() => window.singularity.publish(data.repository.root, subject), `Configuration committed and pushed to ${data.repository.branch}`);
+    if (result) await reload();
+    return result;
+  }
   function workflowPage() { setPage('workflow'); setEditor({ path: data.definitionPath, content: data.definitionText, original: data.definitionText, kind: 'workflow' }); }
   function initiativePage() { setPage('initiatives'); if (data.portfolioText) setEditor({ path: data.portfolioPath, content: data.portfolioText, original: data.portfolioText, kind: 'portfolio' }); }
   // Open Copilot Studio already framed on the phase the caller was working in. Without this the
@@ -4008,6 +4976,26 @@ export default function App() {
   }
   function openStudio(phase = null, target = null) {
     setPlanningFocus(phase ? { phase, target } : null);
+    if (data?.initiative) {
+      // Requirements, Planning and Create Stories are pages *about the Epic-planning phases* —
+      // EpicPlanningPage is hard-wired to epic-planning, down to its heading and its 'locked until
+      // Requirements is approved' notice. Sending another profile's phase there opened Planning
+      // for a phase the Epic does not have. Those phases get the generic phase workspace instead.
+      const epicPage = phase === 'epic-planning'
+        ? 'business-planning'
+        : phase === 'epic-requirements'
+          ? 'business-requirements'
+          : phase === 'epic-publish'
+            ? 'business-stories'
+            : null;
+      // Everything else opens the workspace for that phase. Falling back to business-planning for
+      // any unmapped epic- phase is why 'Compose in Copilot Studio' on the Epic intake panel opened
+      // Planning: epic-intake has no dedicated page, and the fallback was a page about epic-planning.
+      setPage(epicPage ?? (phase ? 'phase' : 'business-planning'));
+      return;
+    }
+    // Legacy story workflows still have a planning surface, but it is no longer exposed as a
+    // primary Epic destination. Existing deep links continue to work for those work items.
     setPage('planning');
   }
   function acceptPortfolioBootstrap(snapshot) {
@@ -4165,16 +5153,47 @@ export default function App() {
     chooseResource(snapshot.worldModelPrompt, 'prompt');
     return result;
   }
-  async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined) {
+  /**
+   * The views this repository's phases actually consume, plus any already built.
+   *
+   * `wm build` with no --views falls back to `views: auto`, which routes to core plus development.
+   * A rebuild from the offer card therefore *replaced* a five-view model with a one-view one —
+   * installWorldModel clears the output directory — and every phase whose persona reads business
+   * or architecture then reported the model unavailable. A rebuild must not be able to lose views.
+   */
+  function requiredWorldModelViews() {
+    const fromPersonas = Object.values(data?.definition?.personas ?? {}).flatMap((persona) => persona.worldModelViews ?? []);
+    const built = (data?.worldModel?.files ?? [])
+      .filter((file) => file.path.includes('/views/'))
+      .map((file) => file.path.split('/').pop().replace(/\.md$/, ''));
+    return [...new Set([...fromPersonas, ...built])].filter(Boolean);
+  }
+
+  async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined, views = null) {
+    // Both of these cross the IPC boundary, so both must be primitives. A bare onClick hands this
+    // function a React event as its first argument; that used to land in `local` and fail
+    // structured clone with 'An object could not be cloned.' — a message that says nothing about
+    // the button that was pressed, reported as a world-model build failure at 0m00s.
     const repository = typeof repositoryOrLocal === 'string' ? repositoryOrLocal : data?.repository?.root;
-    const local = typeof repositoryOrLocal === 'string' ? (localArgument ?? true) : repositoryOrLocal;
+    const local = typeof repositoryOrLocal === 'string'
+      ? (typeof localArgument === 'boolean' ? localArgument : true)
+      : (typeof repositoryOrLocal === 'boolean' ? repositoryOrLocal : true);
     if (!repository || worldModelRun?.status === 'running') return null;
+    // Checked before anything is shown: `wm build` runs Copilot for minutes, and failing at the end
+    // for a reason that was knowable at the start is the worst possible ordering.
+    const health = await refreshCopilotHealth();
+    if (health && health.ready === false) {
+      setToast({ tone: 'bad', text: `Copilot is not available: ${health.message ?? 'unknown reason'}` });
+      return null;
+    }
+    // An explicit choice wins; otherwise never build fewer views than the repository already has.
+    const requested = views?.length ? views : requiredWorldModelViews();
     const prompt = data.worldModelPrompt ?? {};
     const startedAt = Date.now();
     setWorldModelRun({
       status: 'running',
       phase: 'starting',
-      phaseLabel: 'Preparing the governed world-model prompt',
+      phaseLabel: requested.length ? `Building ${requested.length} view${requested.length === 1 ? '' : 's'}: ${requested.join(', ')}` : 'Preparing the governed world-model prompt',
       repository,
       promptPath: prompt.path ?? 'singularity/prompts/worldmodel-builder.md',
       prompt: prompt.content ?? '',
@@ -4186,7 +5205,7 @@ export default function App() {
     setBusy(true);
     setToast(null);
     try {
-      const result = await window.singularity.generateWorldModel(repository, local);
+      const result = await window.singularity.generateWorldModel(repository, local, requested);
       setWorldModelRun((current) => current ? { ...current, status: 'success', phase: 'complete', phaseLabel: local ? 'World model committed locally' : 'World model committed and pushed', finishedAt: Date.now(), steps: [...new Set([...(current.steps ?? []), 'complete'])] } : current);
       setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Epic branch' });
       await reload();
@@ -4272,18 +5291,19 @@ export default function App() {
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
-    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
-      {data.worldModel?.rebuildReason && worldModelDismissed !== data.repository.root && page !== 'world-model' && <WorldModelPrompt
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={() => publish()} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
+      {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth}
         reason={data.worldModel.rebuildReason}
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
-        onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
-        ? <PhaseWorkspace data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
+        ? <PhaseWorkspace requestedPhaseId="epic-requirements" copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} onCopilotLost={refreshCopilotHealth} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'phase' && (data.initiative && planningFocus?.phase
+        ? <PhaseWorkspace requestedPhaseId={planningFocus.phase} copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} onCopilotLost={refreshCopilotHealth} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
+        ? <EpicPlanningPage downloadFile={downloadFile} copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} />
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} openDocument={openRequirementWorkspace} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'planning' && <PlanningStudio onCopilotRetry={refreshCopilotHealth} data={data} action={action} reload={reload} openPlanningPrompt={openPlanningPrompt} profileRole={onboarding?.profile?.role} focus={planningFocus} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

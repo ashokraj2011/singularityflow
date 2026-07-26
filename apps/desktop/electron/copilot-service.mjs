@@ -97,12 +97,23 @@ export class CopilotBackendController {
     if (event.type === 'ready' && !service.stopRequested) {
       service.state = 'ready';
       service.version = event.version ?? service.version;
-      service.mode = event.modes?.currentModeId ?? 'plan';
+      service.mode = event.mode ?? event.modes?.currentModeId ?? 'plan';
+      service.modeId = event.modeId ?? event.modes?.currentModeId ?? service.modeId;
+      service.availableModes = event.availableModes ?? service.availableModes;
+      service.modeSwitchSupported = event.modeSwitchSupported ?? service.modeSwitchSupported;
+      service.readOnly = true;
       service.sessionId = event.sessionId ?? service.sessionId;
       service.connectedAt ??= normalized.at;
       service.model = event.model ?? service.model ?? service.requestedModel;
       service.availableModels = event.models ?? service.availableModels;
       service.modelSwitchSupported = event.modelSwitchSupported ?? service.modelSwitchSupported;
+    }
+    if (['mode-changed', 'current_mode_update'].includes(event.type)) {
+      service.mode = event.mode ?? service.mode;
+      service.modeId = event.modeId ?? service.modeId;
+      service.availableModes = event.availableModes ?? service.availableModes;
+      service.modeSwitchSupported = event.modeSwitchSupported ?? service.modeSwitchSupported;
+      if (typeof event.readOnly === 'boolean') service.readOnly = event.readOnly;
     }
     if (['model-changed', 'config_option_update'].includes(event.type)) {
       service.model = event.model ?? service.model;
@@ -170,7 +181,8 @@ export class CopilotBackendController {
   #statusValue(service) {
     if (!service) return {
       state: 'stopped', running: false, startedAt: null, connectedAt: null, stoppedAt: null,
-      version: null, mode: null, processId: null, activePlanningSessionId: null,
+      version: null, mode: null, modeId: null, availableModes: [], modeSwitchSupported: false, readOnly: true,
+      processId: null, activePlanningSessionId: null,
       model: null, requestedModel: null, availableModels: [], modelSwitchSupported: false,
       usage: serializedUsage(emptyUsage()), lastEvent: null, canStop: false
     };
@@ -182,6 +194,10 @@ export class CopilotBackendController {
       stoppedAt: service.stoppedAt ?? null,
       version: service.version ?? null,
       mode: service.mode ?? null,
+      modeId: service.modeId ?? null,
+      availableModes: service.availableModes ?? [],
+      modeSwitchSupported: Boolean(service.modeSwitchSupported),
+      readOnly: service.readOnly !== false,
       model: service.model ?? service.requestedModel ?? null,
       requestedModel: service.requestedModel ?? null,
       availableModels: service.availableModels ?? [],
@@ -226,6 +242,10 @@ export class CopilotBackendController {
       stoppedAt: null,
       version: check.version,
       mode: 'plan',
+      modeId: null,
+      availableModes: [],
+      modeSwitchSupported: false,
+      readOnly: true,
       requestedModel: model,
       model: model,
       availableModels: [],
@@ -253,6 +273,9 @@ export class CopilotBackendController {
         service.state = 'ready';
         service.version = result.version ?? service.version;
         service.mode = result.mode ?? 'plan';
+        service.modeId = result.modeId ?? service.modeId;
+        service.availableModes = result.availableModes ?? service.availableModes;
+        service.modeSwitchSupported = result.modeSwitchSupported ?? service.modeSwitchSupported;
         service.sessionId = result.sessionId ?? service.sessionId;
         service.connectedAt ??= this.now();
         service.model = result.model ?? service.model;
@@ -296,12 +319,43 @@ export class CopilotBackendController {
     return this.status(key);
   }
 
+  async setMode(repository, modeId) {
+    const key = this.#key(repository);
+    const service = this.services.get(key);
+    if (!service?.bridge || !['ready', 'busy'].includes(service.state)) {
+      throw new Error('Start the Copilot backend before changing its mode.');
+    }
+    // Unlike a model change, this is allowed with a planning session attached: the mode is the
+    // point of the session, and forcing a release would throw away the conversation to widen it.
+    if (service.state === 'busy') throw new Error('Finish the current Copilot turn before changing its mode.');
+    const result = await service.bridge.setMode(modeId);
+    service.mode = result.mode ?? service.mode;
+    service.modeId = result.modeId ?? modeId;
+    service.availableModes = result.availableModes ?? service.availableModes;
+    service.modeSwitchSupported = result.modeSwitchSupported ?? service.modeSwitchSupported;
+    service.readOnly = result.readOnly !== false;
+    return this.status(key);
+  }
+
+  answerPermission(repository, requestId, allow) {
+    const key = this.#key(repository);
+    const service = this.services.get(key);
+    if (!service?.bridge) throw new Error('The Copilot backend is not running.');
+    return service.bridge.answerPermission(requestId, allow);
+  }
+
   async beginPlanning(repository, planningSessionId, { prompt, model = null } = {}) {
     const key = this.#key(repository);
     await this.start(key, { model });
     const service = this.services.get(key);
     if (service.activePlanningSessionId && service.activePlanningSessionId !== planningSessionId) {
-      throw new Error(`Copilot is already attached to planning session ${service.activePlanningSessionId}. Stop or finish it before starting another.`);
+      // The previous renderer is gone — it was unmounted by navigation and never released this
+      // pointer. Cancel whatever it left running and take over, rather than naming a session id
+      // the user has no way to reach.
+      const superseded = service.activePlanningSessionId;
+      await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+      service.activePlanningSessionId = null;
+      this.#record(repository, { type: 'planning-released', message: `Superseded abandoned planning session ${superseded}.` });
     }
     if (!prompt?.trim()) throw new Error('The initial planning prompt cannot be empty.');
     if (service.bridge.running) throw new Error('Copilot is still finishing the previous planning turn. Wait for it to become ready.');
@@ -316,6 +370,27 @@ export class CopilotBackendController {
     });
     void service.bridge.prompt(prompt).catch(() => {});
     return { ...this.status(key), planningSessionId, sessionId: service.sessionId, reusedBackend: true };
+  }
+
+  /** Reconnect a renderer to an already-created phase context without sending a duplicate prompt. */
+  async attachPlanning(repository, planningSessionId) {
+    const key = this.#key(repository);
+    await this.start(key, {});
+    const service = this.services.get(key);
+    if (service.activePlanningSessionId && service.activePlanningSessionId !== planningSessionId) {
+      await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+      service.activePlanningSessionId = null;
+    }
+    service.activePlanningSessionId = planningSessionId;
+    this.emit('planning:event', {
+      planningSessionId,
+      type: 'ready',
+      sessionId: service.sessionId,
+      version: service.version,
+      modes: { currentModeId: service.mode },
+      reattached: true
+    });
+    return { ...this.status(key), planningSessionId, sessionId: service.sessionId, reattached: true };
   }
 
   prompt(repository, planningSessionId, text) {
@@ -335,12 +410,40 @@ export class CopilotBackendController {
     return service.bridge.answerQuestion(questionId, answer);
   }
 
+  /**
+   * Interrupt the running turn and leave the session attached.
+   *
+   * Stop used to release the whole planning context, so a user who only wanted to halt a
+   * runaway answer lost the conversation — and if the cancel was not acknowledged, lost the
+   * ability to start a new one too.
+   */
+  async interruptPlanning(repository, planningSessionId) {
+    const service = this.services.get(this.#key(repository));
+    if (!service?.bridge || service.activePlanningSessionId !== planningSessionId) {
+      return { interrupted: false, service: this.status(repository) };
+    }
+    const cancellation = await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
+    this.#record(repository, {
+      type: 'planning-interrupted',
+      message: cancellation?.cancelled
+        ? `Interrupted the running turn in ${planningSessionId}; the session stays attached.`
+        : `Asked Copilot to interrupt ${planningSessionId}; it did not acknowledge.`
+    });
+    return { interrupted: Boolean(cancellation?.cancelled), service: this.status(repository) };
+  }
+
   async releasePlanning(repository, planningSessionId) {
     const service = this.services.get(this.#key(repository));
     if (!service?.bridge || service.activePlanningSessionId !== planningSessionId) return { released: false, service: this.status(repository) };
-    const cancellation = await service.bridge.cancelCurrentTurn();
+    const cancellation = await service.bridge.cancelCurrentTurn().catch(() => ({ cancelled: false }));
     if (service.bridge.running && !cancellation?.cancelled) {
-      throw new Error('The active Copilot planning turn could not be cancelled. Wait for it to finish or stop the backend before releasing this context.');
+      // Refusing to release left the pointer set and `running` true, so neither stopping nor
+      // starting was possible. Report the un-acked turn and release anyway; the next session
+      // supersedes it rather than inheriting a deadlock.
+      this.#record(repository, {
+        type: 'planning-released',
+        message: `Released planning context ${planningSessionId} while Copilot had not acknowledged the cancellation.`
+      });
     }
     service.activePlanningSessionId = null;
     if (service.state !== 'stopped') service.state = 'ready';

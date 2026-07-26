@@ -215,10 +215,14 @@ initiativePhases:
     label: Discover & Define
     lanes: [business-product]
     worldModelViews: [business]
+    # The requirement document is what every Epic must leave behind: the formalized requirement and
+    # the impact analysis in one place. The long-form business artifacts are right for some work and
+    # ceremony for the rest, so each Epic chooses them (`initiative outputs`, or the Artifacts pane).
     outputs:
-      - { id: business-case, label: Business case, kind: markdown, path: business-case.md, template: initiatives/generic-output.md, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
-      - { id: opportunity-brief, label: Market and customer opportunity, kind: markdown, path: opportunity-brief.md, template: initiatives/generic-output.md }
-      - { id: product-roadmap, label: Product roadmap, kind: markdown, path: product-roadmap.md, template: initiatives/generic-output.md }
+      - { id: requirements, label: Requirement and impact analysis, kind: markdown, path: requirements.md, template: initiatives/requirement-impact.md, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
+      - { id: business-case, label: Business case, kind: markdown, path: business-case.md, template: initiatives/generic-output.md, required: false, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
+      - { id: opportunity-brief, label: Market and customer opportunity, kind: markdown, path: opportunity-brief.md, template: initiatives/generic-output.md, required: false }
+      - { id: product-roadmap, label: Product roadmap, kind: markdown, path: product-roadmap.md, template: initiatives/generic-output.md, required: false }
     checklist:
       - { id: opportunity-defined, label: Opportunity and measurable outcomes defined, requirement: must, acceptedAssurance: [human-approved], gate: block }
     bundleApproval: { mode: bundle, authorities: [initiative-owners], minimum: 1, allowSelfApproval: true }
@@ -228,9 +232,9 @@ initiativePhases:
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture]
     outputs:
-      - { id: service-blueprint, label: Service blueprint and journey, kind: markdown, path: service-blueprint.md, template: initiatives/generic-output.md, consumes: [discover-define/opportunity-brief] }
-      - { id: design-specification, label: Design specification and prototype index, kind: markdown, path: design-specification.md, template: initiatives/generic-output.md, consumes: [discover-define/opportunity-brief] }
-      - { id: solution-validation, label: Solution validation report, kind: markdown, path: solution-validation.md, template: initiatives/generic-output.md, consumes: [discover-define/business-case] }
+      - { id: service-blueprint, label: Service blueprint and journey, kind: markdown, path: service-blueprint.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
+      - { id: design-specification, label: Design specification and prototype index, kind: markdown, path: design-specification.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
+      - { id: solution-validation, label: Solution validation report, kind: markdown, path: solution-validation.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/business-case] }
     checklist:
       - { id: solution-validated, label: Proposed solution validated with representative users and stakeholders, requirement: must, acceptedAssurance: [human-approved, system-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
@@ -240,8 +244,8 @@ initiativePhases:
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture, security]
     outputs:
-      - { id: initiative-scope, label: High-level initiative scope, kind: markdown, path: initiative-scope.md, template: initiatives/generic-output.md, consumes: [discover-define/business-case, design-iterate/solution-validation] }
-      - { id: compliance-assessment, label: Legal risk and compliance assessment, kind: markdown, path: compliance-assessment.md, template: initiatives/generic-output.md, consumes: [discover-define/business-case], approval: { mode: individual, authorities: [risk-reviewers], minimum: 1, allowSelfApproval: true } }
+      - { id: initiative-scope, label: High-level initiative scope, kind: markdown, path: initiative-scope.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, design-iterate/solution-validation] }
+      - { id: compliance-assessment, label: Legal risk and compliance assessment, kind: markdown, path: compliance-assessment.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/business-case], approval: { mode: individual, authorities: [risk-reviewers], minimum: 1, allowSelfApproval: true } }
     checklist:
       - { id: business-case-exists, label: Approved business case exists, requirement: must, acceptedAssurance: [human-approved], gate: block }
       - { id: initiative-created-and-scoped, label: Initiative created and scoped at a high level, requirement: must, acceptedAssurance: [system-verified, human-approved], gate: block }

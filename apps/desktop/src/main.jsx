@@ -41,3 +41,14 @@ createRoot(document.getElementById('root')).render(
     <DesktopErrorBoundary><App /></DesktopErrorBoundary>
   </React.StrictMode>
 );
+
+// Dropping a file anywhere outside a drop target makes the Electron renderer navigate to it,
+// replacing the app with the file's contents and losing all in-memory state. Nothing prevented
+// that, and adding a drop zone makes a near-miss far more likely.
+for (const type of ['dragover', 'drop']) {
+  window.addEventListener(type, (event) => {
+    if (event.target instanceof Element && event.target.closest('[data-accepts-drop]')) return;
+    event.preventDefault();
+    if (type === 'drop') event.dataTransfer.dropEffect = 'none';
+  });
+}

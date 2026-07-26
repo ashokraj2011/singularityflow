@@ -347,3 +347,50 @@ test('wm build --local commits the world model but does not push, and a new bran
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), localHead);
   assert.ok(run('git', ['log', '--format=%H', 'main'], root).includes(localHead));
 });
+
+test('governed state does not make the world model stale', async () => {
+  // The source-tree hash counted singularity/initiatives, so every governed commit — starting an
+  // Epic, publishing a phase, recording evidence — changed it and marked the model stale. On a real
+  // repository that was 48 of 70 files, so the staleness signal was permanently on and said nothing
+  // about the code the model actually describes. Initiative state is per-work governance, exactly
+  // like work-item state, which was already excluded.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-stale-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.email', 'wm@example.com'], root);
+  run('git', ['config', 'user.name', 'World Model'], root);
+  await writeFile(path.join(root, 'README.md'), '# app\n');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/Main.java'), 'class Main {}\n');
+  await initializeDefinition(root);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+
+  const definition = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const before = await worldModelSourceSnapshot(root, definition);
+
+  // Governed state arrives; the application source is untouched. Starting an Epic writes all of
+  // this in one commit: initiative state, the artifact templates, and the persona prompts. On the
+  // rule-engine repository the templates alone were 22 files, so a model built minutes earlier was
+  // reported stale before a line of the application had changed.
+  await mkdir(path.join(root, 'singularity/initiatives/EPIC-1/artifacts'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/state.json'), '{"currentPhase":"epic-intake"}\n');
+  await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/artifacts/requirements.md'), '# REQ\n');
+  await mkdir(path.join(root, 'singularity/templates/initiatives/epic'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/templates/initiatives/epic/requirements.md'), '# {{work.id}} requirements\n');
+  await mkdir(path.join(root, 'singularity/personas'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/personas/product-owner.md'), 'Act as Product owner.\n');
+  await mkdir(path.join(root, 'singularity/prompts'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/prompts/copilot-planning.md'), 'Plan.\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'start epic'], root);
+
+  const after = await worldModelSourceSnapshot(root, definition);
+  assert.equal(after.sha256, before.sha256, 'governance material must not change the source-tree hash');
+  assert.ok(!after.files.some((file) => String(file.path ?? file).startsWith('singularity/')), 'nothing under the governance root is application source');
+
+  // A real source change still moves it, or the signal would be worthless in the other direction.
+  await writeFile(path.join(root, 'src/Main.java'), 'class Main { void go() {} }\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'change source'], root);
+  assert.notEqual((await worldModelSourceSnapshot(root, definition)).sha256, before.sha256);
+});

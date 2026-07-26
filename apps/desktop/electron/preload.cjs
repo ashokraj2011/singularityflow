@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('singularity', {
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
@@ -46,7 +46,11 @@ contextBridge.exposeInMainWorld('singularity', {
   attachInboxItem: (repository, workId) => ipcRenderer.invoke('inbox:attach', { repository, workId }),
   validate: (repository) => ipcRenderer.invoke('configuration:validate', { repository }),
   saveFile: (repository, filePath, content) => ipcRenderer.invoke('configuration:save', { repository, filePath, content }),
-  generateWorldModel: (repository, local = true) => ipcRenderer.invoke('worldmodel:generate', { repository, local }),
+  restartInitiative: (repository, initiativeId, confirmation, reason) => ipcRenderer.invoke('initiative:restart', { repository, initiativeId, confirmation, reason }),
+  selectInitiativeOutputs: (repository, initiativeId, phaseId, outputIds, reason) => ipcRenderer.invoke('initiative:outputs-select', { repository, initiativeId, phaseId, outputIds, reason }),
+  recordInitiativeEvidence: (repository, initiativeId, phaseId, checkId, reason, observedState) =>
+    ipcRenderer.invoke('initiative:evidence-record', { repository, initiativeId, phaseId, checkId, reason, observedState }),
+  generateWorldModel: (repository, local = true, views = null) => ipcRenderer.invoke('worldmodel:generate', { repository, local, views }),
   onWorldModelProgress: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('worldmodel:progress', handler);
@@ -66,12 +70,18 @@ contextBridge.exposeInMainWorld('singularity', {
   copilotServiceStatus: (repository) => ipcRenderer.invoke('copilot-service:status', { repository }),
   startCopilotService: (repository, model = null) => ipcRenderer.invoke('copilot-service:start', { repository, model }),
   setCopilotServiceModel: (repository, model) => ipcRenderer.invoke('copilot-service:model', { repository, model }),
+  setCopilotServiceMode: (repository, modeId) => ipcRenderer.invoke('copilot-service:mode', { repository, modeId }),
+  answerCopilotPermission: (repository, requestId, allow) => ipcRenderer.invoke('copilot-service:permission', { repository, requestId, allow }),
   stopCopilotService: (repository) => ipcRenderer.invoke('copilot-service:stop', { repository }),
   copilotServiceLogs: (repository) => ipcRenderer.invoke('copilot-service:logs', { repository }),
   buildPlanningContext: (repository, options) => ipcRenderer.invoke('planning:context', { repository, ...options }),
+  listPlanningSessions: (repository) => ipcRenderer.invoke('planning:sessions', { repository }),
+  resumePlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:resume', { repository, planningSessionId }),
   startPlanningSession: (repository, planningSessionId, model) => ipcRenderer.invoke('planning:start', { repository, planningSessionId, model }),
   promptPlanningSession: (repository, planningSessionId, text) => ipcRenderer.invoke('planning:prompt', { repository, planningSessionId, text }),
   answerPlanningQuestion: (repository, planningSessionId, questionId, content, action = 'accept') => ipcRenderer.invoke('planning:answer', { repository, planningSessionId, questionId, content, action }),
+  interruptPlanningTurn: (repository, planningSessionId) =>
+    ipcRenderer.invoke('planning:interrupt', { repository, planningSessionId }),
   stopPlanningSession: (repository, planningSessionId) => ipcRenderer.invoke('planning:stop', { repository, planningSessionId }),
   promotePlanningArtifact: (repository, planningSessionId, persona, content) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, content }),
   promotePlanningArtifacts: (repository, planningSessionId, persona, artifacts) => ipcRenderer.invoke('planning:promote', { repository, planningSessionId, persona, artifacts }),
@@ -92,8 +102,14 @@ contextBridge.exposeInMainWorld('singularity', {
     repository, initiativeId, providerId
   }),
   disconnectEpicStorage: (repository, providerId) => ipcRenderer.invoke('epic:storage-disconnect', { repository, providerId }),
-  uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-upload', {
-    repository, initiativeId, providerId, mimeType
+  previewEpicSource: (repository, initiativeId, sourceId) =>
+    ipcRenderer.invoke('epic:sources-preview', { repository, initiativeId, sourceId }),
+  pinJiraAttachments: (repository, initiativeId) =>
+    ipcRenderer.invoke('epic:sources-pin-jira', { repository, initiativeId }),
+  // Electron removed File.path in v32; a dropped file's location is only obtainable here.
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return null; } },
+  uploadEpicSources: (repository, initiativeId, providerId = null, mimeType = 'application/octet-stream', filePaths = null) => ipcRenderer.invoke('epic:sources-upload', {
+    repository, initiativeId, providerId, mimeType, filePaths
   }),
   addEpicSourceUrl: (repository, initiativeId, providerId, url, label, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-add-url', {
     repository, initiativeId, providerId, url, label, mimeType

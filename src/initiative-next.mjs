@@ -19,10 +19,46 @@ export const NEXT_ACTIONS = Object.freeze({
   APPROVE: 'approve',
   ADVANCE: 'advance',
   COMPLETE: 'complete',
-  BLOCKED: 'blocked'
+  BLOCKED: 'blocked',
+  // Journey-only actions. They are not phase transitions, but they are actions a caller can be
+  // asked to take, so they belong in the same vocabulary rather than a second one.
+  SOURCES: 'sources',
+  MATERIALIZE: 'materialize',
+  REPORT: 'report',
+  STATUS: 'status'
 });
 
-import { initiativeOutputRequired } from './initiative-policy.mjs';
+/**
+ * initiativeNextActions in initiative-report.mjs predates this module and emits its own action
+ * names. Two vocabularies for the same concept is how the Epic journey's "Approve Intake &
+ * continue" button came to do nothing: it carried 'approve-phase', the renderer compared against
+ * 'approve', no branch matched, and the click fell through to a navigate-to-the-current-stage
+ * fallback — a fully clickable button that changed nothing.
+ *
+ * Every id crosses into the UI through here, so a name can only diverge in one place.
+ */
+const LEGACY_ACTION_IDS = Object.freeze({
+  prepare: NEXT_ACTIONS.AUTHOR,
+  author: NEXT_ACTIONS.AUTHOR,
+  'author-and-publish': NEXT_ACTIONS.PUBLISH,
+  'approve-phase': NEXT_ACTIONS.APPROVE,
+  'add-sources': NEXT_ACTIONS.SOURCES,
+  materialize: NEXT_ACTIONS.MATERIALIZE,
+  report: NEXT_ACTIONS.REPORT,
+  status: NEXT_ACTIONS.STATUS
+});
+
+const CANONICAL_ACTIONS = new Set(Object.values(NEXT_ACTIONS));
+
+// Returns null for an unrecognised id rather than guessing. A caller that cannot map an action must
+// say so; silently treating it as something else is what produced the original defect.
+export function normalizeNextActionId(id) {
+  if (!id) return null;
+  if (CANONICAL_ACTIONS.has(id)) return id;
+  return LEGACY_ACTION_IDS[id] ?? null;
+}
+
+import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 
 export const EPIC_JOURNEY_STAGES = Object.freeze([
   { id: 'intake', label: 'Intake', phase: 'epic-intake' },
@@ -59,20 +95,53 @@ function epicActionLabel(action, stage) {
 }
 
 /**
+ * The stages to show for an initiative.
+ *
+ * Epic planning has named business stages — Intake, Requirements, Planning, Stories — and the
+ * desktop routes on those ids, so they stay exactly as they are. Every other profile pins its own
+ * phases, and hard-coding the Epic stages onto them was why they were given no journey at all:
+ * the workspace showed the artifacts but never where the work stood or what came next.
+ */
+function journeyStages(initiative) {
+  const phaseOrder = initiative?.phaseOrder ?? [];
+  // Decided by the pinned phases, not by the profile name: the named business stages apply
+  // exactly when the phases they name are the ones this initiative runs.
+  const epicPhases = EPIC_JOURNEY_STAGES.map((stage) => stage.phase).filter(Boolean);
+  if (epicPhases.every((id) => phaseOrder.includes(id))) return EPIC_JOURNEY_STAGES;
+  const phases = phaseOrder.map((id) => ({
+    id,
+    label: initiative.phases?.[id]?.label ?? id,
+    phase: id
+  }));
+  return phases.length ? [...phases, { id: 'complete', label: 'Complete', phase: null }] : EPIC_JOURNEY_STAGES;
+}
+
+function stageIndex(initiative, stages) {
+  if (stages === EPIC_JOURNEY_STAGES) return epicStageIndex(initiative);
+  if (initiative.status === 'complete' || initiative.delivery?.status === 'complete') return stages.length - 1;
+  const current = stages.findIndex((stage) => stage.phase === initiative.currentPhase);
+  if (current >= 0) return current;
+  const approved = (initiative.phaseOrder ?? []).filter((id) => initiative.phases?.[id]?.status === 'approved').length;
+  return Math.min(stages.length - 1, Math.max(0, approved));
+}
+
+/**
  * A compact business-facing projection of governed initiative state. It deliberately contains no
  * new mutable state: the phase engine and initiativeNextActions remain the source of truth.
  */
 export function epicJourney(initiative, nextActions = []) {
   if (!initiative) return null;
-  const activeStep = epicStageIndex(initiative);
-  const current = EPIC_JOURNEY_STAGES[activeStep];
+  const stages = journeyStages(initiative);
+  const activeStep = stageIndex(initiative, stages);
+  const current = stages[activeStep];
+  const finalStep = stages.length - 1;
   const next = nextActions[0] ?? null;
   const approved = (initiative.phaseOrder ?? []).filter((id) => initiative.phases?.[id]?.status === 'approved').length;
   const total = Math.max(1, initiative.phaseOrder?.length ?? 1);
   const completionPercent = initiative.status === 'complete'
     ? 100
     : Math.min(99, Math.round((approved / total) * 100));
-  const stageStatus = EPIC_JOURNEY_STAGES.map((stage, index) => ({
+  const stageStatus = stages.map((stage, index) => ({
     ...stage,
     status: index < activeStep ? 'complete' : index === activeStep ? 'current' : 'upcoming',
     phaseStatus: stage.phase ? initiative.phases?.[stage.phase]?.status ?? 'not_started' : initiative.status
@@ -85,7 +154,9 @@ export function epicJourney(initiative, nextActions = []) {
     completionPercent,
     stages: stageStatus,
     nextAction: next ? {
-      id: next.action,
+      id: normalizeNextActionId(next.action) ?? next.action,
+      // Preserved so an unmapped action can be reported precisely rather than guessed at.
+      sourceId: next.action,
       label: epicActionLabel(next, current.label),
       command: next.command ?? null,
       reason: next.reason ?? next.detail ?? null,
@@ -93,7 +164,8 @@ export function epicJourney(initiative, nextActions = []) {
       outputs: next.outputs ?? [],
       checks: next.checks ?? []
     } : {
-      id: activeStep === 4 ? 'report' : 'status',
+      id: activeStep === finalStep ? NEXT_ACTIONS.REPORT : NEXT_ACTIONS.STATUS,
+      sourceId: activeStep === finalStep ? 'report' : 'status',
       label: epicActionLabel(null, current.label),
       command: null,
       reason: null,
@@ -207,4 +279,71 @@ export function nextInitiativeAction(initiative, phaseId = null, { checklist = n
     detail: `Publishing records generation ${phase.generation + 1} and its machine evidence.`,
     command: `singularity-flow initiative phase publish ${id}`
   };
+}
+
+/**
+ * Everything still standing between this phase and its approval, in the order it must happen.
+ *
+ * `initiativeNextActions` answers "what is the single next command", which is the right answer for
+ * a CLI and the wrong one for a workspace: it returned `prepare` — "open the Discover & Define
+ * workspace" — to someone already standing in it, while four separate things were actually
+ * outstanding, each surfaced in a different panel. Nobody could see the shape of the remaining
+ * work, so nobody could tell how close the phase was or what to do next.
+ *
+ * This is a projection, not new state: every item is derived from the phase's own outputs, its
+ * checklist and the gate that already decides them.
+ */
+export function initiativePhaseWork(initiative, phaseId = initiative?.currentPhase) {
+  const phase = initiative?.phases?.[phaseId];
+  if (!phase) return [];
+  const definition = initiative.resolution.phases.find((item) => item.id === phaseId);
+  const steps = [];
+
+  for (const output of definition?.outputs ?? []) {
+    if (!initiativeOutputRequired(initiative, phaseId, output)) continue;
+    const state = phase.outputs?.[output.id];
+    steps.push({
+      id: `author:${output.id}`,
+      kind: 'author',
+      outputId: output.id,
+      label: `Draft ${output.label}`,
+      done: Boolean(state?.sha256),
+      detail: state?.sha256 ? `${state.status.replaceAll('_', ' ')}` : 'Not written yet'
+    });
+  }
+
+  for (const check of definition?.checklist ?? []) {
+    if (initiativeCheckRequirement(initiative, phaseId, check) !== 'must') continue;
+    const state = phase.checklist?.[check.id];
+    steps.push({
+      id: `attest:${check.id}`,
+      kind: 'attest',
+      checkId: check.id,
+      label: `Record judgement — ${check.label}`,
+      done: Boolean(state && state.status !== 'missing'),
+      detail: state?.status === 'missing' || !state
+        ? `No evidence yet · accepts ${(check.acceptedAssurance ?? []).join(', ') || 'human-approved'}`
+        : state.status.replaceAll('_', ' ')
+    });
+  }
+
+  steps.push({
+    id: 'publish',
+    kind: 'publish',
+    label: `Publish ${definition?.label ?? phaseId} for review`,
+    done: ['awaiting_approval', 'approved'].includes(phase.status),
+    detail: 'Commits this generation and opens it for approval'
+  });
+  steps.push({
+    id: 'approve',
+    kind: 'approve',
+    label: `Approve ${definition?.label ?? phaseId}`,
+    done: phase.status === 'approved',
+    detail: 'The governed decision that advances the Epic'
+  });
+
+  // Exactly one step is "now": the first thing not yet done. Everything after it waits on it, and
+  // saying so is the difference between a list of controls and an account of where the work stands.
+  const next = steps.findIndex((step) => !step.done);
+  return steps.map((step, index) => ({ ...step, state: step.done ? 'done' : index === next ? 'now' : 'later' }));
 }

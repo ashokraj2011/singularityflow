@@ -71,6 +71,7 @@ async function planningLogger(repository) {
 const PLANNING_EVENT_LEVEL = {
   error: 'error',
   'permission-denied': 'warn',
+  'permission-allowed': 'debug',
   'question-unsupported': 'warn',
   'process-exit': 'warn',
   ready: 'info',
@@ -115,6 +116,31 @@ function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'wo
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
 function storageCredentialsPath() { return path.join(app.getPath('userData'), 'storage-credentials.json'); }
 function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
+function planningSessionRegistryPath(repository) { return path.join(repository, '.git', 'singularity-flow', 'planning-sessions.json'); }
+async function readPlanningSessionRegistry(repository) {
+  try {
+    const parsed = JSON.parse(await readFile(planningSessionRegistryPath(repository), 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+async function writePlanningSessionRegistry(repository, entries) {
+  const target = planningSessionRegistryPath(repository);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+}
+async function updatePlanningSessionRegistry(repository, sessionId, patch, { remove = false } = {}) {
+  const entries = await readPlanningSessionRegistry(repository);
+  const index = entries.findIndex((entry) => entry.sessionId === sessionId);
+  if (remove) {
+    if (index >= 0) entries.splice(index, 1);
+  } else if (index >= 0) {
+    entries[index] = { ...entries[index], ...patch, lastActivityAt: new Date().toISOString() };
+  } else {
+    entries.push({ sessionId, ...patch, lastActivityAt: new Date().toISOString() });
+  }
+  await writePlanningSessionRegistry(repository, entries);
+  return entries;
+}
 function jiraCredentialStore() { return new JiraCredentialStore(jiraCredentialsPath(), safeStorage); }
 function storageCredentialStore() { return new StorageCredentialStore(storageCredentialsPath(), safeStorage); }
 
@@ -141,11 +167,47 @@ function assertTrustedSender(event) {
   }
 }
 
+// Every IPC handler runs in the main process, so a failure here never touched the CLI's command
+// logging and left no trace anywhere — a click that "does nothing" was genuinely unobservable.
+// Wrapping the dispatcher records the outcome of each channel against the repository being acted on.
 function trustedHandle(channel, listener) {
-  ipcMain.handle(channel, (event, ...args) => {
+  ipcMain.handle(channel, async (event, ...args) => {
     assertTrustedSender(event);
-    return listener(event, ...args);
+    const repository = args.find((value) => value && typeof value === 'object' && typeof value.repository === 'string')?.repository ?? null;
+    const started = Date.now();
+    try {
+      const result = await listener(event, ...args);
+      void ipcLogger(repository).then((log) => log?.debug(`ipc.${channel}.ok`, null, { durationMs: Date.now() - started })).catch(() => {});
+      return result;
+    } catch (error) {
+      // Logged before rethrowing so the renderer still receives the rejection it expects.
+      void ipcLogger(repository).then((log) => log?.error(`ipc.${channel}.failed`, error?.message, {
+        durationMs: Date.now() - started, error
+      })).catch(() => {});
+      throw error;
+    }
   });
+}
+
+// One logger per repository, reused across channels.
+const ipcLoggers = new Map();
+function ipcLogger(repository) {
+  if (!repository) return Promise.resolve(null);
+  if (!ipcLoggers.has(repository)) {
+    ipcLoggers.set(repository, (async () => {
+      try {
+        const [{ repositoryLogger }, { loadDefinition }] = await Promise.all([
+          importCliModule('logging.mjs'),
+          importCliModule('config.mjs')
+        ]);
+        const definition = await loadDefinition(repository).catch(() => null);
+        return repositoryLogger(repository, definition, { context: { surface: 'desktop', pid: process.pid } });
+      } catch {
+        return null;
+      }
+    })());
+  }
+  return ipcLoggers.get(repository);
 }
 
 async function jiraPolicy(repository) {
@@ -651,7 +713,7 @@ function registerHandlers() {
     });
     return snapshot(root);
   });
-  trustedHandle('worldmodel:generate', async (event, { repository, local = true }) => {
+  trustedHandle('worldmodel:generate', async (event, { repository, local = true, views = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const send = (payload) => {
@@ -662,7 +724,15 @@ function registerHandlers() {
       // Generation runs the world-model builder (Copilot) in an isolated worktree; allow up to 15
       // minutes. --local commits into the working tree without pushing to the remote default branch.
       send({ type: 'phase', phase: 'copilot', message: 'Copilot is inspecting the repository and generating Markdown views.' });
-      await invokeCli(root, ['wm', 'build', ...(local ? ['--local'] : [])], {
+      // `wm build` has always accepted --views; the desktop passed only --local, so a rebuild from
+      // the app could only ever produce whatever `views: auto` routed to — core plus development —
+      // no matter which views the phases actually need.
+      const requested = Array.isArray(views) ? views.filter((view) => /^[a-z][a-z0-9-]*$/.test(view)) : [];
+      await invokeCli(root, [
+        'wm', 'build',
+        ...(requested.length ? ['--views', requested.join(',')] : []),
+        ...(local ? ['--local'] : [])
+      ], {
         json: false,
         timeoutMs: 15 * 60 * 1000,
         onOutput: (text, stream) => {
@@ -723,6 +793,14 @@ function registerHandlers() {
     assertTrustedSender(event);
     return copilotBackend.setModel(assertRepository(repository), model?.trim() || null);
   });
+  trustedHandle('copilot-service:mode', (event, { repository, modeId }) => {
+    assertTrustedSender(event);
+    return copilotBackend.setMode(assertRepository(repository), String(modeId ?? '').trim());
+  });
+  trustedHandle('copilot-service:permission', (event, { repository, requestId, allow }) => {
+    assertTrustedSender(event);
+    return copilotBackend.answerPermission(assertRepository(repository), String(requestId ?? '').trim(), allow === true);
+  });
   trustedHandle('copilot-service:stop', (event, { repository }) => {
     assertTrustedSender(event);
     return copilotBackend.stop(assertRepository(repository));
@@ -755,21 +833,139 @@ function registerHandlers() {
       phase,
       persona
     });
+    await updatePlanningSessionRegistry(root, result.sessionId, {
+      scope,
+      id,
+      phase,
+      persona,
+      target,
+      objective: objective?.trim() || '',
+      contextPath: result.contextPath,
+      manifestPath: result.manifestPath,
+      status: 'context-ready',
+      createdAt: new Date().toISOString()
+    });
     return result;
+  });
+  trustedHandle('planning:sessions', async (event, { repository }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    return readPlanningSessionRegistry(root);
+  });
+  trustedHandle('planning:resume', async (event, { repository, planningSessionId }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const entries = await readPlanningSessionRegistry(root);
+    const entry = entries.find((item) => item.sessionId === planningSessionId);
+    if (!entry) throw new Error(`No saved planning session '${planningSessionId}' exists for this repository.`);
+    const { loadPlanningPack } = await importCliModule('planning.mjs');
+    // Resuming restores a conversation; it writes nothing. A HEAD that has moved since makes the
+    // pack unpromotable, which the workspace already says with its rebuild banner — it is not a
+    // reason to lose the transcript.
+    const pack = await loadPlanningPack(root, planningSessionId, { requireCurrentHead: false });
+    const context = await readFile(pack.contextPath, 'utf8');
+    planningPacks.set(planningSessionId, { repository: root, contextPath: pack.contextPath, manifestPath: pack.manifestPath });
+    if (entry.status === 'active') await copilotBackend.attachPlanning(root, planningSessionId);
+    return {
+      sessionId: planningSessionId,
+      contextPath: pack.contextPath,
+      manifestPath: pack.manifestPath,
+      context,
+      manifest: pack.manifest,
+      phase: pack.manifest.phase,
+      target: pack.manifest.target,
+      outputs: pack.manifest.outputs ?? [],
+      warnings: pack.manifest.warnings ?? [],
+      savedStatus: entry.status
+    };
+  });
+  trustedHandle('initiative:restart', async (event, { repository, initiativeId, confirmation, reason = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    // The typed confirmation is checked here rather than in the renderer: the engine's own guard is
+    // a CLI prompt, and an IPC caller must clear the same bar before anything is discarded.
+    if (String(confirmation ?? '').trim() !== initiativeId) throw new Error(`Type ${initiativeId} exactly to restart it.`);
+    const { restartInitiative, loadInitiative, commitInitiativeChange } = await importCliModule('initiative-state.mjs');
+    await restartInitiative(root, initiativeId, { reason });
+    const state = await loadInitiative(root, initiativeId);
+    await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
+    return snapshot(root, null, initiativeId);
+  });
+  trustedHandle('initiative:outputs-select', async (event, { repository, initiativeId, phaseId, outputIds, reason = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ selectInitiativePhaseOutputs }, { commitInitiativeChange }, { loadInitiative }] = await Promise.all([
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const selection = await selectInitiativePhaseOutputs(root, initiativeId, phaseId, outputIds ?? [], { reason });
+    const state = await loadInitiative(root, initiativeId);
+    await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    return snapshot(root, null, initiativeId);
+  });
+  trustedHandle('initiative:evidence-record', async (event, { repository, initiativeId, phaseId, checkId, reason, observedState }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    // Mirrors `initiative evidence add` exactly: register, reload, then commit append-only. The
+    // engine owns authorization — it refuses an actor outside the check's approval authority — so
+    // this handler must not pre-judge who may attest.
+    const [
+      { registerInitiativeEvidence },
+      { commitInitiativeChange, loadInitiative },
+      { loadSession }
+    ] = await Promise.all([
+      importCliModule('initiative-evidence.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('session.mjs')
+    ]);
+    const session = await loadSession(root, { required: false });
+    const appended = await registerInitiativeEvidence(root, {
+      initiativeId,
+      phaseId,
+      checkId,
+      assurance: 'human-approved',
+      verificationMethod: 'human-review',
+      source: { observedState: observedState?.trim() || null },
+      persona: session?.persona ?? null,
+      reason: reason?.trim() || null
+    });
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(
+      root, fresh.portfolio, fresh.initiative,
+      `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`,
+      { appendOnly: true }
+    );
+    return { checkId, sha256: appended.sha256, commit: publication.sha, pushed: publication.pushed };
   });
   trustedHandle('planning:start', async (event, { repository, planningSessionId, model }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const pack = planningPacks.get(planningSessionId);
     if (!pack || pack.repository !== root) throw new Error('Build and review a planning context before starting Copilot.');
-    return copilotBackend.beginPlanning(root, planningSessionId, {
+    // The contract travels as content, not as a path. Plan mode declares fs.readTextFile: false and
+    // denies every session/requestPermission, so telling Copilot to "read the contract at <path>"
+    // asked it for something the client structurally forbids: the read was denied, and the turn ran
+    // with no contract, no pinned sources and no world model. The pack is already budgeted to
+    // maxContextBytes and already labels uploaded documents as source material rather than
+    // instructions, so it is built to be sent. Read-only Plan mode is unchanged.
+    const result = await copilotBackend.beginPlanning(root, planningSessionId, {
       model: model?.trim() || null,
-      prompt: `Read and follow the complete governed planning contract at ${pack.contextPath}. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
+      prompt: `${await readFile(pack.contextPath, 'utf8')}
+
+---
+
+Follow the governed planning contract above. Work only in native Plan mode. Before finalizing, identify assumptions that materially change scope, story boundaries, repository ownership, dependencies, acceptance criteria, or Jira hierarchy. Ask those questions through ACP form elicitation so Copilot Studio can show them inline, then incorporate the answers. Produce a decision-ready proposal for the configured promotion target and do not implement or mutate repository files.${planningWorkspaceBoundary(root)}`
     });
+    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active', model: result.model ?? model ?? null });
+    return result;
   });
-  trustedHandle('planning:prompt', (event, { repository, planningSessionId, text }) => {
+  trustedHandle('planning:prompt', async (event, { repository, planningSessionId, text }) => {
     assertTrustedSender(event);
-    return copilotBackend.prompt(assertRepository(repository), planningSessionId, text);
+    const root = assertRepository(repository);
+    const result = copilotBackend.prompt(root, planningSessionId, text);
+    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active' });
+    return result;
   });
   trustedHandle('planning:answer', async (event, {
     repository, planningSessionId, questionId, content, action
@@ -777,6 +973,7 @@ function registerHandlers() {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const response = await copilotBackend.answer(root, planningSessionId, questionId, { content, action });
+    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'active' });
     const pack = planningPacks.get(planningSessionId);
     let governance = null;
     if (
@@ -806,9 +1003,16 @@ function registerHandlers() {
     }
     return { ...response, governance };
   });
+  trustedHandle('planning:interrupt', async (event, { repository, planningSessionId }) => {
+    assertTrustedSender(event);
+    return copilotBackend.interruptPlanning(assertRepository(repository), planningSessionId);
+  });
   trustedHandle('planning:stop', async (event, { repository, planningSessionId }) => {
     assertTrustedSender(event);
-    return copilotBackend.releasePlanning(assertRepository(repository), planningSessionId);
+    const root = assertRepository(repository);
+    const result = await copilotBackend.releasePlanning(root, planningSessionId);
+    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'context-ready' });
+    return result;
   });
   // `artifacts` promotes a whole phase-scoped set in one governed commit; `content` remains the
   // single-artifact form for output-scoped sessions.
@@ -826,6 +1030,7 @@ function registerHandlers() {
     ], { input: artifacts ? JSON.stringify(artifacts) : content, timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS });
     await copilotBackend.releasePlanning(root, planningSessionId);
     planningPacks.delete(planningSessionId);
+    await updatePlanningSessionRegistry(root, planningSessionId, { status: 'promoted' });
     return result;
   });
   trustedHandle('initiative:materialize-preview', (_event, { repository, initiativeId }) => invokeCli(
@@ -970,7 +1175,72 @@ function registerHandlers() {
     });
     return storageCredentialStore().saveOAuth(providerId, credential);
   });
-  async function epicSourceRuntime(root, initiativeId, providerId = null) {
+  // Copilot receives a filesystem path and reads it as UTF-8, so a pinned PDF/DOCX/XLSX arrived as
+// mojibake. A text rendition is derived once, at pin time, and written beside the cached bytes; the
+// engine notices it and points Copilot there instead. Failure is never fatal — a source with no
+// rendition is declared unreadable in the contract rather than silently handed over.
+async function writeSourceRenditions(root, initiativeId, records) {
+  const { verifyEpicSources } = await importCliModule('epic-sources.mjs');
+  const { TEXT_RENDITION_SUFFIX } = await importCliModule('initiative-context.mjs');
+  const verification = await verifyEpicSources(root, initiativeId, { materialize: true }).catch(() => null);
+  if (!verification) return;
+  for (const record of records) {
+    const result = verification.results?.find((item) => item.sourceId === record.sourceId);
+    if (!result?.cachePath) continue;
+    if (isTextualSource(record.mimeType, record.name)) continue;
+    try {
+      const absolute = path.join(root, result.cachePath);
+      const rendition = extractSourceText(await readFile(absolute), record.mimeType);
+      if (rendition.status !== 'extracted') continue;
+      await writeFile(`${absolute}${TEXT_RENDITION_SUFFIX}`, [
+        `# Text extracted from ${record.name}`,
+        '',
+        `- Source: \`${record.sourceId}\``,
+        `- SHA-256 of the original: \`${record.sha256}\``,
+        '',
+        rendition.text,
+        ''
+      ].join('\n'), 'utf8');
+    } catch { /* A rendition is an optimisation; the pinned bytes remain the evidence. */ }
+  }
+}
+
+function isTextualSource(mimeType, name = '') {
+  const mime = String(mimeType ?? '');
+  if (mime.startsWith('text/')) return true;
+  if (['application/json', 'application/yaml', 'application/xml'].includes(mime)) return true;
+  return ['.md', '.markdown', '.txt', '.csv', '.json', '.yml', '.yaml', '.xml'].includes(path.extname(String(name)).toLowerCase());
+}
+
+const SOURCE_MIME_TYPES = {
+  '.pdf': 'application/pdf',
+  '.md': 'text/markdown',
+  '.markdown': 'text/markdown',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.json': 'application/json',
+  '.yml': 'application/yaml',
+  '.yaml': 'application/yaml',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml'
+};
+
+// Recording everything as application/octet-stream defeats the storage MIME policy and leaves any
+// consumer unable to tell a specification from a screenshot.
+function mimeTypeForFile(filePath, fallback = 'application/octet-stream') {
+  return SOURCE_MIME_TYPES[path.extname(String(filePath)).toLowerCase()] ?? fallback;
+}
+
+async function epicSourceRuntime(root, initiativeId, providerId = null) {
     const { loadInitiative } = await importCliModule('initiative-state.mjs');
     const { portfolio, initiative } = await loadInitiative(root, initiativeId);
     const storage = initiative.resolution.storage ?? portfolio.storage;
@@ -999,33 +1269,119 @@ function registerHandlers() {
     return { selectedId, runtime };
   }
   trustedHandle('epic:sources-upload', async (event, {
-    repository, initiativeId, providerId = null, mimeType = 'application/octet-stream'
-  }) => {
+    repository, initiativeId, providerId = null, mimeType = 'application/octet-stream', filePaths = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
-    const selected = await dialog.showOpenDialog({
-      properties: ['openFile', 'multiSelections'],
-      title: `Add governed sources to ${initiativeId}`
-    });
-    if (selected.canceled) return { canceled: true, records: [] };
+    // Dropped files arrive with their paths already known, so the picker is only opened when the
+    // user asked for it.
+    const selected = Array.isArray(filePaths) && filePaths.length
+      ? { canceled: false, filePaths: filePaths.filter((item) => typeof item === 'string' && item.trim()) }
+      : await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        title: `Add governed sources to ${initiativeId}`
+      });
+    if (selected.canceled || !selected.filePaths.length) return { canceled: true, records: [] };
     const [{ registerEpicSource }, { commitInitiativeChange }] = await Promise.all([
       importCliModule('epic-sources.mjs'),
       importCliModule('initiative-state.mjs')
     ]);
     const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    // One commit for the whole selection. Committing per file produced a commit and a push each,
+    // and every commit moves HEAD — which invalidates any planning context already built, so
+    // attaching five files could invalidate the same conversation five times over.
     const records = [];
+    let last = null;
     for (const filePath of selected.filePaths) {
       const result = await registerEpicSource(root, {
         initiativeId,
         providerId: runtime.selectedId,
         filePath,
-        mimeType,
+        mimeType: mimeTypeForFile(filePath, mimeType),
         runtime: runtime.runtime
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
-      records.push({ ...result.record, publication });
+      records.push(result.record);
+      last = result;
     }
-    return { canceled: false, records };
+    if (!last) return { canceled: false, records: [] };
+    const ids = records.map((record) => record.sourceId).join(' ');
+    const publication = await commitInitiativeChange(
+      root, last.portfolio, last.initiative,
+      `[${initiativeId}][epic:source] ${ids}`,
+      { appendOnly: true }
+    );
+    // After the commit: the rendition lives in .git alongside the cache and is never committed.
+    await writeSourceRenditions(root, initiativeId, records);
+    return { canceled: false, records: records.map((record) => ({ ...record, publication })) };
+  });
+  // A pinned source was a name, a size and a hash: nothing could open it, so a user could never see
+  // what they had attached. verifyEpicSources already materialises the bytes into a cache under
+  // .git; this reads that cache rather than re-implementing every storage adapter.
+  // The sources pane listed the Epic's Jira attachments and told the user to "pin one above" — but
+  // the only control above was a disk file picker, so the instruction had no action behind it.
+  trustedHandle('epic:sources-pin-jira', async (event, { repository, initiativeId, providerId = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ pinJiraEpicAttachments }, { loadInitiative, commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-sources.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const loaded = await loadInitiative(root, initiativeId);
+    const source = loaded.initiative.initiative.source;
+    if (source?.type !== 'jira') throw new Error(`${initiativeId} was not imported from Jira, so it has no attachments to pin.`);
+    const attachments = source.attachments ?? [];
+    if (!attachments.length) throw new Error(`${initiativeId} has no Jira attachments.`);
+
+    const runtime = await epicSourceRuntime(root, initiativeId, providerId);
+    const result = await pinJiraEpicAttachments(root, initiativeId, {
+      attachments, providerId: runtime.selectedId, runtime: runtime.runtime
+    });
+    if (!result.pinned.length) return { pinned: [], skipped: result.skipped };
+    const fresh = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(
+      root, fresh.portfolio, fresh.initiative,
+      `[${initiativeId}][epic:source] ${result.pinned.map((item) => item.sourceId).join(' ')}`,
+      { appendOnly: true }
+    );
+    return { pinned: result.pinned, skipped: result.skipped, publication };
+  });
+  trustedHandle('epic:sources-preview', async (event, { repository, initiativeId, sourceId, maxBytes = 25 * 1024 * 1024 }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { listEpicSources, verifyEpicSources } = await importCliModule('epic-sources.mjs');
+    const listed = await listEpicSources(root, initiativeId);
+    const entry = listed.manifest.sources.find((item) => item.sourceId === sourceId);
+    if (!entry) throw new Error(`Unknown pinned source '${sourceId}'.`);
+
+    const runtime = await epicSourceRuntime(root, initiativeId, entry.provider).catch(() => ({ runtime: {} }));
+    const verification = await verifyEpicSources(root, initiativeId, { materialize: true, runtime: runtime.runtime });
+    const result = verification.results?.find((item) => item.sourceId === sourceId);
+    if (!result?.cachePath) throw new Error(`Source '${sourceId}' could not be materialised: ${result?.error ?? result?.status ?? 'unavailable'}.`);
+
+    // Containment on the real path, as the ACP reader does: the cache lives inside the repository
+    // and a record must never be able to name something outside it.
+    const cacheRoot = await realpath(path.join(root, '.git', 'singularity-flow', 'epic-sources'));
+    const absolute = await realpath(path.resolve(root, result.cachePath));
+    const relative = path.relative(cacheRoot, absolute);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Refusing to read a source outside the governed cache.');
+
+    const info = await lstat(absolute);
+    if (!info.isFile()) throw new Error(`Source '${sourceId}' is not a readable file.`);
+    if (info.size > maxBytes) {
+      return { sourceId, name: entry.name, mimeType: entry.mimeType, bytes: info.size, tooLarge: true, sha256: entry.sha256 };
+    }
+    const raw = await readFile(absolute);
+    return {
+      sourceId,
+      name: entry.name,
+      mimeType: entry.mimeType ?? 'application/octet-stream',
+      bytes: info.size,
+      sha256: entry.sha256,
+      verified: result.status === 'verified',
+      // Text is returned as text so it can be rendered; anything else as a data URL the existing
+      // media viewer already knows how to display.
+      text: isTextualSource(entry.mimeType, entry.name) ? raw.toString('utf8') : null,
+      dataUrl: isTextualSource(entry.mimeType, entry.name) ? null : `data:${entry.mimeType ?? 'application/octet-stream'};base64,${raw.toString('base64')}`
+    };
   });
   trustedHandle('epic:sources-add-url', async (event, {
     repository, initiativeId, providerId = null, url, label = null, mimeType = 'application/octet-stream'

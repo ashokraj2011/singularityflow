@@ -312,3 +312,23 @@ test('a failing attachment is reported without losing the Epic', async () => {
   assert.equal(result.skipped.length, 1);
   assert.match(result.skipped[0].reason, /provider unavailable/);
 });
+
+test('a source whose name has spaces is pinned, not rejected', async () => {
+  // safeSegment demanded a portable filename of the user's own file, so "Auth V2 PRD.md" — an
+  // entirely ordinary name — failed outright. The storage key is normalised instead, and the record
+  // keeps the real title, which is what the sources rail and a citation display.
+  const root = await repository();
+  const bytes = Buffer.from('# Spec\n');
+  const fetchImpl = async (_url, init = {}) => response(bytes, { method: init.method ?? 'GET' });
+  const registered = await registerEpicSource(root, {
+    initiativeId: 'MOB-100',
+    providerId: 'reference',
+    url: 'https://documents.example.com/auth.md',
+    remoteRef: { objectId: 'auth-v2', filename: 'Auth V2 PRD.md' },
+    mimeType: 'text/markdown',
+    runtime: { fetchImpl }
+  });
+  assert.equal(registered.record.name, 'Auth V2 PRD.md');
+  assert.match(registered.record.filename, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+  assert.ok(!registered.record.filename.includes(' '), 'the storage key must stay portable');
+});

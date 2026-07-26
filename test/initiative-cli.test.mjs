@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,4 +133,100 @@ test('initiative CLI remains inert when portfolio configuration is absent', asyn
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /No singularity\/portfolio\.yml exists/);
   assert.equal(git(root, ['status', '--short']), '');
+});
+
+test('an Epic chooses which of its phase optional outputs it will produce', async () => {
+  // A profile describes a delivery model, not one Epic. discover-define pins a requirement document
+  // plus three long-form business artifacts; carrying all four on every Epic is ceremony, and there
+  // was no way to say so — the phase could not be approved until every one of them existed.
+  const root = await repository();
+  const started = spawnSync(process.execPath, [bin, 'initiative', 'start', 'INIT-OUT', '--title', 'Output selection'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: actor,
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+      SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' })
+    }
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const stateFile = path.join(root, 'singularity/initiatives/INIT-OUT/state.json');
+  const read = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  const before = await read();
+  assert.equal(before.currentPhase, 'discover-define');
+  const outputs = before.resolution.phases.find((phase) => phase.id === 'discover-define').outputs;
+  assert.deepEqual(outputs.filter((output) => output.required !== false).map((output) => output.id), ['requirements']);
+  assert.deepEqual(outputs.filter((output) => output.required === false).map((output) => output.id), ['business-case', 'opportunity-brief', 'product-roadmap']);
+
+  const listed = execute(root, ['initiative', 'outputs', 'discover-define']);
+  assert.match(listed.stdout, /\[x\] requirements/);
+  assert.match(listed.stdout, /\[ \] business-case/);
+
+  // Governance cannot be narrowed away: the required document stays.
+  const refused = execute(root, ['initiative', 'outputs', 'discover-define', '--include', 'business-case'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}${refused.stderr}`, /'requirements' is required by profile 'enterprise-delivery'/);
+
+  // Ceremony can: this Epic takes the requirement document and a business case, nothing else.
+  const chosen = execute(root, ['initiative', 'outputs', 'discover-define', '--include', 'requirements,business-case', '--reason', 'Small change; the roadmap adds nothing.']);
+  assert.match(chosen.stdout, /discover-define will produce requirements, business-case/);
+
+  const after = await read();
+  assert.deepEqual(after.phases['discover-define'].outputSelection.included, ['requirements', 'business-case']);
+  const event = after.history.at(-1);
+  assert.equal(event.event, 'initiative_outputs_selected');
+  assert.match(event.detail, /→ requirements, business-case/);
+  assert.match(event.detail, /Small change/);
+  assert.ok(event.actor, 'the change records who made it');
+
+  // And the phase now asks for two documents rather than four.
+  const status = execute(root, ['initiative', 'status']);
+  assert.doesNotMatch(status.stdout, /product-roadmap/);
+});
+
+test('restart returns an Epic to its first phase without touching the branch or the world model', async () => {
+  // Starting over used to mean deleting the branch and starting a new Epic — which threw away the
+  // identity, the pinned sources, and the repository world model along with the mistake.
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-AGAIN', '--title', 'Restartable']);
+  const stateFile = path.join(root, 'singularity/initiatives/INIT-AGAIN/state.json');
+  const read = async () => JSON.parse(await readFile(stateFile, 'utf8'));
+
+  // A world model on the Epic branch is the thing that must survive.
+  await mkdir(path.join(root, 'singularity/world-model/views'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/world-model/views/business.md'), '# business view\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'World model']);
+  const worldModelCommit = git(root, ['rev-parse', 'HEAD']);
+
+  execute(root, ['initiative', 'phase']);
+  const authored = await read();
+  const firstPhase = authored.phaseOrder[0];
+  assert.ok(Object.values(authored.phases[firstPhase].outputs).some((output) => output.sha256), 'the first attempt produced something');
+
+  const restarted = execute(root, ['initiative', 'restart', 'INIT-AGAIN', '--reason', 'Wrong scope; starting over.'], { confirm: 'INIT-AGAIN' });
+  assert.match(restarted.stdout, /INIT-AGAIN restarted at/);
+  assert.match(restarted.stdout, /branch, sources and world model kept/);
+
+  const after = await read();
+  assert.equal(after.currentPhase, firstPhase);
+  assert.equal(after.status, 'in_progress');
+  for (const output of Object.values(after.phases[firstPhase].outputs)) assert.equal(output.sha256, null, 'artifacts from the abandoned attempt are gone');
+
+  // The branch is the same branch, and the world model commit is still reachable from it.
+  assert.equal(git(root, ['branch', '--show-current']), 'INIT-AGAIN');
+  assert.equal(git(root, ['merge-base', '--is-ancestor', worldModelCommit, 'HEAD']) , '');
+  assert.equal(await readFile(path.join(root, 'singularity/world-model/views/business.md'), 'utf8'), '# business view\n');
+
+  // Identity and history survive: the record of the first attempt is why anyone can explain the second.
+  assert.equal(after.initiative.id, 'INIT-AGAIN');
+  assert.equal(after.initiative.createdAt, authored.initiative.createdAt);
+  assert.ok(after.history.some((entry) => entry.event === 'initiative_started'));
+  const event = after.history.at(-1);
+  assert.equal(event.event, 'initiative_restarted');
+  assert.match(event.detail, /Wrong scope/);
+  assert.match(event.detail, /artifacts? discarded/);
 });

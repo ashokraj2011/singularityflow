@@ -13,11 +13,35 @@ export function groundingMode(definition, workflow = null) {
   return mode;
 }
 
+// Where this tool keeps its own material. Nothing under here is application source, so nothing
+// under here may move the source-tree hash.
+const GOVERNANCE_ROOT = 'singularity';
+
+/**
+ * Governance material this tool writes and owns, which must not count as application source.
+ *
+ * The source-tree hash answers exactly one question: has the code the world model describes
+ * changed? Counting governance state meant the answer was always yes. Starting an Epic alone
+ * commits initiative state *and* materializes the artifact templates and persona prompts, so a
+ * model built minutes earlier was reported stale before a single line of the application had been
+ * touched — the signal was permanently on and told you nothing. On the rule-engine repository it
+ * was 48 of 70 files for work-item and initiative state, and 22 more for templates.
+ *
+ * The whole governance directory is excluded rather than a list of subdirectories, because every
+ * file this tool adds there is its own. What the model was built *from* is tracked separately
+ * where it belongs: `builder_prompt_sha256` covers the builder prompt, and the required views are
+ * validated against the manifest on every load.
+ */
 function excludedSourcePath(file, definition = {}) {
-  const outputDir = posix(definition.worldModel?.outputDir ?? definition.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
-  const workItemRoot = posix(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
-  return file === outputDir || file.startsWith(`${outputDir}/`)
-    || file === workItemRoot || file.startsWith(`${workItemRoot}/`)
+  const roots = [
+    GOVERNANCE_ROOT,
+    definition.worldModel?.outputDir ?? definition.outputDir ?? 'singularity/world-model',
+    definition.workItemRoot ?? 'singularity/work-items',
+    definition.initiativeRoot ?? 'singularity/initiatives',
+    definition.templatesRoot ?? 'singularity/templates',
+    definition.personaPromptsRoot ?? 'singularity/personas'
+  ].map((value) => posix(String(value)).replace(/\/$/, '')).filter(Boolean);
+  return roots.some((root) => file === root || file.startsWith(`${root}/`))
     || file.startsWith('.git/') || file.startsWith('node_modules/');
 }
 

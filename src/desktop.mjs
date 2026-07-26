@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { add, branch, changedFiles, commit, identity, pushBranch } from './git.mjs';
+import { add, branch, changedFiles, commit, head, identity, pushBranch } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
   ensureRepositoryTemplates,
@@ -47,10 +47,12 @@ import {
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
-import { epicJourney } from './initiative-next.mjs';
+import { epicJourney, initiativePhaseWork } from './initiative-next.mjs';
+import { availableInitiativeOutputs } from './initiative-state.mjs';
+import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
-import { listEpicSources } from './epic-sources.mjs';
+import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -197,6 +199,19 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   const sources = initiative.resolution.profile === 'epic-planning'
     ? (await listEpicSources(root, initiativeId)).manifest
     : { version: 1, initiativeId, sources: [] };
+  // The imported Jira Epic is a hashed, citable source that verifyEpicTraceability accepts, but it
+  // is not in the uploaded manifest — so a surface counting only uploads reported "nothing pinned"
+  // while the contract was telling Copilot to cite this exact id. Derived here, once, by the same
+  // function the traceability check uses.
+  const snapshotSource = jiraSnapshotSource(initiative);
+  if (snapshotSource) {
+    sources.jiraSnapshot = {
+      sourceId: snapshotSource.sourceId,
+      name: snapshotSource.name,
+      sha256: snapshotSource.sha256,
+      bytes: snapshotSource.bytes
+    };
+  }
   const nextActions = await initiativeNextActions(root, initiativeId);
   return {
     state: initiative,
@@ -207,7 +222,28 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     phaseGate,
     contracts: await interfaceContractStatus(root, initiativeId),
     nextActions,
-    journey: initiative.resolution.profile === 'epic-planning' ? epicJourney(initiative, nextActions) : null,
+    // Every profile gets a journey. Withholding it from the others is what left the delivery
+    // workspace with no statement of where the work stood or what to do next.
+    journey: epicJourney(initiative, nextActions),
+    // The ordered account of what is left in this phase. nextActions answers "what is the single
+    // next command", which told someone already standing in the workspace to open the workspace.
+    phaseWork: initiativePhaseWork(initiative),
+    // Every output every phase could produce, with what this Epic has chosen, keyed by phase.
+    // Offering the choice only for the current phase meant the decision had to be made in the one
+    // moment the phase was open — a phase you have not reached yet is exactly when knowing you do
+    // not need a document is most useful, and an approved one is the only place it is too late.
+    outputChoicesByPhase: Object.fromEntries(initiative.phaseOrder.map((id) => [id, {
+      editable: initiative.phases[id]?.status !== 'approved',
+      choices: availableInitiativeOutputs(portfolio, initiative, id).map((output) => ({
+        id: output.id,
+        label: output.label,
+        kind: output.kind,
+        required: output.required !== false,
+        pinned: output.pinned === true,
+        included: initiativeOutputRequired(initiative, id, output),
+        authored: Boolean(initiative.phases?.[id]?.outputs?.[output.id]?.sha256)
+      }))
+    }])),
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'
@@ -267,7 +303,10 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const portfolioText = portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null;
   return {
     schemaVersion: 1,
-    repository: { root, branch: currentBranch, controlRoot: 'singularity', changes, ...changeScope },
+    // HEAD is carried so a surface can tell that a planning context was built against a different
+    // commit. Promotion refuses a stale pack, and without this the only way to discover that was to
+    // have the promotion fail after the work was done.
+    repository: { root, branch: currentBranch, head: head(root), controlRoot: 'singularity', changes, ...changeScope },
     identities: {
       git: identity(root),
       github,

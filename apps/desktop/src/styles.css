@@ -3376,7 +3376,14 @@ input:disabled, select:disabled, textarea:disabled {
   text-transform: uppercase;
 }
 
-.requirements-conversation { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 10px; }
+/* A column, not a fixed row template. This had five rows and up to eleven children — Copilot
+   health, a stale-context notice, context warnings, the context bar, the identity, the activity
+   line, a question hint, the transcript, telemetry, commands, composer — most of them conditional.
+   Whichever child happened to land on row four became the 1fr one, so the transcript was sized as
+   `auto`, overflowed its track, and printed on top of the line above it. */
+.requirements-conversation { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.requirements-conversation > * { flex: 0 0 auto; }
+.requirements-conversation > .requirements-messages { flex: 1 1 auto; }
 .requirements-start { display: grid; gap: 12px; align-content: start; }
 .requirements-start h2 { margin: 0; font-size: 15px; }
 .requirements-start p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
@@ -3526,6 +3533,13 @@ input:disabled, select:disabled, textarea:disabled {
 /* Scoped to the role label. Unscoped, this turned every bold word inside a rendered Copilot
    message into its own block, breaking sentences apart mid-line. */
 .chat-bubble > header strong { display: block; font-size: 9px; font-weight: 720; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+/* TemplatePreview is a document page: 28px/32px/60px of margin and a 14px editorial face. Inside a
+   chat bubble that indented every Copilot reply past the bubble's own padding and left ~60px of
+   dead space under the last line — the oversized, half-empty box with its text pushed off the
+   left edge. A message is not a page; it inherits the bubble's type and has no margin of its own. */
+.chat-bubble .markdown-preview { padding: 0; font-family: inherit; font-size: 12px; line-height: 1.55; color: var(--ink); }
+.chat-bubble .markdown-preview > :first-child { margin-top: 0; }
+.chat-bubble .markdown-preview > :last-child { margin-bottom: 0; }
 .chat-bubble .markdown-preview strong { font-weight: 660; color: var(--ink); }
 .chat-bubble .markdown-preview code { font-size: 11px; padding: 1px 4px; border-radius: 4px; background: rgba(16,74,48,.06); }
 .chat-bubble pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; }
@@ -3585,8 +3599,15 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
 .chat-bubble ul, .chat-bubble ol { margin: 0 0 8px; padding-left: 18px; font-size: 12px; line-height: 1.55; }
 .chat-bubble table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
 .chat-bubble th, .chat-bubble td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; }
-.requirements-telemetry { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; font-size: 10px; color: var(--muted); }
+/* A row while the console is closed, a column once it is open: side by side, an expanded log was
+   squeezed into half the width beside the usage line, with its rows colliding into the transcript
+   above. The log is the account of what Copilot did; it gets the full width. */
+.requirements-telemetry { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 12px; padding-top: 8px; font-size: 10px; color: var(--muted); }
+.requirements-telemetry > .requirements-console { justify-self: end; }
+.requirements-telemetry:has(> .requirements-console[open]) { grid-template-columns: 1fr; }
+.requirements-telemetry:has(> .requirements-console[open]) > .requirements-console { justify-self: stretch; }
 .requirements-console summary { cursor: pointer; font-size: 10px; color: var(--muted); }
+.requirements-console[open] { padding-top: 4px; border-top: 1px solid var(--line); }
 .requirements-console-lines { max-height: 200px; overflow: auto; margin-top: 6px; display: grid; gap: 3px; }
 .requirements-console-lines > div { display: grid; grid-template-columns: 62px 130px 1fr; gap: 8px; font-size: 9.5px; align-items: baseline; }
 .requirements-console-lines time { color: var(--muted); font-variant-numeric: tabular-nums; }

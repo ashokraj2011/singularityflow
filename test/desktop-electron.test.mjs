@@ -726,6 +726,40 @@ test('an Epic that already exists is opened from the wizard, not started again',
   for (const render of source.match(/<EpicStartWizard\b[^>]*\/>/g) ?? []) assert.match(render, /openEpic=\{openEpic\}/);
 });
 
+test('the conversation column survives its conditional children, and a message is not a page', async () => {
+  const css = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
+  // Five explicit rows, up to eleven children, most of them conditional: whichever child landed on
+  // row four became the 1fr one, so the transcript was sized `auto`, overflowed its track and
+  // printed on top of the line above it.
+  assert.doesNotMatch(css, /\.requirements-conversation \{ display: grid; grid-template-rows/);
+  assert.match(css, /\.requirements-conversation \{ display: flex; flex-direction: column/);
+  assert.match(css, /\.requirements-conversation > \.requirements-messages \{ flex: 1 1 auto; \}/);
+
+  // TemplatePreview is a document page — 28px/32px/60px and a 14px editorial face. Inside a bubble
+  // that indented every reply past the bubble's own padding and left ~60px of dead space below it.
+  assert.match(css, /\.chat-bubble \.markdown-preview \{ padding: 0;/);
+
+  // The activity log is the only account of what Copilot did; it opens by default and takes the
+  // full width when open, rather than being squeezed beside the usage line.
+  const app = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  assert.match(app, /const \[activityOpen, setActivityOpen\] = useState\(true\)/);
+  assert.match(app, /<details className="requirements-console" open=\{activityOpen\}/);
+  assert.match(css, /\.requirements-telemetry:has\(> \.requirements-console\[open\]\) \{ grid-template-columns: 1fr; \}/);
+});
+
+test('a world-model rebuild cannot lose the views the repository already has', async () => {
+  // `wm build` with no --views falls back to `views: auto` — core plus development. Rebuilding
+  // from the offer card therefore replaced a five-view model with a one-view one, because
+  // installWorldModel clears the output directory first. Every phase whose persona reads business
+  // or architecture then reported the world model unavailable.
+  const app = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const resolver = app.slice(app.indexOf('function requiredWorldModelViews()'), app.indexOf('async function generateWorldModel('));
+  assert.match(resolver, /persona\.worldModelViews \?\? \[\]/);
+  assert.match(resolver, /file\.path\.includes\('\/views\/'\)/);
+  assert.match(app, /const requested = views\?\.length \? views : requiredWorldModelViews\(\)/);
+  assert.match(app, /window\.singularity\.generateWorldModel\(repository, local, requested\)/);
+});
+
 test('no DOM handler is bound bare to a function whose first argument crosses IPC', async () => {
   // `onClick={handler}` hands the handler a React SyntheticEvent. When that handler's first
   // parameter is a repository path or a file list rather than an event, the event travels to

@@ -2633,6 +2633,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   const messageRef = useRef(null);
   const stickToBottom = useRef(true);
+  const [activityOpen, setActivityOpen] = useState(true);
   useEffect(() => {
     const node = messageRef.current;
     if (!node || !stickToBottom.current) return;
@@ -3006,7 +3007,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           </div>
           <div className="requirements-telemetry">
             <span>{usage?.contextTokens ? `${formatTokens(usage.contextTokens)} context tokens` : 'Usage appears once Copilot reports it'}{usage?.contextWindow ? ` of ${formatTokens(usage.contextWindow)}` : ''}</span>
-            <details className="requirements-console">
+            {/* Open by default, and it stays wherever the reader leaves it. Copilot's tool calls,
+                refusals and diagnostics are the only account of what it actually did; behind a
+                closed summary the turn looked like silence. */}
+            <details className="requirements-console" open={activityOpen} onToggle={(event) => setActivityOpen(event.currentTarget.open)}>
               <summary>Copilot activity ({logs.length})</summary>
               <div className="requirements-console-lines">
                 {logs.length
@@ -4909,6 +4913,22 @@ export default function App() {
     chooseResource(snapshot.worldModelPrompt, 'prompt');
     return result;
   }
+  /**
+   * The views this repository's phases actually consume, plus any already built.
+   *
+   * `wm build` with no --views falls back to `views: auto`, which routes to core plus development.
+   * A rebuild from the offer card therefore *replaced* a five-view model with a one-view one —
+   * installWorldModel clears the output directory — and every phase whose persona reads business
+   * or architecture then reported the model unavailable. A rebuild must not be able to lose views.
+   */
+  function requiredWorldModelViews() {
+    const fromPersonas = Object.values(data?.definition?.personas ?? {}).flatMap((persona) => persona.worldModelViews ?? []);
+    const built = (data?.worldModel?.files ?? [])
+      .filter((file) => file.path.includes('/views/'))
+      .map((file) => file.path.split('/').pop().replace(/\.md$/, ''));
+    return [...new Set([...fromPersonas, ...built])].filter(Boolean);
+  }
+
   async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined, views = null) {
     // Both of these cross the IPC boundary, so both must be primitives. A bare onClick hands this
     // function a React event as its first argument; that used to land in `local` and fail
@@ -4926,12 +4946,14 @@ export default function App() {
       setToast({ tone: 'bad', text: `Copilot is not available: ${health.message ?? 'unknown reason'}` });
       return null;
     }
+    // An explicit choice wins; otherwise never build fewer views than the repository already has.
+    const requested = views?.length ? views : requiredWorldModelViews();
     const prompt = data.worldModelPrompt ?? {};
     const startedAt = Date.now();
     setWorldModelRun({
       status: 'running',
       phase: 'starting',
-      phaseLabel: views?.length ? `Building ${views.length} view${views.length === 1 ? '' : 's'}: ${views.join(', ')}` : 'Preparing the governed world-model prompt',
+      phaseLabel: requested.length ? `Building ${requested.length} view${requested.length === 1 ? '' : 's'}: ${requested.join(', ')}` : 'Preparing the governed world-model prompt',
       repository,
       promptPath: prompt.path ?? 'singularity/prompts/worldmodel-builder.md',
       prompt: prompt.content ?? '',
@@ -4943,7 +4965,7 @@ export default function App() {
     setBusy(true);
     setToast(null);
     try {
-      const result = await window.singularity.generateWorldModel(repository, local, views);
+      const result = await window.singularity.generateWorldModel(repository, local, requested);
       setWorldModelRun((current) => current ? { ...current, status: 'success', phase: 'complete', phaseLabel: local ? 'World model committed locally' : 'World model committed and pushed', finishedAt: Date.now(), steps: [...new Set([...(current.steps ?? []), 'complete'])] } : current);
       setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Epic branch' });
       await reload();

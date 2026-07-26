@@ -235,7 +235,7 @@ function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
 // it has never seen. A freshly cloned or newly onboarded repository always starts in that state,
 // so this asks on open — wherever the user is — instead of waiting for a phase to silently produce
 // ungrounded work or for a grounding gate to fail much later.
-function WorldModelPrompt({ reason, busy, onGenerate, onDismiss, copilotHealth = null, onCopilotRetry = null }) {
+function WorldModelPrompt({ reason, busy, onGenerate, copilotHealth = null, onCopilotRetry = null }) {
   const down = copilotHealth?.ready === false;
   if (down) {
     return <div className="world-model-prompt-stack">
@@ -257,7 +257,6 @@ function WorldModelPrompt({ reason, busy, onGenerate, onDismiss, copilotHealth =
       <p>{reason} Requirements, impact analysis, and Story planning read the repository world model as governed context. Building it now keeps those phases grounded in this codebase.</p>
     </div>
     <div className="row">
-      <button className="ghost compact" onClick={onDismiss} disabled={busy}>Not now</button>
       <button className="primary compact" onClick={onGenerate} disabled={busy}>Generate world model</button>
     </div>
   </section>;
@@ -3605,11 +3604,6 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
     const target = worldModelOffer?.initiativeId;
     if (built) { setWorldModelOffer(null); await reload(null, target); }
   }
-  async function skipWorldModel() {
-    const target = worldModelOffer?.initiativeId;
-    setWorldModelOffer(null);
-    await reload(null, target);
-  }
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
   const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
   const canStart = source === 'jira'
@@ -3622,10 +3616,9 @@ function EpicStartWizard({ data, action, reload, onSetupJira = () => window.disp
         <div>
           <span className="eyebrow">Epic started</span>
           <h3>Ground {worldModelOffer.initiativeId} in a repository world model?</h3>
-          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The model is committed and pushed with the epic branch, so every phase prompt can be grounded in it. You can skip and generate it later from the World model page.</p>
+          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The model must be generated, validated, committed, and pushed before Requirements opens, so every phase prompt is grounded in this codebase.</p>
           <div className="row" style={{ marginTop: 14 }}>
             <button className="primary" onClick={generateWorldModelForEpic}>Generate world model</button>
-            <button className="ghost" onClick={skipWorldModel}>Skip for now</button>
           </div>
         </div>
       </div>
@@ -4382,9 +4375,6 @@ export default function App() {
   const [standaloneHelp, setStandaloneHelp] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState([]);
   const [repositoryMenu, setRepositoryMenu] = useState(false);
-  // Dismissal is per repository, so opening a different clone asks again rather than inheriting
-  // a "not now" from the previous one.
-  const [worldModelDismissed, setWorldModelDismissed] = useState(null);
   // Copilot can be missing, unauthenticated, or the wrong version, and it can stop while the app is
   // open. Checked in one place and refreshed when the window regains focus, so every surface that
   // starts Copilot work reads the same answer instead of each holding its own stale copy.
@@ -4899,11 +4889,10 @@ export default function App() {
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
-      {data.worldModel?.rebuildReason && worldModelDismissed !== data.repository.root && page !== 'world-model' && <WorldModelPrompt copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth}
+      {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth}
         reason={data.worldModel.rebuildReason}
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
-        onDismiss={() => setWorldModelDismissed(data.repository.root)}
       />}
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
         ? <PhaseWorkspace requestedPhaseId="epic-requirements" copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth} onCopilotLost={refreshCopilotHealth} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} profileRole={onboarding?.profile?.role} openPlanningPrompt={openPlanningPrompt} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />

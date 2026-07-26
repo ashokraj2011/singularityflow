@@ -92,7 +92,49 @@ const navSections = [
   },
   {
     label: 'Learn',
-    items: [['help', 'Help & guides']]
+    items: [
+      ['screensaver', 'Screensaver'],
+      ['help', 'Help & guides']
+    ]
+  }
+];
+
+const screensaverSlides = [
+  {
+    id: 'epic-to-stories',
+    title: 'Epic to delivery-ready Stories',
+    subtitle: 'Jira Epic, pinned evidence, governed requirements, Story plan, and branch lineage.',
+    src: 'screensaver/poster-05-epic-to-stories.png'
+  },
+  {
+    id: 'who-approved',
+    title: 'Who approved what',
+    subtitle: 'Persona, identity, exact artifact hash, and visible self-approval warnings.',
+    src: 'screensaver/poster-06-who-approved.png'
+  },
+  {
+    id: 'one-workspace',
+    title: 'One workspace for every repo',
+    subtitle: 'Lead repository, delivery repositories, Jira routing, App IDs, and local isolation.',
+    src: 'screensaver/poster-07-one-workspace.png'
+  },
+  {
+    id: 'maturity',
+    title: 'Maturity that can be seen',
+    subtitle: 'Flow progress, phase readiness, checks, approvals, and delivery confidence.',
+    src: 'screensaver/poster-08-maturity.png'
+  },
+  {
+    id: 'grounding',
+    title: 'Repository grounding',
+    subtitle: 'World model snapshots keep planning and spec generation tied to the codebase.',
+    src: 'screensaver/poster-09-grounding.png'
+  },
+  {
+    id: 'trust',
+    title: 'Trust through lineage',
+    subtitle: 'Every document, source, model run, Jira write, branch, and decision stays traceable.',
+    src: 'screensaver/poster-10-trust.png'
   }
 ];
 
@@ -137,6 +179,7 @@ const navIconPaths = {
   resources: ['M5 4h14v16H5z M8 9l2 2-2 2 M12 15h4'],
   'world-model': ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18'],
   agents: ['M7 8h10a3 3 0 0 1 3 3v7H4v-7a3 3 0 0 1 3-3z M9 13h.01 M15 13h.01 M9 17h6 M12 3v5 M9 3h6'],
+  screensaver: ['M4 5h16v11H4z M8 20h8 M12 16v4 M7 9h4 M13 9h4 M7 12h10'],
   help: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9.7 9a2.5 2.5 0 1 1 3.2 2.4c-.9.4-.9 1-.9 1.6 M12 17h.01'],
   epics: ['M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5'],
   collapse: ['M14 5l-7 7 7 7 M20 5v14'],
@@ -286,6 +329,72 @@ function WorldModelRunDialog({ run, onClose }) {
       <footer><span className="muted">{run.status === 'running' ? 'You can close this window; the build will continue.' : run.status === 'success' ? 'Generated Markdown is now part of the repository state.' : 'Fix the reported issue and run the builder again.'}</span><button className={run.status === 'running' ? 'ghost' : 'primary'} onClick={onClose}>{run.status === 'running' ? 'Hide progress' : 'Close'}</button></footer>
     </section>
   </div>;
+}
+
+function Screensaver({ onExit }) {
+  const frameRef = useRef(null);
+  const [index, setIndex] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const slide = screensaverSlides[index];
+
+  const go = (direction) => setIndex((current) => (current + direction + screensaverSlides.length) % screensaverSlides.length);
+  const select = (nextIndex) => setIndex(nextIndex);
+
+  useEffect(() => {
+    if (!playing) return undefined;
+    const timer = setInterval(() => go(1), 9000);
+    return () => clearInterval(timer);
+  }, [playing]);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape') onExit();
+      if (event.key === 'ArrowRight') go(1);
+      if (event.key === 'ArrowLeft') go(-1);
+      if (event.key === ' ') {
+        event.preventDefault();
+        setPlaying((current) => !current);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onExit]);
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await frameRef.current?.requestFullscreen?.();
+    } catch {
+      // Fullscreen can be denied by the OS; the screensaver still works in-window.
+    }
+  }
+
+  return <main className="screensaver-stage" ref={frameRef} aria-label="Singularity Flow screensaver">
+    <img className="screensaver-image active" src={slide.src} alt={slide.title} />
+    {screensaverSlides.map((item) => <img className="screensaver-preload" src={item.src} alt="" aria-hidden="true" key={item.id} />)}
+    <div className="screensaver-shade" />
+    <header className="screensaver-top">
+      <FlowBrand inverse context="Screensaver" />
+      <div className="screensaver-controls">
+        <button type="button" onClick={() => go(-1)} aria-label="Previous slide">‹</button>
+        <button type="button" onClick={() => setPlaying((current) => !current)}>{playing ? 'Pause' : 'Play'}</button>
+        <button type="button" onClick={() => go(1)} aria-label="Next slide">›</button>
+        <button type="button" onClick={toggleFullscreen}>Fullscreen</button>
+        <button type="button" onClick={onExit}>Close</button>
+      </div>
+    </header>
+    <section className="screensaver-caption" aria-live="polite">
+      <span>{String(index + 1).padStart(2, '0')} / {String(screensaverSlides.length).padStart(2, '0')}</span>
+      <h1>{slide.title}</h1>
+      <p>{slide.subtitle}</p>
+    </section>
+    <nav className="screensaver-filmstrip" aria-label="Screensaver slides">
+      {screensaverSlides.map((item, itemIndex) => <button type="button" className={itemIndex === index ? 'active' : ''} onClick={() => select(itemIndex)} key={item.id}>
+        <img src={item.src} alt="" />
+        <span>{String(itemIndex + 1).padStart(2, '0')}</span>
+      </button>)}
+    </nav>
+  </main>;
 }
 
 function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, recentWorkspaces, busy, openWorkspace }) {
@@ -4912,6 +5021,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('singularity.sidebar.collapsed') === 'true');
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
   const [focusedDocumentId, setFocusedDocumentId] = useState(null);
+  const [screensaverReturnPage, setScreensaverReturnPage] = useState('dashboard');
 
   useEffect(() => {
     let current = true;
@@ -5408,15 +5518,23 @@ export default function App() {
   }
   function openPrompt(file) { setEditor({ path: file.path, content: file.content, original: file.content, kind: 'prompt' }); setPage('resources'); }
   function agentsPage() { setPage('agents'); if (data.agents[0]) chooseAgent(data.agents[0]); }
+  function openScreensaver() {
+    setScreensaverReturnPage(page === 'screensaver' ? screensaverReturnPage : page);
+    setPage('screensaver');
+  }
+  function closeScreensaver() {
+    setPage(data ? screensaverReturnPage : 'dashboard');
+  }
 
   if (onboardingLoading) return <div className="onboarding-loading"><FlowBrand className="brand large flow-brand-welcome" context="Preparing desktop setup" /><span className="onboarding-loading-orb">✦</span></div>;
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;
   if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
+  if (page === 'screensaver') return <Screensaver onExit={closeScreensaver} />;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}>
     <header className="welcome-nav">
       <FlowBrand className="brand large flow-brand-welcome" context="Git-native delivery" />
-      <nav><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button></nav>
+      <nav><button onClick={openScreensaver}>Screensaver</button><button onClick={() => setStandaloneHelp(true)}>How it works</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button><button className="primary" onClick={() => openWorkspace()} disabled={busy}>Open workspace</button></nav>
     </header>
     <main className="welcome-hero">
       <section>
@@ -5436,7 +5554,7 @@ export default function App() {
     <Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
+    <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : id === 'screensaver' ? openScreensaver() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={() => publish()} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt
         reason={data.worldModel.rebuildReason}

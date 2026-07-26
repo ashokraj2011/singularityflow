@@ -10,6 +10,9 @@ import { initiativeRelative } from './initiative-state.mjs';
 import {
   bindPersonaToCopilotSession, loadCopilotSession, loadSession, personaSessionStatus, recordCopilotSession, validPersonaSession
 } from './session.mjs';
+import {
+  activeWorkspaceFile, workspaceContextForRepository, workspacePromptLabel, workspaceRegistryFile
+} from './workspace-context.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and persona were pinned when it was started, and every phase output is
@@ -43,6 +46,10 @@ function shouldPrompt(policy, source, valid) {
 
 export async function sessionStartPersonaHook(root, definition, workflow, payload = {}) {
   const log = repositoryLogger(root, definition, { context: { hook: 'session-start', sessionId: payload.sessionId ?? null } });
+  const workspace = await workspaceContextForRepository(root, activeWorkspaceFile(), workspaceRegistryFile());
+  const workspaceContext = workspace
+    ? ` Active workspace: ${workspace.workspaceName}; repository: ${workspace.repositoryId}; context label: '${workspacePromptLabel(workspace)}'.`
+    : '';
   const initiative = workflow ? null : await activeInitiative(root);
   if (initiative) {
     log.info('hook.session.initiative', 'governed initiative session; no work-item selection applies', {
@@ -50,7 +57,7 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
     });
     const phase = initiative.currentPhase ?? 'complete';
     return {
-      additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}). This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sflow-session is not required here. Compose only the artifact for the phase you were given, treat the supplied governed contract as authoritative, and never write outside the initiative's declared promotion target. Never approve a phase automatically.`
+      additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}).${workspaceContext} This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sflow-session is not required here. Compose only the artifact for the phase you were given, treat the supplied governed contract as authoritative, and never write outside the initiative's declared promotion target. Never approve a phase automatically.`
     };
   }
   const policy = normalizeSessionPolicy(workflow?.resolution?.session ?? definition.session ?? {});
@@ -80,15 +87,15 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
   if (workItemSelectionRequired) return {
     additionalContext: `Singularity Flow work-item selection is required for Copilot session ${sessionId ?? '(unknown)'}. Invoke /sflow-session before using implementation or lifecycle tools. Ask the contributor for a work ID or Jira ID, fetch the configured Git remote, and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
   };
-  if (!workflow) return { additionalContext: 'No Singularity Flow work item is active on this branch. Use /sflow-session to attach to a remote work/Jira ID.' };
+  if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sflow-session to attach to a remote work/Jira ID.` };
   const choices = Object.entries(definition.personas).map(([id, persona]) => `${persona.label} (${id})`).join(', ');
   if (selectionRequired) return {
     additionalContext: `Singularity Flow persona selection is required for Copilot session ${sessionId ?? '(unknown)'}. Before using implementation or lifecycle tools, invoke /sflow-session and let the contributor choose from: ${choices}. Never infer or select a persona for them. Never approve automatically. Work item: ${workflow.workItem.id}; phase: ${phase.id}.`
   };
   const persona = active?.persona;
   const context = phase
-    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${persona ? ` Acting as ${persona} for this Copilot session; change it with /sflow-persona.` : ''} Before changing lifecycle state, run /sflow-nextsteps. Never approve automatically.`
-    : `Singularity Flow work item ${workflow.workItem.id} is complete; run the governance gate before handoff.`;
+    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${persona ? ` Acting as ${persona} for this Copilot session; change it with /sflow-persona.` : ''} Before changing lifecycle state, run /sflow-nextsteps. Never approve automatically.`
+    : `Singularity Flow work item ${workflow.workItem.id} is complete.${workspaceContext} Run the governance gate before handoff.`;
   return { additionalContext: context };
 }
 
@@ -122,6 +129,8 @@ function isPersonaToolCall(payload) {
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session attach [A-Za-z0-9._-]+(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) workspace (?:list|current)(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) workspace (?:use|switch) [A-Za-z0-9._-]+(?: --repository [A-Za-z0-9._-]+)?(?: --story [A-Za-z0-9._-]+)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow persona|sflow-persona)(?: [A-Za-z0-9._-]+)?(?: 2>&1)?$/.test(command)) return true;
   const chars = payload.toolArgs?.chars ?? payload.toolArgs?.input ?? payload.toolArgs?.text;
   const terminal = payload.toolArgs?.sessionId ?? payload.toolArgs?.session_id;

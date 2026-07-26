@@ -86,6 +86,13 @@ Switching workspaces changes the lead repository used by the displayed
 `/sflow-*` commands. Workspace setup does not require Jira or portfolio governance.
 See [WORKSPACES.md](WORKSPACES.md).
 
+From Copilot, `/sflow-workspaces` lists saved contexts and `/sflow-workspace`
+selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`
+starts Copilot in the selected repository and names the session for the
+workspace; a governed Story branch adds the Story ID. Singularity renders labels
+such as `Payments / MOB-123 >` as a context banner because Copilot does not
+provide a supported way to replace its own native `>` input marker.
+
 Interrupted workspace creation is resumable: selecting the same workspace ID and
 exact repository plan retries missing clones and updates the local
 materialization journal. Singularity Flow rejects configuration drift at an

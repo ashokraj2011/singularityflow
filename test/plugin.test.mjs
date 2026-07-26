@@ -28,6 +28,16 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /commit, and push result/);
 });
 
+test('plugin provides workspace discovery and switching skills', async () => {
+  const list = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspaces', 'SKILL.md'), 'utf8');
+  const select = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');
+  assert.match(list, /name: sflow-workspaces/);
+  assert.match(list, /workspace current --json/);
+  assert.match(select, /name: sflow-workspace/);
+  assert.match(select, /workspace use <WORKSPACE-ID>/);
+  assert.match(select, /Do not launch a nested Copilot process/);
+});
+
 test('plugin hooks initialize a session persona and guard mutating tools', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));

@@ -51,6 +51,11 @@ test('new Copilot sessions require work-item selection before persona selection 
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow inbox --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session candidates --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session attach HOOK-1' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace list --json' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace current --json' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace use payments --repository api --story PAY-12 --json' } }), {});
+  const unsafeWorkspace = await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace use payments; rm -rf output' } });
+  assert.equal(unsafeWorkspace.permissionDecision, 'deny');
 
   await activateWorkItemSession(root, definition, current);
   status = await personaSessionStatus(root, definition, current);

@@ -864,8 +864,19 @@ function registerHandlers() {
     // reason to lose the transcript.
     const pack = await loadPlanningPack(root, planningSessionId, { requireCurrentHead: false });
     const context = await readFile(pack.contextPath, 'utf8');
-    planningPacks.set(planningSessionId, { repository: root, contextPath: pack.contextPath, manifestPath: pack.manifestPath });
-    if (entry.status === 'active') await copilotBackend.attachPlanning(root, planningSessionId);
+    planningPacks.set(planningSessionId, {
+      repository: root,
+      contextPath: pack.contextPath,
+      manifestPath: pack.manifestPath,
+      scope: entry.scope ?? pack.manifest.scope,
+      id: entry.id ?? pack.manifest.id,
+      phase: entry.phase ?? pack.manifest.phase?.id,
+      persona: entry.persona ?? pack.manifest.persona?.id
+    });
+    // A stale session remains readable, but reconnecting it as writable would invite more work on
+    // context that promotion is guaranteed to reject. Rebuild first; the old transcript remains
+    // in the local journal and the saved context pack.
+    if (entry.status === 'active' && !pack.stale) await copilotBackend.attachPlanning(root, planningSessionId);
     return {
       sessionId: planningSessionId,
       contextPath: pack.contextPath,
@@ -876,7 +887,11 @@ function registerHandlers() {
       target: pack.manifest.target,
       outputs: pack.manifest.outputs ?? [],
       warnings: pack.manifest.warnings ?? [],
-      savedStatus: entry.status
+      headMoved: pack.headMoved,
+      changedSources: pack.changedSources,
+      stale: pack.stale,
+      savedStatus: pack.stale ? 'context-ready' : entry.status,
+      previousStatus: entry.status
     };
   });
   trustedHandle('initiative:restart', async (event, { repository, initiativeId, confirmation, reason = null }) => {

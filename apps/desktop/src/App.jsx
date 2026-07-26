@@ -1776,6 +1776,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     () => target?.id === 'story-plan' && plan.trim() ? parseStoryPlan(plan) : null,
     [target?.id, plan]
   );
+  const contextStale = Boolean(
+    contextPack?.stale
+    || (contextPack && data.repository.head && contextPack.manifest.repository.head !== data.repository.head)
+  );
 
   useEffect(() => {
     let active = true;
@@ -2080,12 +2084,20 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   }
 
   async function startCopilot() {
+    if (contextStale) {
+      setActivity('This governed context is stale. Rebuild it before starting another Copilot turn.');
+      return;
+    }
     setRunning(true);
     const result = await action(() => window.singularity.startPlanningSession(data.repository.root, contextPack.sessionId, model), 'Copilot Plan mode connected');
     if (!result) setRunning(false);
   }
 
   async function sendFollowup() {
+    if (contextStale) {
+      setActivity('This governed context is stale. Rebuild it before sending another instruction.');
+      return;
+    }
     const text = followup.trim();
     if (!text) return;
     setMessages((current) => [...current, { role: 'user', id: `followup-${Date.now()}`, text }]);
@@ -2172,6 +2184,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   }
 
   async function promote() {
+    if (contextStale) {
+      setActivity('This governed context is stale. Rebuild it before promotion.');
+      return;
+    }
     // A phase-scoped session produces several fenced artifacts from one conversation, so the
     // single-artifact call would send the fences themselves as one document and the engine would
     // reject '*' as a promotion target. Parse the set and promote it as one commit instead.
@@ -2202,13 +2218,13 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   // hand-off; only the explicit Stop button releases the Copilot planning context.
 
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
 function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
   if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, personas, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
@@ -2239,11 +2255,12 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
         <section className="panel planning-context">
           <header className="panel-heading"><div><span className="eyebrow">2 · Ground</span><h2>Context manifest</h2></div>{contextPack ? <Pill tone={contextPack.warnings.length ? 'warn' : 'good'}>{contextPack.manifest.sources.length} hashed sources</Pill> : <Pill>not built</Pill>}</header>
           {!contextPack ? <div className="inline-empty">Choose the current phase, persona, output, and objective, then build the context. No content is sent to Copilot before this step.</div> : <>
+            {contextStale && <div className="planning-warning"><span>⚠ This saved context is out of date. Review remains available, but rebuild before starting Copilot or promoting an artifact.</span><button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button></div>}
             <div className="context-kpis"><div><span>Repository head</span><strong>{contextPack.manifest.repository.head.slice(0, 10)}</strong></div><div><span>Context</span><strong>{Math.ceil(contextPack.manifest.context.bytes / 1024)} KB</strong></div><div><span>Generation</span><strong>{contextPack.manifest.generation}</strong></div><div><span>Target</span><strong>{contextPack.target.kind}</strong></div></div>
             {!!contextPack.warnings.length && <div className="planning-warning">{contextPack.warnings.map((warning) => <span key={warning}>⚠ {warning}</span>)}</div>}
             <div className="context-source-list">{contextPack.manifest.sources.map((source, index) => <div key={`${source.kind}:${source.path}:${index}`}><span>{source.kind.replaceAll('-', ' ')}</span><strong title={source.path}>{source.path}</strong><code>{source.sha256?.slice(0, 12) ?? 'unavailable'}</code></div>)}</div>
             <details><summary>Inspect complete prompt sent to Copilot</summary><pre>{contextPack.context}</pre></details>
-            <div className="planning-context-actions"><span>{contextPack.target.label} → <code>{contextPack.target.path}</code></span><button className="primary" disabled={running || started} onClick={startCopilot}>Start Copilot Plan mode</button></div>
+            <div className="planning-context-actions"><span>{contextPack.target.label} → <code>{contextPack.target.path}</code></span><button className="primary" disabled={running || started || contextStale} onClick={startCopilot}>Start Copilot Plan mode</button></div>
           </>}
         </section>
         {storyPlanAnalysis && <StoryPlanAnalysis analysis={storyPlanAnalysis} />}
@@ -2259,7 +2276,7 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
             <header className="panel-heading"><div><span className="eyebrow">4 · Govern</span><h2>Reviewed artifact</h2></div><Pill tone={plan.trim() ? 'accent' : 'neutral'}>{target?.kind ?? 'artifact'}</Pill></header>
             <textarea className="planning-editor" value={plan} onChange={(event) => { setPlan(event.target.value); planRef.current = event.target.value; setReviewed(false); }} placeholder="Copilot's proposed artifact will appear here. Edit it until it is ready to become governed repository state." />
             <div className="promotion-check"><label><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />I reviewed this complete artifact and want to promote it to <code>{target?.path}</code>.</label><small>Promotion does not submit or approve the phase. It creates and pushes an auditable planning commit; the normal phase gate remains next.</small></div>
-            <button className="primary full" disabled={!contextPack || running || !reviewed || !plan.trim()} onClick={promote}>Promote, commit & push</button>
+            <button className="primary full" disabled={!contextPack || contextStale || running || !reviewed || !plan.trim()} onClick={promote}>Promote, commit & push</button>
           </section>
         </div>
         <details className="panel planning-console">
@@ -2652,7 +2669,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const {
     contextPack, messages, questions, permissions, running, started, activity, plan, followup, setFollowup,
     objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
-    buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, answerPermission, dismissQuestion, interruptTurn, stopCopilot
+    contextStale, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, answerPermission, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
   const messageRef = useRef(null);
@@ -2751,7 +2768,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   useEffect(() => { setEdits({}); setReviewed(false); }, [plan]);
   // Compared here rather than at promotion time so the user learns while the conversation is still
   // cheap to redo.
-  const contextStale = Boolean(contextPack && data.repository.head && contextPack.manifest.repository.head !== data.repository.head);
+  const changedContextSources = contextPack?.changedSources ?? [];
 
   const sources = selected.sources?.sources ?? [];
   const jiraAttachments = state.initiative.source?.type === 'jira' ? (state.initiative.source.attachments ?? []) : [];
@@ -2768,6 +2785,10 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   // The whole set lands as one commit: a traceability matrix and the requirements it cites are one
   // decision, and approving them a step apart would leave the branch citing things that are not there.
   async function approveArtifacts() {
+    if (contextStale) {
+      setActivity('This governed context is stale. Rebuild it before writing or pushing artifacts.');
+      return;
+    }
     if (!proposed.size) return;
     setPromoting(true);
     const result = await action(
@@ -3035,12 +3056,14 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           {contextStale && <div className="requirements-stale" role="status">
             <div>
               <strong>This context is out of date</strong>
-              <p>
-                The repository moved to <code>{data.repository.head?.slice(0, 10)}</code> since Copilot was given
-                this context at <code>{contextPack.manifest.repository.head.slice(0, 10)}</code> — pinning a source or
-                recording evidence both commit. Promotion will be refused until the context is rebuilt.
-                Rebuilding starts a fresh turn; this conversation is not carried over.
-              </p>
+              {changedContextSources.length > 0
+                ? <p>{changedContextSources.map((source) => source.path).join(', ')} changed after this context was built. The saved conversation is still available for review, but it cannot be continued or promoted until you rebuild against current governed state.</p>
+                : <p>
+                  The repository moved to <code>{data.repository.head?.slice(0, 10)}</code> since Copilot was given
+                  this context at <code>{contextPack.manifest.repository.head.slice(0, 10)}</code> — pinning a source or
+                  recording evidence both commit. Promotion will be refused until the context is rebuilt.
+                  Rebuilding starts a fresh governed turn.
+                </p>}
             </div>
             <button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button>
           </div>}
@@ -3050,7 +3073,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
           <div className="requirements-context-bar">
             <span>{contextPack.manifest.sources.length} hashed sources · {Math.ceil(contextPack.manifest.context.bytes / 1024)} KB context</span>
             <details><summary>Inspect the exact prompt</summary><pre>{contextPack.context}</pre></details>
-            {!started && !running && <button className="ghost compact" disabled={running} onClick={startCopilot} title="The session did not start — send this context again">Retry send</button>}
+            {!started && !running && !contextStale && <button className="ghost compact" disabled={running} onClick={startCopilot} title="The session did not start — send this context again">Retry send</button>}
           </div>
           <div className="copilot-identity">
             <span className="copilot-avatar" aria-hidden="true">✦</span>
@@ -3207,7 +3230,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
               <input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />
               <span>I have read {proposed.size === 1 ? 'this artifact' : `all ${proposed.size} artifacts`} in full.</span>
             </label>}
-            <button className="primary full" disabled={!proposed.size || !reviewed || promoting || running} onClick={approveArtifacts}>
+            <button className="primary full" disabled={!proposed.size || !reviewed || contextStale || promoting || running} onClick={approveArtifacts}>
               {promoting ? 'Writing…' : `Approve ${proposed.size || ''} artifact${proposed.size === 1 ? '' : 's'} & push`}
             </button>
             {proposed.size > 0 && !reviewed && <small className="field-error">Confirm you have read the artifacts before they are written and pushed.</small>}

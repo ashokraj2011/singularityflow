@@ -604,11 +604,10 @@ export async function createPlanningContext(root, {
  * Load a saved planning pack.
  *
  * `requireCurrentHead` is the difference between reading a conversation and writing to Git. Promotion
- * needs the repository to be exactly where the context was built, or the artifacts describe a tree
- * that no longer exists. Resuming needs no such thing: it restores a transcript. Refusing to load
- * on a moved HEAD meant any governed commit in between — publishing another phase, pinning a
- * source, restarting the Epic — destroyed the conversation rather than marking it unpromotable,
- * which is the opposite of the stale-context banner the app was given to show.
+ * needs the repository and every governed source to match the context exactly, or the artifacts
+ * describe state that no longer exists. Resuming only restores a transcript, so it reports a moved
+ * HEAD or changed source as stale instead of destroying the conversation. The desktop can then show
+ * the precise reason and rebuild before another promotion.
  */
 async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } = {}) {
   const directory = planningDirectory(root, sessionId);
@@ -626,19 +625,36 @@ async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } =
     ...(manifest.prompt?.path && !manifest.prompt.path.startsWith('builtin:') ? [{ kind: 'planning-prompt', ...manifest.prompt }] : []),
     ...(manifest.sources ?? [])
   ];
+  const changedSources = [];
   for (const source of pinnedFiles) {
     if (!source.path || !source.sha256 || /^(?:agent:|https?:)/.test(source.path)) continue;
     const target = await secureRepositoryPath(root, source.path, {
       label: `Planning source '${source.path}'`,
-      mustExist: true,
+      mustExist: false,
       type: 'file'
     });
-    const info = await snapshot(target.absolute);
+    const info = target.exists ? await snapshot(target.absolute) : { exists: false, sha256: null };
     if (!info.exists || info.sha256 !== source.sha256) {
-      throw new SingularityFlowError(`Governed planning source changed after context creation: ${source.path}. Rebuild the context before promotion.`);
+      changedSources.push({
+        path: source.path,
+        expectedSha256: source.sha256,
+        actualSha256: info.sha256,
+        status: info.exists ? 'changed' : 'missing'
+      });
     }
   }
-  return { directory, manifestPath, contextPath, manifest, headMoved };
+  if (changedSources.length && requireCurrentHead) {
+    throw new SingularityFlowError(`Governed planning source changed after context creation: ${changedSources[0].path}. Rebuild the context before promotion.`);
+  }
+  return {
+    directory,
+    manifestPath,
+    contextPath,
+    manifest,
+    headMoved,
+    changedSources,
+    stale: headMoved || changedSources.length > 0
+  };
 }
 
 function preserveManagedMetadata(previous, next, pattern) {

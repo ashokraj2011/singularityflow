@@ -1155,9 +1155,15 @@ test('a planning context whose repository moved says so before promotion fails',
   // Promotion refuses a pack whose HEAD has moved, and pinning a source or recording evidence both
   // commit — so the conversation was silently unpromotable, discovered only after the work was done.
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
-  assert.match(app, /const contextStale = Boolean\(contextPack && data\.repository\.head/);
+  assert.match(app, /contextPack\?\.stale/);
+  assert.match(app, /contextPack\?\.changedSources/);
   assert.match(app, /This context is out of date/);
   assert.match(app, /Rebuild context/);
+  assert.match(app, /disabled=\{running \|\| started \|\| contextStale\}/);
+  assert.match(app, /disabled=\{!contextPack \|\| contextStale \|\| running/);
+  const main = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'main.mjs'), 'utf8');
+  assert.match(main, /changedSources: pack\.changedSources/);
+  assert.match(main, /savedStatus: pack\.stale \? 'context-ready' : entry\.status/);
   // The comparison needs HEAD on the snapshot, which it did not carry.
   const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
   assert.match(desktop, /head: head\(root\)/);
@@ -1267,7 +1273,7 @@ test('a proposed artifact can be read in full, edited, and diffed before it is w
   // A new proposal supersedes edits made against the previous one.
   assert.match(app, /useEffect\(\(\) => \{ setEdits\(\{\}\); setReviewed\(false\); \}, \[plan\]\)/);
   // Writing and pushing is not something to do by reflex.
-  assert.match(app, /disabled=\{!proposed\.size \|\| !reviewed \|\| promoting \|\| running\}/);
+  assert.match(app, /disabled=\{!proposed\.size \|\| !reviewed \|\| contextStale \|\| promoting \|\| running\}/);
   // A diff needs a committed generation to compare against; the snapshot already carries its text,
   // so no extra IPC was added for it.
   assert.match(app, /committed\?\.content\s*\n\s*\? <DiffEditor/);

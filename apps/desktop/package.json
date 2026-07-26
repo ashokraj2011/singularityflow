@@ -7,7 +7,9 @@
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
+    "predev": "npm run build --workspace singularity-event-horizon",
     "dev": "node electron/dev.mjs",
+    "prebuild": "npm run build --workspace singularity-event-horizon",
     "build": "vite build",
     "dist": "npm run build && electron-builder"
   },
@@ -25,6 +27,11 @@
     "electron": "43.1.1",
     "electron-builder": "^26.0.12",
     "vite": "^8.1.5"
+  },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "1.33.0",
+    "lightningcss-darwin-x64": "1.33.0",
+    "lightningcss-win32-x64-msvc": "1.33.0"
   },
   "build": {
     "appId": "dev.singularityflow.desktop",
@@ -49,7 +56,8 @@
       { "from": "../../HELP.md", "to": "cli/HELP.md" },
       { "from": "../../DISTRIBUTION.md", "to": "cli/DISTRIBUTION.md" },
       { "from": "../../node_modules/yaml", "to": "cli/node_modules/yaml" },
-      { "from": "../../package.json", "to": "cli/package.json" }
+      { "from": "../../package.json", "to": "cli/package.json" },
+      { "from": "../event-horizon/out", "to": "event-horizon/out" }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

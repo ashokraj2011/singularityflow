@@ -99,7 +99,18 @@ async function assertBundleResources(platform, directory) {
   const resources = platform === 'mac'
     ? path.join(directory, 'mac-universal', 'Singularity Flow.app', 'Contents', 'Resources')
     : path.join(directory, 'win-unpacked', 'resources');
-  const required = ['cli/bin/singularity-flow.mjs', 'cli/src/cli.mjs', 'cli/templates/workflow.yml', 'cli/plugin/plugin.json', 'cli/HELP.md', 'cli/node_modules/yaml/package.json', 'cli/package.json'];
+  const required = [
+    'cli/bin/singularity-flow.mjs',
+    'cli/src/cli.mjs',
+    'cli/templates/workflow.yml',
+    'cli/plugin/plugin.json',
+    'cli/HELP.md',
+    'cli/node_modules/yaml/package.json',
+    'cli/package.json',
+    'event-horizon/out/main/index.js',
+    'event-horizon/out/preload/index.js',
+    'event-horizon/out/renderer/index.html'
+  ];
   const missing = [];
   for (const item of required) {
     try { await access(path.join(resources, item)); } catch { missing.push(item); }

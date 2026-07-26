@@ -507,7 +507,7 @@ payloads the desktop parses, and log lines there would corrupt them.
 
 ## Copilot CLI handoff
 
-Electron does not start a Copilot backend or embed a planning conversation.
+Electron’s governed phase pages do not start a Copilot backend or embed a planning conversation.
 It is the durable configuration, document, progress, review, and approval
 surface. Requirements, Planning, and phase screens show:
 
@@ -529,6 +529,23 @@ Repository world-model generation is the only desktop Copilot operation. It is
 kept in Electron because it is repository-wide, can take several minutes, and
 benefits from a visible prompt, progress log, generation timestamp, commit, and
 push result.
+
+### Agent workbench: Event Horizon
+
+Open **Agent workbench** in the desktop to use the bundled Event Horizon ACP
+client. Choose an installed runtime and press **Open Event Horizon**; the active
+Flow repository opens as the session folder automatically. GitHub Copilot CLI
+is the default, while Claude Code ACP and Gemini CLI appear when their ACP
+commands are installed.
+
+Event Horizon is an optional execution surface, not a second workflow engine.
+It provides streaming chat, collapsible reasoning, plans, tool cards, unified
+diffs, file and folder attachments, repository and plugin skill completion,
+model/mode/reasoning controls, context and usage meters, and inline permission
+decisions. Closing it ends its in-memory sessions. A command or edit performed
+there changes the same repository working tree, but it does not publish a Flow
+artifact, advance a phase, or create an approval unless the corresponding
+`/sflow-*` lifecycle action is explicitly run.
 
 Singularity Desktop’s **Initiatives** page displays phase flow, delivery lanes, checklist assurance/freshness, story milestones, contracts, documents, elapsed time, models, tokens, and provider cost. Its Portfolio designer edits validated YAML; runtime state and repository world models remain read-only.
 
@@ -1332,6 +1349,11 @@ npm run desktop:dev
 ```
 
 Create a production renderer build with `npm run desktop:build`. Package the current host with `npm run desktop:package:current`, a universal Mac DMG with `npm run desktop:package:mac`, or a Windows x64 NSIS executable with `npm run desktop:package:win`. `npm run desktop:dist` remains a current-host compatibility alias.
+
+`npm run desktop:dev` and `npm run desktop:build` build the bundled Event
+Horizon workbench first. Use `npm run event-horizon:build` to build it alone,
+or `npm run event-horizon:check` for its type, parser, skill, ACP smoke, and
+attachment checks.
 
 Local packages are written below `apps/desktop/release/local/<version>/` and are visibly labelled `-unsigned` when signing credentials are unavailable. Official packages require Apple Developer ID signing plus notarization on macOS and Authenticode signing on Windows. The GitHub desktop-release workflow verifies both native builds and creates a draft release for human publication. Use `npm run desktop:verify -- --dir <directory>` to recheck a package, or `npm run desktop:publish:artifactory -- --dir <official-directory> --dry-run` to preview internal publication. Complete credential, installation, silent-uninstall, checksum, and Artifactory instructions are in `DISTRIBUTION.md`; the file is bundled with the desktop CLI resources. Installing the desktop does not install the global CLI or Copilot plugin.
 

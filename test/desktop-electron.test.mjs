@@ -831,7 +831,11 @@ test('desktop delegates phase authoring to Copilot CLI and keeps only world-mode
   assert.match(renderedRoutes, /<EpicPlanningCliPage/);
   assert.match(renderedRoutes, /<CopilotCliPage/);
   assert.match(source, /\/sflow-epic-requirements/);
-  assert.match(source, /\/sflow-epic-planning/);
+  assert.match(source, /\/sflow-epic-story-draft/);
+  assert.match(source, /Copilot has finished the Story package and is waiting for this UI/);
+  assert.match(source, /Add external Jira Story/);
+  assert.match(preload, /splitEpicStory/);
+  assert.match(preload, /adoptEpicStory/);
   assert.match(source, /\/sflow-upload/);
   assert.doesNotMatch(main, /planning:start|planning:prompt|planning:answer|copilot-service:/);
   assert.doesNotMatch(preload, /startPlanningSession|promptPlanningSession|answerPlanningQuestion|copilotService/);

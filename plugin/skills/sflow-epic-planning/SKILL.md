@@ -11,4 +11,5 @@ description: Turn approved Epic requirements and impact evidence into an editabl
 4. Let the user review and edit the Story list. Jira assignment is deliberately excluded; assignment remains in Jira after creation.
 5. Run `singularity-flow epic planning publish`. Singularity materializes and hash-registers one `stories/<PLAN-ID>/story-spec.md` per Story and validates repository ownership, coverage, IDs, and dependency acyclicity.
 6. Print the parent specification, Story table, every Story specification, changed hashes, and validation failures.
-7. After explicit approval, run `singularity-flow epic planning approve`. One approval binds the entire Story/specification package hash.
+7. Say exactly: **“The Story package is ready. I will proceed only after approval in the Singularity Flow UI.”**
+8. Stop. Do not approve the package or create Jira/Git Stories. The UI owns the business review, edits, splits, task/metadata configuration, direct Story adoption, and exact approval.

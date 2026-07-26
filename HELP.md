@@ -185,6 +185,11 @@ top bar, so both stay visible on every page. Collapse or expand the sidebar with
 
 The Planning screen shows every generated Story with its repository,
 `REQ-nnn`/`AC-nnn` lineage, dependencies, pinned workflow, and specification.
+Use `/sflow-epic-story-draft` to generate this package. The skill publishes the
+draft, tells the user that it is waiting for the Singularity Flow UI, and stops.
+The UI is the business review boundary: reviewers can edit or split Stories,
+add Jira tasks and key/value metadata, or adopt an existing Jira Story whose
+parent is managed elsewhere. Every change reopens the exact Planning package.
 **Publish Stories** requires the combined package to be approved, previews the exact Jira
 and Git operations, and then:
 
@@ -192,6 +197,22 @@ and Git operations, and then:
 2. Freezes the returned Jira key as the Story Work ID.
 3. Creates the canonical branch in the configured repository.
 4. Commits the governed seed, approved Epic inputs, and append-only receipts.
+5. Creates configured Jira subtasks and records their returned keys.
+6. Completes the four-phase planning workflow after every Jira/Git receipt exists.
+
+For the same operations from Copilot CLI:
+
+```text
+/sflow-epic-story-draft
+singularity-flow epic stories update STORY-001 --metadata component=checkout
+singularity-flow epic stories split STORY-001 --title "Separate recovery flow"
+singularity-flow epic stories adopt MOB-321 --repository mobile \
+  --requirements REQ-001 --acceptance-criteria AC-001
+```
+
+Direct adoption records a lineage edge to the approved Epic specification but
+does not change the Jira Story's current parent. That supports unlinked and
+cross-Epic Stories without pretending Jira is cleaner than it is.
 
 Artifact-template edits remain ordinary repository changes until **Commit & push**
 validates, commits, and pushes them.
@@ -218,6 +239,7 @@ Use the collision-safe Copilot commands:
 /sflow-epic-sources
 /sflow-epic-requirements
 /sflow-epic-planning
+/sflow-epic-story-draft
 /sflow-epic-stories
 /sflow-epic-publish
 /sflow-epic-status

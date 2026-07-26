@@ -2999,6 +2999,8 @@ input:disabled, select:disabled, textarea:disabled {
 .planned-story-grid dd { overflow: hidden; margin: 3px 0 0; color: #425449; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .planned-story-grid .editable-story-card { display: grid; gap: 13px; padding: 20px; }
 .planned-story-grid .editable-story-card:hover { transform: none; }
+.story-identity { display: flex; align-items: center; gap: 8px; }
+.story-identity small { color: #6f7e75; font-size: 10px; }
 .editable-story-card label { display: grid; gap: 6px; color: #526259; font-size: 12px; font-weight: 620; }
 .editable-story-card label > span { letter-spacing: .025em; }
 .editable-story-card input,
@@ -3012,6 +3014,16 @@ input:disabled, select:disabled, textarea:disabled {
 .editable-story-card summary { cursor: pointer; color: #176b43; font-size: 12px; font-weight: 650; }
 .editable-story-card details textarea { margin-top: 10px; }
 .editable-story-card footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #e3e9e5; padding-top: 12px; color: #748078; font-size: 11px; }
+.story-structured-editor > summary { display: flex; align-items: center; justify-content: space-between; }
+.story-key-values,.story-task-list { display: grid; gap: 9px; margin-top: 11px; }
+.story-key-values > div { display: grid !important; grid-template-columns: minmax(90px,.8fr) minmax(130px,1.2fr) auto; gap: 7px !important; }
+.story-key-values > div > button { align-self: center; }
+.story-task-editor { display: grid; gap: 8px; border: 1px solid #dce7df; border-radius: 10px; padding: 11px; background: #f8fbf9; }
+.story-task-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.story-task-editor > header input { max-width: 140px; font-family: var(--mono); }
+.copilot-ui-stop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+.copilot-ui-stop strong { color: #174d34; }
+.copilot-ui-stop span { color: #52675b; }
 
 .jira-artifact-publish { overflow: hidden; }
 .jira-artifact-publish .panel-heading p { max-width: 760px; margin: 6px 0 0; color: #748178; font-size: 10px; font-weight: 400; }

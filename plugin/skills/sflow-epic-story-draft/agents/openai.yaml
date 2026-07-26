@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draft Epic Stories"
+  short_description: "Generate the governed Story package and stop for UI approval"
+  default_prompt: "Create the repository-owned Story package from approved Epic requirements, publish it for review, and stop for UI approval."

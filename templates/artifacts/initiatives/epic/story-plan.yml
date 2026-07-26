@@ -7,6 +7,8 @@
 #   - every `requirements` entry must be REQ-nnn and exist in the traceability matrix
 #   - every `acceptanceCriteria` entry must be AC-nnn and exist in that matrix
 #   - `dependsOn` must reference planIds in this file and must not form a cycle
+#   - `metadata` becomes governed Jira labels and visible lineage key/value data
+#   - `tasks` become Jira subtasks after the complete Story package is approved
 #   - planIds are immutable once approved; Jira keys are written back as `workId`
 #
 # The acyclic `dependsOn` graph is what later produces the merge order
@@ -63,6 +65,23 @@ epics:
 
         # Selects the phase sequence the Story will follow.
         suggestedWorkType: feature
+
+        # Optional business routing. The UI presents these as editable key/value
+        # pairs; Jira publication records them in the description, labels, and
+        # immutable lineage property.
+        metadata: {}
+        # metadata:
+        #   component: checkout
+        #   releaseTrain: Q4
+
+        # Optional implementation tasks. Assignment remains in Jira.
+        tasks: []
+        # tasks:
+        #   - id: TASK-001
+        #     title: Implement the mobile UI
+        #     description: Follow STORY-001.SPEC-002.
+        #     acceptanceCriteria: [AC-001]
+        #     metadata: { discipline: mobile }
 
         # Sequencing. requiredPhase names how far the dependency must progress
         # before this Story may start — not merely that it exists.

@@ -7,7 +7,8 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
 import {
-  prepareEpicStorySpecifications, updateEpicStory, verifyEpicPlanningPackage
+  adoptEpicStory, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
+  updateEpicStory, verifyEpicPlanningPackage
 } from '../src/epic-lifecycle.mjs';
 import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
 import { initiativeNextActions } from '../src/initiative-report.mjs';
@@ -265,6 +266,30 @@ test('editable Planning Stories refresh their governed specifications and reopen
   const after = await verifyEpicPlanningPackage(root, updated.portfolio, updated.initiative);
   assert.equal(after.valid, true);
   assert.notEqual(after.packageSha256, before.packageSha256);
+
+  const split = await splitEpicStory(root, 'MOB-100', 'STORY-001', {
+    title: 'Build the sign-in error states',
+    specification: '## Contract\n\nImplement validation and recovery states.'
+  });
+  assert.equal(split.story.planId, 'STORY-002');
+  assert.equal(split.story.jiraKey, null);
+  const adopted = await adoptEpicStory(root, 'MOB-100', {
+    id: '10042',
+    key: 'MOB-321',
+    title: 'Existing audit Story',
+    description: 'Record sign-in security events.',
+    parent: null,
+    subtasks: [{ id: '10043', key: 'MOB-322', title: 'Add audit schema' }]
+  }, {
+    repository: 'mobile',
+    requirements: ['REQ-001'],
+    acceptanceCriteria: ['AC-001']
+  });
+  assert.equal(adopted.story.planId, 'STORY-003');
+  assert.equal(adopted.story.workId, 'MOB-321');
+  assert.equal(adopted.story.parentMode, 'external');
+  assert.equal(adopted.story.metadata.originalParent, 'unlinked');
+  assert.equal(adopted.story.tasks[0].jiraKey, 'MOB-322');
 });
 
 test('Jira Epic attachments are pinned as governed sources at start', async () => {
@@ -296,6 +321,54 @@ test('Jira Epic attachments are pinned as governed sources at start', async () =
   }
   const { manifest } = await listEpicSources(root, 'MOB-100');
   assert.deepEqual(manifest.sources.map((entry) => entry.name).sort(), ['operator-spec.md', 'pricing.md']);
+});
+
+test('successful Jira and Git Story receipts complete the planning lifecycle automatically', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'MOB-100');
+  await writeFile(path.join(root, 'singularity/initiatives/MOB-100/breakdown.yml'), YAML.stringify({
+    version: 2,
+    initiativeId: 'MOB-100',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      title: 'Mobile sign-in',
+      stories: [{
+        planId: 'STORY-001',
+        workId: 'MOB-123',
+        jiraKey: 'MOB-123',
+        title: 'Build sign-in',
+        repository: 'mobile',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001'],
+        tasks: [{ id: 'TASK-001', title: 'Implement UI', jiraKey: 'MOB-124' }]
+      }]
+    }]
+  }));
+  loaded.initiative.currentPhase = 'epic-publish';
+  loaded.initiative.phases['epic-planning'].status = 'approved';
+  loaded.initiative.phases['epic-planning'].generation = 1;
+  loaded.initiative.phases['epic-publish'].status = 'in_progress';
+  loaded.initiative.materialization = {
+    status: 'complete',
+    attempts: [{
+      status: 'complete',
+      completedAt: '2026-07-26T10:00:00.000Z',
+      stories: [{ storyId: 'STORY-001', commit: 'a'.repeat(40) }]
+    }]
+  };
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  const completed = await completeEpicPublication(root, 'MOB-100');
+  assert.equal(completed.completed, true);
+  assert.equal(completed.initiative.status, 'complete');
+  assert.equal(completed.initiative.currentPhase, null);
+  assert.equal(completed.initiative.phases['epic-publish'].status, 'approved');
+  const report = await readFile(
+    path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-publish/materialization-report.md'),
+    'utf8'
+  );
+  assert.match(report, /planning workflow is complete/i);
+  assert.match(report, /MOB-123/);
 });
 
 test('a failing attachment is reported without losing the Epic', async () => {

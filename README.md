@@ -146,13 +146,14 @@ Starting uses `main` (or the configured default branch) only as the source basel
 
 For a Jira Epic that should end with reviewed Stories, an approved high-level
 specification, canonical repository branches, and Product Owner validation,
-use the five-phase `epic-planning` profile:
+use the four-phase `epic-planning` profile:
 
 ```text
 /sflow-epic-start MOB-100
 /sflow-epic-sources
-/sflow-epic-generate
-/sflow-epic-create-stories
+/sflow-epic-requirements
+/sflow-epic-story-draft
+/sflow-epic-publish
 /sflow-epic-status
 ```
 
@@ -186,8 +187,15 @@ Planning combines Story decomposition and the high-level specification without
 hiding either governed phase. Generated Stories and their `REQ-nnn`/`AC-nnn`
 allocation are reviewed before the publication screen creates or attaches each
 Jira Story, uses the returned Jira key as its stable Work ID, and creates the
-corresponding canonical Git branch with governed seed and receipt commits. Each
-stage exposes one primary action and keeps completed stages available for audit.
+corresponding canonical Git branch with governed seed and receipt commits.
+Copilot explicitly stops after drafting so business reviewers can use the UI to
+edit, split, add tasks and key/value metadata, or adopt a Jira Story that is not
+linked to the Epic. Direct adoption preserves the Story's existing Jira parent.
+Successful Jira/Git publication completes planning and opens the delivery
+dashboard. Developers fetch their assigned Story with `/sflow-story-fetch`,
+finalize it independently, and the Product Owner closes the Epic only after the
+exact parent specification and every blocking Story's spec-to-code evidence
+match. Each stage keeps completed work available for audit.
 
 Artifact templates include a visual drag-and-drop builder with a reusable
 section library, reorderable canvas, in-place guidance editing, live Markdown

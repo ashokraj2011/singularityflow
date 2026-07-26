@@ -57,6 +57,8 @@ function storyReadiness(story, observed) {
     workId: story.workId ?? story.id,
     jiraKey: story.jiraKey ?? null,
     repository: story.repository,
+    parentMode: story.parentMode ?? 'managed',
+    metadata: story.metadata ?? {},
     blocking: story.blocking !== false,
     ready: problems.length === 0,
     problems,
@@ -111,11 +113,11 @@ export function renderEpicCompletionReport(record) {
     `- Identity assurance: **configured-local**`,
     `- Blocking Stories: ${record.readyStories}/${record.requiredStories} ready`, '',
     '## Exact Story evidence', '',
-    '| Story | Jira | Repository | Source commit | Review packet | Conformance tree | Result |',
-    '| --- | --- | --- | --- | --- | --- | --- |'
+    '| Story | Jira | Lineage | Repository | Source commit | Review packet | Conformance tree | Result |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |'
   ];
   for (const story of record.stories) {
-    lines.push(`| ${story.workId} | ${story.jiraKey ?? '—'} | ${story.repository} | ${story.observedCommit?.slice(0, 12) ?? '—'} | ${story.packetSha256?.slice(0, 12) ?? '—'} | ${story.conformanceTreeSha256?.slice(0, 12) ?? '—'} | ${story.ready ? 'matched' : story.blocking ? 'blocking' : 'deferred'} |`);
+    lines.push(`| ${story.workId} | ${story.jiraKey ?? '—'} | ${story.parentMode === 'external' ? 'direct / external parent' : 'managed Epic child'} | ${story.repository} | ${story.observedCommit?.slice(0, 12) ?? '—'} | ${story.packetSha256?.slice(0, 12) ?? '—'} | ${story.conformanceTreeSha256?.slice(0, 12) ?? '—'} | ${story.ready ? 'matched' : story.blocking ? 'blocking' : 'deferred'} |`);
   }
   lines.push('', '## Governance statement', '');
   lines.push('This decision is bound to the exact canonical Story commits, submitted review packets, GitHub evidence, and conformance tree hashes listed above. Later Story changes make this completion snapshot historical; they do not rewrite it.');

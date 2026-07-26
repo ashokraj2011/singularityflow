@@ -26,6 +26,41 @@ function textList(value, label) {
   return value.map((item) => item.trim());
 }
 
+function metadataMap(value, label) {
+  if (value == null) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError(`${label} must be a key/value object.`);
+  }
+  const result = {};
+  for (const [key, raw] of Object.entries(value)) {
+    safeId(key, `${label} key`);
+    if (!['string', 'number', 'boolean'].includes(typeof raw)) {
+      throw new SingularityFlowError(`${label} '${key}' must be text, a number, or a boolean.`);
+    }
+    result[key] = String(raw);
+  }
+  return result;
+}
+
+function normalizeTask(value, storyId, index) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError(`Story '${storyId}' task ${index + 1} must be an object.`);
+  }
+  const id = safeId(value.id ?? `TASK-${String(index + 1).padStart(3, '0')}`, `Story '${storyId}' task ID`);
+  if (value.description != null && typeof value.description !== 'string') {
+    throw new SingularityFlowError(`Story '${storyId}' task '${id}' description must be text.`);
+  }
+  return {
+    id,
+    title: String(value.title ?? id).trim() || id,
+    description: value.description ?? '',
+    acceptanceCriteria: textList(value.acceptanceCriteria, `Story '${storyId}' task '${id}' acceptanceCriteria`),
+    metadata: metadataMap(value.metadata, `Story '${storyId}' task '${id}' metadata`),
+    jiraKey: value.jiraKey ?? null,
+    jiraIssueId: value.jiraIssueId == null ? null : String(value.jiraIssueId)
+  };
+}
+
 function normalizeDependency(value, storyId) {
   const dependency = typeof value === 'string' ? { story: value } : structuredClone(value);
   if (!dependency || typeof dependency !== 'object') throw new SingularityFlowError(`Story '${storyId}' dependency is invalid.`);
@@ -88,8 +123,16 @@ export function validateInitiativeBreakdown(value, portfolio) {
         jiraIssueId: rawStory.jiraIssueId == null ? null : String(rawStory.jiraIssueId),
         epicKey: rawStory.epicKey ?? rawEpic.jiraKey ?? null,
         estimate: rawStory.estimate ?? null,
-        idAuthority: rawStory.idAuthority ?? null
+        idAuthority: rawStory.idAuthority ?? null,
+        parentMode: rawStory.parentMode ?? 'managed',
+        metadata: metadataMap(rawStory.metadata, `Story '${id}' metadata`),
+        tasks: (rawStory.tasks ?? []).map((task, taskIndex) => normalizeTask(task, id, taskIndex))
       };
+      if (!['managed', 'external'].includes(story.parentMode)) {
+        throw new SingularityFlowError(`Story '${id}' parentMode must be managed or external.`);
+      }
+      const taskIds = story.tasks.map((task) => task.id);
+      if (new Set(taskIds).size !== taskIds.length) throw new SingularityFlowError(`Story '${id}' task IDs must be unique.`);
       if (value.version === 2) {
         for (const requirement of story.requirements) {
           if (!/^REQ-\d{3,}$/.test(requirement)) throw new SingularityFlowError(`Story '${id}' requirement '${requirement}' must use REQ-nnn traceability.`);
@@ -234,6 +277,19 @@ export function initiativeBreakdownDocument(breakdown) {
         ...(story.epicKey ? { epicKey: story.epicKey } : {}),
         ...(story.estimate != null ? { estimate: story.estimate } : {}),
         ...(story.idAuthority ? { idAuthority: story.idAuthority } : {}),
+        ...(story.parentMode !== 'managed' ? { parentMode: story.parentMode } : {}),
+        ...(Object.keys(story.metadata ?? {}).length ? { metadata: story.metadata } : {}),
+        ...(story.tasks?.length ? {
+          tasks: story.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            ...(task.description ? { description: task.description } : {}),
+            ...(task.acceptanceCriteria?.length ? { acceptanceCriteria: task.acceptanceCriteria } : {}),
+            ...(Object.keys(task.metadata ?? {}).length ? { metadata: task.metadata } : {}),
+            ...(task.jiraKey ? { jiraKey: task.jiraKey } : {}),
+            ...(task.jiraIssueId ? { jiraIssueId: task.jiraIssueId } : {})
+          }))
+        } : {}),
         ...(story.dependsOn.length ? { dependsOn: story.dependsOn } : {}),
         ...(story.consumesContracts.length ? { consumesContracts: story.consumesContracts } : {})
       }))
@@ -418,7 +474,11 @@ function storySeed(root, initiative, story, {
       requiredChecks: structuredClone(initiative.resolution.repositories?.[story.repository]?.requiredChecks ?? []),
       blocking: story.blocking,
       suggestedWorkType: story.suggestedWorkType,
-      dependsOn: story.dependsOn
+      dependsOn: story.dependsOn,
+      requirements: story.requirements,
+      metadata: structuredClone(story.metadata ?? {}),
+      tasks: structuredClone(story.tasks ?? []),
+      parentMode: story.parentMode ?? 'managed'
     },
     governedContext,
     approvedArtifacts: artifacts,

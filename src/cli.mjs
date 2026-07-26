@@ -125,7 +125,8 @@ import {
   listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources
 } from './epic-sources.mjs';
 import {
-  completeEpicIntake, EPIC_PHASES, updateEpicStory, verifyEpicPlanningPackage
+  adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES,
+  splitEpicStory, updateEpicStory, verifyEpicPlanningPackage
 } from './epic-lifecycle.mjs';
 import {
   attachStoryBranch, createStoryBranch, createStoryReviewPacket, finalizeStoryDelivery,
@@ -292,7 +293,10 @@ Usage:
     [--text TEXT | --text-file FILE]
   singularity-flow epic requirements prepare|status|publish|approve
   singularity-flow epic planning prepare|status|validate|publish|approve
-  singularity-flow epic stories list|show|update|validate
+  singularity-flow epic stories list|show|update|split|adopt|validate
+    update <PLAN-ID> [--metadata KEY=VALUE]... [--tasks-file FILE]
+    split <PLAN-ID> [--title TEXT] [--repository ID] [--metadata KEY=VALUE]...
+    adopt <JIRA-KEY> --repository ID --requirements REQ-nnn --acceptance-criteria AC-nnn
   singularity-flow epic jira preview|apply [--epic EPIC-KEY] [--plan SHA256]
   singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256]  Deprecated mapping target
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
@@ -2246,6 +2250,9 @@ async function desktopCommand(positionals, options) {
           observedState: `${result.attempt.stories.length} canonical Story branches and governed seeds published`
         }
       });
+      if (before.initiative.resolution.profile === 'epic-planning') {
+        result.completion = await completeEpicPublication(root, initiativeId);
+      }
     }
     const fresh = await loadInitiative(root, initiativeId);
     result.publication = await commitInitiativeChange(
@@ -2281,6 +2288,32 @@ function optionMap(values, label) {
     result[String(value).slice(0, split).trim()] = String(value).slice(split + 1).trim();
   }
   return result;
+}
+
+async function storyMutationOptions(options) {
+  const changes = {};
+  for (const key of ['title', 'description', 'repository', 'specification']) {
+    const value = optionString(options, key);
+    if (value != null) changes[key] = value;
+  }
+  const workflow = optionString(options, 'workflow');
+  if (workflow != null) changes.suggestedWorkType = workflow;
+  if (options.blocking != null) changes.blocking = optionBoolean(options, 'blocking');
+  for (const [option, key] of [['requirements', 'requirements'], ['acceptance-criteria', 'acceptanceCriteria'], ['depends-on', 'dependsOn']]) {
+    const value = optionString(options, option);
+    if (value != null) changes[key] = value.split(',').map((entry) => entry.trim()).filter(Boolean);
+  }
+  const metadata = optionStrings(options, 'metadata');
+  if (metadata.length) changes.metadata = optionMap(metadata, 'Story metadata');
+  const tasksFile = optionString(options, 'tasks-file');
+  if (tasksFile) {
+    const absolute = path.resolve(tasksFile);
+    const contents = await readFile(absolute, 'utf8');
+    const parsed = YAML.parse(contents);
+    if (!Array.isArray(parsed)) throw new SingularityFlowError('--tasks-file must contain a YAML or JSON array of Story tasks.');
+    changes.tasks = parsed;
+  }
+  return changes;
 }
 
 function renderWorkspaceStatus(status) {
@@ -2769,18 +2802,7 @@ async function epicCommand(positionals, options) {
     }
     if (action === 'update') {
       const planId = requirePositional(positionals, 3, 'Story plan ID');
-      const changes = {};
-      for (const key of ['title', 'description', 'repository', 'specification']) {
-        const value = optionString(options, key);
-        if (value != null) changes[key] = value;
-      }
-      const workflow = optionString(options, 'workflow');
-      if (workflow != null) changes.suggestedWorkType = workflow;
-      if (options.blocking != null) changes.blocking = optionBoolean(options, 'blocking');
-      for (const [option, key] of [['requirements', 'requirements'], ['acceptance-criteria', 'acceptanceCriteria'], ['depends-on', 'dependsOn']]) {
-        const value = optionString(options, option);
-        if (value != null) changes[key] = value.split(',').map((entry) => entry.trim()).filter(Boolean);
-      }
+      const changes = await storyMutationOptions(options);
       if (!Object.keys(changes).length) throw new SingularityFlowError('Story update requires at least one changed field.');
       const updated = await updateEpicStory(root, initiativeId, planId, changes);
       const publication = await commitInitiativeChange(
@@ -2794,7 +2816,42 @@ async function epicCommand(positionals, options) {
       console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
       return;
     }
-    throw new SingularityFlowError(`Unknown Epic stories action '${action}'. Use list, show, update, or validate.`);
+    if (action === 'split') {
+      const planId = requirePositional(positionals, 3, 'source Story plan ID');
+      const changes = await storyMutationOptions(options);
+      const split = await splitEpicStory(root, initiativeId, planId, changes);
+      const publication = await commitInitiativeChange(
+        root,
+        split.portfolio,
+        split.initiative,
+        `[${initiativeId}][epic:story] split ${planId} as ${split.story.planId}`
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: split.story, publication }, null, 2));
+      console.log(`Split ${planId} into ${split.story.planId}. Planning approval was invalidated for renewed UI review.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    if (action === 'adopt') {
+      const jiraKey = requirePositional(positionals, 3, 'Jira Story key');
+      const changes = await storyMutationOptions(options);
+      if (!changes.repository) throw new SingularityFlowError('Story adoption requires --repository with a configured repository ID.');
+      const issue = await getIssue(jiraKey);
+      if (String(issue.issueType ?? '').toLowerCase() === 'epic') {
+        throw new SingularityFlowError(`Jira ${issue.key} is an Epic. Choose a Story, task, or other delivery issue.`);
+      }
+      const adopted = await adoptEpicStory(root, initiativeId, issue, changes);
+      const publication = await commitInitiativeChange(
+        root,
+        adopted.portfolio,
+        adopted.initiative,
+        `[${initiativeId}][epic:story] adopt ${issue.key} as ${adopted.story.planId}`
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: adopted.story, publication }, null, 2));
+      console.log(`Adopted Jira ${issue.key} as ${adopted.story.planId}; its existing Jira parent remains unchanged.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    throw new SingularityFlowError(`Unknown Epic stories action '${action}'. Use list, show, update, split, adopt, or validate.`);
   }
   if (subcommand === 'jira') {
     const action = positionals[2] ?? 'preview';
@@ -2848,6 +2905,7 @@ async function epicCommand(positionals, options) {
             observedState: `${materialized.attempt.stories.length} local Story branches and governed seeds published`
           }
         });
+        await completeEpicPublication(root, initiativeId);
       }
       const fresh = await loadInitiative(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
@@ -2902,6 +2960,7 @@ async function epicCommand(positionals, options) {
           observedState: `${materialized.attempt.stories.length} canonical Story branches and governed seeds published`
         }
       });
+      await completeEpicPublication(root, initiativeId);
     }
     const fresh = await loadInitiative(root, initiativeId);
     const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);

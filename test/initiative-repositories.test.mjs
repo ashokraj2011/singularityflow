@@ -164,6 +164,42 @@ test('version-2 Story identity freezes the first Jira key while preserving alias
   assert.deepEqual(rekeyed.stories[0].jiraAliases, ['MOB-123', 'PLAT-999']);
 });
 
+test('version-2 Stories normalize governed metadata, Jira tasks, and direct parent mode', async () => {
+  const { root } = await repository();
+  const { portfolio } = await loadInitiative(root, 'INIT-MULTI');
+  const breakdown = validateInitiativeBreakdown({
+    version: 2,
+    initiativeId: 'INIT-MULTI',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      stories: [{
+        planId: 'STORY-001',
+        jiraKey: 'MOB-123',
+        jiraIssueId: '10042',
+        parentMode: 'external',
+        repository: 'mobile',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001'],
+        metadata: { component: 'checkout', release: 7 },
+        tasks: [{
+          id: 'TASK-001',
+          title: 'Implement UI',
+          acceptanceCriteria: ['AC-001'],
+          metadata: { discipline: 'mobile' }
+        }]
+      }]
+    }]
+  }, portfolio);
+  assert.equal(breakdown.stories[0].parentMode, 'external');
+  assert.deepEqual(breakdown.stories[0].metadata, { component: 'checkout', release: '7' });
+  assert.equal(breakdown.stories[0].tasks[0].id, 'TASK-001');
+  assert.deepEqual(breakdown.stories[0].tasks[0].metadata, { discipline: 'mobile' });
+  const duplicate = structuredClone(breakdown);
+  duplicate.epics[0].stories[0].tasks.push(structuredClone(duplicate.epics[0].stories[0].tasks[0]));
+  assert.throws(() => validateInitiativeBreakdown(duplicate, portfolio), /task IDs must be unique/);
+});
+
 test('initiative breakdown loading rejects a symbolic-link replacement', async () => {
   const { root } = await repository();
   const { portfolio } = await loadInitiative(root, 'INIT-MULTI');

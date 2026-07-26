@@ -91,11 +91,11 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
   if (!(policy.writePolicy?.operations ?? []).includes(operation.action)) {
     throw new SingularityFlowError(`Jira policy does not permit planned operation '${operation.action ?? ''}'.`);
   }
-  if (!['create-epic', 'create-story', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'].includes(operation.action)) {
+  if (!['create-epic', 'create-story', 'create-subtask', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'].includes(operation.action)) {
     throw new SingularityFlowError(`Jira write-plan action '${operation.action}' is not implemented by this apply path.`);
   }
-  if (!operation.subject || typeof operation.subject !== 'object' || !['epic', 'story'].includes(operation.subject.type)) {
-    throw new SingularityFlowError(`Jira operation '${operation.id}' requires an Epic or story subject.`);
+  if (!operation.subject || typeof operation.subject !== 'object' || !['epic', 'story', 'task'].includes(operation.subject.type)) {
+    throw new SingularityFlowError(`Jira operation '${operation.id}' requires an Epic, Story, or task subject.`);
   }
   if (operation.action === 'attach-artifact') {
     const artifact = operation.artifact;
@@ -129,7 +129,9 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
     return operation;
   }
   if (operation.action.startsWith('create-')) {
-    const expectedType = operation.action === 'create-epic' ? 'epic' : 'story';
+    const expectedType = operation.action === 'create-epic'
+      ? 'epic'
+      : operation.action === 'create-subtask' ? 'task' : 'story';
     if (operation.subject.type !== expectedType || !operation.issue || typeof operation.issue !== 'object' || Array.isArray(operation.issue)) {
       throw new SingularityFlowError(`Jira operation '${operation.id}' does not match its create action.`);
     }
@@ -138,7 +140,7 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
       throw new SingularityFlowError(`Jira operation '${operation.id}' contains unsupported create fields: ${unexpected.join(', ')}.`);
     }
     assertJiraProjectPolicy(operation.issue.projectKey, policy, `Jira operation '${operation.id}' project`);
-    if (operation.action === 'create-story' && operation.parent?.jiraKey) {
+    if (['create-story', 'create-subtask'].includes(operation.action) && operation.parent?.jiraKey) {
       assertJiraIssuePolicy(operation.parent.jiraKey, policy, `Jira operation '${operation.id}' parent`);
     }
     return operation;
@@ -158,8 +160,20 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
 function descriptionWithAcceptance(item) {
   return [
     item.description,
-    item.acceptanceCriteria?.length ? `Acceptance criteria:\n${item.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : ''
+    item.acceptanceCriteria?.length ? `Acceptance criteria:\n${item.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : '',
+    Object.keys(item.metadata ?? {}).length
+      ? `Delivery metadata:\n${Object.entries(item.metadata).map(([key, value]) => `- ${key}: ${value}`).join('\n')}`
+      : ''
   ].filter(Boolean).join('\n\n');
+}
+
+function metadataLabels(metadata = {}) {
+  return Object.entries(metadata).map(([key, value]) => {
+    const slug = `sflow-${key}-${value}`.toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return slug.slice(0, 255);
+  }).filter(Boolean);
 }
 
 function repositoryRouting(initiative, story, fallbackProjectKey, policy) {
@@ -370,7 +384,11 @@ function expectedFields(item, { parentKey = null, initiativeId }) {
   return {
     summary: item.title,
     description: descriptionWithAcceptance(item),
-    labels: [`sflow-${initiativeId.toLowerCase()}`, `sflow-${item.id.toLowerCase()}`],
+    labels: [
+      `sflow-${initiativeId.toLowerCase()}`,
+      `sflow-${item.id.toLowerCase()}`,
+      ...metadataLabels(item.metadata)
+    ],
     ...(parentKey ? { parent: { key: parentKey } } : {})
   };
 }
@@ -463,7 +481,10 @@ export async function createJiraWritePlan(root, initiativeId, {
           `Jira story '${story.id}'`
         );
         snapshots[story.jiraKey] = issue;
-        const fields = allowedUpdateFields(policy, fieldDiff(issue, expectedFields(story, { parentKey: epic.jiraKey, initiativeId })));
+        const fields = allowedUpdateFields(policy, fieldDiff(issue, expectedFields(story, {
+          parentKey: story.parentMode === 'external' ? null : epic.jiraKey,
+          initiativeId
+        })));
         if (Object.keys(fields).length) operations.push({
           id: `update-story-${story.id}`,
           action: 'update-owned-fields',
@@ -485,10 +506,49 @@ export async function createJiraWritePlan(root, initiativeId, {
             labels: [
               `sflow-${initiativeId.toLowerCase()}`,
               `sflow-${story.id.toLowerCase()}`,
-              routing.appIdLabel
+              routing.appIdLabel,
+              ...metadataLabels(story.metadata)
             ].filter(Boolean)
           }
         });
+      }
+      for (const task of story.tasks ?? []) {
+        if (task.jiraKey) {
+          const taskKey = assertJiraIssuePolicy(task.jiraKey, policy, `Jira task '${story.id}/${task.id}'`);
+          const issue = assertIssueRecordPolicy(
+            await getIssue(taskKey, { connection: remoteConnection(), fetchImpl }),
+            policy,
+            `Jira task '${story.id}/${task.id}'`
+          );
+          snapshots[task.jiraKey] = issue;
+          const fields = allowedUpdateFields(policy, fieldDiff(issue, expectedFields(task, { initiativeId })));
+          if (Object.keys(fields).length) operations.push({
+            id: `update-task-${story.id}-${task.id}`,
+            action: 'update-owned-fields',
+            subject: { type: 'task', id: task.id, storyId: story.id, epicId: epic.id, jiraKey: task.jiraKey },
+            expectedUpdatedAt: issue.updatedAt,
+            fields
+          });
+        } else {
+          operations.push({
+            id: `create-task-${story.id}-${task.id}`,
+            action: 'create-subtask',
+            subject: { type: 'task', id: task.id, storyId: story.id, epicId: epic.id, jiraKey: null },
+            parent: { storyId: story.id, jiraKey: story.jiraKey },
+            issue: {
+              projectKey: routing.projectKey,
+              issueType: policy.subtaskIssueType ?? 'Sub-task',
+              summary: task.title,
+              description: descriptionWithAcceptance(task),
+              labels: [
+                `sflow-${initiativeId.toLowerCase()}`,
+                `sflow-${story.id.toLowerCase()}`,
+                `sflow-${task.id.toLowerCase()}`,
+                ...metadataLabels(task.metadata)
+              ]
+            }
+          });
+        }
       }
       const storySpecification = specificationIndex.stories?.find((entry) => entry.planId === story.planId);
       const deliveryRepository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories?.[story.repository];
@@ -513,7 +573,14 @@ export async function createJiraWritePlan(root, initiativeId, {
             planId: story.planId,
             repository: story.repository,
             canonicalBranch: story.workId,
-            suggestedWorkType: story.suggestedWorkType
+            suggestedWorkType: story.suggestedWorkType,
+            parentMode: story.parentMode ?? 'managed',
+            metadata: story.metadata ?? {},
+            tasks: (story.tasks ?? []).map((task) => ({
+              id: task.id,
+              jiraKey: task.jiraKey ?? null,
+              metadata: task.metadata ?? {}
+            }))
           },
           leadRepository: {
             url: leadRemote.status === 0 ? leadRemote.stdout.trim() : null,
@@ -543,6 +610,7 @@ export async function createJiraWritePlan(root, initiativeId, {
           `Plan ID: ${story.planId}`,
           `Delivery repository: ${story.repository}`,
           `Canonical branch: ${story.workId}`,
+          `Jira parent: ${story.parentMode === 'external' ? 'externally managed / may be unlinked' : (epic.jiraKey ?? initiativeId)}`,
           `Lead branch: ${initiative.initiative.branch}@${head(root)}`,
           `Parent specification: ${planning?.outputs?.['parent-specification']?.sha256 ?? 'unavailable'}`,
           `Story specification: ${storySpecification?.sha256 ?? 'unavailable'}`
@@ -672,6 +740,9 @@ export async function applyJiraWritePlan(root, initiativeId, {
   const results = [];
   const epicKeys = Object.fromEntries(breakdown.epics.filter((epic) => epic.jiraKey).map((epic) => [epic.id, epic.jiraKey]));
   const storyKeys = Object.fromEntries(breakdown.stories.filter((story) => story.jiraKey).map((story) => [story.id, story.jiraKey]));
+  const taskKeys = Object.fromEntries(breakdown.stories.flatMap((story) => (story.tasks ?? [])
+    .filter((task) => task.jiraKey)
+    .map((task) => [`${story.id}/${task.id}`, task.jiraKey])));
   for (const operation of plan.operations) {
     const receiptPath = await jiraPath(root, portfolio, initiativeId, path.join('receipts', `${operation.id}.json`), {
       label: `Initiative '${initiativeId}' Jira receipt '${operation.id}'`,
@@ -683,6 +754,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
       results.push(receipt);
       if (receipt.subject.type === 'epic') epicKeys[receipt.subject.id] = receipt.jiraKey;
       if (receipt.subject.type === 'story') storyKeys[receipt.subject.id] = receipt.jiraKey;
+      if (receipt.subject.type === 'task') taskKeys[`${receipt.subject.storyId}/${receipt.subject.id}`] = receipt.jiraKey;
       continue;
     }
     let result;
@@ -728,7 +800,12 @@ export async function applyJiraWritePlan(root, initiativeId, {
     } else if (operation.action === 'set-lineage-property') {
       const jiraKey = operation.subject.jiraKey ?? storyKeys[operation.subject.id];
       if (!jiraKey) throw new SingularityFlowError(`Cannot publish lineage for ${operation.subject.id}: the Story has no Jira key.`);
-      await setIssueProperty(jiraKey, operation.propertyKey, operation.value, {
+      const value = structuredClone(operation.value);
+      value.story.tasks = (value.story.tasks ?? []).map((task) => ({
+        ...task,
+        jiraKey: task.jiraKey ?? taskKeys[`${operation.subject.id}/${task.id}`] ?? null
+      }));
+      await setIssueProperty(jiraKey, operation.propertyKey, value, {
         connection: resolvedConnection,
         fetchImpl
       });
@@ -742,8 +819,13 @@ export async function applyJiraWritePlan(root, initiativeId, {
       });
       result = await getIssue(jiraKey, { connection: resolvedConnection, fetchImpl });
     } else if (operation.action.startsWith('create-')) {
-      const parentKey = operation.subject.type === 'story' ? (operation.parent.jiraKey ?? epicKeys[operation.parent.epicId]) : null;
+      const parentKey = operation.subject.type === 'story'
+        ? (operation.parent.jiraKey ?? epicKeys[operation.parent.epicId])
+        : operation.subject.type === 'task'
+          ? (operation.parent.jiraKey ?? storyKeys[operation.parent.storyId])
+          : null;
       if (operation.subject.type === 'story' && !parentKey) throw new SingularityFlowError(`Cannot create ${operation.subject.id}: its parent Epic has no Jira key.`);
+      if (operation.subject.type === 'task' && !parentKey) throw new SingularityFlowError(`Cannot create ${operation.subject.id}: its parent Story has no Jira key.`);
       result = await findOrCreateIssue({
         ...operation.issue,
         idempotencyLabel: `sflow-${hash({ initiativeId, operationId: operation.id }).slice(0, 24)}`,
@@ -751,6 +833,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
       }, { connection: resolvedConnection, fetchImpl });
       if (operation.subject.type === 'epic') epicKeys[operation.subject.id] = result.key;
       if (operation.subject.type === 'story') storyKeys[operation.subject.id] = result.key;
+      if (operation.subject.type === 'task') taskKeys[`${operation.subject.storyId}/${operation.subject.id}`] = result.key;
     } else {
       result = await updateIssue(operation.subject.jiraKey, operation.fields, {
         expectedUpdatedAt: operation.expectedUpdatedAt,
@@ -798,7 +881,16 @@ export async function applyJiraWritePlan(root, initiativeId, {
       story.workId = breakdown.version === 2
         ? (story.workId && story.workId !== story.id ? story.workId : (story.jiraKey ?? story.workId ?? story.id))
         : story.id;
-      story.epicKey = epic.jiraKey ?? story.epicKey ?? null;
+      if (story.parentMode !== 'external') story.epicKey = epic.jiraKey ?? story.epicKey ?? null;
+      for (const task of story.tasks ?? []) {
+        const taskReceipt = results.find((receipt) => (
+          receipt.subject.type === 'task'
+          && receipt.subject.storyId === story.id
+          && receipt.subject.id === task.id
+        ));
+        task.jiraKey = taskReceipt?.jiraKey ?? taskKeys[`${story.id}/${task.id}`] ?? task.jiraKey ?? null;
+        task.jiraIssueId = taskReceipt?.jiraIssueId ?? task.jiraIssueId ?? null;
+      }
     }
   }
   const breakdownPath = await secureInitiativePath(root, portfolio, initiativeId, 'breakdown.yml', {
@@ -861,7 +953,10 @@ export async function observeJiraDrift(root, initiativeId, {
     for (const story of epic.stories) {
       if (!story.jiraKey) continue;
       const issue = assertIssueRecordPolicy(await getIssue(story.jiraKey, { connection: resolvedConnection, fetchImpl }), policy, `Jira Story '${story.id}'`);
-      const expected = expectedFields(story, { parentKey: epic.jiraKey, initiativeId });
+      const expected = expectedFields(story, {
+        parentKey: story.parentMode === 'external' ? null : epic.jiraKey,
+        initiativeId
+      });
       observations.push({
         type: 'story',
         planId: story.id,

@@ -1202,6 +1202,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return epicReviewStory(root, initiativeId, storyId, { packetSha256 });
   });
   trustedHandle('epic:story-update', async (event, { repository, initiativeId, planId, changes }) => {
+    assertTrustedSender(event);
     const root = assertRepository(repository);
     const [{ updateEpicStory }, { commitInitiativeChange }] = await Promise.all([
       importCliModule('epic-lifecycle.mjs'),
@@ -1215,6 +1216,43 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       `[${initiativeId}][epic:story] update ${planId}`
     );
     return { story: updated.story, publication };
+  });
+  trustedHandle('epic:story-split', async (event, { repository, initiativeId, planId, changes }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ splitEpicStory }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-lifecycle.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const split = await splitEpicStory(root, initiativeId, planId, changes);
+    const publication = await commitInitiativeChange(
+      root,
+      split.portfolio,
+      split.initiative,
+      `[${initiativeId}][epic:story] split ${planId} as ${split.story.planId}`
+    );
+    return { story: split.story, publication };
+  });
+  trustedHandle('epic:story-adopt', async (event, { repository, initiativeId, jiraKey, changes }) => {
+    assertTrustedSender(event);
+    const { root, connection } = await governedInitiativeJiraConnection(repository, initiativeId, { issueKey: jiraKey });
+    const [{ adoptEpicStory }, { commitInitiativeChange }, { getIssue }] = await Promise.all([
+      importCliModule('epic-lifecycle.mjs'),
+      importCliModule('initiative-state.mjs'),
+      importCliModule('jira.mjs')
+    ]);
+    const issue = await getIssue(jiraKey, { connection });
+    if (String(issue.issueType ?? '').toLowerCase() === 'epic') {
+      throw new Error(`Jira ${issue.key} is an Epic. Choose a Story, task, or other delivery issue.`);
+    }
+    const adopted = await adoptEpicStory(root, initiativeId, issue, changes);
+    const publication = await commitInitiativeChange(
+      root,
+      adopted.portfolio,
+      adopted.initiative,
+      `[${initiativeId}][epic:story] adopt ${issue.key} as ${adopted.story.planId}`
+    );
+    return { story: adopted.story, publication };
   });
   trustedHandle('epic:checks', async (event, { repository, initiativeId, storyId, packetSha256 = null }) => {
     assertTrustedSender(event);

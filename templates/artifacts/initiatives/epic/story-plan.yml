@@ -35,6 +35,21 @@ epics:
         # Recommended form: As a <role>, I want <capability>, so that <benefit>.
         description: ""
 
+        # Complete governed Story specification. Planning materializes this
+        # Markdown into stories/STORY-001/story-spec.md and hash-pins it.
+        specification: |
+          ## Purpose and boundary
+
+          ## Components and expected changes
+
+          ## Interfaces, data, security, and observability
+
+          ## Tests and definition of done
+
+          ## Traceability
+
+          - STORY-001.SPEC-001 → REQ-001, AC-001, PSPEC-001
+
         # Allocation from the approved requirements. These IDs are verified.
         requirements: [REQ-001]
         acceptanceCriteria: [AC-001]

@@ -299,7 +299,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Sources/);
   assert.match(source, /PhaseGovernance/);
   assert.match(source, /generated User Stories/);
-  assert.match(source, /High-level solution specification/);
+  assert.match(source, /Parent and Story specifications/);
   assert.match(source, /Select what Jira receives/);
   assert.match(source, /Spec-to-code completion/);
   assert.match(source, /Pinned source versions/);
@@ -615,6 +615,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /configuration:bootstrap-workspace-portfolio/);
   assert.match(main, /workspace:jira-context/);
   assert.match(main, /workspace:jira-epics/);
+  assert.doesNotMatch(main, /phaseId: 'epic-create'/);
+  assert.match(main, /phaseId: 'epic-publish'/);
   assert.match(main, /workspace:jira-route-correct/);
   assert.match(main, /workspace:jira-epic/);
   assert.match(main, /workspace:jira-connect/);
@@ -635,16 +637,17 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(main, /<webview>/);
 });
 
-test('epic start offers world-model generation instead of blocking on it', async () => {
+test('Epic start requires visible world-model generation before Requirements', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
   // epic:start reports the world-model status; it never runs the builder itself.
   assert.match(main, /worldModelRebuildReason/);
   assert.match(main, /worldModel = \{ reason, ready: reason === null \}/);
-  // The renderer offers generation, and lets the user skip.
+  // The renderer offers generation as an observable required step. The rewrite deliberately
+  // removes the skip path because Requirements and Planning are grounded phases.
   assert.match(source, /worldModelOffer/);
   assert.match(source, /Generate world model/);
-  assert.match(source, /Skip for now/);
+  assert.doesNotMatch(source, /Skip for now/);
   // Generation is pushed with the epic branch, so it must not use the local-only path.
   assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
 });
@@ -677,8 +680,8 @@ test('a hand-off frames Copilot Studio on the phase it came from, and the sideba
   // Requirements and Planning both own the shared workspace, framed on whatever phase the
   // initiative is actually on, rather than handing off to the studio.
   assert.match(source, /focus: \{ phase: activePhaseId \}/);
-  assert.match(source, /openPlanning\('epic-plan'\)/);
-  assert.match(source, /openPlanning\('epic-plan'\)/);
+  assert.match(source, /openPlanning\('epic-planning'\)/);
+  assert.match(source, /openPlanning\('epic-planning'\)/);
   assert.match(source, /openPlanning\(phases\[0\]\)/);
 
   // Reaching the studio from the sidebar clears a previous hand-off instead of re-framing it.

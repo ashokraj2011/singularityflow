@@ -98,12 +98,18 @@ contextBridge.exposeInMainWorld('singularity', {
   addEpicSourceUrl: (repository, initiativeId, providerId, url, label, mimeType = 'application/octet-stream') => ipcRenderer.invoke('epic:sources-add-url', {
     repository, initiativeId, providerId, url, label, mimeType
   }),
+  addEpicTextSource: (repository, initiativeId, text, label = null, kind = 'note') => ipcRenderer.invoke('epic:sources-add-text', {
+    repository, initiativeId, text, label, kind
+  }),
   verifyEpicSources: (repository, initiativeId, providerId = null, materialize = true) => ipcRenderer.invoke('epic:sources-verify', {
     repository, initiativeId, providerId, materialize
   }),
   epicReviewInbox: (repository, initiativeId) => ipcRenderer.invoke('epic:review-inbox', { repository, initiativeId }),
   epicReview: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:review', {
     repository, initiativeId, storyId, packetSha256
+  }),
+  updateEpicStory: (repository, initiativeId, planId, changes) => ipcRenderer.invoke('epic:story-update', {
+    repository, initiativeId, planId, changes
   }),
   runEpicChecks: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:checks', {
     repository, initiativeId, storyId, packetSha256

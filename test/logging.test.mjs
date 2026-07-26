@@ -70,11 +70,11 @@ test('redaction survives cycles, depth, and error objects without throwing', () 
 
 test('child loggers inherit bound context so every entry carries its subject', async () => {
   const { gitDirectory, log } = await logger({ context: { command: 'initiative' } });
-  log.child({ initiativeId: 'SF-E1' }).child({ phase: 'epic-plan' }).info('phase.prepared');
+  log.child({ initiativeId: 'SF-E1' }).child({ phase: 'epic-planning' }).info('phase.prepared');
   const [entry] = await entries(gitDirectory);
   assert.equal(entry.command, 'initiative');
   assert.equal(entry.initiativeId, 'SF-E1');
-  assert.equal(entry.phase, 'epic-plan');
+  assert.equal(entry.phase, 'epic-planning');
 });
 
 test('time records the outcome and rethrows the original failure', async () => {

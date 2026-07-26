@@ -3,10 +3,11 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
-  assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
+  addComment, assertJiraConnectionPolicy, assertJiraIssuePolicy, assertJiraProjectPolicy,
   findOrCreateIssue, getIssue, getMyPermissions, listEpicStories,
-  resolveJiraConnection, updateIssue, uploadJiraAttachment
+  resolveJiraConnection, setIssueProperty, updateIssue, uploadJiraAttachment
 } from './jira.mjs';
+import { head } from './git.mjs';
 import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
 } from './initiative-repositories.mjs';
@@ -14,7 +15,7 @@ import {
   loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
 import {
-  SingularityFlowError, nowIso, snapshot, writeJson, writeText
+  SingularityFlowError, nowIso, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function canonical(value) {
@@ -90,7 +91,7 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
   if (!(policy.writePolicy?.operations ?? []).includes(operation.action)) {
     throw new SingularityFlowError(`Jira policy does not permit planned operation '${operation.action ?? ''}'.`);
   }
-  if (!['create-epic', 'create-story', 'update-owned-fields', 'attach-artifact'].includes(operation.action)) {
+  if (!['create-epic', 'create-story', 'update-owned-fields', 'add-comment', 'attach-artifact', 'set-lineage-property'].includes(operation.action)) {
     throw new SingularityFlowError(`Jira write-plan action '${operation.action}' is not implemented by this apply path.`);
   }
   if (!operation.subject || typeof operation.subject !== 'object' || !['epic', 'story'].includes(operation.subject.type)) {
@@ -107,6 +108,23 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
       || !artifact.filename
     ) {
       throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid governed artifact metadata.`);
+    }
+    return operation;
+  }
+  if (operation.action === 'set-lineage-property') {
+    if (
+      operation.subject.type !== 'story'
+      || !/^[A-Za-z0-9._-]{1,255}$/.test(operation.propertyKey ?? '')
+      || !operation.value
+      || operation.value.schemaVersion !== 1
+    ) {
+      throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid Story lineage property data.`);
+    }
+    return operation;
+  }
+  if (operation.action === 'add-comment') {
+    if (operation.subject.type !== 'story' || typeof operation.body !== 'string' || !operation.body.trim()) {
+      throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid Story lineage comment data.`);
     }
     return operation;
   }
@@ -160,13 +178,11 @@ function repositoryRouting(initiative, story, fallbackProjectKey, policy) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-spec')
-    ? 'epic-spec'
-    : initiative.phaseOrder.includes('epic-plan')
-      ? 'epic-plan'
-    : initiative.phaseOrder.includes('elaboration')
-      ? 'elaboration'
-      : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+  return initiative.phaseOrder.includes('epic-planning')
+    ? 'epic-planning'
+      : initiative.phaseOrder.includes('elaboration')
+        ? 'elaboration'
+        : initiative.phaseOrder.includes('plan') ? 'plan' : null;
 }
 
 function artifactMimeType(kind, file) {
@@ -394,6 +410,17 @@ export async function createJiraWritePlan(root, initiativeId, {
   const operations = [];
   const snapshots = {};
   const artifacts = await resolveArtifactSelections(root, portfolio, initiative, artifactSelections);
+  const planning = initiative.phases['epic-planning'];
+  const specificationIndexOutput = planning?.outputs?.['story-specification-index'];
+  let specificationIndex = { stories: [] };
+  if (specificationIndexOutput?.sha256) {
+    const indexFile = await secureInitiativePath(root, portfolio, initiativeId, specificationIndexOutput.path, {
+      label: 'Approved Story specification index',
+      mustExist: true,
+      type: 'file'
+    });
+    specificationIndex = YAML.parse(await readFile(indexFile.absolute, 'utf8')) ?? specificationIndex;
+  }
   for (const epic of breakdown.epics) {
     let epicIssue = null;
     if (epic.jiraKey) {
@@ -463,6 +490,64 @@ export async function createJiraWritePlan(root, initiativeId, {
           }
         });
       }
+      const storySpecification = specificationIndex.stories?.find((entry) => entry.planId === story.planId);
+      const deliveryRepository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories?.[story.repository];
+      const leadRemote = run('git', ['remote', 'get-url', 'origin'], {
+        cwd: root,
+        allowFailure: true
+      });
+      operations.push({
+        id: `lineage-story-${story.id}`,
+        action: 'set-lineage-property',
+        subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: story.jiraKey ?? null },
+        propertyKey: 'com.singularity.flow.lineage',
+        value: {
+          schemaVersion: 1,
+          epic: {
+            id: initiativeId,
+            jiraKey: epic.jiraKey ?? initiative.initiative.source?.key ?? null,
+            branch: initiative.initiative.branch,
+            commit: head(root)
+          },
+          story: {
+            planId: story.planId,
+            repository: story.repository,
+            canonicalBranch: story.workId,
+            suggestedWorkType: story.suggestedWorkType
+          },
+          leadRepository: {
+            url: leadRemote.status === 0 ? leadRemote.stdout.trim() : null,
+            branch: initiative.initiative.branch,
+            commit: head(root)
+          },
+          deliveryRepository: {
+            id: story.repository,
+            url: deliveryRepository?.url ?? null,
+            branch: story.workId
+          },
+          specification: {
+            requirementsSha256: initiative.phases['epic-requirements']?.outputs?.['requirements-specification']?.sha256 ?? null,
+            traceabilitySha256: initiative.phases['epic-requirements']?.outputs?.['requirements-traceability']?.sha256 ?? null,
+            parentSha256: planning?.outputs?.['parent-specification']?.sha256 ?? null,
+            storySha256: storySpecification?.sha256 ?? null
+          }
+        }
+      });
+      operations.push({
+        id: `lineage-comment-story-${story.id}`,
+        action: 'add-comment',
+        subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: story.jiraKey ?? null },
+        body: [
+          'Singularity Flow governed lineage',
+          `Epic: ${initiative.initiative.source?.key ?? initiativeId}`,
+          `Plan ID: ${story.planId}`,
+          `Delivery repository: ${story.repository}`,
+          `Canonical branch: ${story.workId}`,
+          `Lead branch: ${initiative.initiative.branch}@${head(root)}`,
+          `Parent specification: ${planning?.outputs?.['parent-specification']?.sha256 ?? 'unavailable'}`,
+          `Story specification: ${storySpecification?.sha256 ?? 'unavailable'}`
+        ].join('\n')
+      });
     }
   }
   const operationId = (artifact, subject) => {
@@ -640,6 +725,22 @@ export async function applyJiraWritePlan(root, initiativeId, {
         }, { connection: resolvedConnection, fetchImpl });
       }
       result = targetIssue;
+    } else if (operation.action === 'set-lineage-property') {
+      const jiraKey = operation.subject.jiraKey ?? storyKeys[operation.subject.id];
+      if (!jiraKey) throw new SingularityFlowError(`Cannot publish lineage for ${operation.subject.id}: the Story has no Jira key.`);
+      await setIssueProperty(jiraKey, operation.propertyKey, operation.value, {
+        connection: resolvedConnection,
+        fetchImpl
+      });
+      result = await getIssue(jiraKey, { connection: resolvedConnection, fetchImpl });
+    } else if (operation.action === 'add-comment') {
+      const jiraKey = operation.subject.jiraKey ?? storyKeys[operation.subject.id];
+      if (!jiraKey) throw new SingularityFlowError(`Cannot publish lineage comment for ${operation.subject.id}: the Story has no Jira key.`);
+      await addComment(jiraKey, operation.body, {
+        connection: resolvedConnection,
+        fetchImpl
+      });
+      result = await getIssue(jiraKey, { connection: resolvedConnection, fetchImpl });
     } else if (operation.action.startsWith('create-')) {
       const parentKey = operation.subject.type === 'story' ? (operation.parent.jiraKey ?? epicKeys[operation.parent.epicId]) : null;
       if (operation.subject.type === 'story' && !parentKey) throw new SingularityFlowError(`Cannot create ${operation.subject.id}: its parent Epic has no Jira key.`);

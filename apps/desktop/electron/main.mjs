@@ -670,10 +670,36 @@ function registerHandlers() {
           for (const line of lines.slice(-20)) send({ type: 'output', stream, message: line.slice(0, 1000) });
         }
       });
+      let epicIntake = null;
+      try {
+        const [{ branch }, { loadInitiative, commitInitiativeChange }, { completeEpicIntake }] = await Promise.all([
+          importCliModule('git.mjs'),
+          importCliModule('initiative-state.mjs'),
+          importCliModule('epic-lifecycle.mjs')
+        ]);
+        const initiativeId = branch(root);
+        const loaded = await loadInitiative(root, initiativeId);
+        if (loaded.initiative.resolution.profile === 'epic-planning' && loaded.initiative.currentPhase === 'epic-intake') {
+          const completed = await completeEpicIntake(root, initiativeId);
+          const publication = await commitInitiativeChange(
+            root,
+            completed.portfolio,
+            completed.initiative,
+            `[${initiativeId}][epic:intake] repository grounded`
+          );
+          epicIntake = { advanced: true, currentPhase: completed.initiative.currentPhase, publication };
+          send({ type: 'phase', phase: 'advancing', message: 'Repository grounding verified. Intake is complete; Requirements is ready.' });
+        }
+      } catch (error) {
+        // World-model generation is also available outside an Epic branch. Only a
+        // real Epic lifecycle error should be visible; absence of an Epic is normal.
+        if (!/initiative state|Invalid initiative|ENOENT|does not exist/i.test(error?.message ?? '')) throw error;
+      }
       send({ type: 'phase', phase: 'finalizing', message: local ? 'Validating and committing the local world model.' : 'Validating, committing, and pushing the world model with the Epic branch.' });
       const result = await snapshot(root);
-      send({ type: 'complete', phase: 'complete', message: 'World model generated and committed.', result });
-      return result;
+      const response = { ...result, epicIntake };
+      send({ type: 'complete', phase: 'complete', message: epicIntake?.advanced ? 'World model generated. Requirements is ready.' : 'World model generated and committed.', result: response });
+      return response;
     } catch (error) {
       send({ type: 'error', phase: 'error', message: error?.message || String(error) });
       throw error;
@@ -723,7 +749,11 @@ function registerHandlers() {
     planningPacks.set(result.sessionId, {
       repository: root,
       contextPath: result.contextPath,
-      manifestPath: result.manifestPath
+      manifestPath: result.manifestPath,
+      scope,
+      id,
+      phase,
+      persona
     });
     return result;
   });
@@ -741,11 +771,40 @@ function registerHandlers() {
     assertTrustedSender(event);
     return copilotBackend.prompt(assertRepository(repository), planningSessionId, text);
   });
-  trustedHandle('planning:answer', (event, {
+  trustedHandle('planning:answer', async (event, {
     repository, planningSessionId, questionId, content, action
   }) => {
     assertTrustedSender(event);
-    return copilotBackend.answer(assertRepository(repository), planningSessionId, questionId, { content, action });
+    const root = assertRepository(repository);
+    const response = await copilotBackend.answer(root, planningSessionId, questionId, { content, action });
+    const pack = planningPacks.get(planningSessionId);
+    let governance = null;
+    if (
+      pack?.scope === 'initiative'
+      && ['epic-requirements', 'epic-planning'].includes(pack.phase)
+      && action !== 'dismiss'
+      && String(content ?? '').trim()
+    ) {
+      const [{ registerEpicTextSource }, { commitInitiativeChange }] = await Promise.all([
+        importCliModule('epic-sources.mjs'),
+        importCliModule('initiative-state.mjs')
+      ]);
+      const registered = await registerEpicTextSource(root, {
+        initiativeId: pack.id,
+        text: `# Copilot question\n\n${questionId}\n\n# Governed answer\n\n${String(content).trim()}`,
+        label: `Copilot question ${questionId}`,
+        kind: 'question-answer'
+      });
+      const publication = await commitInitiativeChange(
+        root,
+        registered.portfolio,
+        registered.initiative,
+        `[${pack.id}][epic:answer] ${registered.record.sourceId}`,
+        { appendOnly: true }
+      );
+      governance = { sourceId: registered.record.sourceId, publication };
+    }
+    return { ...response, governance };
   });
   trustedHandle('planning:stop', async (event, { repository, planningSessionId }) => {
     assertTrustedSender(event);
@@ -989,6 +1048,25 @@ function registerHandlers() {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
     return { record: result.record, publication };
   });
+  trustedHandle('epic:sources-add-text', async (event, {
+    repository, initiativeId, text, label = null, kind = 'note'
+  }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const [{ registerEpicTextSource }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-sources.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const result = await registerEpicTextSource(root, { initiativeId, text, label, kind });
+    const publication = await commitInitiativeChange(
+      root,
+      result.portfolio,
+      result.initiative,
+      `[${initiativeId}][epic:source] ${result.record.sourceId}`,
+      { appendOnly: true }
+    );
+    return { record: result.record, publication };
+  });
   trustedHandle('epic:sources-verify', async (event, {
     repository, initiativeId, providerId = null, materialize = true
   }) => {
@@ -1009,6 +1087,21 @@ function registerHandlers() {
     const root = assertRepository(repository);
     const { epicReviewStory } = await importCliModule('epic-review.mjs');
     return epicReviewStory(root, initiativeId, storyId, { packetSha256 });
+  });
+  trustedHandle('epic:story-update', async (event, { repository, initiativeId, planId, changes }) => {
+    const root = assertRepository(repository);
+    const [{ updateEpicStory }, { commitInitiativeChange }] = await Promise.all([
+      importCliModule('epic-lifecycle.mjs'),
+      importCliModule('initiative-state.mjs')
+    ]);
+    const updated = await updateEpicStory(root, initiativeId, planId, changes);
+    const publication = await commitInitiativeChange(
+      root,
+      updated.portfolio,
+      updated.initiative,
+      `[${initiativeId}][epic:story] update ${planId}`
+    );
+    return { story: updated.story, publication };
   });
   trustedHandle('epic:checks', async (event, { repository, initiativeId, storyId, packetSha256 = null }) => {
     assertTrustedSender(event);
@@ -1585,16 +1678,27 @@ function registerHandlers() {
       started.initiative,
       `[${epicKey}][epic:init] start ${profile}`
     );
-    // Report a missing or stale world model without blocking: generation runs Copilot and can take
-    // minutes, so the renderer offers it rather than the epic start stalling on it. Building it now
-    // lands the model on the epic branch, where every phase prompt can be grounded in it.
+    // A missing or stale world model is a required next step. Generation runs Copilot and can take
+    // minutes, so the renderer shows the live prompt/log dialog. Intake cannot advance until the
+    // exact model is committed and pushed on the Epic branch.
     let worldModel = null;
     try {
       const { worldModelRebuildReason } = await importCliModule('grounding.mjs');
       const reason = await worldModelRebuildReason(root, definition);
       worldModel = { reason, ready: reason === null };
+      if (reason === null) {
+        const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
+        const completed = await completeEpicIntake(root, epicKey, { persona });
+        const intakePublication = await commitInitiativeChange(
+          root,
+          completed.portfolio,
+          completed.initiative,
+          `[${epicKey}][epic:intake] repository grounded`
+        );
+        worldModel.intake = { advanced: completed.advanced, publication: intakePublication };
+      }
     } catch (error) {
-      worldModel = { reason: null, ready: false, error: error.message };
+      worldModel = { reason: error.message, ready: false, error: error.message };
     }
     return { initiativeId: epicKey, source, publication, worldModel, attachments };
   });
@@ -1729,7 +1833,7 @@ function registerHandlers() {
     const result = await applyJiraWritePlan(root, initiativeId, { planSha256, confirmation, connection, actor });
     await registerInitiativeEvidence(root, {
       initiativeId,
-      phaseId: 'epic-create',
+      phaseId: 'epic-publish',
       checkId: 'jira-permission-verified',
       assurance: 'system-verified',
       verificationMethod: 'jira-permission-preflight-and-apply',

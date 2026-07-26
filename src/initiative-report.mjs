@@ -242,18 +242,16 @@ export async function initiativeNextActions(root, initiativeId) {
       reason: 'Pin the Epic requirements, research, designs, or other source material before generating intake artifacts.'
     }];
   }
-  const materializationPhase = initiative.phaseOrder.includes('epic-spec')
-    ? 'epic-spec'
-    : initiative.phaseOrder.includes('epic-plan')
-      ? 'epic-plan'
+  const materializationPhase = initiative.phaseOrder.includes('epic-planning')
+    ? 'epic-planning'
     : initiative.phaseOrder.includes('elaboration') ? 'elaboration' : 'plan';
   if (initiative.phases[materializationPhase]?.status === 'approved' && initiative.materialization.status !== 'complete') return [{
     action: 'materialize',
     command: initiative.resolution.profile === 'epic-planning'
       ? `singularity-flow epic create-stories --epic ${initiativeId}`
       : `singularity-flow initiative materialize ${initiativeId} --dry-run`,
-    reason: initiative.resolution.profile === 'epic-planning' && initiative.phaseOrder.includes('epic-spec')
-      ? 'The Story plan and high-level specification are approved but Jira Stories and canonical repository branches have not been fully materialized.'
+    reason: initiative.resolution.profile === 'epic-planning'
+      ? 'The combined Story plan and specification package is approved, but Jira Stories and canonical repository branches have not been fully materialized.'
       : 'The Story plan is approved but repository Story branches have not been fully materialized.'
   }];
   if (phase.status === 'in_progress') {

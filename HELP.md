@@ -144,18 +144,23 @@ only when every observed source supplies provider cost.
 New Epics default to the immutable `epic-planning` profile:
 
 ```text
-Epic Intake → Requirements → User Story Plan → High-level Specification → Create Stories
+Intake → Requirements → Planning and specifications → Publish Stories → Delivery review
 ```
 
-In Singularity Desktop, this appears as the simpler five-stage business journey:
+The first four stages are the governed planning lifecycle. Delivery review is
+dashboard state fed by finalized Story branches; it is not another generation
+phase:
 
 ```text
-Sources → Requirements → Planning → Stories → Complete
+Intake → Requirements → Planning → Publish → Delivery
 ```
 
-Planning groups the underlying User Story Plan and High-level Specification
-phases into one reviewable workspace; their hashes and approvals remain
-separate.
+Intake has no document or approval ceremony. The Jira snapshot is enough to
+continue; notes and files are optional. A repository world model matching the
+current source tree is mandatory and generation is visible in the Copilot log.
+Requirements has one approval over requirements, traceability, and impact
+analysis. Planning has one approval over the editable Story list, parent
+specification, and every per-Story specification.
 
 There is **one navigation for every role**. Singularity Desktop previously split
 into a Business experience and an Engineer experience with separate menus, which
@@ -179,8 +184,8 @@ top bar, so both stay visible on every page. Collapse or expand the sidebar with
 ⌘/Ctrl+B.
 
 The Planning screen shows every generated Story with its repository,
-`REQ-nnn`/`AC-nnn` lineage, and dependencies. **Create Stories** requires the
-Story plan and high-level specification to be approved, previews the exact Jira
+`REQ-nnn`/`AC-nnn` lineage, dependencies, pinned workflow, and specification.
+**Publish Stories** requires the combined package to be approved, previews the exact Jira
 and Git operations, and then:
 
 1. Creates or attaches the Jira Story using the reviewed write-plan hash.
@@ -211,11 +216,16 @@ Use the collision-safe Copilot commands:
 ```text
 /sflow-epic-start MOB-100
 /sflow-epic-sources
-/sflow-epic-generate
-/sflow-epic-create-stories
+/sflow-epic-requirements
+/sflow-epic-planning
+/sflow-epic-stories
+/sflow-epic-publish
 /sflow-epic-status
 /sflow-epic-review
+/sflow-story-inbox
+/sflow-story-fetch
 /sflow-story-branch
+/sflow-finalize
 ```
 
 The terminal equivalents are:
@@ -223,13 +233,18 @@ The terminal equivalents are:
 ```bash
 singularity-flow epic start MOB-100
 singularity-flow epic sources add --file requirements.pdf
-singularity-flow epic generate intake
-singularity-flow epic submit intake
-singularity-flow epic generate spec
-singularity-flow epic submit spec
-singularity-flow epic create-stories
-singularity-flow epic create-stories --artifact epic-requirements/requirements-specification --artifact epic-spec/high-level-specification --artifact-to epic
-singularity-flow epic create-stories --plan <exact-sha256>
+singularity-flow epic sources note --text-file meeting-notes.md
+singularity-flow epic requirements prepare
+singularity-flow epic requirements publish
+singularity-flow epic requirements approve
+singularity-flow epic planning prepare
+singularity-flow epic planning publish
+singularity-flow epic planning approve
+singularity-flow epic jira preview --artifact epic-requirements/requirements-specification --artifact epic-planning/parent-specification --artifact-to epic
+singularity-flow epic jira apply --plan <exact-sha256>
+singularity-flow story inbox --assigned-to-me
+singularity-flow story fetch MOB-123 --directory ../mobile
+singularity-flow finalize
 singularity-flow epic review MOB-123
 singularity-flow epic checks MOB-123 --packet <exact-sha256>
 singularity-flow epic merge-plan --epic MOB-100
@@ -311,15 +326,25 @@ singularity-flow story branch create feature/login-ui --parent MOB-123
 singularity-flow story branch attach --parent MOB-123
 singularity-flow story branch status --parent MOB-123
 singularity-flow story submit
+singularity-flow finalize
 singularity-flow story branch promote --parent MOB-123 --mode pr
 ```
 
-A noncanonical branch without an explicit parent is rejected. Submission writes
-and publishes an exact-hash review packet containing lineage, generated
+A noncanonical branch without an explicit parent is rejected. `story fetch`
+accepts repository identity only from the configured workspace, fast-forwards
+the canonical Jira-key branch, verifies the seed and parent/Story specification
+hashes, and starts the workflow pinned by the approved plan. Submission writes
+and publishes an exact-hash phase packet containing lineage, generated
 documents, approved specification inputs, source/test tree hashes, generation
 metadata, model/token records, and branch policy. `pr`, `direct`, and `either`
 completion policies are pinned per repository. Direct promotion is
 fast-forward-only and never force-pushes.
+
+After all configured developer phases are approved, `singularity-flow finalize`
+writes and pushes the finalization packet for Product Owner review. It binds the
+exact source commit/tree, every governed context hash, phase artifact, approval,
+quality result, model, token, and cost record. Finalization never approves or
+promotes the Story.
 
 Product Owners use **Epic workspace → Review** or `epic review`. The isolated
 review checkout discovers published packets across participating repositories
@@ -449,7 +474,7 @@ Two sinks are configured separately, because they have different jobs:
 Raise either for a single command without editing governed configuration:
 
 ```bash
-SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow initiative phase epic-plan
+SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow initiative phase epic-planning
 SINGULARITY_FLOW_LOG_CONSOLE=debug singularity-flow epic merge-plan
 ```
 

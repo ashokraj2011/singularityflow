@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { gitDir, hasRemote, head, identity } from './git.mjs';
@@ -73,6 +73,7 @@ export function validateInitiativeBreakdown(value, portfolio) {
         workId: safeId(value.version === 2 ? (rawStory.workId ?? rawStory.jiraKey ?? id) : id, `Story '${id}' Work ID`),
         title: rawStory.title ?? id,
         description: rawStory.description ?? '',
+        specification: rawStory.specification == null ? '' : String(rawStory.specification),
         requirements: textList(rawStory.requirements, `Story '${id}' requirements`),
         acceptanceCriteria: textList(rawStory.acceptanceCriteria, `Story '${id}' acceptanceCriteria`),
         epicId,
@@ -124,7 +125,7 @@ export function validateInitiativeBreakdown(value, portfolio) {
   return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
 }
 
-// The epic-plan phase asks Copilot, grounded in the committed world model, which repositories and
+// The epic-planning phase asks Copilot, grounded in the committed world model, which repositories and
 // which parts of the system an epic touches. The prompt is grounded but the answer is not checked,
 // so a hallucinated repository or view would flow straight into the breakdown. Every repository
 // named must exist in the portfolio, and every world-model view referenced must exist in the
@@ -220,6 +221,7 @@ export function initiativeBreakdownDocument(breakdown) {
         ...(version === 2 ? { planId: story.planId ?? story.id, workId: story.workId } : { id: story.id }),
         title: story.title,
         ...(story.description ? { description: story.description } : {}),
+        ...(story.specification ? { specification: story.specification } : {}),
         ...(story.requirements?.length ? { requirements: story.requirements } : {}),
         ...(story.acceptanceCriteria.length ? { acceptanceCriteria: story.acceptanceCriteria } : {}),
         repository: story.repository,
@@ -255,10 +257,8 @@ export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-spec')
-    ? 'epic-spec'
-    : initiative.phaseOrder.includes('epic-plan')
-      ? 'epic-plan'
+  return initiative.phaseOrder.includes('epic-planning')
+    ? 'epic-planning'
     : initiative.phaseOrder.includes('elaboration')
       ? 'elaboration'
       : initiative.phaseOrder.includes('plan') ? 'plan' : null;
@@ -339,13 +339,17 @@ function normalizeRemoteUrl(value) {
   return text.replace(/\.git$/, '').replace(/\/+$/, '');
 }
 
+export function sameRepositoryRemote(left, right) {
+  const normalizedLeft = normalizeRemoteUrl(left);
+  return Boolean(normalizedLeft) && normalizedLeft === normalizeRemoteUrl(right);
+}
+
 // True when `repository` is the same repository the initiative (and so the epic branch) lives in.
 export function isLeadRepository(root, repository) {
   if (!hasRemote(root, 'origin')) return false;
   const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
   if (origin.status !== 0) return false;
-  const leadUrl = normalizeRemoteUrl(origin.stdout);
-  return Boolean(leadUrl) && leadUrl === normalizeRemoteUrl(repository?.url);
+  return sameRepositoryRemote(origin.stdout, repository?.url);
 }
 
 function remoteBranchHead(repositoryUrl, branchName, cwd) {
@@ -361,7 +365,11 @@ function parentBranchFor(root, repository, initiative) {
     : repository.defaultBranch;
 }
 
-function storySeed(root, initiative, story, { parentBranch = null, baseCommit = null } = {}) {
+function storySeed(root, initiative, story, {
+  parentBranch = null,
+  baseCommit = null,
+  governedContext = []
+} = {}) {
   const artifacts = [];
   for (const phaseId of initiative.phaseOrder) {
     for (const output of Object.values(initiative.phases[phaseId].outputs)) {
@@ -412,9 +420,81 @@ function storySeed(root, initiative, story, { parentBranch = null, baseCommit = 
       suggestedWorkType: story.suggestedWorkType,
       dependsOn: story.dependsOn
     },
+    governedContext,
     approvedArtifacts: artifacts,
     contracts
   };
+}
+
+async function materializeStoryContext(root, portfolio, initiative, story, target) {
+  // Governed Story specifications belong to the Epic rewrite. Generic initiative
+  // profiles keep using their existing seed contract and must not be forced through
+  // Epic-specific artifact lookup.
+  if (
+    initiative.resolution.profile !== 'epic-planning'
+    || !initiative.phases['epic-planning']
+    || !initiative.phases['epic-requirements']
+  ) return [];
+  const planning = initiative.phases['epic-planning'];
+  const requirements = initiative.phases['epic-requirements'];
+  const indexOutput = planning.outputs['story-specification-index'];
+  const indexFile = await secureInitiativePath(root, portfolio, initiative.initiative.id, indexOutput.path, {
+    label: 'Story specification index',
+    mustExist: true,
+    type: 'file'
+  });
+  const index = YAML.parse(await readFile(indexFile.absolute, 'utf8'));
+  const specification = index?.stories?.find((entry) => entry.planId === story.planId);
+  if (!specification) throw new SingularityFlowError(`Story '${story.planId}' has no approved Story specification.`);
+  const specificationFile = await secureInitiativePath(
+    root,
+    portfolio,
+    initiative.initiative.id,
+    path.posix.join(path.posix.dirname(indexOutput.path), specification.path),
+    { label: `Story specification '${story.planId}'`, mustExist: true, type: 'file' }
+  );
+  const sources = [
+    { id: 'requirements', output: requirements.outputs['requirements-specification'] },
+    { id: 'traceability', output: requirements.outputs['requirements-traceability'] },
+    { id: 'impact-analysis', output: requirements.outputs['impact-analysis'] },
+    { id: 'parent-specification', output: planning.outputs['parent-specification'] },
+    {
+      id: 'story-specification',
+      output: {
+        path: specificationFile.relative,
+        sha256: specification.sha256,
+        bytes: specification.bytes
+      }
+    }
+  ];
+  const contextRoot = path.posix.join('singularity', 'story-context', story.workId);
+  const records = [];
+  for (const item of sources) {
+    const source = await secureRepositoryPath(root, item.output.path, {
+      label: `Governed Story context '${item.id}'`,
+      mustExist: true,
+      type: 'file'
+    });
+    const current = await snapshot(source.absolute);
+    if (current.sha256 !== item.output.sha256) {
+      throw new SingularityFlowError(`Governed Story context '${item.id}' changed after approval.`);
+    }
+    const extension = path.extname(item.output.path) || '.md';
+    const relative = path.posix.join(contextRoot, `${item.id}${extension}`);
+    const destination = await secureRepositoryPath(target, relative, {
+      label: `Materialized Story context '${item.id}'`
+    });
+    await mkdir(path.dirname(destination.absolute), { recursive: true });
+    await writeText(destination.absolute, await readFile(source.absolute, 'utf8'));
+    records.push({
+      id: item.id,
+      path: relative,
+      sourcePath: item.output.path,
+      sha256: current.sha256,
+      bytes: current.size
+    });
+  }
+  return records;
 }
 
 async function materializeStory(root, portfolio, initiative, story, actor) {
@@ -455,9 +535,11 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
   });
   const parentBranch = parentBranchFor(root, repository, initiative);
   const baseCommit = run('git', ['rev-parse', `origin/${parentBranch}`], { cwd: target, allowFailure: true });
+  const governedContext = await materializeStoryContext(root, portfolio, initiative, story, target);
   const seed = storySeed(root, initiative, story, {
     parentBranch,
-    baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null
+    baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null,
+    governedContext
   });
   if (seedPath.exists) {
     const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
@@ -472,7 +554,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     };
     if (YAML.stringify(current) !== YAML.stringify(refreshed)) {
       await writeText(seedPath.absolute, YAML.stringify(refreshed));
-      run('git', ['add', '--', relativeSeed], { cwd: target });
+      run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
       run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Refresh initiative linkage`], { cwd: target });
       const pushed = run('git', ['push', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
       if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
@@ -481,7 +563,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     return { status: 'attached', branch: branchName, commit: remoteHead, seed: relativeSeed };
   }
   await writeText(seedPath.absolute, YAML.stringify(seed));
-  run('git', ['add', '--', relativeSeed], { cwd: target });
+  run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
   run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Link initiative`], { cwd: target });
   const pushed = run('git', ['push', '-u', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
   if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
@@ -861,6 +943,8 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       current.canonicalBranch = workflow.lineage?.canonicalBranch ?? workId;
       current.childBranches = structuredClone(workflow.lineage?.childBranches ?? []);
       current.submissions = structuredClone(workflow.lineage?.submissions ?? []);
+      current.finalizations = structuredClone(workflow.lineage?.finalizations ?? []);
+      current.deliveryStatus = workflow.lineage?.deliveryStatus ?? null;
       current.reviewEvidence = structuredClone(workflow.lineage?.reviewEvidence ?? []);
       current.branchCompletionPolicy = workflow.lineage?.branchCompletionPolicy
         ?? initiative.resolution.repositories?.[story.repository]?.branchCompletionPolicy

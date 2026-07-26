@@ -458,29 +458,30 @@ test('a generated output is rendered from committed state, and an optional one d
   await assert.rejects(() => renderInitiativeGenerator('not-a-generator', '/tmp', {}), /Unknown initiative output generator/);
 });
 
-test('an optional output that was never authored is not treated as a missing input', async () => {
+test('Epic intake is non-authoring and Requirements consumes the pinned source manifest directly', async () => {
   const { validatePortfolio } = await import('../src/initiative-config.mjs');
   const YAMLmod = (await import('yaml')).default;
   const template = YAMLmod.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
   const portfolio = validatePortfolio(template);
   const intake = portfolio.initiativePhases['epic-intake'];
 
-  // source-catalog is generated, so it needs no template; source-gaps is optional, because a
-  // well-evidenced Epic legitimately has none and a file saying "none" is not governance.
+  // source-catalog is generated and optional. Intake has one hard concern only: the repository
+  // world model must match the current source tree.
   const catalog = intake.outputs.find((output) => output.id === 'source-catalog');
-  const gaps = intake.outputs.find((output) => output.id === 'source-gaps');
-  const summary = intake.outputs.find((output) => output.id === 'intake-summary');
   assert.equal(catalog.generator, 'source-catalog');
   assert.equal(catalog.template, null);
   assert.equal(catalog.required, false);
-  assert.equal(gaps.required, false);
-  assert.equal(summary.required, false);
-  assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional']);
+  assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional', 'must']);
 
-  // open-questions still declares the dependency, so traceability holds whenever the artifact
-  // exists — it simply no longer blocks when the optional producer was never authored.
-  const openQuestions = portfolio.initiativePhases['epic-requirements'].outputs.find((output) => output.id === 'open-questions');
-  assert.deepEqual(openQuestions.consumes, ['epic-intake/source-gaps']);
+  const requirements = portfolio.initiativePhases['epic-requirements'];
+  assert.deepEqual(
+    requirements.outputs.map((output) => output.id),
+    ['requirements-specification', 'requirements-traceability', 'impact-analysis']
+  );
+  assert.equal(
+    requirements.checklist.find((check) => check.id === 'material-questions-resolved').requirement,
+    'optional'
+  );
 
   const state = await readFile(path.join(packageRoot, 'src', 'initiative-state.mjs'), 'utf8');
   assert.match(state, /producerOutput\?\.required === false && !producerOutput\.sha256\) continue/);

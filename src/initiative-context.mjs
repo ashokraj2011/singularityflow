@@ -91,7 +91,7 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
 async function epicSourceSections(root, initiative, phase) {
   if (initiative.resolution.profile !== 'epic-planning') return { sections: [], warnings: [] };
   const result = await verifyEpicSources(root, initiative.initiative.id, { materialize: true });
-  const required = ['epic-intake', 'epic-requirements', 'epic-plan'].includes(phase.id);
+  const required = ['epic-requirements', 'epic-planning'].includes(phase.id);
   const failures = result.results.filter((entry) => entry.status !== 'verified');
   if (required && failures.length) {
     throw new SingularityFlowError(`Epic source verification failed:\n- ${failures.map((entry) => `${entry.sourceId}: ${entry.status}${entry.error ? ` (${entry.error})` : ''}`).join('\n- ')}`);

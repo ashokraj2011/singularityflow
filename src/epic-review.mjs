@@ -83,6 +83,20 @@ function latestSubmission(candidates, packetSha256 = null) {
   return submissions[0] ?? null;
 }
 
+function latestFinalizedSubmission(candidates) {
+  const finalized = candidates.flatMap(({ ref, workflow }) =>
+    (workflow.lineage?.finalizations ?? []).map((finalization) => ({ ref, workflow, finalization }))
+  );
+  finalized.sort((left, right) =>
+    String(right.finalization.finalizedAt ?? '').localeCompare(String(left.finalization.finalizedAt ?? ''))
+  );
+  const selected = finalized[0];
+  if (!selected) return null;
+  const submission = (selected.workflow.lineage?.submissions ?? [])
+    .find((entry) => entry.packetSha256 === selected.finalization.reviewPacketSha256);
+  return submission ? { ref: selected.ref, workflow: selected.workflow, submission, finalization: selected.finalization } : null;
+}
+
 async function resolveStory(root, initiativeId, storyReference) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
@@ -100,9 +114,18 @@ async function checkoutSubmission(root, initiativeId, storyReference, packetSha2
   const candidates = candidateRemoteRefs(clone)
     .map((ref) => ({ ref, workflow: workflowAtRef(clone, ref, workId) }))
     .filter((entry) => entry.workflow);
-  const latest = latestSubmission(candidates);
-  const selected = latestSubmission(candidates, packetSha256);
-  if (!selected) throw new SingularityFlowError(`Story '${workId}' has no submitted review packet on any published branch.`);
+  const finalized = latestFinalizedSubmission(candidates);
+  const latest = finalized ?? latestSubmission(candidates);
+  const selected = packetSha256 ? latestSubmission(candidates, packetSha256) : finalized;
+  if (!selected) throw new SingularityFlowError(
+    `Story '${workId}' has no finalized review packet on any published branch. The developer must run singularity-flow finalize.`
+  );
+  if (packetSha256 && finalized?.finalization.reviewPacketSha256 !== packetSha256) {
+    throw new SingularityFlowError(
+      `Review packet '${packetSha256.slice(0, 12)}' is not the packet referenced by the latest developer finalization `
+      + `'${finalized?.finalization.packetSha256?.slice(0, 12) ?? 'missing'}'.`
+    );
+  }
   if (packetSha256 && latest?.submission.packetSha256 !== packetSha256) {
     throw new SingularityFlowError(
       `Review packet '${packetSha256.slice(0, 12)}' is stale. Open the latest submitted packet '${latest.submission.packetSha256.slice(0, 12)}' before deciding.`
@@ -272,9 +295,8 @@ export async function listEpicReviewInbox(root, initiativeId) {
     const candidates = candidateRemoteRefs(clone)
       .map((ref) => ({ ref, workflow: workflowAtRef(clone, ref, workId) }))
       .filter((entry) => entry.workflow);
-    const selected = latestSubmission(candidates);
+    const selected = latestFinalizedSubmission(candidates);
     if (!selected) continue;
-    if (selected.workflow.phases?.[selected.submission.phase]?.status !== 'awaiting_approval') continue;
     items.push({
       planId: story.planId ?? story.id,
       workId,
@@ -284,7 +306,10 @@ export async function listEpicReviewInbox(root, initiativeId) {
       packetSha256: selected.submission.packetSha256,
       phase: selected.submission.phase,
       generation: selected.submission.generation,
-      submittedAt: selected.submission.submittedAt
+      submittedAt: selected.submission.submittedAt,
+      finalizedAt: selected.finalization.finalizedAt,
+      finalizationSha256: selected.finalization.packetSha256,
+      status: 'finalized_for_review'
     });
   }
   return items.sort((left, right) => String(right.submittedAt).localeCompare(String(left.submittedAt)));

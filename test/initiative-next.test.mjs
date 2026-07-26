@@ -97,13 +97,13 @@ test('unknown input is reported rather than thrown, because this renders in a st
 
 test('Epic journey projects the governed phase into a business-friendly stage and CTA', () => {
   const state = {
-    currentPhase: 'epic-plan',
+    currentPhase: 'epic-planning',
     status: 'in_progress',
-    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-plan', 'epic-spec', 'epic-create'],
+    phaseOrder: ['epic-intake', 'epic-requirements', 'epic-planning', 'epic-publish'],
     phases: {
       'epic-intake': { status: 'approved' },
       'epic-requirements': { status: 'approved' },
-      'epic-plan': { status: 'in_progress' }
+      'epic-planning': { status: 'in_progress' }
     }
   };
   const journey = epicJourney(state, [{ action: 'author-and-publish', command: 'singularity-flow initiative phase publish epic-plan', reason: 'Review the Story plan.' }]);

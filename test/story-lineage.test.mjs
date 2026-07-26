@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,4 +95,57 @@ test('registered child branches publish hash-bound review packets and unknown br
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr, /not registered for Story 'MOB-123'/);
   assert.match(blocked.stderr, /story branch attach --parent MOB-123/);
+});
+
+test('finalize binds a completed Story to its governed specifications and exact source tree', async () => {
+  const { root, remote } = await repository();
+  flow(root, ['start', 'MOB-200', '--title', 'Complete mobile login']);
+  const workflowPath = path.join(root, 'singularity/work-items/MOB-200/workflow.json');
+  const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
+  for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
+  workflow.currentPhase = null;
+  workflow.status = 'complete';
+  workflow.lineage.submissions = [{
+    packetSha256: 'a'.repeat(64),
+    phase: 'conformance',
+    generation: 1,
+    submittedAt: '2026-07-26T00:00:00.000Z'
+  }];
+  const contextPath = path.join(root, 'singularity/story-context/MOB-200/story-specification.md');
+  await mkdir(path.dirname(contextPath), { recursive: true });
+  await writeFile(contextPath, '# Story specification\n\nDeliver the approved login behavior.\n');
+  const { createHash } = await import('node:crypto');
+  const context = await readFile(contextPath);
+  const contextSha256 = createHash('sha256').update(context).digest('hex');
+  const seedPath = path.join(root, 'singularity/seeds/MOB-200.yml');
+  await mkdir(path.dirname(seedPath), { recursive: true });
+  await writeFile(seedPath, YAML.stringify({
+    version: 1,
+    initiative: { id: 'MOB-100' },
+    story: { workId: 'MOB-200', jiraKey: 'MOB-200', planId: 'STORY-001' },
+    governedContext: [{
+      id: 'story-specification',
+      path: 'singularity/story-context/MOB-200/story-specification.md',
+      sha256: contextSha256,
+      bytes: context.length
+    }]
+  }));
+  await writeFile(workflowPath, `${JSON.stringify(workflow, null, 2)}\n`);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'Complete governed Story']);
+  git(root, ['push']);
+
+  const result = flow(root, ['finalize']);
+  assert.match(result.stdout, /finalized for Product Owner review/);
+  const finalized = JSON.parse(await readFile(workflowPath, 'utf8'));
+  assert.equal(finalized.lineage.deliveryStatus, 'finalized_for_review');
+  const record = finalized.lineage.finalizations.at(-1);
+  assert.equal(record.reviewPacketSha256, 'a'.repeat(64));
+  assert.match(record.packetSha256, /^[a-f0-9]{64}$/);
+  const packet = JSON.parse(await readFile(path.join(root, record.path), 'utf8'));
+  assert.equal(packet.governedContext[0].verifiedSha256, contextSha256);
+  assert.match(
+    git(root, ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'refs/heads/MOB-200']).stdout,
+    new RegExp(record.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  );
 });

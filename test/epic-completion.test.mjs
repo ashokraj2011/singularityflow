@@ -64,9 +64,15 @@ test('Epic completion requires exact Story review and conformance lineage', asyn
     stale: false,
     milestones: { conformance: true },
     conformance: { status: 'approved', treeSha256: 'b'.repeat(64) },
+    deliveryStatus: 'finalized_for_review',
     submissions: [{
       packetSha256: 'c'.repeat(64),
       submittedAt: '2026-07-24T09:00:00.000Z'
+    }],
+    finalizations: [{
+      packetSha256: 'e'.repeat(64),
+      reviewPacketSha256: 'c'.repeat(64),
+      finalizedAt: '2026-07-24T09:05:00.000Z'
     }],
     reviewEvidence: [{
       packetSha256: 'c'.repeat(64),

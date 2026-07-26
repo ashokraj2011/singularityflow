@@ -7,7 +7,7 @@ import {
   commitAndPublish, loadWorkflow, saveWorkflow, sourceTreeHash, workflowBranchAllowed,
   workflowPublicationBranch, workDir
 } from './state.mjs';
-import { nowIso, run, SingularityFlowError, writeJson } from './util.mjs';
+import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -175,6 +175,128 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
   const { packetSha256: provided, ...base } = packet;
   if (provided !== selected.packetSha256 || hash(base) !== provided) throw new SingularityFlowError('Story review packet hash is invalid.');
   return packet;
+}
+
+export async function finalizeStoryDelivery(root, config, workflow) {
+  const incomplete = workflow.phaseOrder
+    .map((phaseId) => workflow.phases[phaseId])
+    .filter((phase) => phase.status !== 'approved');
+  if (workflow.currentPhase || incomplete.length) {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' cannot be finalized: complete and approve every configured phase first. `
+      + `Incomplete: ${incomplete.map((phase) => `${phase.id}=${phase.status}`).join(', ') || workflow.currentPhase}.`
+    );
+  }
+  if (changes(root).trim()) {
+    throw new SingularityFlowError('Story finalization requires a clean working tree so the packet can bind one exact source commit.');
+  }
+
+  const seedPath = path.join(root, 'singularity', 'seeds', `${workflow.workItem.id}.yml`);
+  let seed = null;
+  try {
+    const YAML = (await import('yaml')).default;
+    seed = YAML.parse(await readFile(seedPath, 'utf8'));
+  } catch {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' has no readable governed seed at singularity/seeds/${workflow.workItem.id}.yml. `
+      + 'Fetch or synchronize the canonical Story branch before finalizing.'
+    );
+  }
+  if (seed?.story?.workId !== workflow.workItem.id) {
+    throw new SingularityFlowError(`Story seed belongs to '${seed?.story?.workId ?? 'unknown'}', not '${workflow.workItem.id}'.`);
+  }
+
+  const governedContext = [];
+  for (const record of seed.governedContext ?? []) {
+    const file = path.join(root, record.path);
+    const current = await snapshot(file);
+    if (!current.exists || current.sha256 !== record.sha256) {
+      throw new SingularityFlowError(
+        `Governed Story input '${record.id}' does not match its approved hash. `
+        + `Expected ${record.sha256}; found ${current.exists ? current.sha256 : 'missing'}. Re-fetch the Story branch.`
+      );
+    }
+    governedContext.push({ ...record, verifiedSha256: current.sha256 });
+  }
+  const phases = workflow.phaseOrder.map((phaseId) => {
+    const phase = workflow.phases[phaseId];
+    return {
+      id: phase.id,
+      generation: phase.generation,
+      status: phase.status,
+      generationCommit: phase.generationCommit ?? null,
+      approvalCommit: phase.approvalCommit ?? null,
+      artifacts: (phase.artifacts ?? []).map((item) => ({
+        path: item.path,
+        sha256: item.sha256 ?? null,
+        size: item.size ?? null
+      })),
+      checks: phase.checks ?? [],
+      usage: phase.usage ?? [],
+      approvals: (phase.approvals ?? []).filter((item) => !item.invalidatedAt)
+    };
+  });
+  const reviewPacket = [...(workflow.lineage?.submissions ?? [])]
+    .reverse()
+    .find((entry) => entry.phase === 'conformance')
+    ?? workflow.lineage?.submissions?.at(-1)
+    ?? null;
+  if (!reviewPacket) {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' has no published phase review packet. Submit the final configured phase before finalizing.`
+    );
+  }
+  const base = {
+    schemaVersion: 1,
+    status: 'finalized_for_review',
+    workId: workflow.workItem.id,
+    epicId: workflow.lineage?.epicId ?? seed.initiative?.id ?? null,
+    planId: workflow.lineage?.planId ?? seed.story?.planId ?? null,
+    jiraIssueId: workflow.lineage?.jiraIssueId ?? seed.story?.jiraIssueId ?? null,
+    jiraKey: workflow.lineage?.currentJiraKey ?? seed.story?.jiraKey ?? workflow.workItem.id,
+    canonicalBranch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch,
+    submittedBranch: workflowPublicationBranch(root, workflow),
+    sourceCommit: head(root),
+    sourceTreeSha256: await sourceTreeHash(root),
+    reviewPacketSha256: reviewPacket.packetSha256,
+    governedContext,
+    phases,
+    finalizedAt: nowIso(),
+    finalizedBy: identity(root)
+  };
+  const packetSha256 = hash(base);
+  const packet = { ...base, packetSha256 };
+  const file = path.join(workDir(root, config, workflow.workItem.id), 'finalizations', `${packetSha256}.json`);
+  await writeJson(file, packet);
+  workflow.lineage ??= {
+    schemaVersion: 1,
+    canonicalBranch: workflow.workItem.branch,
+    parentStoryId: workflow.workItem.id,
+    childBranches: []
+  };
+  workflow.lineage.finalizations ??= [];
+  workflow.lineage.finalizations.push({
+    packetSha256,
+    reviewPacketSha256: reviewPacket.packetSha256,
+    sourceCommit: base.sourceCommit,
+    sourceTreeSha256: base.sourceTreeSha256,
+    branch: base.submittedBranch,
+    path: path.relative(root, file).split(path.sep).join('/'),
+    finalizedAt: base.finalizedAt
+  });
+  workflow.lineage.deliveryStatus = 'finalized_for_review';
+  workflow.history.push({
+    at: base.finalizedAt,
+    actor: base.finalizedBy.email?.toLowerCase() ?? base.finalizedBy.name,
+    event: 'story_finalized_for_review',
+    phase: null,
+    detail: packetSha256
+  });
+  await saveWorkflow(root, config, workflow);
+  return {
+    packet,
+    path: path.relative(root, file).split(path.sep).join('/')
+  };
 }
 
 export async function promoteStoryBranch(root, config, workflow, {

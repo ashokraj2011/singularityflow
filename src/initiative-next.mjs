@@ -27,8 +27,8 @@ import { initiativeOutputRequired } from './initiative-policy.mjs';
 export const EPIC_JOURNEY_STAGES = Object.freeze([
   { id: 'intake', label: 'Intake', phase: 'epic-intake' },
   { id: 'requirements', label: 'Requirements', phase: 'epic-requirements' },
-  { id: 'planning', label: 'Planning', phase: 'epic-plan' },
-  { id: 'stories', label: 'Stories', phase: 'epic-create' },
+  { id: 'planning', label: 'Planning', phase: 'epic-planning' },
+  { id: 'stories', label: 'Stories', phase: 'epic-publish' },
   { id: 'complete', label: 'Complete', phase: null }
 ]);
 
@@ -36,8 +36,8 @@ function epicStageIndex(initiative) {
   if (!initiative) return 0;
   if (initiative.status === 'complete' || initiative.delivery?.status === 'complete') return 4;
   const phase = initiative.currentPhase;
-  if (phase === 'epic-create') return 3;
-  if (phase === 'epic-plan' || phase === 'epic-spec') return 2;
+  if (phase === 'epic-publish') return 3;
+  if (phase === 'epic-planning') return 2;
   if (phase === 'epic-requirements') return 1;
   if (phase === 'epic-intake') return 0;
   const approved = (initiative.phaseOrder ?? []).filter((id) => initiative.phases?.[id]?.status === 'approved');

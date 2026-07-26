@@ -24,12 +24,13 @@ function actorKey(actor) {
 }
 
 function latest(values = []) {
-  return [...values].sort((left, right) => String(left.submittedAt ?? left.recordedAt ?? '')
-    .localeCompare(String(right.submittedAt ?? right.recordedAt ?? ''))).at(-1) ?? null;
+  return [...values].sort((left, right) => String(left.submittedAt ?? left.finalizedAt ?? left.recordedAt ?? '')
+    .localeCompare(String(right.submittedAt ?? right.finalizedAt ?? right.recordedAt ?? ''))).at(-1) ?? null;
 }
 
 function storyReadiness(story, observed) {
   const submission = latest(observed?.submissions);
+  const finalization = latest(observed?.finalizations);
   const evidence = submission
     ? latest((observed?.reviewEvidence ?? []).filter((item) => item.packetSha256 === submission.packetSha256))
     : null;
@@ -45,6 +46,11 @@ function storyReadiness(story, observed) {
     if (!observed.conformance?.treeSha256) problems.push('conformance source/test tree hash is missing');
     if (!submission) problems.push('no hash-bound review packet was submitted');
     else if (!evidence?.ready) problems.push('exact-SHA Product Owner checks are missing or failed');
+    if (!finalization || observed.deliveryStatus !== 'finalized_for_review') {
+      problems.push('developer finalization packet is missing');
+    } else if (finalization.reviewPacketSha256 !== submission?.packetSha256) {
+      problems.push('developer finalization does not reference the latest review packet');
+    }
   }
   return {
     planId: story.planId ?? story.id,
@@ -56,6 +62,7 @@ function storyReadiness(story, observed) {
     problems,
     observedCommit: observed?.observedCommit ?? null,
     packetSha256: submission?.packetSha256 ?? null,
+    finalizationSha256: finalization?.packetSha256 ?? null,
     checkEvidenceSha256: evidence?.evidenceSha256 ?? evidence?.recordSha256 ?? evidence?.sha256 ?? null,
     conformanceTreeSha256: observed?.conformance?.treeSha256 ?? null,
     status: observed?.status ?? 'not_materialized',

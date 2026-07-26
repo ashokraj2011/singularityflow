@@ -340,6 +340,9 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
         stale: story.stale ?? false
       })).sort((left, right) => left.id.localeCompare(right.id))
     : [];
+  const planningPackage = phaseId === 'epic-planning'
+    ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
+    : null;
   const value = {
     initiativeId: initiative.initiative.id,
     phase: phaseId,
@@ -358,6 +361,7 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
     })),
     evidence: evidenceRecords.filter(({ record }) => record.phase === phaseId).map((entry) => entry.sha256).sort(),
     invalidations: invalidations.filter(({ record }) => (record.affected ?? []).some((node) => node.includes(`:${phaseId}/`) || node === `phase:${phaseId}`)).map((entry) => entry.sha256).sort(),
+    storySpecifications: planningPackage?.storySpecifications ?? [],
     contracts,
     children
   };
@@ -424,7 +428,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
 // checked against ground truth before it can be approved: repositories must exist in the portfolio
 // and views must exist in the committed world model. Phases without such an output are unaffected.
 async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
-  const definition = phaseDefinition(initiative, phaseId).outputs.find((output) => output.id === 'repository-map');
+  const definition = phaseDefinition(initiative, phaseId).outputs.find((output) => ['repository-map', 'impact-analysis'].includes(output.id));
   if (!definition) return { errors: [], warnings: [] };
   const output = initiative.phases[phaseId].outputs[definition.id];
   const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
@@ -456,10 +460,16 @@ function declaresCheck(initiative, phaseId, checkId) {
   return phaseDefinition(initiative, phaseId).checklist.some((check) => check.id === checkId);
 }
 
-const TRACEABLE_PHASES = ['epic-requirements', 'epic-plan'];
+const TRACEABLE_PHASES = ['epic-requirements', 'epic-planning'];
 const MACHINE_CHECKS = Object.freeze({
   'epic-requirements': ['requirements-traceable'],
-  'epic-plan': ['stories-traceable', 'repositories-resolved', 'dependencies-acyclic']
+  'epic-planning': [
+    'stories-traceable',
+    'repositories-resolved',
+    'dependencies-acyclic',
+    'story-specifications-complete',
+    'acceptance-criteria-covered'
+  ]
 });
 
 export async function publishInitiativePhase(root, initiativeId, phaseId, { persona = null } = {}) {
@@ -468,6 +478,9 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   const phase = initiative.phases[phaseId];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}.`);
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
+  if (phaseId === 'epic-planning') {
+    await (await import('./epic-lifecycle.mjs')).prepareEpicStorySpecifications(root, initiativeId);
+  }
   const actor = identity(root);
   const nextGeneration = phase.generation + 1;
   const missing = [];
@@ -504,6 +517,12 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
     : null;
   if (traceability?.errors.length) {
     throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
+  }
+  const planningPackage = phaseId === 'epic-planning'
+    ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
+    : null;
+  if (planningPackage && !planningPackage.valid) {
+    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${planningPackage.errors.join('\n- ')}`);
   }
 
   phase.generation = nextGeneration;

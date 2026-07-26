@@ -2655,10 +2655,25 @@ function CopilotCliHandoff({ data, phaseId, title = 'Continue in Copilot CLI', d
       <div><span className="eyebrow">Copilot runs in your terminal</span><h2>{title}</h2><p>{detail ?? 'Open Copilot CLI in the lead repository and run the highlighted skill. The skill reads the committed Singularity state, asks questions there, and commits and pushes its outputs.'}</p></div>
       <Pill tone="good">No desktop session</Pill>
     </header>
-    <div className="cli-handoff-location"><span>Run from</span><code>cd {data.repository.root}</code><button className="ghost compact" onClick={() => copyText(`cd ${data.repository.root}`)}>Copy</button></div>
-    <div className="cli-command-list">{commands.map((command) => <article className={command.primary ? 'primary-command' : ''} key={command.skill}>
-      <div><strong>{command.purpose}</strong><code>{command.skill}</code><small>Shell equivalent: {command.shell}</small></div>
-      <button className={command.primary ? 'primary compact' : 'secondary compact'} onClick={() => copyText(command.skill)}>Copy command</button>
+    <div className="cli-handoff-location">
+      <div><span>Run from</span><p>Open Copilot CLI in this repository first.</p></div>
+      <pre><code>cd {data.repository.root}</code></pre>
+      <button className="secondary compact" onClick={() => copyText(`cd ${data.repository.root}`)}>Copy</button>
+    </div>
+    <div className="cli-command-list">{commands.map((command, commandIndex) => <article className={`cli-command-card ${command.primary ? 'primary-command' : ''}`} key={command.skill}>
+      <header>
+        <span>{command.primary ? 'Recommended next command' : `Optional command ${commandIndex}`}</span>
+        <button className={command.primary ? 'primary compact' : 'secondary compact'} onClick={() => copyText(command.skill)}>Copy</button>
+      </header>
+      <p>{command.purpose}</p>
+      <div className="cli-command-terminal" role="group" aria-label={`Copilot command ${command.skill}`}>
+        <span aria-hidden="true">$</span>
+        <code>{command.skill}</code>
+      </div>
+      <div className="cli-command-equivalent">
+        <span>Shell equivalent</span>
+        <code>{command.shell}</code>
+      </div>
     </article>)}</div>
     <footer><span>After Copilot finishes, return here and press <b>Refresh</b> to see the committed documents, Jira receipts, approvals, and progress.</span></footer>
   </section>;

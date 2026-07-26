@@ -334,27 +334,21 @@ function WorldModelRunDialog({ run, onClose }) {
 function Screensaver({ onExit }) {
   const frameRef = useRef(null);
   const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(true);
   const slide = screensaverSlides[index];
 
   const go = (direction) => setIndex((current) => (current + direction + screensaverSlides.length) % screensaverSlides.length);
-  const select = (nextIndex) => setIndex(nextIndex);
 
   useEffect(() => {
-    if (!playing) return undefined;
-    const timer = setInterval(() => go(1), 9000);
+    const timer = setInterval(() => go(1), 2600);
     return () => clearInterval(timer);
-  }, [playing]);
+  }, []);
 
   useEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') onExit();
       if (event.key === 'ArrowRight') go(1);
       if (event.key === 'ArrowLeft') go(-1);
-      if (event.key === ' ') {
-        event.preventDefault();
-        setPlaying((current) => !current);
-      }
+      if (event.key.toLowerCase() === 'f') toggleFullscreen();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -369,31 +363,14 @@ function Screensaver({ onExit }) {
     }
   }
 
-  return <main className="screensaver-stage" ref={frameRef} aria-label="Singularity Flow screensaver">
-    <img className="screensaver-image active" src={slide.src} alt={slide.title} />
-    {screensaverSlides.map((item) => <img className="screensaver-preload" src={item.src} alt="" aria-hidden="true" key={item.id} />)}
-    <div className="screensaver-shade" />
-    <header className="screensaver-top">
-      <FlowBrand inverse context="Screensaver" />
-      <div className="screensaver-controls">
-        <button type="button" onClick={() => go(-1)} aria-label="Previous slide">‹</button>
-        <button type="button" onClick={() => setPlaying((current) => !current)}>{playing ? 'Pause' : 'Play'}</button>
-        <button type="button" onClick={() => go(1)} aria-label="Next slide">›</button>
-        <button type="button" onClick={toggleFullscreen}>Fullscreen</button>
-        <button type="button" onClick={onExit}>Close</button>
-      </div>
-    </header>
+  return <main className="screensaver-stage" ref={frameRef} aria-label="Singularity Flow screensaver" onDoubleClick={toggleFullscreen}>
+    {screensaverSlides.map((item, itemIndex) => <img className={`screensaver-image ${itemIndex === index ? 'active' : ''}`} src={item.src} alt={itemIndex === index ? item.title : ''} aria-hidden={itemIndex === index ? undefined : 'true'} key={item.id} />)}
+    <button type="button" className="screensaver-exit" onClick={onExit} aria-label="Close screensaver">×</button>
     <section className="screensaver-caption" aria-live="polite">
       <span>{String(index + 1).padStart(2, '0')} / {String(screensaverSlides.length).padStart(2, '0')}</span>
       <h1>{slide.title}</h1>
       <p>{slide.subtitle}</p>
     </section>
-    <nav className="screensaver-filmstrip" aria-label="Screensaver slides">
-      {screensaverSlides.map((item, itemIndex) => <button type="button" className={itemIndex === index ? 'active' : ''} onClick={() => select(itemIndex)} key={item.id}>
-        <img src={item.src} alt="" />
-        <span>{String(itemIndex + 1).padStart(2, '0')}</span>
-      </button>)}
-    </nav>
   </main>;
 }
 

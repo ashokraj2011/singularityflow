@@ -53,19 +53,19 @@ h1, h2, h3, p { text-wrap: pretty; }
 .desktop-crash pre { max-height: 220px; overflow: auto; margin: 24px 0; border: 1px solid var(--line); border-radius: 12px; padding: 14px; color: var(--red-700); background: var(--red-100); font-size: 11px; white-space: pre-wrap; }
 
 .screensaver-stage { width: 100vw; height: 100vh; position: relative; overflow: hidden; color: #102218; background: #fffdf6; isolation: isolate; cursor: none; }
-.screensaver-stage::before { content: ''; position: absolute; inset: auto 0 0; z-index: 2; height: 32vh; background: linear-gradient(0deg, rgba(255,253,246,.96), rgba(255,253,246,.74) 48%, rgba(255,253,246,0)); pointer-events: none; }
+.screensaver-stage::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 2; height: 34vh; background: linear-gradient(180deg, rgba(255,253,246,.96), rgba(255,253,246,.74) 48%, rgba(255,253,246,0)); pointer-events: none; }
 .screensaver-image { width: 100%; height: 100%; display: block; position: absolute; inset: 0; object-fit: contain; object-position: center; opacity: 0; filter: brightness(1.09) contrast(1.04) saturate(1.08); transform: scale(1.004); transition: opacity .62s var(--ease-out), transform 3.2s ease-out; }
 .screensaver-image.active { opacity: 1; transform: scale(1.012); }
-.screensaver-exit { width: 42px; height: 42px; position: absolute; z-index: 5; top: 22px; right: 22px; display: grid; place-items: center; border: 1px solid rgba(16,34,24,.13); border-radius: 999px; color: rgba(16,34,24,.72); background: rgba(255,255,255,.78); box-shadow: 0 12px 32px rgba(16,34,24,.14); opacity: .18; cursor: pointer; backdrop-filter: blur(12px); transition: opacity .18s var(--ease-out), transform .18s var(--ease-out), background .18s var(--ease-out); }
+.screensaver-exit { width: 42px; height: 42px; position: absolute; z-index: 5; top: 22px; left: 22px; display: grid; place-items: center; border: 1px solid rgba(16,34,24,.13); border-radius: 999px; color: rgba(16,34,24,.72); background: rgba(255,255,255,.78); box-shadow: 0 12px 32px rgba(16,34,24,.14); opacity: .18; cursor: pointer; backdrop-filter: blur(12px); transition: opacity .18s var(--ease-out), transform .18s var(--ease-out), background .18s var(--ease-out); }
 .screensaver-stage:hover { cursor: default; }
 .screensaver-stage:hover .screensaver-exit, .screensaver-exit:focus-visible { opacity: 1; }
 .screensaver-exit:hover { background: #fff; transform: scale(1.04); }
-.screensaver-caption { width: min(920px, calc(100vw - 96px)); position: absolute; z-index: 4; left: 48px; bottom: 42px; display: grid; gap: 8px; text-shadow: none; }
+.screensaver-caption { width: min(920px, calc(100vw - 96px)); position: absolute; z-index: 4; top: 42px; right: 48px; display: grid; justify-items: end; gap: 8px; text-align: right; text-shadow: none; }
 .screensaver-caption span { color: #177a4d; font-size: 12px; font-weight: 760; letter-spacing: .18em; text-transform: uppercase; }
 .screensaver-caption h1 { margin: 0; color: #101714; font-family: var(--font-display); font-size: clamp(38px, 5.8vw, 82px); font-weight: 720; letter-spacing: -.045em; line-height: .95; }
 .screensaver-caption p { max-width: 820px; margin: 0; color: rgba(16,23,20,.72); font-family: var(--font-sans); font-size: clamp(18px, 1.7vw, 28px); line-height: 1.28; }
 @media (max-width: 1240px) {
-  .screensaver-caption { width: min(760px, calc(100vw - 64px)); left: 32px; bottom: 30px; }
+  .screensaver-caption { width: min(760px, calc(100vw - 64px)); top: 30px; right: 32px; }
 }
 
 .shell { min-height: 100vh; display: grid; grid-template-columns: 264px minmax(0, 1fr); background: #f4f6f2; }

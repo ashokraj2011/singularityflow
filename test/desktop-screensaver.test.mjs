@@ -35,7 +35,9 @@ test('desktop screensaver presents bright full-screen posters with captions only
   const styles = await readFile(appStyles, 'utf8');
   assert.match(styles, /\.screensaver-image[^{]+{[^}]*object-fit: contain/);
   assert.match(styles, /\.screensaver-image[^{]+{[^}]*brightness\(1\.09\)/);
-  assert.match(styles, /\.screensaver-caption/);
+  assert.match(styles, /\.screensaver-caption[^{]+{[^}]*top: 42px; right: 48px/);
+  assert.match(styles, /\.screensaver-caption[^{]+{[^}]*text-align: right/);
+  assert.match(styles, /\.screensaver-exit[^{]+{[^}]*top: 22px; left: 22px/);
   assert.doesNotMatch(styles, /\.screensaver-filmstrip/);
   assert.doesNotMatch(styles, /\.screensaver-controls/);
 });

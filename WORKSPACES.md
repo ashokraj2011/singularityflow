@@ -125,6 +125,9 @@ singularity-flow workspace create \
   --confirm PAY-100
 
 singularity-flow workspace list
+singularity-flow workspace use PAY-100 --repository platform
+singularity-flow workspace current
+singularity-flow workspace copilot
 singularity-flow workspace open ./workspaces/PAY-100--payments-modernization
 singularity-flow workspace status ./workspaces/PAY-100--payments-modernization
 singularity-flow workspace sync ./workspaces/PAY-100--payments-modernization
@@ -132,6 +135,34 @@ singularity-flow workspace repair ./workspaces/PAY-100--payments-modernization
 singularity-flow workspace documents import ./workspaces/PAY-100--payments-modernization ./requirements.pdf
 singularity-flow workspace forget ./workspaces/PAY-100--payments-modernization
 ```
+
+`workspace use` accepts the workspace ID, exact display name, Jira anchor, or
+full workspace directory. It stores only a machine-local active selection in
+`~/.singularity-flow/active-workspace.json`; it does not check out a branch or
+change Git state. Add `--story MOB-123` to bind the context label explicitly.
+When the selected repository is already on a governed Story branch, the Story ID
+is detected automatically:
+
+```text
+Payments modernization >
+Payments modernization / MOB-123 >
+```
+
+`workspace copilot` launches the installed GitHub Copilot CLI with `-C` set to
+the selected repository and a session name containing the workspace and Story.
+Use `--mode plan` when a planning session is required, or `--dry-run` to inspect
+the exact launch command. GitHub Copilot does not currently expose a supported
+setting for replacing its native `>` input marker, so the text above is shown as
+the Singularity context banner/session name and injected session context. It is
+not a patch to Copilot's own terminal UI.
+
+Inside Copilot, use:
+
+- `/sflow-workspaces` to list saved and active context; and
+- `/sflow-workspace` to choose the workspace, repository, and optional Story.
+
+The switch skill persists the same local selection and scopes later tool calls
+to the selected repository. It never launches a nested Copilot process.
 
 `workspace create` reads Jira using the existing Jira environment connection.
 For an approved offline provisioning script, supply `--site`,
@@ -141,4 +172,6 @@ Offline values are still validated and hierarchy levels below Epic are refused.
 The workspace registry defaults to
 `~/.singularity-flow/workspaces.json`. Corporate launchers can override it with
 `SINGULARITY_FLOW_WORKSPACE_REGISTRY` and can set the default storage root with
-`SINGULARITY_FLOW_WORKSPACE_ROOT`.
+`SINGULARITY_FLOW_WORKSPACE_ROOT`. The active-selection file defaults to
+`~/.singularity-flow/active-workspace.json` and can be overridden with
+`SINGULARITY_FLOW_ACTIVE_WORKSPACE`.

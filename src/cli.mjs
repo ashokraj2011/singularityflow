@@ -142,6 +142,10 @@ import {
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
   workspaceStatus
 } from './workspace.mjs';
+import {
+  activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
+  workspaceRegistryFile
+} from './workspace-context.mjs';
 
 const VERSION = '0.9.0';
 
@@ -308,6 +312,11 @@ Usage:
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
   singularity-flow workspace list [--json]
+  singularity-flow workspace current [--json]
+  singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
+  singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
+    [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
+  singularity-flow workspace prompt [--json]
   singularity-flow workspace open <DIRECTORY> [--json]
   singularity-flow workspace status <DIRECTORY> [--json]
   singularity-flow workspace sync <DIRECTORY> [--json]
@@ -2264,11 +2273,6 @@ async function desktopCommand(positionals, options) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-function workspaceRegistryPath() {
-  return path.resolve(process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
-    || path.join(os.homedir(), '.singularity-flow', 'workspaces.json'));
-}
-
 function optionMap(values, label) {
   const result = {};
   for (const value of values) {
@@ -2302,16 +2306,98 @@ function renderWorkspaceStatus(status) {
 
 async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
-  const registry = workspaceRegistryPath();
+  const registry = workspaceRegistryFile();
+  const selectionFile = activeWorkspaceFile();
   if (subcommand === 'list') {
     const workspaces = await readWorkspaceRegistry(registry);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workspaces, null, 2));
-    return console.log(table(workspaces, [
+    const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false }).catch(() => null);
+    const result = workspaces.map((workspace) => ({
+      ...workspace,
+      active: workspace.id === active?.workspaceId ? 'yes' : ''
+    }));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(table(result, [
+      { key: 'active', label: 'ACTIVE' },
       { key: 'anchorKey', label: 'JIRA' },
       { key: 'anchorType', label: 'TYPE' },
       { key: 'name', label: 'WORKSPACE' },
       { key: 'path', label: 'PATH' }
     ]));
+  }
+  if (subcommand === 'current' || subcommand === 'prompt') {
+    const current = await readActiveWorkspaceContext(selectionFile, registry);
+    if (!current) {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: false }, null, 2));
+      if (subcommand === 'prompt') return console.log('');
+      return console.log('No active workspace. Run singularity-flow workspace use <WORKSPACE>.');
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: true, ...current }, null, 2));
+    if (subcommand === 'prompt') return console.log(workspacePromptLabel(current));
+    console.log(`\n${workspacePromptLabel(current)}`);
+    console.log(`Workspace: ${current.workspacePath}`);
+    console.log(`Repository: ${current.repositoryId} · ${current.repositoryPath}`);
+    console.log(`Branch: ${current.branch ?? '—'}`);
+    console.log(`Story: ${current.storyId ?? '—'}`);
+    return;
+  }
+  if (['use', 'switch'].includes(subcommand)) {
+    const context = await activateWorkspaceContext(registry, selectionFile, positionals[2], {
+      repositoryId: optionString(options, 'repository'),
+      storyId: optionString(options, 'story')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(context, null, 2));
+    console.log(`\nActive context: ${workspacePromptLabel(context)}`);
+    console.log(`Repository: ${context.repositoryPath}`);
+    if (context.repositoryState !== 'ready') {
+      console.log(`Repository state: ${context.repositoryState}. Run workspace repair before starting Copilot.`);
+    }
+    console.log(`Start Copilot here: singularity-flow workspace copilot`);
+    console.log(`Shell directory: cd ${JSON.stringify(context.repositoryPath)}`);
+    return;
+  }
+  if (subcommand === 'copilot') {
+    const reference = positionals[2];
+    const repositoryId = optionString(options, 'repository');
+    const storyId = optionString(options, 'story');
+    let context;
+    if (reference || repositoryId || storyId) {
+      const active = reference ? null : await readActiveWorkspaceContext(selectionFile, registry, { refresh: false });
+      context = await activateWorkspaceContext(registry, selectionFile, reference ?? active?.workspaceId, {
+        repositoryId: repositoryId ?? active?.repositoryId,
+        storyId: storyId ?? active?.storyId
+      });
+    } else {
+      context = await readActiveWorkspaceContext(selectionFile, registry);
+      if (!context) context = await activateWorkspaceContext(registry, selectionFile, null);
+    }
+    if (context.repositoryState !== 'ready') {
+      throw new SingularityFlowError(`Repository '${context.repositoryId}' is ${context.repositoryState}; repair or clone it before starting Copilot.`);
+    }
+    const mode = optionString(options, 'mode', 'interactive');
+    if (!['interactive', 'plan'].includes(mode)) throw new SingularityFlowError('--mode must be interactive or plan.');
+    const sessionName = `${context.workspaceName}${context.storyId ? ` · ${context.storyId}` : ''}`.slice(0, 120);
+    const args = ['-C', context.repositoryPath, '--name', sessionName];
+    if (mode === 'plan') args.push('--mode', 'plan');
+    const launch = {
+      command: 'copilot',
+      args,
+      cwd: context.repositoryPath,
+      prompt: workspacePromptLabel(context),
+      workspace: context.workspaceName,
+      repository: context.repositoryId,
+      story: context.storyId
+    };
+    if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(launch, null, 2));
+    console.log(`\n${launch.prompt}`);
+    console.log(`Starting GitHub Copilot in ${context.repositoryPath}`);
+    const result = run(process.platform === 'win32' ? 'copilot.cmd' : 'copilot', args, {
+      cwd: context.repositoryPath,
+      stdio: 'inherit',
+      allowFailure: true
+    });
+    if (result.error) throw new SingularityFlowError(`Unable to start GitHub Copilot: ${result.error.message}`);
+    if (result.status !== 0) throw new SingularityFlowError(`GitHub Copilot exited with status ${result.status}.`);
+    return;
   }
   if (subcommand === 'create') {
     const jiraKey = optionString(options, 'jira');

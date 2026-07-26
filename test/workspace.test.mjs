@@ -11,6 +11,10 @@ import {
   rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceStatus
 } from '../src/workspace.mjs';
+import {
+  activateWorkspaceContext, buildWorkspaceContext, readActiveWorkspaceContext, resolveWorkspaceReference,
+  workspacePromptLabel
+} from '../src/workspace-context.mjs';
 import { run } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -204,6 +208,69 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   entries = await readWorkspaceRegistry(registry);
   assert.deepEqual(entries, []);
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+});
+
+test('active workspace context resolves friendly references and adds governed Story identity', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-context-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await remoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+
+  const lead = created.status.leadRepositoryPath;
+  run('git', ['checkout', '-b', 'MOB-123'], { cwd: lead });
+  await mkdir(path.join(lead, 'singularity', 'work-items', 'MOB-123'), { recursive: true });
+  await writeFile(path.join(lead, 'singularity', 'work-items', 'MOB-123', 'state.json'), JSON.stringify({
+    workItem: { id: 'MOB-123' }
+  }));
+
+  const byKey = await resolveWorkspaceReference(registry, 'pay-100');
+  assert.equal(byKey.id, created.workspace.id);
+  const preview = await buildWorkspaceContext(registry, created.workspace.name);
+  assert.equal(preview.repositoryId, 'platform');
+  assert.equal(preview.storyId, 'MOB-123');
+  assert.equal(workspacePromptLabel(preview), `${created.workspace.name} / MOB-123 >`);
+
+  const active = await activateWorkspaceContext(registry, selection, created.workspace.id, { storyId: 'MOB-999' });
+  assert.equal(active.storyId, 'MOB-999');
+  assert.equal((await readActiveWorkspaceContext(selection, registry)).prompt, `${created.workspace.name} / MOB-999 >`);
+  await assert.rejects(() => buildWorkspaceContext(registry, created.workspace.id, { repositoryId: 'missing' }), /not part of workspace/);
+});
+
+test('workspace Copilot launcher dry-run uses the selected repository and session name', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-copilot-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await remoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+  };
+
+  let result = spawnSync(process.execPath, [cli, 'workspace', 'use', 'PAY-100', '--story', 'MOB-321', '--json'], {
+    cwd: root, env, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).storyId, 'MOB-321');
+
+  result = spawnSync(process.execPath, [cli, 'workspace', 'copilot', '--mode', 'plan', '--dry-run'], {
+    cwd: root, env, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const launch = JSON.parse(result.stdout);
+  assert.equal(launch.cwd, created.status.leadRepositoryPath);
+  assert.deepEqual(launch.args.slice(0, 2), ['-C', created.status.leadRepositoryPath]);
+  assert.ok(launch.args.includes('--name'));
+  assert.deepEqual(launch.args.slice(-2), ['--mode', 'plan']);
+  assert.equal(launch.prompt, `${created.workspace.name} / MOB-321 >`);
 });
 
 test('workspace editing updates Jira routing and metadata while archive remains recoverable', async () => {

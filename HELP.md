@@ -582,11 +582,24 @@ Useful diagnostics:
 
 ```bash
 singularity-flow workspace list
+singularity-flow workspace use <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
+singularity-flow workspace current
+singularity-flow workspace prompt
+singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY] [--mode plan]
 singularity-flow workspace status <DIRECTORY>
 singularity-flow workspace sync <DIRECTORY>
 singularity-flow workspace repair <DIRECTORY>
 singularity-flow workspace documents <DIRECTORY>
 ```
+
+`workspace use` records a machine-local active workspace and repository. The
+context label is `<workspace> >`, or `<workspace> / <story> >` on a governed
+Story branch or when `--story` is supplied. `workspace copilot` starts GitHub
+Copilot in the selected repository using that workspace/Story as the Copilot
+session name. Copilot's native `>` input marker is not configurable; Singularity
+shows the label as a launch banner and supplies it to the session hook as
+governed context. In Copilot, `/sflow-workspaces` lists contexts and
+`/sflow-workspace` switches them without launching a nested process.
 
 For creation, offline provisioning, recovery, and safety details, open
 `WORKSPACES.md`.
@@ -1630,7 +1643,7 @@ singularity-flow migrate-config
 singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
 singularity-flow logs path|level
 singularity-flow home [--json]
-singularity-flow workspace list|add|remove|use
+singularity-flow workspace list|current|use|prompt|copilot
 singularity-flow story branch create|attach|status|promote
 singularity-flow story submit
 singularity-flow initiative start|resume|phase|context|documents|checklist

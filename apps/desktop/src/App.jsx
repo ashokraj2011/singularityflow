@@ -857,11 +857,11 @@ function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onS
   </section>;
 }
 
-function DesignerModal({ title, detail, children, submitLabel, danger = false, error, onCancel, onSubmit }) {
+function DesignerModal({ title, detail, children, submitLabel, danger = false, submitDisabled = false, error, onCancel, onSubmit }) {
   return <div className="modal-backdrop" onClick={onCancel}><form className="designer-modal" onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
     <header><div><span className="eyebrow">Guided configuration</span><h2>{title}</h2></div><button type="button" onClick={onCancel}>×</button></header>
     <div className="designer-modal-body">{detail && <p>{detail}</p>}{children}{error && <div className="form-error" role="alert">{error}</div>}</div>
-    <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit" className={danger ? 'danger-button' : 'primary'}>{submitLabel}</button></footer>
+    <footer><button type="button" className="secondary" onClick={onCancel}>Cancel</button><button type="submit" className={danger ? 'danger-button' : 'primary'} disabled={submitDisabled}>{submitLabel}</button></footer>
   </form></div>;
 }
 
@@ -3858,6 +3858,19 @@ function EpicPlanningPage({ data, action, reload, openPlanningPrompt, profileRol
 function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio, openPlanning, setupJira, generateWorldModel, openEpic, localRole, jiraAccount, entryTab = null, onAllEpics = null, reportProblem = null, onStagePage = null }) {
   const [tab, setTab] = useState('intake');
   const [materializationModal, setMaterializationModal] = useState(null);
+  // Starting again keeps the branch, the identity, the pinned sources and the world model; only
+  // this attempt's artifacts go. The typed ID is the same bar the CLI sets, for the same reason.
+  const [restartModal, setRestartModal] = useState(null);
+  async function restartEpic() {
+    if (restartModal.confirmation.trim() !== selected.state.initiative.id) return;
+    const result = await action(
+      () => window.singularity.restartInitiative(data.repository.root, selected.state.initiative.id, restartModal.confirmation.trim(), restartModal.reason.trim() || null),
+      `${selected.state.initiative.id} restarted at its first phase`
+    );
+    if (!result) return;
+    setRestartModal(null);
+    await reload(undefined, selected.state.initiative.id);
+  }
   const [repositoryModal, setRepositoryModal] = useState(null);
   const [jiraArtifacts, setJiraArtifacts] = useState({});
   const [artifactDestination, setArtifactDestination] = useState('epic');
@@ -4064,6 +4077,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       {/* Selecting an Epic replaces the Epic list with this workspace, so without these the list
           and the start wizard are only reachable by blanking the top-bar Epic selector. */}
       <button className="ghost compact" onClick={() => onAllEpics()}>← All Epics</button>
+      {selected && <button className="ghost compact" onClick={() => setRestartModal({ confirmation: '', reason: '' })} title="Return this Epic to its first phase on the same branch">↺ Start again</button>}
       <button className="secondary compact" onClick={() => onAllEpics('new')}>＋ New Epic</button>
       <button className={`ghost compact ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab(tab === 'configuration' ? (selected?.journey?.stage === 'stories' ? 'publish' : selected?.journey?.stage ?? 'intake') : 'configuration')}>⚙ Configuration</button>
     </div>}</div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
@@ -4117,6 +4131,19 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       </div>
     </>}
     {repositoryModal && <DesignerModal title="Add a participating repository" detail="Application identity and custom key/value pairs are stored as governed Git metadata under repositories.<id>.metadata in singularity/portfolio.yml." submitLabel="Add to YAML draft" error={repositoryModal.error} onCancel={() => setRepositoryModal(null)} onSubmit={addRepository}><div className="modal-grid"><label><span>Repository ID</span><input autoFocus value={repositoryModal.values.id} placeholder="mobile" onChange={(event) => repositoryField('id', event.target.value)} /></label><label><span>Application ID</span><input value={repositoryModal.values.appId} placeholder="APP-1001" onChange={(event) => repositoryField('appId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={repositoryModal.values.name} placeholder="Mobile application" onChange={(event) => repositoryField('name', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={repositoryModal.values.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => repositoryField('url', event.target.value)} /></label><label><span>Default branch</span><input value={repositoryModal.values.defaultBranch} onChange={(event) => repositoryField('defaultBranch', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={repositoryModal.values.required} onChange={(event) => repositoryField('required', event.target.checked)} />Required for initiative delivery</label></div><div className="repository-metadata-fields"><header><div><strong>Custom metadata</strong><span>Examples: owner, businessUnit, costCenter, criticality.</span></div><button type="button" className="ghost compact" onClick={() => repositoryField('metadata', [...repositoryModal.values.metadata, { key: '', value: '' }])}>＋ Add field</button></header>{repositoryModal.values.metadata.map((entry, index) => <div key={index}><input aria-label={`Repository metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => repositoryMetadataField(index, 'key', event.target.value)} /><input aria-label={`Repository metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => repositoryMetadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" aria-label={`Remove repository metadata ${index + 1}`} onClick={() => repositoryField('metadata', repositoryModal.values.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}</div></DesignerModal>}
+    {restartModal && <DesignerModal
+      title={`Start ${selected.state.initiative.id} again?`}
+      detail={`This returns the Epic to its first phase and discards this attempt's artifacts. It stays on branch ${selected.state.initiative.branch}: the Epic identity, the pinned sources and the repository world model are kept, and this attempt stays on the record. The phase shape is resolved again from current configuration.`}
+      submitLabel="Start again"
+      danger
+      submitDisabled={restartModal.confirmation.trim() !== selected.state.initiative.id}
+      onCancel={() => setRestartModal(null)}
+      onSubmit={restartEpic}
+    >
+      <label><span>Why</span><input value={restartModal.reason} onChange={(event) => setRestartModal({ ...restartModal, reason: event.target.value })} placeholder="Recorded with the restart" /></label>
+      <label><span>Type {selected.state.initiative.id} to confirm</span><input value={restartModal.confirmation} onChange={(event) => setRestartModal({ ...restartModal, confirmation: event.target.value })} placeholder={selected.state.initiative.id} /></label>
+      {restartModal.confirmation.trim() && restartModal.confirmation.trim() !== selected.state.initiative.id && <small className="field-error">That is not {selected.state.initiative.id}.</small>}
+    </DesignerModal>}
     {materializationModal && <DesignerModal title={`Create stories for ${state.initiative.id}?`} detail="This applies the exact reviewed Jira plan, uploads the selected hash-bound artifacts, adopts returned Jira keys as immutable Work IDs, creates one canonical branch per Story, writes governed seeds and approved Epic inputs, and publishes every receipt. It is resumable and never force-pushes." submitLabel="Create Jira & Git stories" onCancel={() => setMaterializationModal(null)} onSubmit={materializeStories}><div className="materialization-preview"><div><span>Epics</span><strong>{materializationModal.preview.epics}</strong></div><div><span>Stories</span><strong>{materializationModal.preview.stories.length}</strong></div><div><span>Repositories</span><strong>{Object.keys(materializationModal.preview.repositories).length}</strong></div><div><span>Selected artifacts</span><strong>{materializationModal.writePlan?.artifacts?.length ?? 0}</strong></div></div>{materializationModal.writePlan && <><div className="notice neutral"><strong>Exact Jira Story and artifact plan</strong><br />Plan hash: <code>{materializationModal.writePlan.sha256}</code><br />Source breakdown: <code>{materializationModal.writePlan.source.breakdownSha256}</code></div>{materializationModal.writePlan.artifacts?.length > 0 && <div className="jira-modal-artifacts">{materializationModal.writePlan.artifacts.map((artifact) => <div key={artifact.reference}><span><strong>{artifact.label}</strong><small>{artifact.filename}</small></span><code>{artifact.sha256.slice(0, 12)}</code><Pill>{artifact.targets.join(' + ')}</Pill></div>)}</div>}</>}<label><span>Type the Epic ID to confirm the exact plan</span><input autoFocus value={materializationModal.confirmation} placeholder={state.initiative.id} onChange={(event) => setMaterializationModal({ ...materializationModal, confirmation: event.target.value })} /></label>{materializationModal.confirmation !== state.initiative.id && <div className="notice warn">Exact confirmation required: <code>{state.initiative.id}</code></div>}</DesignerModal>}
   </div>;
 }

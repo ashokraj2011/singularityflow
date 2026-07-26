@@ -846,6 +846,18 @@ function registerHandlers() {
       savedStatus: entry.status
     };
   });
+  trustedHandle('initiative:restart', async (event, { repository, initiativeId, confirmation, reason = null }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    // The typed confirmation is checked here rather than in the renderer: the engine's own guard is
+    // a CLI prompt, and an IPC caller must clear the same bar before anything is discarded.
+    if (String(confirmation ?? '').trim() !== initiativeId) throw new Error(`Type ${initiativeId} exactly to restart it.`);
+    const { restartInitiative, loadInitiative, commitInitiativeChange } = await importCliModule('initiative-state.mjs');
+    await restartInitiative(root, initiativeId, { reason });
+    const state = await loadInitiative(root, initiativeId);
+    await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
+    return snapshot(root, null, initiativeId);
+  });
   trustedHandle('initiative:outputs-select', async (event, { repository, initiativeId, phaseId, outputIds, reason = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);

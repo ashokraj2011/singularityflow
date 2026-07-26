@@ -1425,3 +1425,25 @@ test('an Epic picks its documents from the Artifacts pane, and the change is gov
   assert.match(app, /disabled=\{choice\.required \|\| choice\.authored\}/);
   assert.match(app, /disabled=\{!outputReason\.trim\(\)\} onClick=\{applyOutputChoice\}/);
 });
+
+test('starting an Epic again is confirmed by its ID, at both layers', async () => {
+  // A destructive action gated only by a warning is not gated: the first build warned "that is not
+  // EPIC-1" and submitted EPIC-2 anyway. The main process is the guarantee, the disabled button is
+  // the courtesy, and the handler refuses in between.
+  const app = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  const preload = await readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8');
+
+  assert.match(preload, /restartInitiative:/);
+  const handler = main.slice(main.indexOf("trustedHandle('initiative:restart'"));
+  assert.match(handler.slice(0, 1200), /String\(confirmation \?\? ''\)\.trim\(\) !== initiativeId/);
+  assert.match(handler.slice(0, 1200), /restartInitiative\(root, initiativeId, \{ reason \}\)/);
+  // Nothing about what survives a restart is decided here; that belongs to the engine.
+  assert.doesNotMatch(handler.slice(0, 1200), /world-model|artifacts/);
+
+  assert.match(app, /submitDisabled=\{restartModal\.confirmation\.trim\(\) !== selected\.state\.initiative\.id\}/);
+  assert.match(app, /async function restartEpic\(\) \{\s*if \(restartModal\.confirmation\.trim\(\) !== selected\.state\.initiative\.id\) return;/);
+  assert.match(app, /submitDisabled = false/);
+  // The modal states what is kept, because that is the whole reason to restart instead of delete.
+  assert.match(app, /the Epic identity, the pinned sources and the repository world model are kept/);
+});

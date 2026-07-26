@@ -150,3 +150,39 @@ test('canonical ids pass through normalization unchanged', () => {
     assert.equal(normalizeNextActionIdRef(id), id, `${id} must be stable under normalization`);
   }
 });
+
+test('a non-Epic-planning profile gets a journey built from its own phases', async () => {
+  // The journey was withheld from every profile but epic-planning, so the delivery workspace
+  // showed artifacts and lineage but never where the work stood or what to do next — and the Epic
+  // could not be told apart from one that had not been started.
+  const { epicJourney } = await import('../src/initiative-next.mjs');
+  const state = {
+    initiative: { id: 'KAN-8', profile: 'enterprise-delivery' },
+    currentPhase: 'design-iterate',
+    status: 'in_progress',
+    phaseOrder: ['discover-define', 'design-iterate', 'inception', 'construction'],
+    phases: {
+      'discover-define': { label: 'Discover & Define', status: 'approved' },
+      'design-iterate': { label: 'Design & Iterate', status: 'in_progress' },
+      inception: { label: 'Inception', status: 'not_started' },
+      construction: { label: 'Construction', status: 'not_started' }
+    }
+  };
+  const journey = epicJourney(state, [{ action: 'prepare', phaseId: 'design-iterate', reason: 'Create the configured output documents.' }]);
+
+  assert.equal(journey.stage, 'design-iterate');
+  assert.equal(journey.stageLabel, 'Design & Iterate');
+  assert.equal(journey.activeStep, 1);
+  assert.deepEqual(journey.stages.map((stage) => stage.id), ['discover-define', 'design-iterate', 'inception', 'construction', 'complete']);
+  assert.deepEqual(journey.stages.map((stage) => stage.status), ['complete', 'current', 'upcoming', 'upcoming', 'upcoming']);
+  assert.equal(journey.completionPercent, 25);
+  // The action carries the real phase, so the workspace it opens is the one the work is in.
+  assert.equal(journey.nextAction.phaseId, 'design-iterate');
+  assert.equal(journey.nextAction.label, 'Open Design & Iterate workspace');
+
+  // A completed one reports rather than asking for status.
+  const done = epicJourney({ ...state, status: 'complete', currentPhase: null }, []);
+  assert.equal(done.stage, 'complete');
+  assert.equal(done.completionPercent, 100);
+  assert.equal(done.nextAction.id, 'report');
+});

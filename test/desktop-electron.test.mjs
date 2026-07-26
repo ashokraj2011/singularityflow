@@ -678,6 +678,29 @@ test('epic start requires world-model generation before requirements', async () 
   assert.match(source, /setWorldModelError/);
 });
 
+test('every Epic is reachable and states where its work stands', async () => {
+  // KAN-8 is an enterprise-delivery Epic. The top-bar Epic selector filtered to epic-planning, so
+  // the only control that switches Epics could not switch to it; and the journey was withheld from
+  // its profile, so the workspace never said which phase it was in or what came next. Open, and
+  // no way to tell where you were or how to carry on.
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  assert.doesNotMatch(source, /data\.initiatives\.filter\(\(item\) => item\.profile === 'epic-planning'\)/);
+  assert.match(source, /aria-label="Epic"[\s\S]{0,400}\{data\.initiatives\.map/);
+  // The Epic list itself filtered the same way, so this Epic was in no list anywhere: the page
+  // showed its empty state and offered to start work that already existed.
+  assert.match(source, /const epics = data\.initiatives;/);
+
+  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
+  assert.doesNotMatch(desktop, /journey: initiative\.resolution\.profile === 'epic-planning'/);
+  assert.match(desktop, /journey: epicJourney\(initiative, nextActions\)/);
+
+  // A stage named after one of this initiative's own phases opens that phase's workspace; setting
+  // a tab that does not exist is the dead-button pattern again.
+  const studio = source.slice(source.indexOf('function InitiativeStudio('));
+  assert.match(studio, /selected\?\.state\.phaseOrder\?\.includes\(stage\)\) return void openPlanning\?\.\(stage\)/);
+  assert.match(studio, /!epicStage && selected\?\.state\.phaseOrder\?\.includes\(phaseId\)\) return void openPlanning\?\.\(phaseId\)/);
+});
+
 test('an Epic that already exists is opened from the wizard, not started again', async () => {
   // Selecting an Epic that already had a branch called epic:start, which fails with "KAN-8 already
   // exists. Use singularity-flow initiative resume KAN-8." — a CLI command the desktop has no way

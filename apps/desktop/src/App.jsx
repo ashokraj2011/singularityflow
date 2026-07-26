@@ -2610,7 +2610,9 @@ function EpicJourneyRail({ journey, onSelect, onNext, ownsPhase = null }) {
       </React.Fragment>)}
     </div>
     <div className="epic-journey-next">
-      <span><small>{journey.completionPercent}% complete</small><strong>{ownedHere ? `You are here · ${journey.stageLabel ?? 'this phase'}` : journey.nextAction.label}</strong></span>
+      {/* Where the work stands, next to what to do about it. Printing the action in both places
+          said the same sentence twice and never answered the first question. */}
+      <span><small>{journey.completionPercent}% complete</small><strong>{ownedHere ? `You are here · ${journey.stageLabel ?? 'this phase'}` : `In ${journey.stageLabel ?? 'setup'}`}</strong></span>
       {onNext && !ownedHere && journey.nextAction.id !== 'status' && <button type="button" className="primary compact" onClick={() => onNext(journey.nextAction)}>{journey.nextAction.label}</button>}
     </div>
   </section>;
@@ -3342,7 +3344,10 @@ function EpicsHome({ data, action, reload, openEpic, generateWorldModel, onSetup
   // "New Epic" from inside an Epic workspace clears the selection and lands here; honour that
   // intent by opening the wizard directly instead of dropping the user on the list.
   const [starting, setStarting] = useState(Boolean(startNew));
-  const epics = data.initiatives.filter((item) => item.profile === 'epic-planning');
+  // Every initiative, whatever its delivery profile. Filtering to epic-planning meant an Epic
+  // like an enterprise-delivery one appeared in no list anywhere: this page showed an empty state
+  // and offered to start it, which the engine then refused because it already existed.
+  const epics = data.initiatives;
   async function refreshEpics() {
     const result = await action(
       () => window.singularity.refreshInitiatives(data.repository.root),
@@ -3357,7 +3362,7 @@ function EpicsHome({ data, action, reload, openEpic, generateWorldModel, onSetup
     <section className="epic-card-grid">{epics.map((item) => {
       const waitingMs = item.waitingSince ? Date.now() - Date.parse(item.waitingSince) : null;
       return <button className="epic-home-card" key={item.id} onClick={() => openEpic(item.id)}>
-        <header><span><code>{item.id}</code><Pill tone={item.idAuthority === 'jira' ? 'accent' : 'neutral'}>{item.idAuthority}</Pill></span><Pill tone={item.status === 'complete' ? 'good' : item.currentPhaseStatus === 'awaiting_approval' ? 'warn' : 'neutral'}>{epicStageLabel(item)}</Pill></header>
+        <header><span><code>{item.id}</code><Pill tone={item.idAuthority === 'jira' ? 'accent' : 'neutral'}>{item.idAuthority}</Pill>{item.profileLabel && <Pill tone="neutral">{item.profileLabel}</Pill>}</span><Pill tone={item.status === 'complete' ? 'good' : item.currentPhaseStatus === 'awaiting_approval' ? 'warn' : 'neutral'}>{epicStageLabel(item)}</Pill></header>
         <h2>{item.title}</h2>
         <p>{item.currentPhaseStatus === 'awaiting_approval' ? `Waiting for approval in ${item.currentPhaseLabel}` : `Currently in ${item.currentPhaseLabel ?? 'setup'}`}{Number.isFinite(waitingMs) ? ` · ${formatDuration(waitingMs)}` : ''}</p>
         <div className="epic-home-progress"><i><b style={{ width: `${item.percentage ?? 0}%` }} /></i><span>{item.percentage ?? 0}%</span></div>
@@ -3972,16 +3977,22 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     // here opened a second, older Requirements screen for the same phase, so which UI you got
     // depended on whether you arrived from the rail or the sidebar.
     if (onStagePage && ['requirements', 'planning', 'stories'].includes(stage)) return void onStagePage(stage);
+    // Only Epic planning has business stages that map to tabs here. Every other profile names its
+    // stages after its own phases, and each of those opens the phase workspace — without this the
+    // rail set a tab that does not exist and the click did nothing at all.
+    if (stage !== 'complete' && selected?.state.phaseOrder?.includes(stage)) return void openPlanning?.(stage);
     setTab({ intake: 'intake', complete: 'complete' }[stage] ?? 'intake');
   }
   function focusJourneyPhase(phaseId) {
-    const stage = {
+    const epicStage = {
       'epic-intake': 'intake',
       'epic-requirements': 'intake',
       'epic-plan': 'planning',
       'epic-spec': 'planning',
       'epic-create': 'publish'
-    }[phaseId] ?? selected?.journey?.stage ?? 'intake';
+    }[phaseId];
+    if (!epicStage && selected?.state.phaseOrder?.includes(phaseId)) return void openPlanning?.(phaseId);
+    const stage = epicStage ?? selected?.journey?.stage ?? 'intake';
     if (onStagePage && ['requirements', 'planning', 'stories'].includes(stage)) {
       onStagePage(stage);
       return;
@@ -5006,7 +5017,7 @@ export default function App() {
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
-    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{data.initiatives.filter((item) => item.profile === 'epic-planning').map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><CopilotServiceControl repository={data.repository.root} notify={setToast} /><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={publish} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt copilotHealth={copilotHealth} onCopilotRetry={refreshCopilotHealth}
         reason={data.worldModel.rebuildReason}
         busy={busy || worldModelRun?.status === 'running'}

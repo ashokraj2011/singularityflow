@@ -220,7 +220,9 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
     phaseGate,
     contracts: await interfaceContractStatus(root, initiativeId),
     nextActions,
-    journey: initiative.resolution.profile === 'epic-planning' ? epicJourney(initiative, nextActions) : null,
+    // Every profile gets a journey. Withholding it from the others is what left the delivery
+    // workspace with no statement of where the work stood or what to do next.
+    journey: epicJourney(initiative, nextActions),
     sources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'

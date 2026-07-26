@@ -665,6 +665,17 @@ test('epic start requires world-model generation before requirements', async () 
   assert.doesNotMatch(source, /onDismiss=\{\(\) => setWorldModelDismissed/);
   // Generation is pushed with the epic branch, so it must not use the local-only path.
   assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
+
+  // The builder is declared inside App. EpicStartWizard is a sibling component, so it can only
+  // reach it through a prop — and calling it without one is a ReferenceError inside a floating
+  // promise, which is how 'Generate world model' came to do nothing whatsoever when clicked.
+  // Asserting the call exists is what let that through, so assert the callee is reachable.
+  assert.match(source, /function EpicStartWizard\(\{[^}]*\bgenerateWorldModel\b/);
+  const renders = source.match(/<EpicStartWizard\b[^>]*\/>/g) ?? [];
+  assert.ok(renders.length >= 3, `expected every EpicStartWizard render site, found ${renders.length}`);
+  for (const render of renders) assert.match(render, /generateWorldModel=\{generateWorldModel\}/);
+  // And the failure is shown on the card rather than swallowed, because this is the only way on.
+  assert.match(source, /setWorldModelError/);
 });
 
 test('Copilot Studio releases the previous session when the governed context is rebuilt', async () => {

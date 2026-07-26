@@ -10,6 +10,7 @@ const appStyles = path.join(root, 'apps', 'desktop', 'src', 'styles.css');
 const screensaverRoot = path.join(root, 'apps', 'desktop', 'public', 'screensaver');
 
 const expectedSlides = [
+  'singularity-flow-intro.gif',
   'poster-05-epic-to-stories.png',
   'poster-06-who-approved.png',
   'poster-07-one-workspace.png',
@@ -22,6 +23,7 @@ test('desktop screensaver is reachable and all bundled posters exist', async () 
   const source = await readFile(appSource, 'utf8');
   assert.match(source, /\['screensaver', 'Screensaver'\]/);
   assert.match(source, /function Screensaver/);
+  assert.match(source, /id: 'flow-intro'/);
   assert.match(source, /setInterval\(\(\) => go\(1\), 2600\)/);
   assert.doesNotMatch(source, /screensaver-filmstrip/);
   assert.doesNotMatch(source, /screensaver-controls/);
@@ -29,6 +31,18 @@ test('desktop screensaver is reachable and all bundled posters exist', async () 
     assert.match(source, new RegExp(`screensaver/${slide}`));
     await access(path.join(screensaverRoot, slide));
   }
+});
+
+test('desktop shows the animated intro GIF when the app loads', async () => {
+  const source = await readFile(appSource, 'utf8');
+  const styles = await readFile(appStyles, 'utf8');
+  assert.match(source, /function StartupIntro/);
+  assert.match(source, /showStartupIntro/);
+  assert.match(source, /setTimeout\(onDone, 3600\)/);
+  assert.match(source, /screensaver\/singularity-flow-intro\.gif/);
+  assert.match(styles, /\.startup-intro/);
+  assert.match(styles, /\.startup-intro img[^{]+{[^}]*object-fit: contain/);
+  assert.match(styles, /\.startup-intro img[^{]+{[^}]*brightness\(1\.08\)/);
 });
 
 test('desktop screensaver presents bright full-screen posters with captions only', async () => {

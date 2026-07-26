@@ -8,7 +8,10 @@ disable-model-invocation: true
 
 No MCP server or IDE Jira plugin is used.
 
-- List assigned work with `singularity-flow jira list` and supplied filters.
+- Check the connection with `/sflow-jira-status`.
+- List assigned work with `/sflow-jira-assigned` (`singularity-flow jira assigned`; `jira list` remains an alias).
+- Browse active and future sprint Stories without backlog with `/sflow-jira-board`.
+- Make a separately confirmed status, assignee, priority, sprint, or comment change with `/sflow-jira-update`.
 - Retrieve a specific item with `singularity-flow jira pull <WORK-ID>` (`show` remains an alias).
 - Discover custom field IDs with `singularity-flow jira fields --query acceptance`, `--query story points`, or `--query sprint`.
 - Start selected Jira work with `singularity-flow start <WORK-ID> --jira`.

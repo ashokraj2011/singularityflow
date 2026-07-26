@@ -16,7 +16,7 @@ Use this skill when a contributor wants to browse Jira hierarchy or connect an e
 - Always preview Epic adoption before changing initiative state.
 - Never invent repository ownership. Ask the user to map every unresolved Jira child to a configured repository.
 - Never run `jira-apply` without showing the complete plan, its SHA-256, and the exact fields affected.
-- Jira status, assignee, sprint, priority, and resolution are outside this connector’s write scope.
+- The governed initiative write plan does not alter status, assignee, sprint, priority, or resolution. An explicit `/sflow-jira-update` request is a separate operator action with exact Story-key confirmation.
 
 ## Read flow
 

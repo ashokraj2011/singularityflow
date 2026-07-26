@@ -28,6 +28,35 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /commit, and push result/);
 });
 
+test('plugin provides direct Jira connection, assigned work, sprint board, and guarded update skills', async () => {
+  const status = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-status', 'SKILL.md'), 'utf8');
+  const assigned = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-assigned', 'SKILL.md'), 'utf8');
+  const board = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-board', 'SKILL.md'), 'utf8');
+  const update = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-update', 'SKILL.md'), 'utf8');
+
+  assert.match(status, /singularity-flow jira status --json/);
+  assert.match(status, /JIRA_DEPLOYMENT=data-center/);
+  assert.match(status, /Never print an API token/);
+
+  assert.match(assigned, /singularity-flow jira assigned/);
+  assert.match(assigned, /status category not Done/);
+  assert.match(assigned, /read-only/i);
+
+  assert.match(board, /singularity-flow jira boards/);
+  assert.match(board, /--state active,future/);
+  assert.match(board, /Backlog excluded/);
+  assert.match(board, /does not call the Jira backlog endpoint/);
+
+  assert.match(update, /disable-model-invocation:\s*true/);
+  assert.match(update, /--confirm <STORY-KEY>/);
+  assert.match(update, /jira transitions <STORY-KEY>/);
+  assert.match(update, /jira assign <STORY-KEY>/);
+  assert.match(update, /jira priority <STORY-KEY>/);
+  assert.match(update, /jira sprint <STORY-KEY>/);
+  assert.match(update, /jira comment <STORY-KEY>/);
+  assert.match(update, /Never infer the Story, transition, assignee, priority, sprint, or comment/);
+});
+
 test('Epic Story drafting stops for UI review before Jira publication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-story-draft', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-epic-story-draft/);

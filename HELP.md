@@ -737,7 +737,7 @@ export SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD=customfield_10016
 export SINGULARITY_FLOW_JIRA_SPRINT_FIELD=customfield_10020
 ```
 
-Verify access with `singularity-flow jira pull ENG-142` or list assigned work with `singularity-flow jira list --project ENG`.
+Verify access with `singularity-flow jira status`, inspect one Story with `singularity-flow jira pull ENG-142`, or list assigned work with `singularity-flow jira assigned --project ENG`.
 
 Jira input is normalized into committed `source.json` and readable `USER-STORY.md` files. Attachments are not downloaded automatically; upload the evidence you need explicitly.
 
@@ -757,7 +757,25 @@ singularity-flow jira projects
 singularity-flow jira epics --project APP
 singularity-flow jira children APP-100
 singularity-flow jira permissions --project APP
+singularity-flow jira assigned --project APP
+singularity-flow jira boards --project APP
+singularity-flow jira board 42 --state active,future --type Story
 ```
+
+The board command reads only the selected board's active and future sprints and groups Stories by sprint. It does not call the Jira backlog endpoint. Use `/sflow-jira-status`, `/sflow-jira-assigned`, and `/sflow-jira-board` for the same read-only flows inside Copilot CLI.
+
+An explicitly invoked `/sflow-jira-update` can change one Story at a time:
+
+```bash
+singularity-flow jira transitions APP-142
+singularity-flow jira transition APP-142 --to "In Progress" --confirm APP-142
+singularity-flow jira assign APP-142 --to me --confirm APP-142
+singularity-flow jira priority APP-142 --to High --confirm APP-142
+singularity-flow jira sprint APP-142 --to 81 --confirm APP-142
+singularity-flow jira comment APP-142 --text "Ready for review" --confirm APP-142
+```
+
+Every mutation requires the exact Jira key. Status changes are restricted to transitions Jira reports as available; transitions that require additional screen fields must be completed in Jira.
 
 The Electron **Jira workspace** is the preferred corporate setup. If no portfolio exists, its first screen is the guided `singularity/portfolio.yml` bootstrap; Jira sign-in is deliberately unavailable until governed repository policy has been created. Repository policy controls deployment, host/project allowlists, permitted authentication modes, cache duration, write operations, and owned fields. Every Jira route revalidates the repository-selected connection and project scope. Initiative adoption and write operations use the initiative's immutable policy snapshot rather than silently following later base-branch changes. The API token/PAT is validated and encrypted through Electron `safeStorage`; it is never returned to the renderer or low-level request callers, placed in Git, passed to CLI child processes, or included in Copilot context. Transport is pinned to relative paths under the configured Jira API base, redirects are rejected, successful payloads must be JSON, response bodies default to a 16 MiB ceiling, and each attempt has a bounded timeout. Connection discovery makes at most one retry, so a broken URL, VPN, proxy, SSO page, or firewall fails directly rather than leaving setup spinning or falsely reporting a connection. Issue searches follow Jira Cloud page tokens and Jira Data Center offsets up to the requested 500-issue ceiling; duplicate issues, repeated tokens, and non-advancing offsets are rejected, so hierarchy capture does not silently stop at the first 100 children or accept an inconsistent page sequence.
 
@@ -768,7 +786,7 @@ singularity-flow initiative jira-plan
 singularity-flow initiative jira-apply --plan <exact-sha256>
 ```
 
-The plan is committed and pushed before review. Apply requires `jira.writeMode: approved`, an approved Plan/Elaboration phase, discovered Jira permissions, the exact plan hash, exact initiative-ID confirmation, and a plan that still matches the pinned connection, deployment, and project policy. Optimistic `updatedAt` checks reject stale updates. Operation receipts are committed and pushed; retry accepts a receipt only when its operation and reviewed plan hash still match. Status transitions, assignee, sprint, priority, and resolution are never writable through this connector.
+The plan is committed and pushed before review. Apply requires `jira.writeMode: approved`, an approved Plan/Elaboration phase, discovered Jira permissions, the exact plan hash, exact initiative-ID confirmation, and a plan that still matches the pinned connection, deployment, and project policy. Optimistic `updatedAt` checks reject stale updates. Operation receipts are committed and pushed; retry accepts a receipt only when its operation and reviewed plan hash still match. The governed initiative planner does not own status transitions, assignee, sprint, priority, or resolution; `/sflow-jira-update` is a separate, exact-Story operator action.
 
 ## Manual intake and documents
 
@@ -1693,8 +1711,9 @@ singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
 singularity-flow wm build [--local] [--views LIST] [--focus TEXT]
 singularity-flow wm context|inject|check
-singularity-flow jira list|pull|fields
-singularity-flow jira status|projects|epics|children|permissions
+singularity-flow jira assigned|list|pull|fields
+singularity-flow jira status|projects|epics|children|permissions|boards|board
+singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
 singularity-flow desktop snapshot|validate|save|delete-template|publish|session
 singularity-flow migrate-config

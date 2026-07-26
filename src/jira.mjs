@@ -305,6 +305,20 @@ function restPath(connection, suffix) {
   return `/rest/api/${connection.apiVersion}/${String(suffix).replace(/^\/+/, '')}`;
 }
 
+function agilePath(suffix) {
+  return `/rest/agile/1.0/${String(suffix).replace(/^\/+/, '')}`;
+}
+
+function validatePositiveJiraId(value, label) {
+  const id = String(value ?? '').trim();
+  if (!/^[1-9]\d*$/.test(id)) throw new SingularityFlowError(`A positive Jira ${label} ID is required.`);
+  return id;
+}
+
+function validateBoardId(value) {
+  return validatePositiveJiraId(value, 'board');
+}
+
 function authorizationHeader(connection) {
   if (connection.auth.mode === 'pat') return `Bearer ${connection.auth.token}`;
   return `Basic ${Buffer.from(`${connection.auth.email}:${connection.auth.token}`).toString('base64')}`;
@@ -759,6 +773,191 @@ export async function listProjects({
   }));
 }
 
+export async function listBoards({
+  project,
+  limit = 100,
+  ...options
+} = {}) {
+  const resolved = resolveConnection(options);
+  const requested = boundedInteger(limit, 100, 1, MAX_SEARCH_RESULTS);
+  const values = [];
+  let startAt = 0;
+  while (values.length < requested) {
+    const maxResults = Math.min(50, requested - values.length);
+    const query = new URLSearchParams({
+      startAt: String(startAt),
+      maxResults: String(maxResults),
+      ...(project ? { projectKeyOrId: validateProjectKey(project) } : {})
+    });
+    const { payload } = await jiraRequest(`${agilePath('board')}?${query}`, { ...options, connection: resolved });
+    if (!payload || !Array.isArray(payload.values)) {
+      throw jiraFailure('Jira board response does not contain a values array.', { category: 'response' });
+    }
+    values.push(...payload.values.slice(0, requested - values.length));
+    const nextStart = startAt + payload.values.length;
+    const total = payload.total == null ? Number.NaN : Number(payload.total);
+    if (payload.isLast === true
+      || !payload.values.length
+      || (Number.isFinite(total) && nextStart >= total)
+      || (!Number.isFinite(total) && payload.values.length < maxResults)) break;
+    startAt = nextStart;
+  }
+  return values.map((board) => ({
+    id: board.id == null ? null : String(board.id),
+    name: board.name ?? null,
+    type: board.type ?? null,
+    location: board.location ? {
+      projectId: board.location.projectId == null ? null : String(board.location.projectId),
+      projectKey: board.location.projectKey ?? null,
+      projectName: board.location.projectName ?? null,
+      displayName: board.location.displayName ?? null
+    } : null
+  }));
+}
+
+function normalizeSprintStates(value) {
+  const states = [...new Set((Array.isArray(value) ? value : String(value ?? 'active,future').split(','))
+    .map((item) => String(item).trim().toLowerCase())
+    .filter(Boolean))];
+  const invalid = states.filter((state) => !['active', 'future', 'closed'].includes(state));
+  if (!states.length || invalid.length) {
+    throw new SingularityFlowError(`Jira sprint state must contain active, future, or closed${invalid.length ? `; unsupported: ${invalid.join(', ')}` : ''}.`);
+  }
+  return states;
+}
+
+export async function listBoardSprints(boardId, {
+  states = ['active', 'future'],
+  limit = 100,
+  ...options
+} = {}) {
+  const resolved = resolveConnection(options);
+  const id = validateBoardId(boardId);
+  const normalizedStates = normalizeSprintStates(states);
+  const requested = boundedInteger(limit, 100, 1, MAX_SEARCH_RESULTS);
+  const values = [];
+  let startAt = 0;
+  while (values.length < requested) {
+    const maxResults = Math.min(50, requested - values.length);
+    const query = new URLSearchParams({
+      startAt: String(startAt),
+      maxResults: String(maxResults),
+      state: normalizedStates.join(',')
+    });
+    const { payload } = await jiraRequest(`${agilePath(`board/${id}/sprint`)}?${query}`, { ...options, connection: resolved });
+    if (!payload || !Array.isArray(payload.values)) {
+      throw jiraFailure(`Jira board ${id} sprint response does not contain a values array.`, { category: 'response' });
+    }
+    values.push(...payload.values.slice(0, requested - values.length));
+    const nextStart = startAt + payload.values.length;
+    const total = payload.total == null ? Number.NaN : Number(payload.total);
+    if (payload.isLast === true
+      || !payload.values.length
+      || (Number.isFinite(total) && nextStart >= total)
+      || (!Number.isFinite(total) && payload.values.length < maxResults)) break;
+    startAt = nextStart;
+  }
+  return values.map((sprint) => ({
+    id: sprint.id == null ? null : String(sprint.id),
+    name: sprint.name ?? null,
+    state: sprint.state ?? null,
+    goal: sprint.goal ?? null,
+    startDate: sprint.startDate ?? null,
+    endDate: sprint.endDate ?? null,
+    completeDate: sprint.completeDate ?? null,
+    originBoardId: sprint.originBoardId == null ? id : String(sprint.originBoardId)
+  }));
+}
+
+export async function listBoardStories(boardId, {
+  states = ['active', 'future'],
+  issueType = 'Story',
+  limit = MAX_SEARCH_RESULTS,
+  env = process.env,
+  connection,
+  fetchImpl = globalThis.fetch,
+  acceptanceField = env.SINGULARITY_FLOW_JIRA_ACCEPTANCE_FIELD,
+  storyPointsField = env.SINGULARITY_FLOW_JIRA_STORY_POINTS_FIELD,
+  sprintField = env.SINGULARITY_FLOW_JIRA_SPRINT_FIELD,
+  extraFields = envFields(env)
+} = {}) {
+  const resolved = resolveConnection({ connection, env });
+  const id = validateBoardId(boardId);
+  const normalizedStates = normalizeSprintStates(states);
+  const requested = boundedInteger(limit, MAX_SEARCH_RESULTS, 1, MAX_SEARCH_RESULTS);
+  const sprints = await listBoardSprints(id, {
+    states: normalizedStates,
+    limit: requested,
+    connection: resolved,
+    fetchImpl
+  });
+  const fields = [...new Set([...STANDARD_FIELDS, acceptanceField, storyPointsField, sprintField, ...extraFields].filter(Boolean))];
+  const groups = [];
+  let remaining = requested;
+  for (const sprint of sprints) {
+    if (remaining < 1) break;
+    const issues = [];
+    let startAt = 0;
+    let nextPageToken = null;
+    const seenTokens = new Set();
+    while (issues.length < remaining) {
+      const maxResults = Math.min(100, remaining - issues.length);
+      const query = new URLSearchParams({
+        maxResults: String(maxResults),
+        jql: `issuetype = ${quoteJql(issueType)}`,
+        fields: fields.join(','),
+        ...(nextPageToken ? { nextPageToken } : { startAt: String(startAt) })
+      });
+      const sprintId = validatePositiveJiraId(sprint.id, 'sprint');
+      const { payload } = await jiraRequest(`${agilePath(`board/${id}/sprint/${sprintId}/issue`)}?${query}`, {
+        connection: resolved,
+        fetchImpl
+      });
+      if (!payload || !Array.isArray(payload.issues)) {
+        throw jiraFailure(`Jira sprint ${sprint.id} response does not contain an issues array.`, { category: 'response' });
+      }
+      for (const raw of payload.issues.slice(0, remaining - issues.length)) {
+        const issue = normalizeIssue(raw, { baseUrl: resolved.baseUrl, acceptanceField, storyPointsField, sprintField, extraFields });
+        if (!issue.sprints.some((item) => String(item.id) === String(sprint.id))) {
+          issue.sprints = [...issue.sprints, {
+            id: sprint.id,
+            name: sprint.name,
+            state: sprint.state,
+            startDate: sprint.startDate,
+            endDate: sprint.endDate,
+            completeDate: sprint.completeDate
+          }];
+        }
+        issues.push(issue);
+      }
+      if (payload.isLast === true || !payload.issues.length) break;
+      if (payload.nextPageToken) {
+        const token = String(payload.nextPageToken);
+        if (seenTokens.has(token)) throw jiraFailure(`Jira sprint ${sprint.id} returned a repeated pagination token.`, { category: 'response' });
+        seenTokens.add(token);
+        nextPageToken = token;
+      } else {
+        const nextStart = startAt + payload.issues.length;
+        const total = payload.total == null ? Number.NaN : Number(payload.total);
+        if ((Number.isFinite(total) && nextStart >= total)
+          || (!Number.isFinite(total) && payload.issues.length < maxResults)) break;
+        startAt = nextStart;
+      }
+    }
+    remaining -= issues.length;
+    groups.push({ ...sprint, issueCount: issues.length, issues });
+  }
+  return {
+    boardId: id,
+    sprintStates: normalizedStates,
+    issueType,
+    backlogIncluded: false,
+    totalIssues: groups.reduce((sum, sprint) => sum + sprint.issues.length, 0),
+    sprints: groups,
+    truncated: remaining === 0
+  };
+}
+
 export async function getMyPermissions(projectKey, options = {}) {
   const resolved = resolveConnection(options);
   const query = new URLSearchParams({
@@ -815,6 +1014,7 @@ export async function discoverJiraConnection(options = {}) {
     name: resolved.name,
     deployment: resolved.deployment,
     baseUrl: resolved.baseUrl,
+    authenticationMode: resolved.auth.mode,
     account,
     server,
     projects,
@@ -976,6 +1176,110 @@ export async function updateIssue(key, fields, {
     fetchImpl
   });
   return getIssue(key, { connection: resolved, fetchImpl });
+}
+
+export async function listIssueTransitions(key, options = {}) {
+  const resolved = resolveConnection(options);
+  const issueKey = validateIssueKey(key);
+  const query = new URLSearchParams({ expand: 'transitions.fields' });
+  const { payload } = await jiraRequest(`${restPath(resolved, `issue/${encodeURIComponent(issueKey)}/transitions`)}?${query}`, {
+    ...options,
+    connection: resolved
+  });
+  if (!payload || !Array.isArray(payload.transitions)) {
+    throw jiraFailure(`Jira transition response for ${issueKey} does not contain a transitions array.`, { category: 'response' });
+  }
+  return payload.transitions.map((transition) => ({
+    id: String(transition.id),
+    name: transition.name ?? null,
+    to: transition.to?.name ?? null,
+    statusCategory: transition.to?.statusCategory?.name ?? null,
+    hasScreen: Boolean(transition.hasScreen),
+    fields: Object.entries(transition.fields ?? {}).map(([fieldId, field]) => ({
+      id: fieldId,
+      name: field.name ?? fieldId,
+      required: Boolean(field.required)
+    }))
+  }));
+}
+
+export async function transitionIssue(key, target, {
+  expectedUpdatedAt = null,
+  ...options
+} = {}) {
+  const resolved = resolveConnection(options);
+  const issueKey = validateIssueKey(key);
+  const requested = String(target ?? '').trim();
+  if (!requested) throw new SingularityFlowError('Jira transition requires a target status or transition ID.');
+  if (expectedUpdatedAt) {
+    const current = await getIssue(issueKey, { ...options, connection: resolved });
+    if (current.updatedAt !== expectedUpdatedAt) {
+      throw jiraFailure(`Jira issue ${issueKey} changed before the status transition. Refresh it and choose again.`, { category: 'conflict', status: 409 });
+    }
+  }
+  const transitions = await listIssueTransitions(issueKey, { ...options, connection: resolved });
+  const matches = transitions.filter((transition) => transition.id === requested
+    || transition.name?.toLowerCase() === requested.toLowerCase()
+    || transition.to?.toLowerCase() === requested.toLowerCase());
+  if (!matches.length) {
+    throw new SingularityFlowError(`Jira ${issueKey} cannot transition to '${requested}'. Available transitions: ${transitions.map((item) => `${item.name} (${item.id}) → ${item.to}`).join(', ') || 'none'}.`);
+  }
+  if (matches.length > 1) {
+    throw new SingularityFlowError(`Jira transition '${requested}' is ambiguous. Use one transition ID: ${matches.map((item) => item.id).join(', ')}.`);
+  }
+  const selected = matches[0];
+  const requiredFields = selected.fields.filter((field) => field.required);
+  if (requiredFields.length) {
+    throw new SingularityFlowError(`Jira transition '${selected.name}' requires fields that this command cannot safely infer: ${requiredFields.map((field) => field.name).join(', ')}. Complete it in Jira.`);
+  }
+  await jiraRequest(restPath(resolved, `issue/${encodeURIComponent(issueKey)}/transitions`), {
+    ...options,
+    method: 'POST',
+    body: { transition: { id: selected.id } },
+    connection: resolved
+  });
+  return { transition: selected, issue: await getIssue(issueKey, { ...options, connection: resolved }) };
+}
+
+export async function assignIssue(key, assignee, options = {}) {
+  const resolved = resolveConnection(options);
+  const issueKey = validateIssueKey(key);
+  const requested = String(assignee ?? '').trim();
+  if (!requested) throw new SingularityFlowError('Jira assignment requires me, unassigned, or an account identifier.');
+  let identity = requested;
+  if (requested.toLowerCase() === 'me') identity = (await getCurrentUser({ ...options, connection: resolved })).accountId;
+  const unassigned = ['unassigned', 'none', 'null'].includes(requested.toLowerCase());
+  const body = resolved.deployment === 'cloud'
+    ? { accountId: unassigned ? null : identity }
+    : { name: unassigned ? null : identity };
+  await jiraRequest(restPath(resolved, `issue/${encodeURIComponent(issueKey)}/assignee`), {
+    ...options,
+    method: 'PUT',
+    body,
+    connection: resolved
+  });
+  return getIssue(issueKey, { ...options, connection: resolved });
+}
+
+export async function setIssuePriority(key, priority, options = {}) {
+  const requested = String(priority ?? '').trim();
+  if (!requested) throw new SingularityFlowError('Jira priority update requires a priority name or numeric ID.');
+  return updateIssue(validateIssueKey(key), {
+    priority: /^\d+$/.test(requested) ? { id: requested } : { name: requested }
+  }, options);
+}
+
+export async function moveIssueToSprint(key, sprintId, options = {}) {
+  const resolved = resolveConnection(options);
+  const issueKey = validateIssueKey(key);
+  const id = validatePositiveJiraId(sprintId, 'sprint');
+  await jiraRequest(agilePath(`sprint/${id}/issue`), {
+    ...options,
+    method: 'POST',
+    body: { issues: [issueKey] },
+    connection: resolved
+  });
+  return getIssue(issueKey, { ...options, connection: resolved });
 }
 
 export async function addComment(key, body, options = {}) {

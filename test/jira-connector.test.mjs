@@ -275,6 +275,7 @@ test('connection discovery and Epic child browsing use safe Jira endpoints', asy
   const connection = { baseUrl: 'https://office.atlassian.net', email: 'developer@example.com', token: 'token' };
   const discovered = await discoverJiraConnection({ connection, fetchImpl });
   assert.equal(discovered.account.displayName, 'Developer');
+  assert.equal(discovered.authenticationMode, 'user-token');
   assert.equal(discovered.projects[0].key, 'APP');
   await listEpicStories('APP-42', { connection, fetchImpl });
   const search = seen.find((entry) => entry.url.endsWith('/search/jql'));

@@ -134,7 +134,7 @@ import {
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
 import { createStoryPullRequest, storyPullRequestPlan } from './pull-request.mjs';
-import { epicCheckStory, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
+import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import { reserveLocalEpicBranch } from './local-identity.mjs';
@@ -292,17 +292,26 @@ Usage:
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
     [--text TEXT | --text-file FILE]
   singularity-flow epic requirements prepare|status|publish|approve
-  singularity-flow epic planning prepare|status|validate|publish|approve
-  singularity-flow epic stories list|show|update|split|adopt|validate
+  singularity-flow epic planning prepare|status|validate|publish
+    Planning approval is an explicit business review in the Singularity Flow desktop UI.
+  singularity-flow epic stories list|show|update|split|adopt|validate|metadata|tasks
     update <PLAN-ID> [--metadata KEY=VALUE]... [--tasks-file FILE]
     split <PLAN-ID> [--title TEXT] [--repository ID] [--metadata KEY=VALUE]...
     adopt <JIRA-KEY> --repository ID --requirements REQ-nnn --acceptance-criteria AC-nnn
+    metadata <PLAN-ID> list|set|remove|clear [KEY] [VALUE]
+    tasks <PLAN-ID> list|add|update|remove [TASK-ID] [--title TEXT] [--description TEXT]
   singularity-flow epic jira preview|apply [--epic EPIC-KEY] [--plan SHA256]
   singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256]  Deprecated mapping target
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
-  singularity-flow epic status|sync|next|report [EPIC-KEY]
+  singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]
+  singularity-flow epic merge-plan [--epic EPIC-KEY]
   singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json]
   singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
+  singularity-flow epic review-choice begin approve|reject <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
+  singularity-flow epic review-choice answer <TOKEN> <CHOICE> <ID>
+  singularity-flow epic review-choice status <TOKEN>
+  singularity-flow epic review approve|reject <STORY-KEY> --packet SHA256
+    [--selection-receipt TOKEN] [--to PHASE] [--reason TEXT]
   singularity-flow epic checks <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
   singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
@@ -1977,6 +1986,12 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'approve') {
     const subject = positionals[2] ?? 'phase';
     const phaseId = initiative.currentPhase;
+    if (initiative.resolution.profile === 'epic-planning' && phaseId === EPIC_PHASES.planning) {
+      throw new SingularityFlowError(
+        'The Epic Story plan must be reviewed and approved in the Singularity Flow desktop UI. '
+        + 'Open Planning, inspect every Story and specification, then use Approve exact plan.'
+      );
+    }
     const receiptToken = optionString(options, 'selection-receipt');
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
     const expected = `${phaseId}:${subject}`;
@@ -2314,6 +2329,120 @@ async function storyMutationOptions(options) {
     changes.tasks = parsed;
   }
   return changes;
+}
+
+function storyByPlanId(breakdown, initiativeId, planId) {
+  const story = breakdown.stories.find((entry) => entry.planId === planId);
+  if (!story) throw new SingularityFlowError(`Epic '${initiativeId}' has no Story '${planId}'.`);
+  return story;
+}
+
+function nextTaskId(tasks = []) {
+  const highest = tasks.reduce((maximum, task) => {
+    const match = String(task.id ?? '').match(/^TASK-(\d+)$/);
+    return match ? Math.max(maximum, Number(match[1])) : maximum;
+  }, 0);
+  return `TASK-${String(highest + 1).padStart(3, '0')}`;
+}
+
+function taskMutationOptions(options, current = {}) {
+  const result = structuredClone(current);
+  for (const key of ['title', 'description']) {
+    const value = optionString(options, key);
+    if (value != null) result[key] = value;
+  }
+  const acceptance = optionString(options, 'acceptance-criteria');
+  if (acceptance != null) {
+    result.acceptanceCriteria = acceptance.split(',').map((entry) => entry.trim()).filter(Boolean);
+  }
+  const metadata = optionStrings(options, 'metadata');
+  if (metadata.length) result.metadata = { ...(result.metadata ?? {}), ...optionMap(metadata, 'Task metadata') };
+  result.description ??= '';
+  result.acceptanceCriteria ??= [];
+  result.metadata ??= {};
+  return result;
+}
+
+async function publishEpicStoryUpdate(root, initiativeId, planId, changes, detail) {
+  const updated = await updateEpicStory(root, initiativeId, planId, changes);
+  const publication = await commitInitiativeChange(
+    root,
+    updated.portfolio,
+    updated.initiative,
+    `[${initiativeId}][epic:story] ${detail}`
+  );
+  return { updated, publication };
+}
+
+function epicReviewChoiceDefinition(review, decision) {
+  const storyId = review.story.workId ?? review.story.jiraKey ?? review.story.planId ?? review.story.id;
+  const packetSha256 = review.packet.packetSha256;
+  const confirmation = `${decision}:${storyId}:${packetSha256}`;
+  if (!review.approval.personas.length) {
+    throw new SingularityFlowError(`No configured persona can decide phase '${review.approval.phase}'.`);
+  }
+  const choiceSets = [
+    {
+      id: 'persona',
+      label: 'Review persona',
+      options: review.approval.personas.map((persona) => ({
+        id: persona.id,
+        label: persona.label,
+        description: `Decide phase ${review.approval.phase} as ${persona.label}.`
+      }))
+    }
+  ];
+  if (decision === 'reject') {
+    choiceSets.push({
+      id: 'reject-target',
+      label: 'Return to phase',
+      options: review.approval.rejectTo.map((phase) => ({
+        id: phase,
+        label: phase,
+        description: `Invalidate this packet and return the Story to ${phase}.`
+      }))
+    });
+  }
+  choiceSets.push({
+    id: 'decision-confirmation',
+    label: 'Exact packet confirmation',
+    options: [{
+      id: confirmation,
+      label: `${decision === 'approve' ? 'Approve' : 'Reject'} ${storyId}`,
+      description: `Bind the decision to review packet ${packetSha256}.`
+    }]
+  });
+  return {
+    action: `epic-review-${decision}`,
+    workId: storyId,
+    choiceSets,
+    context: {
+      initiativeId: review.initiativeId,
+      storyId,
+      phase: review.approval.phase,
+      sourceCommit: review.packet.sourceCommit,
+      packetSha256,
+      decision
+    },
+    confirmation
+  };
+}
+
+async function chooseFromOptions(label, entries) {
+  if (!entries.length) throw new SingularityFlowError(`${label} has no configured options.`);
+  if (!input.isTTY || !output.isTTY) {
+    throw new SingularityFlowError(`${label} requires an interactive terminal or a Copilot selection receipt.`);
+  }
+  const io = readline.createInterface({ input, output });
+  try {
+    console.log(`\n${label}`);
+    entries.forEach((entry, index) => console.log(`  ${index + 1}. ${entry.label} (${entry.id})`));
+    const selected = Number((await io.question(`Enter 1-${entries.length}: `)).trim()) - 1;
+    if (!Number.isInteger(selected) || !entries[selected]) throw new SingularityFlowError(`Invalid ${label.toLowerCase()} selection.`);
+    return entries[selected].id;
+  } finally {
+    io.close();
+  }
 }
 
 function renderWorkspaceStatus(status) {
@@ -2759,8 +2888,15 @@ async function epicCommand(positionals, options) {
       return;
     }
     if (action === 'publish') return initiativeCommand(['initiative', 'phase', 'publish', phaseId], options);
+    if (action === 'approve' && subcommand === 'planning') {
+      throw new SingularityFlowError(
+        'The Epic Story plan must be reviewed and approved in the Singularity Flow desktop UI. '
+        + 'Open Planning, inspect every Story and specification, then use Approve exact plan.'
+      );
+    }
     if (action === 'approve') return initiativeCommand(['initiative', 'approve', 'phase'], options);
-    throw new SingularityFlowError(`Unknown Epic ${subcommand} action '${action}'. Use prepare, status, publish, or approve.`);
+    const allowed = subcommand === 'planning' ? 'prepare, status, validate, or publish' : 'prepare, status, publish, or approve';
+    throw new SingularityFlowError(`Unknown Epic ${subcommand} action '${action}'. Use ${allowed}.`);
   }
   if (subcommand === 'stories') {
     const root = repoRoot();
@@ -2804,15 +2940,98 @@ async function epicCommand(positionals, options) {
       const planId = requirePositional(positionals, 3, 'Story plan ID');
       const changes = await storyMutationOptions(options);
       if (!Object.keys(changes).length) throw new SingularityFlowError('Story update requires at least one changed field.');
-      const updated = await updateEpicStory(root, initiativeId, planId, changes);
-      const publication = await commitInitiativeChange(
-        root,
-        updated.portfolio,
-        updated.initiative,
-        `[${initiativeId}][epic:story] update ${planId}`
-      );
+      const { updated, publication } = await publishEpicStoryUpdate(root, initiativeId, planId, changes, `update ${planId}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
       console.log(`Updated ${planId}; Planning approval was invalidated and Story specifications were refreshed.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    if (action === 'metadata') {
+      const planId = requirePositional(positionals, 3, 'Story plan ID');
+      const operation = positionals[4] ?? 'list';
+      const story = storyByPlanId(breakdown, initiativeId, planId);
+      if (operation === 'list') {
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify(story.metadata ?? {}, null, 2));
+        const rows = Object.entries(story.metadata ?? {}).map(([key, value]) => ({ key, value }));
+        return console.log(rows.length ? table(rows, [
+          { key: 'key', label: 'KEY' },
+          { key: 'value', label: 'VALUE' }
+        ]) : `${planId} has no metadata.`);
+      }
+      const metadata = structuredClone(story.metadata ?? {});
+      if (operation === 'set') {
+        const key = requirePositional(positionals, 5, 'metadata key');
+        const value = requirePositional(positionals, 6, 'metadata value');
+        metadata[key] = value;
+      } else if (operation === 'remove') {
+        const key = requirePositional(positionals, 5, 'metadata key');
+        if (!(key in metadata)) throw new SingularityFlowError(`${planId} has no metadata key '${key}'.`);
+        delete metadata[key];
+      } else if (operation === 'clear') {
+        for (const key of Object.keys(metadata)) delete metadata[key];
+      } else {
+        throw new SingularityFlowError(`Unknown Story metadata action '${operation}'. Use list, set, remove, or clear.`);
+      }
+      const { updated, publication } = await publishEpicStoryUpdate(
+        root,
+        initiativeId,
+        planId,
+        { metadata },
+        `metadata ${operation} ${planId}`
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
+      console.log(`Updated ${planId} metadata; Planning approval was invalidated for renewed UI review.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    if (action === 'tasks') {
+      const planId = requirePositional(positionals, 3, 'Story plan ID');
+      const operation = positionals[4] ?? 'list';
+      const story = storyByPlanId(breakdown, initiativeId, planId);
+      const tasks = structuredClone(story.tasks ?? []);
+      if (operation === 'list') {
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify(tasks, null, 2));
+        return console.log(tasks.length ? table(tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          acceptance: task.acceptanceCriteria?.join(',') ?? '',
+          jira: task.jiraKey ?? '—'
+        })), [
+          { key: 'id', label: 'TASK' },
+          { key: 'title', label: 'TITLE' },
+          { key: 'acceptance', label: 'ACCEPTANCE' },
+          { key: 'jira', label: 'JIRA' }
+        ]) : `${planId} has no tasks.`);
+      }
+      let taskId;
+      if (operation === 'add') {
+        taskId = optionString(options, 'id', nextTaskId(tasks));
+        if (tasks.some((task) => task.id === taskId)) throw new SingularityFlowError(`${planId} already has task '${taskId}'.`);
+        const task = taskMutationOptions(options, { id: taskId });
+        if (!task.title?.trim()) throw new SingularityFlowError('Adding a task requires --title.');
+        tasks.push(task);
+      } else if (operation === 'update') {
+        taskId = requirePositional(positionals, 5, 'task ID');
+        const index = tasks.findIndex((task) => task.id === taskId);
+        if (index < 0) throw new SingularityFlowError(`${planId} has no task '${taskId}'.`);
+        tasks[index] = taskMutationOptions(options, tasks[index]);
+      } else if (operation === 'remove') {
+        taskId = requirePositional(positionals, 5, 'task ID');
+        const index = tasks.findIndex((task) => task.id === taskId);
+        if (index < 0) throw new SingularityFlowError(`${planId} has no task '${taskId}'.`);
+        tasks.splice(index, 1);
+      } else {
+        throw new SingularityFlowError(`Unknown Story task action '${operation}'. Use list, add, update, or remove.`);
+      }
+      const { updated, publication } = await publishEpicStoryUpdate(
+        root,
+        initiativeId,
+        planId,
+        { tasks },
+        `tasks ${operation} ${planId}${taskId ? ` ${taskId}` : ''}`
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
+      console.log(`${operation === 'remove' ? 'Removed' : operation === 'add' ? 'Added' : 'Updated'} task ${taskId} on ${planId}; Planning approval was invalidated.`);
       console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
       return;
     }
@@ -2851,7 +3070,7 @@ async function epicCommand(positionals, options) {
       console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
       return;
     }
-    throw new SingularityFlowError(`Unknown Epic stories action '${action}'. Use list, show, update, split, adopt, or validate.`);
+    throw new SingularityFlowError(`Unknown Epic stories action '${action}'. Use list, show, update, metadata, tasks, split, adopt, or validate.`);
   }
   if (subcommand === 'jira') {
     const action = positionals[2] ?? 'preview';
@@ -3000,10 +3219,90 @@ async function epicCommand(positionals, options) {
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     return;
   }
+  if (subcommand === 'review-choice') {
+    const root = repoRoot();
+    const action = requirePositional(positionals, 2, 'review-choice action');
+    if (action === 'answer') {
+      const receipt = await answerSelectionReceipt(
+        root,
+        requirePositional(positionals, 3, 'selection receipt token'),
+        requirePositional(positionals, 4, 'choice ID'),
+        requirePositional(positionals, 5, 'selected option ID')
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
+      return printSelectionReceipt(receipt);
+    }
+    if (action === 'status') {
+      const receipt = await selectionReceiptStatus(root, requirePositional(positionals, 3, 'selection receipt token'));
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
+      return printSelectionReceipt(receipt);
+    }
+    if (action !== 'begin') {
+      throw new SingularityFlowError("Epic review-choice supports 'begin', 'answer', or 'status'.");
+    }
+    const decision = requirePositional(positionals, 3, 'review decision');
+    if (!['approve', 'reject'].includes(decision)) {
+      throw new SingularityFlowError("Epic review decision must be 'approve' or 'reject'.");
+    }
+    const story = requirePositional(positionals, 4, 'Story key');
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const review = await epicReviewStory(root, initiativeId, story, {
+      packetSha256: optionString(options, 'packet')
+    });
+    const definition = epicReviewChoiceDefinition(review, decision);
+    const receipt = await beginCustomSelectionReceipt(root, definition);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
+    return printSelectionReceipt(receipt);
+  }
   if (subcommand === 'review') {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
-    const story = positionals[2];
+    const requested = positionals[2];
+    if (['approve', 'reject'].includes(requested)) {
+      const decision = requested;
+      const story = requirePositional(positionals, 3, 'Story key');
+      const packetSha256 = optionString(options, 'packet');
+      if (!packetSha256) throw new SingularityFlowError(`Epic Story ${decision} requires --packet with the exact full review-packet SHA-256.`);
+      if (decision === 'reject' && !optionString(options, 'reason')) {
+        throw new SingularityFlowError('Rejecting an Epic Story requires --reason.');
+      }
+      const review = await epicReviewStory(root, initiativeId, story, { packetSha256 });
+      const definition = epicReviewChoiceDefinition(review, decision);
+      const receiptToken = optionString(options, 'selection-receipt');
+      const receipt = receiptToken
+        ? await resolveCustomSelectionReceipt(root, receiptToken, definition)
+        : null;
+      const persona = receipt?.answers.persona
+        ?? await chooseFromOptions('Review persona', definition.choiceSets.find((entry) => entry.id === 'persona').options);
+      const targetChoices = definition.choiceSets.find((entry) => entry.id === 'reject-target')?.options ?? [];
+      const target = decision === 'reject'
+        ? (receipt?.answers['reject-target']
+          ?? optionString(options, 'to')
+          ?? await chooseFromOptions('Return to phase', targetChoices))
+        : null;
+      if (!receipt && !(await confirmInitiativeExact(
+        `${decision === 'approve' ? 'Approve' : 'Reject'} exact Story packet ${packetSha256}?`,
+        definition.confirmation
+      ))) {
+        throw new SingularityFlowError(`Epic Story ${decision} cancelled.`);
+      }
+      const result = await epicReviewDecision(root, initiativeId, story, {
+        packetSha256,
+        decision,
+        persona,
+        target,
+        reason: optionString(options, 'reason'),
+        channel: receipt ? 'copilot-selection-receipt' : 'terminal'
+      });
+      if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`${decision === 'approve' ? 'Approved' : 'Rejected'} ${story} packet ${packetSha256}.`);
+      console.log(`Story commit: ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Epic commit: ${result.initiativePublication.sha.slice(0, 8)}${result.initiativePublication.pushed ? ' pushed' : ' local'}`);
+      if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
+      return;
+    }
+    const story = requested;
     if (!story) {
       const inbox = await listEpicReviewInbox(root, initiativeId);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(inbox, null, 2));

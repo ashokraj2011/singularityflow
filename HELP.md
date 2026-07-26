@@ -243,11 +243,20 @@ Use the collision-safe Copilot commands:
 /sflow-epic-stories
 /sflow-epic-publish
 /sflow-epic-status
+/sflow-epic-next
+/sflow-epic-sync
+/sflow-epic-drift
 /sflow-epic-review
+/sflow-epic-review-decision
+/sflow-epic-merge-plan
 /sflow-story-inbox
 /sflow-story-fetch
 /sflow-story-branch
+/sflow-story-checks
 /sflow-finalize
+/sflow-worldmodel
+/sflow-agents
+/sflow-telemetry
 ```
 
 The terminal equivalents are:
@@ -261,7 +270,10 @@ singularity-flow epic requirements publish
 singularity-flow epic requirements approve
 singularity-flow epic planning prepare
 singularity-flow epic planning publish
-singularity-flow epic planning approve
+# Review every Story and exact specification in Desktop → Planning,
+# then use "Approve exact plan". Planning approval is intentionally UI-only.
+singularity-flow epic stories metadata STORY-001 set component checkout
+singularity-flow epic stories tasks STORY-001 add --title "Add integration tests"
 singularity-flow epic jira preview --artifact epic-requirements/requirements-specification --artifact epic-planning/parent-specification --artifact-to epic
 singularity-flow epic jira apply --plan <exact-sha256>
 singularity-flow story inbox --assigned-to-me
@@ -269,6 +281,8 @@ singularity-flow story fetch MOB-123 --directory ../mobile
 singularity-flow finalize
 singularity-flow epic review MOB-123
 singularity-flow epic checks MOB-123 --packet <exact-sha256>
+singularity-flow epic review-choice begin approve MOB-123 --epic MOB-100 --packet <exact-sha256>
+singularity-flow epic review approve MOB-123 --epic MOB-100 --packet <exact-sha256> --selection-receipt <token>
 singularity-flow epic merge-plan --epic MOB-100
 singularity-flow epic complete MOB-100 --dry-run
 singularity-flow epic complete MOB-100

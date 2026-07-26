@@ -1,0 +1,6 @@
+interface:
+  display_name: "Decide Story review"
+  short_description: "Approve or reject an exact packet"
+  default_prompt: "Use $sflow-epic-review-decision to record my exact Story packet decision."
+policy:
+  allow_implicit_invocation: false

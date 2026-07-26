@@ -1,0 +1,3 @@
+interface:
+  display_name: "Resume Epic"
+  short_description: "Resume the latest published Epic"

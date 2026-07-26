@@ -1,0 +1,3 @@
+interface:
+  display_name: "Remote agents"
+  short_description: "Manage pinned agent Markdown"

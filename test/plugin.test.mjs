@@ -36,6 +36,42 @@ test('Epic Story drafting stops for UI review before Jira publication', async ()
   assert.match(content, /Do not approve Planning, create or edit Jira issues, create Story branches/);
 });
 
+test('Epic command parity skills cover navigation, review decisions, checks, drift, telemetry, agents, and grounding', async () => {
+  const expectations = {
+    'sflow-epic-next': /singularity-flow epic next/,
+    'sflow-epic-sync': /singularity-flow epic sync/,
+    'sflow-epic-drift': /singularity-flow epic drift observe/,
+    'sflow-epic-resume': /singularity-flow epic resume/,
+    'sflow-epic-merge-plan': /singularity-flow epic merge-plan/,
+    'sflow-epic-journey': /singularity-flow epic journey/,
+    'sflow-story-checks': /singularity-flow story checks/,
+    'sflow-agents': /singularity-flow agents lock/,
+    'sflow-telemetry': /singularity-flow telemetry status/,
+    'sflow-worldmodel': /singularity-flow wm build/
+  };
+  for (const [name, pattern] of Object.entries(expectations)) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, pattern, `${name} must route to its real CLI command`);
+  }
+});
+
+test('Epic Story decisions use exact-packet Copilot selection receipts', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-review-decision', 'SKILL.md'), 'utf8');
+  assert.match(content, /review-choice begin <DECISION>/);
+  assert.match(content, /review-choice answer <TOKEN>/);
+  assert.match(content, /--packet <SHA-256>/);
+  assert.match(content, /--selection-receipt <TOKEN>/);
+  assert.match(content, /Never infer a persona, target, packet, or confirmation/);
+  assert.match(content, /disable-model-invocation:\s*true/);
+});
+
+test('legacy Epic planning skill redirects to the canonical Story drafting boundary', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-planning', 'SKILL.md'), 'utf8');
+  assert.match(content, /compatibility name for `\/sflow-epic-story-draft`/);
+  assert.match(content, /Stop for exact business approval in the Singularity Flow desktop UI/);
+  assert.match(content, /Do not run a second planning sequence/);
+});
+
 test('plugin provides workspace discovery and switching skills', async () => {
   const list = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspaces', 'SKILL.md'), 'utf8');
   const select = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Workflow telemetry"
+  short_description: "Inspect exact model, tokens and cost"

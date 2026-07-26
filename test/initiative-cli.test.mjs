@@ -12,13 +12,13 @@ const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const actor = 'Initiative Owner';
 const actorEmail = 'initiative.owner@example.com';
 
-function execute(root, args, { allowFailure = false, confirm = null } = {}) {
+function execute(root, args, { allowFailure = false, confirm = null, profile = 'initiative-lite' } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: actor,
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
-    SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' }),
+    SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile }),
     ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
   };
   const result = spawnSync(process.execPath, [bin, ...args], { cwd: root, encoding: 'utf8', env });
@@ -111,6 +111,36 @@ test('initiative Copilot selection receipts preserve explicit profile and person
   assert.equal(ready.ready, true);
   const started = execute(root, ['initiative', 'start', 'INIT-RECEIPT', '--selection-receipt', begun.token]);
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
+});
+
+test('Epic Planning approval is reserved for exact business review in the desktop UI', async () => {
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'EPIC-UI', '--title', 'UI approval boundary'], {
+    profile: 'epic-planning'
+  });
+  const stateFile = path.join(root, 'singularity/initiatives/EPIC-UI/state.json');
+  const state = JSON.parse(await readFile(stateFile, 'utf8'));
+  state.currentPhase = 'epic-planning';
+  state.phases['epic-intake'].status = 'approved';
+  state.phases['epic-requirements'].status = 'approved';
+  state.phases['epic-planning'].status = 'awaiting_approval';
+  await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
+  git(root, ['add', stateFile]);
+  git(root, ['commit', '-m', 'Prepare exact Planning review']);
+
+  const direct = execute(root, ['initiative', 'approve', 'phase'], {
+    allowFailure: true,
+    confirm: 'epic-planning:phase'
+  });
+  assert.notEqual(direct.status, 0);
+  assert.match(direct.stderr, /must be reviewed and approved in the Singularity Flow desktop UI/);
+
+  const alias = execute(root, ['epic', 'planning', 'approve', '--epic', 'EPIC-UI'], {
+    allowFailure: true,
+    confirm: 'epic-planning:phase'
+  });
+  assert.notEqual(alias.status, 0);
+  assert.match(alias.stderr, /must be reviewed and approved in the Singularity Flow desktop UI/);
 });
 
 test('initiative phase generation enforces repository world-model composition for Copilot', async () => {

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
@@ -17,6 +19,24 @@ import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Epic Product Owner';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+
+function flow(root, args, { allowFailure = false } = {}) {
+  const result = spawnSync(process.execPath, [cli, ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Epic Product Owner',
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' })
+    }
+  });
+  if (!allowFailure && result.status !== 0) throw new Error(`${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
+  return result;
+}
 
 function response(bytes, { method = 'GET', etag = '"version-1"', mime = 'text/markdown' } = {}) {
   const body = Buffer.from(bytes);
@@ -46,6 +66,7 @@ async function repository() {
   await initializeDefinition(root);
   const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.git.publish = 'off';
   portfolio.approvalAuthorities['product-approvers'].members = [{
     name: 'Epic Product Owner',
     email: 'epic.owner@example.com'
@@ -290,6 +311,61 @@ test('editable Planning Stories refresh their governed specifications and reopen
   assert.equal(adopted.story.parentMode, 'external');
   assert.equal(adopted.story.metadata.originalParent, 'unlinked');
   assert.equal(adopted.story.tasks[0].jiraKey, 'MOB-322');
+});
+
+test('CLI manages Story metadata and Jira task drafts one field at a time', async () => {
+  const root = await repository();
+  const loaded = await loadInitiative(root, 'MOB-100');
+  loaded.initiative.currentPhase = 'epic-planning';
+  loaded.initiative.phases['epic-intake'].status = 'approved';
+  loaded.initiative.phases['epic-requirements'].status = 'approved';
+  loaded.initiative.phases['epic-planning'].status = 'in_progress';
+  const breakdown = {
+    version: 2,
+    initiativeId: 'MOB-100',
+    epics: [{
+      planId: 'EPIC-001',
+      jiraKey: 'MOB-100',
+      title: 'Mobile sign-in',
+      stories: [{
+        planId: 'STORY-001',
+        workId: 'STORY-001',
+        title: 'Build sign-in',
+        description: 'Build the sign-in flow.',
+        specification: '## Contract\n\nImplement the approved sign-in behavior.',
+        requirements: ['REQ-001'],
+        acceptanceCriteria: ['AC-001'],
+        repository: 'mobile',
+        suggestedWorkType: 'feature',
+        dependsOn: [],
+        blocking: true,
+        metadata: {},
+        tasks: []
+      }]
+    }]
+  };
+  const text = YAML.stringify(breakdown);
+  await writeFile(path.join(root, 'singularity/initiatives/MOB-100/breakdown.yml'), text);
+  await mkdir(path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-planning'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/initiatives/MOB-100/artifacts/epic-planning/story-plan.yml'), text);
+  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  await prepareEpicStorySpecifications(root, 'MOB-100');
+
+  flow(root, ['epic', 'stories', 'metadata', 'STORY-001', 'set', 'component', 'authentication']);
+  const metadata = JSON.parse(flow(root, ['epic', 'stories', 'metadata', 'STORY-001', 'list', '--json']).stdout);
+  assert.deepEqual(metadata, { component: 'authentication' });
+
+  flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'add', '--title', 'Add integration tests', '--acceptance-criteria', 'AC-001']);
+  let tasks = JSON.parse(flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'list', '--json']).stdout);
+  assert.equal(tasks[0].id, 'TASK-001');
+  assert.equal(tasks[0].title, 'Add integration tests');
+  flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'update', 'TASK-001', '--description', 'Cover the canonical sign-in contract.']);
+  tasks = JSON.parse(flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'list', '--json']).stdout);
+  assert.match(tasks[0].description, /canonical sign-in contract/);
+  flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'remove', 'TASK-001']);
+  assert.deepEqual(JSON.parse(flow(root, ['epic', 'stories', 'tasks', 'STORY-001', 'list', '--json']).stdout), []);
+  flow(root, ['epic', 'stories', 'metadata', 'STORY-001', 'remove', 'component']);
+  assert.deepEqual(JSON.parse(flow(root, ['epic', 'stories', 'metadata', 'STORY-001', 'list', '--json']).stdout), {});
 });
 
 test('Jira Epic attachments are pinned as governed sources at start', async () => {

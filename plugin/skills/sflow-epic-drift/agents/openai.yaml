@@ -1,0 +1,3 @@
+interface:
+  display_name: "Epic Jira drift"
+  short_description: "Observe or resolve Jira drift"

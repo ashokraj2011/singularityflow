@@ -52,6 +52,17 @@ h1, h2, h3, p { text-wrap: pretty; }
 .desktop-crash > p:not(.eyebrow) { max-width: 620px; color: var(--muted); font-size: 15px; }
 .desktop-crash pre { max-height: 220px; overflow: auto; margin: 24px 0; border: 1px solid var(--line); border-radius: 12px; padding: 14px; color: var(--red-700); background: var(--red-100); font-size: 11px; white-space: pre-wrap; }
 
+.startup-intro { width: 100vw; height: 100vh; position: relative; display: grid; place-items: center; overflow: hidden; background: #f8faf6; cursor: pointer; }
+.startup-intro::before { content: ''; position: absolute; inset: -18vh -12vw; background: radial-gradient(circle at 76% 8%, rgba(23,122,77,.14), transparent 36%), radial-gradient(circle at 5% 86%, rgba(246,198,74,.13), transparent 34%); pointer-events: none; }
+.startup-intro img { width: 100%; height: 100%; position: relative; z-index: 1; display: block; object-fit: contain; object-position: center; filter: brightness(1.08) contrast(1.03) saturate(1.08); animation: startup-intro-arrive .5s var(--ease-out) both; }
+.startup-intro button { position: absolute; z-index: 2; right: 28px; bottom: 26px; border: 1px solid rgba(16,34,24,.13); border-radius: 999px; padding: 10px 16px; color: rgba(16,34,24,.74); background: rgba(255,255,255,.76); box-shadow: 0 12px 34px rgba(16,34,24,.12); font-size: 12px; font-weight: 720; letter-spacing: .02em; cursor: pointer; opacity: .42; backdrop-filter: blur(14px); transition: opacity .18s var(--ease-out), transform .18s var(--ease-out), background .18s var(--ease-out); }
+.startup-intro:hover button, .startup-intro button:focus-visible { opacity: 1; }
+.startup-intro button:hover { background: #fff; transform: translateY(-1px); }
+@keyframes startup-intro-arrive {
+  from { opacity: 0; transform: scale(1.018); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .screensaver-stage { width: 100vw; height: 100vh; position: relative; overflow: hidden; color: #102218; background: #fffdf6; isolation: isolate; cursor: none; }
 .screensaver-stage::before { content: ''; position: absolute; inset: 0 0 auto; z-index: 2; height: 34vh; background: linear-gradient(180deg, rgba(255,253,246,.96), rgba(255,253,246,.74) 48%, rgba(255,253,246,0)); pointer-events: none; }
 .screensaver-image { width: 100%; height: 100%; display: block; position: absolute; inset: 0; object-fit: contain; object-position: center; opacity: 0; filter: brightness(1.09) contrast(1.04) saturate(1.08); transform: scale(1.004); transition: opacity .62s var(--ease-out), transform 3.2s ease-out; }

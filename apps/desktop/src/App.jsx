@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import YAML from 'yaml';
 import helpMarkdown from '../../../HELP.md?raw';
@@ -100,6 +100,12 @@ const navSections = [
 ];
 
 const screensaverSlides = [
+  {
+    id: 'flow-intro',
+    title: 'Singularity Flow',
+    subtitle: 'Plan, govern, and deliver with Git-native lineage.',
+    src: 'screensaver/singularity-flow-intro.gif'
+  },
   {
     id: 'epic-to-stories',
     title: 'Epic to delivery-ready Stories',
@@ -329,6 +335,27 @@ function WorldModelRunDialog({ run, onClose }) {
       <footer><span className="muted">{run.status === 'running' ? 'You can close this window; the build will continue.' : run.status === 'success' ? 'Generated Markdown is now part of the repository state.' : 'Fix the reported issue and run the builder again.'}</span><button className={run.status === 'running' ? 'ghost' : 'primary'} onClick={onClose}>{run.status === 'running' ? 'Hide progress' : 'Close'}</button></footer>
     </section>
   </div>;
+}
+
+function StartupIntro({ onDone }) {
+  useEffect(() => {
+    const timer = setTimeout(onDone, 3600);
+    const onKey = (event) => {
+      if (['Escape', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        onDone();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onDone]);
+  return <main className="startup-intro" aria-label="Singularity Flow introduction" onClick={onDone}>
+    <img src="screensaver/singularity-flow-intro.gif" alt="Singularity Flow animated introduction" />
+    <button type="button" onClick={onDone} aria-label="Continue to Singularity Flow">Continue</button>
+  </main>;
 }
 
 function Screensaver({ onExit }) {
@@ -5014,6 +5041,8 @@ export default function App() {
   const [editor, setEditor] = useState({ path: '', content: '', original: '', kind: 'workflow' });
   const [focusedDocumentId, setFocusedDocumentId] = useState(null);
   const [screensaverReturnPage, setScreensaverReturnPage] = useState('dashboard');
+  const [showStartupIntro, setShowStartupIntro] = useState(true);
+  const dismissStartupIntro = useCallback(() => setShowStartupIntro(false), []);
 
   useEffect(() => {
     let current = true;
@@ -5518,6 +5547,7 @@ export default function App() {
     setPage(data ? screensaverReturnPage : 'dashboard');
   }
 
+  if (showStartupIntro) return <StartupIntro onDone={dismissStartupIntro} />;
   if (onboardingLoading) return <div className="onboarding-loading"><FlowBrand className="brand large flow-brand-welcome" context="Preparing desktop setup" /><span className="onboarding-loading-orb">✦</span></div>;
   if (!data && standaloneHelp) return <div className="standalone-help"><button className="ghost help-back" onClick={() => setStandaloneHelp(false)}>← Back</button><Help /></div>;
   if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;

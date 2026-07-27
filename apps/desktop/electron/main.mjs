@@ -2029,6 +2029,8 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
           initiativeId: epicKey,
           source,
           resumed: true,
+          branch: epicKey,
+          checkoutMode,
           publication: null,
           intakePublication: null,
           currentPhase: existing.initiative.currentPhase,

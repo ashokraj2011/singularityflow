@@ -125,7 +125,13 @@ test('Jira Epic adoption can create a governed Epic or target a typed existing i
   assert.match(source, /list="jira-initiative-options"/);
   assert.ok(source.includes('startEpicWizard(data.repository.root, selectedEpic.key, createProfile, createPersona)'));
   assert.match(source, /refreshInitiatives\(data\.repository\.root\)/);
+  assert.match(source, /already exists\. Its latest remote branch was fetched and opened so you can continue/);
+  assert.match(source, /Fetch & continue \{alreadyStarted\.id\}/);
+  assert.match(source, /Fetch branch & continue/);
+  assert.match(source, /window\.singularity\.openInitiative\(data\.repository\.root, selectedExisting\.id\)/);
+  assert.match(source, /typeof success === 'function' \? success\(result\) : success/);
   assert.match(main, /resumed: true/);
+  assert.match(main, /checkoutMode/);
   assert.match(main, /already exists but does not contain a governed initiative/);
   assert.match(source, /'Create & adopt into Git'/);
   assert.match(styles, /\.jira-initiative-target/);
@@ -901,7 +907,7 @@ test('an Epic that already exists is opened from the wizard, not started again',
   assert.match(wizard, /const startedEpics = new Map\(\(data\.initiatives \?\? \[\]\)\.map/);
   // The start action is withheld, so the engine's refusal is never reached from here.
   assert.match(wizard, /&& !alreadyStarted/);
-  assert.match(wizard, /alreadyStarted \? <button className="primary" onClick=\{\(\) => openEpic\(alreadyStarted\.id\)\}>Open \{alreadyStarted\.id\}<\/button>/);
+  assert.match(wizard, /alreadyStarted \? <button className="primary" onClick=\{\(\) => openEpic\(alreadyStarted\.id\)\}>Fetch & continue \{alreadyStarted\.id\}<\/button>/);
   // openEpic is declared in App, so it reaches the wizard as a prop or not at all.
   assert.match(source, /function EpicStartWizard\(\{[^}]*\bopenEpic\b/);
   for (const render of source.match(/<EpicStartWizard\b[^>]*\/>/g) ?? []) assert.match(render, /openEpic=\{openEpic\}/);

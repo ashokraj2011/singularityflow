@@ -42,6 +42,8 @@ function ensureProvider(): void {
 
 export interface OpenEventHorizonOptions {
   cwd?: string
+  /** ACP runtime selected in Flow Studio. */
+  agentId?: string
   /** Flow's projection of the current workspace, validated before use. */
   flowContext?: FlowWorkspaceContext | null
 }
@@ -70,7 +72,11 @@ export function setFlowContext(cwd: string, context?: FlowWorkspaceContext | nul
 export function openEventHorizonWindow(options: OpenEventHorizonOptions = {}): void {
   ensureProvider()
   if (options.cwd) setFlowContext(options.cwd, options.flowContext)
-  openUpstreamWindow({ cwd: options.cwd })
+  openUpstreamWindow({
+    cwd: options.cwd,
+    agentId: options.agentId,
+    hostContext: options.flowContext
+  })
 }
 
 /**

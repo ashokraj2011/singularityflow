@@ -1007,7 +1007,13 @@ artifacts appear in Electron after refresh.
 The optional **Agent workbench** is deliberately separate from those phase
 pages. It opens Event Horizon as another managed window in the same installed
 desktop application, scopes the selected ACP agent to the active repository,
-and leaves Flow lifecycle transitions explicit.
+and leaves Flow lifecycle transitions explicit. When Flow opens the workbench,
+the exact active Epic or Story, phase, and persona select a read-only governed
+prompt containing the phase contract, repository world-model views, remote
+agent skills, and approved evidence. Event Horizon injects it once with the
+first user turn and shows a **Singularity grounding active** disclosure; it
+never substitutes a merely recent work item for the host-selected ID. See
+[the Flow ↔ Event Horizon contract](docs/EVENT-HORIZON-CONTRACT.md).
 
 Install the personal Copilot plugin with:
 

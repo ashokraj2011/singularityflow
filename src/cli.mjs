@@ -239,7 +239,7 @@ Usage:
   singularity-flow wm init
   singularity-flow wm build [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep]
   singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence] [--no-persona]
-  singularity-flow wm compose [--persona ID] [--phase ID] [--task TEXT] [--evidence] [--dry-run] [--out FILE]
+  singularity-flow wm compose [--persona ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
   singularity-flow jira status [--json]
@@ -281,7 +281,7 @@ Usage:
   singularity-flow initiative next [INIT-ID] [--json]
   singularity-flow initiative outputs [PHASE] [--include a,b,c] [--reason TEXT]
   singularity-flow initiative phase [publish] [PHASE]
-  singularity-flow initiative context [PHASE] [--dry-run] [--json]
+  singularity-flow initiative context [PHASE] [--persona ID] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
   singularity-flow initiative checklist [PHASE] [--json]
   singularity-flow initiative evidence add <CHECK-ID> --assurance LEVEL [--path FILE | --url URL]
@@ -2046,7 +2046,7 @@ async function initiativeCommand(positionals, options) {
     const phaseId = positionals[2] ?? initiative.currentPhase;
     const session = await loadSession(root, { required: false });
     const result = await composeInitiativeContext(root, initiativeId, phaseId, {
-      persona: session?.persona ?? null,
+      persona: optionString(options, 'persona') ?? session?.persona ?? null,
       dryRun: optionBoolean(options, 'dry-run')
     });
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));

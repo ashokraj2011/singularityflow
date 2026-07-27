@@ -104,9 +104,9 @@ test('world-model context combines required phase views, persona views, and pers
   assert.match(output, /SECURITY VIEW/);
   assert.match(output, /DEVELOPMENT VIEW/);
   assert.match(output, /TESTING VIEW/);
-  assert.match(output, /Act as a developer/);
+  assert.match(output, /Developer persona/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'verification', '--concat'], root), /EVIDENCE LEDGER/);
-  assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-persona'], root), /Act as a developer/);
+  assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-persona'], root), /Developer persona/);
   assert.doesNotMatch(await readFile(path.join(root, 'singularity/personas/developer.md'), 'utf8'), /architect persona/i);
 });
 
@@ -161,8 +161,17 @@ test('wm inject renders matched persona context and records the generation audit
   const preview = run(process.execPath, [bin, 'wm', 'inject', '--phase', 'design', '--dry-run'], root);
   assert.match(preview, /rules matched: 1/);
   assert.match(preview, /views\/development\.md/);
+  const rendered = run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1', '--render-only'], root);
+  assert.match(rendered, /Active Story phase contract/);
+  assert.match(rendered, /Work ID: `WM-1`/);
+  assert.match(rendered, /Developer persona/);
+  assert.match(rendered, /INJECTED DEVELOPMENT VIEW/);
+  await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
+  const unsafeWorkId = result(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', '../../outside', '--render-only'], root);
+  assert.equal(unsafeWorkId.status, 1);
+  assert.match(unsafeWorkId.stderr, /valid work ID/);
   const prompt = run(process.execPath, [bin, 'wm', 'inject', '--phase', 'design'], root);
-  assert.match(prompt, /Act as a developer/);
+  assert.match(prompt, /Developer persona/);
   assert.match(prompt, /INJECTED DEVELOPMENT VIEW/);
   assert.match(prompt, /Repository grounding/);
   const audit = JSON.parse(await readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'));

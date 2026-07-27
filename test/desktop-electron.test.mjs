@@ -131,6 +131,19 @@ test('an empty workspace directory opens the standalone configuration editor', a
   assert.match(source, /editorMode !== 'create' \|\| !repositoryRoot/);
 });
 
+test('desktop workspace surfaces own their viewport and remain vertically scrollable', async () => {
+  const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
+  assert.match(styles, /html, body, #root \{[^}]*height: 100%;[^}]*min-height: 0;/);
+  assert.match(styles, /\.shell \{[^}]*height: 100dvh;[^}]*min-height: 0;[^}]*overflow: hidden;/);
+  assert.match(styles, /\.content \{[^}]*min-height: 0;[^}]*overflow: hidden;/);
+  assert.match(styles, /\.view \{[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
+  assert.match(styles, /\.standalone-workspace \{[^}]*height: 100dvh;[^}]*grid-template-rows: auto minmax\(0, 1fr\);[^}]*overflow: hidden;/);
+  assert.match(styles, /\.standalone-workspace-main \{[^}]*min-height: 0;[^}]*overflow-y: auto;/);
+  assert.match(styles, /\.onboarding-shell \{[^}]*height: 100dvh;[^}]*overflow: hidden;/);
+  assert.match(styles, /\.onboarding-main \{[^}]*min-height: 0;[^}]*overflow: hidden;/);
+  assert.match(styles, /\.onboarding-stage \{[^}]*overflow-y: auto;/);
+});
+
 test('workspace Epic intake scopes Jira and derives portfolio configuration from the selected workspace', () => {
   const workspace = {
     leadRepository: 'lead',

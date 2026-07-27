@@ -58,6 +58,32 @@ test('new Copilot sessions require work-item selection before persona selection 
   const unsafeWorkspace = await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace use payments; rm -rf output' } });
   assert.equal(unsafeWorkspace.permissionDecision, 'deny');
 
+  for (const allowed of [
+    'singularity-flow wm init',
+    'singularity-flow wm build',
+    'singularity-flow wm build --depth deep --phase requirements --task "Formalize checkout requirements" --focus "payment boundaries" --local',
+    'sflow wm build --views architecture,security --focus repository',
+    'singularity-flow wm check',
+    'singularity-flow wm context requirements --concat --evidence --no-persona'
+  ]) {
+    assert.deepEqual(
+      await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: allowed } }),
+      {},
+      `expected repository-scoped '${allowed}' to be allowed without a work item`
+    );
+  }
+  for (const deniedWorldModel of [
+    'singularity-flow wm build --runner "touch /tmp/bypass"',
+    'singularity-flow wm build --out /tmp/model',
+    'singularity-flow wm compose --phase design --persona architect',
+    'singularity-flow wm build; rm -rf output'
+  ]) {
+    const decision = await personaGuardHook(root, definition, current, {
+      toolName: 'bash', toolArgs: { command: deniedWorldModel }
+    });
+    assert.equal(decision.permissionDecision, 'deny', `expected '${deniedWorldModel}' to remain gated`);
+  }
+
   await activateWorkItemSession(root, definition, current);
   status = await personaSessionStatus(root, definition, current);
   assert.equal(status.workItemSelectionRequired, false);

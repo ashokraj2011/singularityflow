@@ -5,6 +5,11 @@ description: Build, verify, inspect, and compose the repository-owned world mode
 
 # Manage the repository world model
 
+This is a repository-scoped operation. Do not ask for a Jira ID, Epic ID, Story
+ID, work ID, or persona before `init`, `build`, `check`, or `context`. Run the
+command from the repository whose source tree must be modeled. A governed ID is
+needed only for `compose` when the user asks for a work-item-specific prompt.
+
 Use the requested operation:
 
 - Initialize configuration: `singularity-flow wm init`.

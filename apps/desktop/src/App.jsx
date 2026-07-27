@@ -1313,7 +1313,8 @@ function WorkspaceStudio({
   onRestoreWorkspace,
   onSetupJira
 }) {
-  const current = data.workspace;
+  const current = data.workspace ?? null;
+  const repositoryRoot = data.repository?.root ?? null;
   const [baseDirectory, setBaseDirectory] = useState(defaultBaseDirectory);
   const [workspaceId, setWorkspaceId] = useState('');
   const [workspaceName, setWorkspaceName] = useState('');
@@ -1328,15 +1329,15 @@ function WorkspaceStudio({
 
   useEffect(() => {
     let active = true;
-    if (editorMode !== 'create') return undefined;
-    window.singularity.workspaceRepositoryDefaults(data.repository.root)
+    if (editorMode !== 'create' || !repositoryRoot) return undefined;
+    window.singularity.workspaceRepositoryDefaults(repositoryRoot)
       .then((repository) => {
         if (!active || repositories.length) return;
         setRepositories([workspaceRepositoryDraft(repository)]);
       })
       .catch(() => {});
     return () => { active = false; };
-  }, [data.repository.root, editorMode]);
+  }, [repositoryRoot, editorMode]);
 
   useEffect(() => { setHealth(data.workspace ?? null); }, [data.workspace]);
 
@@ -1480,8 +1481,8 @@ function WorkspaceStudio({
       leadRepository: repositories[leadIndex]?.id.trim()
     };
     const result = await action(() => editorMode === 'edit'
-      ? window.singularity.previewWorkspaceUpdate(data.repository.root, health.workspace.path, configuration)
-      : window.singularity.previewWorkspaceConfiguration(data.repository.root, {
+      ? window.singularity.previewWorkspaceUpdate(repositoryRoot, health.workspace.path, configuration)
+      : window.singularity.previewWorkspaceConfiguration(repositoryRoot, {
         ...configuration,
         baseDirectory,
         id: workspaceId.trim()
@@ -1500,8 +1501,8 @@ function WorkspaceStudio({
       confirmation: workspaceId.trim()
     };
     const result = await action(() => editorMode === 'edit'
-      ? window.singularity.updateWorkspaceConfiguration(data.repository.root, health.workspace.path, configuration)
-      : window.singularity.createWorkspaceConfiguration(data.repository.root, {
+      ? window.singularity.updateWorkspaceConfiguration(repositoryRoot, health.workspace.path, configuration)
+      : window.singularity.createWorkspaceConfiguration(repositoryRoot, {
         ...configuration,
         baseDirectory,
         id: workspaceId.trim()
@@ -1549,7 +1550,7 @@ function WorkspaceStudio({
   async function promoteDocument(document) {
     const workId = data.workflow?.workItem?.id;
     const result = await action(() => window.singularity.promoteWorkspaceDocument(
-      data.repository.root,
+      repositoryRoot,
       health.workspace.path,
       document.path,
       workId
@@ -1558,8 +1559,9 @@ function WorkspaceStudio({
   }
 
   const canPromoteDocuments = Boolean(
-    data.workflow?.workItem?.id
-    && data.repository.branch === data.workflow.workItem.branch
+    repositoryRoot
+    && data.workflow?.workItem?.id
+    && data.repository?.branch === data.workflow.workItem.branch
     && data.session?.workId === data.workflow.workItem.id
   );
   const repositoryIds = repositories.map((repository) => repository.id.trim());
@@ -1598,11 +1600,12 @@ function WorkspaceStudio({
   const materializedRepositoryIds = new Set(
     editorMode === 'edit' ? Object.keys(health?.workspace?.repositories ?? {}) : []
   );
+  const setupNeedsAttention = data.workspaceSetup?.mode?.startsWith('saved-needs') === true;
 
   return <div className="page workspace-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy ? 'good' : 'warn'}>{health.healthy ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
+    <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy && !setupNeedsAttention ? 'good' : 'warn'}>{health.healthy && !setupNeedsAttention ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
 
-    {data.workspaceSetup?.mode?.startsWith('saved') && <div className={`workspace-save-result ${data.workspaceSetup.mode === 'saved-needs-repair' ? 'warning' : 'success'}`} role="status"><span>{data.workspaceSetup.mode === 'saved-needs-repair' ? '!' : '✓'}</span><div><strong>Workspace configuration saved</strong><small>{data.workspaceSetup.message}</small></div></div>}
+    {data.workspaceSetup?.mode?.startsWith('saved') && <div className={`workspace-save-result ${setupNeedsAttention ? 'warning' : 'success'}`} role="status"><span>{setupNeedsAttention ? '!' : '✓'}</span><div><strong>Workspace configuration saved</strong><small>{data.workspaceSetup.message}</small></div></div>}
 
     {health && <section className="workspace-current panel">
       <header className="workspace-current-head"><div><span className="workspace-anchor-type">Active workspace</span><h2>{health.workspace.name}</h2><p>{health.workspace.path}</p></div><div className="workspace-actions"><button className="ghost" onClick={refreshHealth}>Refresh health</button><button className="secondary" onClick={sync}>Fetch remotes</button><button className="secondary" onClick={stageDocuments}>Stage documents</button><button className="secondary" onClick={onSetupJira}>Jira connection</button><button className="secondary" onClick={editWorkspace}>Edit workspace</button><button className="ghost" onClick={newWorkspace}>New workspace</button><button className="ghost danger" onClick={() => setArchiveOpen((open) => !open)}>Archive</button>{!health.healthy && <button className="primary" onClick={repair}>Repair missing clones</button>}</div></header>
@@ -6115,6 +6118,7 @@ function Documents({ data, action, reload, downloadFile, focusDocumentId = null 
 
 export default function App() {
   const [data, setData] = useState(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState(null);
   const [onboarding, setOnboarding] = useState(null);
   const [onboardingLoading, setOnboardingLoading] = useState(true);
   const [onboardingError, setOnboardingError] = useState(null);
@@ -6251,6 +6255,13 @@ export default function App() {
     catch (error) { setToast({ tone: 'bad', text: `Could not load recent workspaces: ${error.message}` }); return []; }
   }
   function acceptOpened(result, nextPage = null) {
+    if (!result?.repository) {
+      setWorkspaceDraft(result);
+      setRepositoryMenu(false);
+      if (nextPage) setPage(nextPage);
+      return;
+    }
+    setWorkspaceDraft(null);
     setData(result);
     setEditor({ path: result.definitionPath, content: result.definitionText, original: result.definitionText, kind: 'workflow' });
     setRepositoryMenu(false);
@@ -6291,6 +6302,7 @@ export default function App() {
     );
     if (!items) return null;
     setRecentWorkspaces(items);
+    setWorkspaceDraft(null);
     setData(null);
     setPage('epics');
     return items;
@@ -6705,6 +6717,27 @@ export default function App() {
   if (onboardingError) return <OnboardingLoadFailure error={onboardingError} retry={() => setOnboardingAttempt((current) => current + 1)} help={() => setStandaloneHelp(true)} />;
   if (!onboarding?.profile?.completed) return <><OnboardingWizard initial={onboarding.profile} jira={onboarding.jira} onComplete={completeOnboarding} onHelp={() => setStandaloneHelp(true)} /><Toast toast={toast} onClose={() => setToast(null)} /></>;
   if (page === 'screensaver') return <Screensaver onExit={closeScreensaver} />;
+  if (!data && workspaceDraft) return <div className="standalone-workspace">
+    <header className="welcome-nav">
+      <FlowBrand className="brand large flow-brand-welcome" context="Workspace setup" />
+      <nav><button className="ghost" onClick={() => setWorkspaceDraft(null)} disabled={busy}>← Back</button><button onClick={() => setStandaloneHelp(true)}>Documentation</button></nav>
+    </header>
+    <main className="standalone-workspace-main">
+      <WorkspaceStudio
+        data={workspaceDraft}
+        action={action}
+        defaultBaseDirectory={workspaceDraft.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''}
+        recentWorkspaces={recentWorkspaces}
+        onOpenWorkspace={openWorkspace}
+        onForgetWorkspace={forgetWorkspace}
+        onArchiveWorkspace={archiveWorkspace}
+        onRestoreWorkspace={restoreWorkspace}
+        onSetupJira={() => setToast({ tone: 'warning', text: 'Save the workspace and initialize its lead repository before configuring Jira.' })}
+        onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }}
+      />
+    </main>
+    <Toast toast={toast} onClose={() => setToast(null)} />
+  </div>;
   if (!data) return <div className={`welcome ${busy ? 'busy' : ''}`}>
     <header className="welcome-nav">
       <FlowBrand className="brand large flow-brand-welcome" context="Git-native delivery" />

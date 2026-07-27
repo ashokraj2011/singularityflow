@@ -79,11 +79,42 @@ test('Jira Cloud JSON POSTs include the external-client XSRF exemption header', 
   assert.deepEqual(result.payload, { issues: [], isLast: true });
 });
 
-test('Jira XSRF failures explain that a corporate proxy may have stripped the exemption header', async () => {
+test('Jira XSRF search failures retry through the official read-only GET endpoint', async () => {
+  const calls = [];
+  const result = await jiraRequest('/rest/api/3/search/jql', {
+    method: 'POST',
+    body: { jql: 'project = "APP"', fields: ['summary', 'status'], maxResults: 50 },
+    maxRetries: 0,
+    connection: {
+      baseUrl: 'https://office.atlassian.net',
+      username: 'developer@example.com',
+      pat: 'cloud-pat'
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return calls.length === 1
+        ? response('XSRF check failed', 403)
+        : response({ issues: [], isLast: true });
+    }
+  });
+  assert.deepEqual(result.payload, { issues: [], isLast: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].init.headers['X-Atlassian-Token'], 'no-check');
+  assert.equal(calls[1].init.method, 'GET');
+  assert.equal(calls[1].init.body, undefined);
+  assert.equal(calls[1].init.headers['Content-Type'], undefined);
+  const fallback = new URL(calls[1].url);
+  assert.equal(fallback.pathname, '/rest/api/3/search/jql');
+  assert.equal(fallback.searchParams.get('jql'), 'project = "APP"');
+  assert.equal(fallback.searchParams.get('fields'), 'summary,status');
+  assert.equal(fallback.searchParams.get('maxResults'), '50');
+});
+
+test('non-search Jira XSRF failures retain an actionable deployment and proxy diagnosis', async () => {
   await assert.rejects(
-    () => jiraRequest('/rest/api/3/search/jql', {
+    () => jiraRequest('/rest/api/3/issue/APP-1/comment', {
       method: 'POST',
-      body: { jql: 'project = "APP"' },
+      body: { body: 'Comment' },
       maxRetries: 0,
       connection: {
         baseUrl: 'https://office.atlassian.net',
@@ -94,7 +125,7 @@ test('Jira XSRF failures explain that a corporate proxy may have stripped the ex
     }),
     (error) => error?.status === 403
       && error?.category === 'authorization'
-      && /corporate proxy removed X-Atlassian-Token/.test(error.message)
+      && /deployment type, base URL, and proxy policy/.test(error.message)
   );
 });
 

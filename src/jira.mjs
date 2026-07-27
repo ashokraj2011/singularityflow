@@ -10,6 +10,7 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 15_000;
 const MAX_SEARCH_RESULTS = 500;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_SEARCH_GET_PATH_BYTES = 8 * 1024;
 
 function jiraFailure(message, { status = null, category = 'request', retryAfter = null } = {}) {
   const error = new SingularityFlowError(message);
@@ -358,6 +359,27 @@ function jiraApiTarget(apiPath, connection) {
   return target.href;
 }
 
+function jiraSearchGetPath(apiPath, body) {
+  const path = String(apiPath ?? '');
+  if (!/^\/rest\/api\/[23]\/search(?:\/jql)?$/.test(path)) return null;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const parameters = new URLSearchParams();
+  for (const [key, value] of Object.entries(body)) {
+    if (value == null) continue;
+    if (Array.isArray(value)) {
+      if (value.some((item) => !['string', 'number', 'boolean'].includes(typeof item))) return null;
+      parameters.set(key, value.map(String).join(','));
+      continue;
+    }
+    if (!['string', 'number', 'boolean'].includes(typeof value)) return null;
+    parameters.set(key, String(value));
+  }
+  const query = parameters.toString();
+  if (!query) return null;
+  const candidate = `${path}?${query}`;
+  return Buffer.byteLength(candidate, 'utf8') <= MAX_SEARCH_GET_PATH_BYTES ? candidate : null;
+}
+
 function boundedInteger(value, fallback, minimum, maximum) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -435,7 +457,7 @@ export async function jiraRequest(apiPath, {
         signal: controller.signal,
         headers: {
           Accept: 'application/json',
-          'Content-Type': 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           Authorization: authorizationHeader(resolved),
           ...(resolved.deployment === 'cloud' && !['GET', 'HEAD'].includes(requestMethod)
             ? { 'X-Atlassian-Token': 'no-check' }
@@ -488,8 +510,24 @@ export async function jiraRequest(apiPath, {
       let detail = typeof payload === 'string'
         ? payload
         : payload?.errorMessages?.join('; ') || payload?.errors && JSON.stringify(payload.errors) || payload?.message || JSON.stringify(payload);
-      if (response.status === 403 && /xsrf check failed/i.test(String(detail))) {
-        detail = `${detail}. Jira did not receive its external-client XSRF exemption header; check whether a corporate proxy removed X-Atlassian-Token.`;
+      const xsrfRejected = response.status === 403 && /xsrf check failed/i.test(String(detail));
+      if (xsrfRejected && requestMethod === 'POST') {
+        const fallbackPath = jiraSearchGetPath(apiPath, body);
+        if (fallbackPath) {
+          return jiraRequest(fallbackPath, {
+            method: 'GET',
+            env,
+            connection: resolved,
+            fetchImpl,
+            sleep,
+            maxRetries,
+            requestTimeoutMs,
+            maxResponseBytes
+          });
+        }
+      }
+      if (xsrfRejected) {
+        detail = `${detail}. Jira or a corporate gateway rejected the external API request at its XSRF gate. Verify the Jira deployment type, base URL, and proxy policy for authenticated REST clients.`;
       }
       const category = response.status === 401 ? 'authentication'
         : response.status === 403 ? 'authorization'

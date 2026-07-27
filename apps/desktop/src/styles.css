@@ -1993,7 +1993,7 @@ input, select, textarea { border-radius: 11px !important; }
 .jira-epics > button > span:last-child { color: #0b7548; font-size: 18px; }
 .jira-story-panel { padding-bottom: 22px; }
 .jira-story-panel > header p { margin-bottom: 0; }
-.jira-story-panel > label,.jira-story-panel > .jira-actions,.jira-story-panel > .jira-adoption { margin: 18px 22px 0; }
+.jira-story-panel > label,.jira-story-panel > .jira-actions,.jira-story-panel > .jira-adoption,.jira-story-panel > .jira-initiative-target { margin: 18px 22px 0; }
 .jira-story-list { max-height: 330px; overflow: auto; }
 .jira-story-list > div { display: grid; grid-template-columns: 1fr 170px; align-items: end; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line-soft); }
 .jira-story-list > div > div { display: grid; gap: 3px; min-width: 0; }
@@ -2001,6 +2001,16 @@ input, select, textarea { border-radius: 11px !important; }
 .jira-story-list small { color: var(--muted); }
 .jira-story-list label { display: grid; gap: 5px; }
 .jira-story-list select { min-width: 0; }
+.jira-initiative-target { display: grid; gap: 12px; padding-top: 18px; border-top: 1px solid var(--line); }
+.jira-initiative-target h3 { margin: 0; font-size: 18px; font-weight: 590; }
+.jira-target-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.jira-target-choice button { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line); background: #fff; color: inherit; text-align: left; }
+.jira-target-choice button small,.jira-create-target span,.jira-existing-target small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.jira-target-choice button.active { border-color: #65b783; background: #eef7f1; box-shadow: inset 0 0 0 1px #65b783; }
+.jira-create-target { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; border-radius: 11px; background: #f6f8f6; }
+.jira-create-target > div { display: grid; grid-column: 1/-1; gap: 3px; }
+.jira-create-target > div > small,.jira-create-target label > span,.jira-existing-target > span { color: var(--muted); font-size: 11px; font-weight: 550; letter-spacing: .04em; text-transform: uppercase; }
+.jira-create-target label,.jira-existing-target { display: grid; gap: 6px; }
 .jira-actions { display: flex; gap: 10px; }
 .jira-actions button { flex: 1; }
 .jira-adoption { display: grid; gap: 4px; padding: 13px 15px; border-radius: 12px; background: #f5f7f4; }

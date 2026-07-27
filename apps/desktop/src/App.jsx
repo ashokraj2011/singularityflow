@@ -1750,7 +1750,16 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   const [selectedEpic, setSelectedEpic] = useState(null);
   const [stories, setStories] = useState([]);
   const [repositoryMap, setRepositoryMap] = useState({});
+  const [initiativeTarget, setInitiativeTarget] = useState(data.selectedInitiativeId ? 'existing' : 'new');
   const [initiativeId, setInitiativeId] = useState(data.selectedInitiativeId ?? data.initiatives?.[0]?.id ?? '');
+  const [createProfile, setCreateProfile] = useState(data.portfolio?.initiativeProfiles?.['epic-planning'] ? 'epic-planning' : Object.keys(data.portfolio?.initiativeProfiles ?? {})[0] ?? '');
+  const [createPersona, setCreatePersona] = useState(
+    data.session?.persona && data.definition?.personas?.[data.session.persona]
+      ? data.session.persona
+      : data.definition?.personas?.['product-owner']
+        ? 'product-owner'
+        : Object.keys(data.definition?.personas ?? {})[0] ?? ''
+  );
   const [adoption, setAdoption] = useState(null);
   const [writePlan, setWritePlan] = useState(null);
   const [applyConfirmation, setApplyConfirmation] = useState('');
@@ -1766,6 +1775,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
 
   useEffect(() => {
     setInitiativeId(data.selectedInitiativeId ?? data.initiatives?.[0]?.id ?? '');
+    if (data.selectedInitiativeId) setInitiativeTarget('existing');
   }, [data.selectedInitiativeId, data.initiatives]);
 
   async function loadProjects(refresh = false) {
@@ -1827,16 +1837,44 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   }
 
   async function previewAdoption() {
-    if (!initiativeId || !selectedEpic) return;
+    if (!selectedEpic) return;
+    if (initiativeTarget === 'new') {
+      const unresolved = stories
+        .filter((story) => !repositoryMap[story.key])
+        .map((story) => ({ jiraKey: story.key, title: story.title }));
+      setAdoption({
+        ready: unresolved.length === 0,
+        create: true,
+        initiativeId: selectedEpic.key,
+        unresolved,
+        draft: { epics: [{ stories }] }
+      });
+      return;
+    }
+    if (!initiativeId) return;
     const result = await action(() => window.singularity.previewJiraAdoption(data.repository.root, initiativeId, selectedEpic.key, repositoryMap));
     if (result) setAdoption(result);
   }
 
   async function adopt() {
-    const result = await action(() => window.singularity.adoptJiraEpic(data.repository.root, initiativeId, selectedEpic.key, repositoryMap), `${selectedEpic.key} adopted and pushed`);
+    if (!selectedEpic) return;
+    const targetId = initiativeTarget === 'new' ? selectedEpic.key : initiativeId.trim();
+    const result = await action(async () => {
+      if (initiativeTarget === 'new') {
+        if (data.initiatives.some((initiative) => initiative.id === targetId)) {
+          throw new Error(`${targetId} already exists. Choose “Use existing initiative” to import into it.`);
+        }
+        await window.singularity.startEpicWizard(data.repository.root, selectedEpic.key, createProfile, createPersona);
+      }
+      return window.singularity.adoptJiraEpic(data.repository.root, targetId, selectedEpic.key, repositoryMap);
+    }, initiativeTarget === 'new'
+      ? `${selectedEpic.key} created as a governed Epic, adopted, committed, and pushed`
+      : `${selectedEpic.key} adopted into ${targetId}, committed, and pushed`);
     if (!result) return;
     setAdoption(result);
-    await reload(null, initiativeId);
+    setInitiativeId(targetId);
+    setInitiativeTarget('existing');
+    await reload(null, targetId);
   }
 
   async function planWrites() {
@@ -1888,7 +1926,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
       <div className="jira-browser">
         <aside className="jira-projects panel"><header><span className="eyebrow">Scope</span><h2>Projects</h2></header>{!projects.length && <button className="primary" onClick={() => loadProjects()}>Load permitted projects</button>}{projects.map((project) => <button className={project.key === projectKey ? 'active' : ''} key={project.key} onClick={() => loadEpics(project.key)}><span>{project.key.slice(0, 2)}</span><div><strong>{project.name}</strong><small>{project.key} · {project.projectType ?? 'software'}</small></div></button>)}</aside>
         <section className="jira-epics panel"><header className="panel-heading"><div><span className="eyebrow">Existing Jira hierarchy</span><h2>{projectKey ? `${projectKey} Epics` : 'Choose a project'}</h2></div><span>{epics.length} visible</span></header>{!epics.length && projectKey && <div className="inline-empty">No Epics loaded. Refresh the project to query Jira.</div>}{epics.map((epic) => <button className={selectedEpic?.key === epic.key ? 'active' : ''} key={epic.key} onClick={() => chooseEpic(epic)}><StatusDot status={epic.statusCategory === 'Done' ? 'approved' : 'in_progress'} /><div><strong>{epic.key} — {epic.title}</strong><small>{epic.status ?? 'unknown status'} · updated {formatRecentTime(epic.updatedAt)}</small></div><span>→</span></button>)}</section>
-        <aside className="jira-story-panel panel">{selectedEpic ? <><header><span className="eyebrow">Epic children</span><h2>{selectedEpic.key}</h2><p>{selectedEpic.title}</p></header><div className="jira-story-list">{stories.map((story) => <div key={story.key}><div><strong>{story.key}</strong><span>{story.title}</span><small>{story.issueType} · {story.status ?? 'unknown'}</small></div><label><span>Owning repository</span><select value={repositoryMap[story.key] ?? ''} onChange={(event) => setRepositoryMap({ ...repositoryMap, [story.key]: event.target.value })}><option value="">Choose repository…</option>{repositoryIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label></div>)}</div><label><span>Target Singularity initiative</span><select value={initiativeId} onChange={(event) => { setInitiativeId(event.target.value); setAdoption(null); }}><option value="">Choose initiative…</option>{data.initiatives.map((initiative) => <option value={initiative.id} key={initiative.id}>{initiative.id} — {initiative.title}</option>)}</select></label><div className="jira-actions"><button className="secondary" disabled={!initiativeId || stories.some((story) => !repositoryMap[story.key])} onClick={previewAdoption}>Preview adoption</button><button className="primary" disabled={!adoption?.ready} onClick={adopt}>Adopt into Git</button></div>{adoption && <div className={`jira-adoption ${adoption.ready ? 'ready' : 'warn'}`}><strong>{adoption.ready ? 'Ready to adopt' : 'Mapping incomplete'}</strong><span>{adoption.draft?.epics?.[0]?.stories?.length ?? adoption.breakdown?.stories?.length} stories · source {adoption.sourceSha256?.slice(0, 12)}</span>{adoption.unresolved?.length > 0 && <small>Map: {adoption.unresolved.map((item) => item.jiraKey).join(', ')}</small>}</div>}</> : <Empty title="Choose an Epic" detail="Its child stories, Jira status, and repository ownership controls will appear here." />}</aside>
+        <aside className="jira-story-panel panel">{selectedEpic ? <><header><span className="eyebrow">Epic children</span><h2>{selectedEpic.key}</h2><p>{selectedEpic.title}</p></header><div className="jira-story-list">{stories.map((story) => <div key={story.key}><div><strong>{story.key}</strong><span>{story.title}</span><small>{story.issueType} · {story.status ?? 'unknown'}</small></div><label><span>Owning repository</span><select value={repositoryMap[story.key] ?? ''} onChange={(event) => { setRepositoryMap({ ...repositoryMap, [story.key]: event.target.value }); setAdoption(null); }}><option value="">Choose repository…</option>{repositoryIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label></div>)}</div><section className="jira-initiative-target"><span className="eyebrow">Git destination</span><h3>Where should this Epic be governed?</h3><div className="jira-target-choice"><button className={initiativeTarget === 'new' ? 'active' : ''} onClick={() => { setInitiativeTarget('new'); setAdoption(null); }}><strong>Create governed Epic</strong><small>Use {selectedEpic.key} as the immutable Git identity</small></button><button className={initiativeTarget === 'existing' ? 'active' : ''} onClick={() => { setInitiativeTarget('existing'); setAdoption(null); }}><strong>Use existing initiative</strong><small>Choose one or enter its exact ID</small></button></div>{initiativeTarget === 'new' ? <div className="jira-create-target"><div><small>New initiative and branch</small><strong>{selectedEpic.key}</strong><span>The Jira snapshot and mapped child stories will be committed and pushed.</span></div><label><span>Workflow</span><select value={createProfile} onChange={(event) => { setCreateProfile(event.target.value); setAdoption(null); }}>{Object.entries(data.portfolio?.initiativeProfiles ?? {}).map(([id, profile]) => <option value={id} key={id}>{profile.label ?? id}</option>)}</select></label><label><span>Starting persona</span><select value={createPersona} onChange={(event) => { setCreatePersona(event.target.value); setAdoption(null); }}>{Object.entries(data.definition?.personas ?? {}).map(([id, persona]) => <option value={id} key={id}>{persona.label ?? id}</option>)}</select></label></div> : <label className="jira-existing-target"><span>Existing initiative ID</span><input list="jira-initiative-options" value={initiativeId} placeholder="Choose or type an exact ID" onChange={(event) => { setInitiativeId(event.target.value); setAdoption(null); }} /><datalist id="jira-initiative-options">{data.initiatives.map((initiative) => <option value={initiative.id} key={initiative.id}>{initiative.title}</option>)}</datalist><small>Typed IDs are allowed when the initiative exists on the checked-out Git branch but is not in this list.</small></label>}</section><div className="jira-actions"><button className="secondary" disabled={initiativeTarget === 'new' ? !createProfile || !createPersona : !initiativeId.trim()} onClick={previewAdoption}>Preview adoption</button><button className="primary" disabled={!adoption?.ready} onClick={adopt}>{initiativeTarget === 'new' ? 'Create & adopt into Git' : 'Adopt into Git'}</button></div>{adoption && <div className={`jira-adoption ${adoption.ready ? 'ready' : 'warn'}`}><strong>{adoption.ready ? (adoption.create ? `Ready to create ${selectedEpic.key}` : 'Ready to adopt') : 'Repository mapping incomplete'}</strong><span>{adoption.draft?.epics?.[0]?.stories?.length ?? adoption.breakdown?.stories?.length ?? 0} stories{adoption.sourceSha256 ? ` · source ${adoption.sourceSha256.slice(0, 12)}` : ''}</span>{adoption.unresolved?.length > 0 && <small>Choose a repository for: {adoption.unresolved.map((item) => item.jiraKey).join(', ')}</small>}</div>}</> : <Empty title="Choose an Epic" detail="Its child stories, Jira status, and repository ownership controls will appear here." />}</aside>
       </div>
       {initiativeId && <section className="panel jira-write-plan"><header className="panel-heading"><div><span className="eyebrow">Governed outbound synchronization</span><h2>Jira write plan</h2></div><Pill tone={policy.writeMode === 'approved' ? 'warn' : 'neutral'}>{policy.writeMode}</Pill></header><p>Generate a hash-pinned diff from the approved Singularity story plan. No Jira mutation occurs until the plan phase is approved and the exact initiative ID and plan hash are confirmed.</p><div className="jira-plan-actions"><button className="secondary" disabled={policy.writeMode === 'off'} onClick={planWrites}>Generate & commit plan</button>{writePlan && <><code>{writePlan.sha256}</code><input aria-label="Exact initiative confirmation" placeholder={`Type ${initiativeId}`} value={applyConfirmation} onChange={(event) => setApplyConfirmation(event.target.value)} /><button className="primary" disabled={policy.writeMode !== 'approved' || applyConfirmation !== initiativeId} onClick={applyWrites}>Apply reviewed plan</button></>}</div>{writePlan && <div className="jira-operation-list">{writePlan.operations.map((operation) => <div key={operation.id}><Pill tone={operation.action.startsWith('create') ? 'accent' : 'warn'}>{operation.action}</Pill><strong>{operation.subject.jiraKey ?? operation.subject.id}</strong><span>{Object.keys(operation.fields ?? operation.issue ?? {}).join(', ')}</span></div>)}</div>}</section>}
     </>}

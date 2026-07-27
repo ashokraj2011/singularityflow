@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 
 import {
+  activateWorkspace,
   eventHorizonStatus,
   openEventHorizonWindow as openUpstreamWindow,
   registerEventHorizonHandlers,
@@ -59,11 +60,31 @@ export function setFlowContext(cwd: string, context?: FlowWorkspaceContext | nul
   setHostContext(resolve(cwd), context ?? null)
 }
 
-/** Opens (or focuses) the Event Horizon surface with Flow's context attached. */
+/**
+ * Opens (or focuses) the Event Horizon surface for a repository.
+ *
+ * Reopening the same repository reuses its session rather than starting a
+ * second agent on it — upstream's activateWorkspace decides that, keyed on the
+ * resolved path.
+ */
 export function openEventHorizonWindow(options: OpenEventHorizonOptions = {}): void {
   ensureProvider()
   if (options.cwd) setFlowContext(options.cwd, options.flowContext)
   openUpstreamWindow({ cwd: options.cwd })
+}
+
+/**
+ * Activates a repository's session without necessarily surfacing the window —
+ * used when Flow switches the active repository while the workbench is already
+ * open.
+ */
+export async function activateFlowWorkspace(
+  cwd: string,
+  flowContext?: FlowWorkspaceContext | null
+): Promise<void> {
+  ensureProvider()
+  setFlowContext(cwd, flowContext)
+  await activateWorkspace(cwd)
 }
 
 export { registerEventHorizonHandlers, eventHorizonStatus }

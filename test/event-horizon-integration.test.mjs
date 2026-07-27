@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -19,8 +19,23 @@ test('Event Horizon is a version-aligned private workspace bundled into the desk
   assert.match(desktop.scripts.prebuild, /singularity-event-horizon/);
   assert.match(rootPackage.scripts['event-horizon:embedded-smoke'], /event-horizon-embedded-smoke/);
   assert.ok(desktop.build.extraResources.some((item) => item.from === '../event-horizon/out' && item.to === 'event-horizon/out'));
-  await access(path.join(root, 'apps/event-horizon/src/main/acp/session.ts'));
-  await access(path.join(root, 'apps/event-horizon/src/renderer/src/components/PermissionCard.tsx'));
+  // The tool itself is a pinned submodule now, not a copy in this repo. These
+  // assertions moved with it — they still prove the ACP client and its
+  // permission gate are present, just no longer as files Flow maintains.
+  await access(path.join(root, 'vendor/event-horizon/src/main/acp/session.ts'));
+  await access(path.join(root, 'vendor/event-horizon/src/renderer/src/components/PermissionCard.tsx'));
+
+  const gitmodules = await readFile(path.join(root, '.gitmodules'), 'utf8');
+  assert.match(gitmodules, /path = vendor\/event-horizon/);
+
+  // Flow's surface must stay integration-only. A full copy of the app landing
+  // back here is exactly what this arrangement exists to prevent.
+  const owned = await readdir(path.join(root, 'apps/event-horizon/src'), { recursive: true });
+  const sources = owned.filter((f) => /\.(ts|tsx)$/.test(String(f)));
+  assert.ok(
+    sources.length <= 6,
+    `Flow should own a thin host, found ${sources.length} source files: ${sources.join(', ')}`
+  );
 });
 
 test('Flow exposes Event Horizon through a dedicated menu and a narrow launch bridge', async () => {
@@ -41,21 +56,35 @@ test('Flow exposes Event Horizon through a dedicated menu and a narrow launch br
 });
 
 test('embedded Event Horizon reuses the active repository and preserves permission-gated ACP sessions', async () => {
+  // Flow's host: it owns publishing Flow context and asking for a workspace.
   const entry = await readFile(path.join(root, 'apps/event-horizon/src/main/index.ts'), 'utf8');
-  const agents = await readFile(path.join(root, 'apps/event-horizon/src/main/agents.ts'), 'utf8');
-  const store = await readFile(path.join(root, 'apps/event-horizon/src/renderer/src/store.ts'), 'utf8');
-  const permission = await readFile(path.join(root, 'apps/event-horizon/src/renderer/src/components/PermissionCard.tsx'), 'utf8');
+  const chrome = await readFile(path.join(root, 'apps/event-horizon/src/renderer/src/FlowChrome.tsx'), 'utf8');
+  const contract = await readFile(path.join(root, 'apps/event-horizon/src/shared/flowContext.ts'), 'utf8');
 
   assert.match(entry, /openEventHorizonWindow\(options/);
-  assert.match(entry, /activateWorkspace\(options\.cwd/);
-  assert.match(entry, /session:activate/);
-  assert.match(entry, /flow:context/);
+  assert.match(entry, /activateWorkspace/);
   assert.match(entry, /FlowWorkspaceContext/);
   assert.match(entry, /registerEventHorizonHandlers/);
+  // Flow validates its own contract; upstream carries the value opaquely.
+  assert.match(entry, /isFlowWorkspaceContext/);
+  assert.match(contract, /FLOW_CONTEXT_VERSION/);
+  // Flow's chrome reaches the UI through a slot, not by patching upstream.
+  assert.match(chrome, /SlotContext/);
+  assert.match(chrome, /isFlowWorkspaceContext/);
+
+  // Upstream: session reuse, the activate event, and the permission gate.
+  const upstreamApp = await readFile(path.join(root, 'vendor/event-horizon/src/main/app.ts'), 'utf8');
+  const agents = await readFile(path.join(root, 'vendor/event-horizon/src/main/agents.ts'), 'utf8');
+  const store = await readFile(path.join(root, 'vendor/event-horizon/src/renderer/src/store.ts'), 'utf8');
+  const permission = await readFile(path.join(root, 'vendor/event-horizon/src/renderer/src/components/PermissionCard.tsx'), 'utf8');
+
+  assert.match(upstreamApp, /export async function activateWorkspace/);
+  assert.match(upstreamApp, /session:activate/);
+  assert.match(upstreamApp, /setHostContext/);
   assert.match(agents, /GitHub Copilot CLI/);
   assert.match(agents, /Claude Code/);
   assert.match(agents, /Gemini CLI/);
   assert.match(store, /case 'session:activate'/);
-  assert.match(store, /case 'flow:context'/);
+  assert.match(store, /case 'host:context'/);
   assert.match(permission, /answerPermission/);
 });

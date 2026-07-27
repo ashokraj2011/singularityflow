@@ -28,6 +28,9 @@
       ],
       "event-horizon/renderer": [
         "../../vendor/event-horizon/src/renderer/src/index.ts"
+      ],
+      "diff": [
+        "./node_modules/diff/libesm/index.d.ts"
       ]
     }
   },

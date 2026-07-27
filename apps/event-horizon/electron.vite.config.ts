@@ -1,6 +1,25 @@
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+
+const require = createRequire(import.meta.url)
+
+/**
+ * Upstream lives outside this workspace, so its bare imports resolve upward
+ * into the repo root rather than into this app's node_modules. Anything npm
+ * chose to nest here instead of hoisting — `diff` currently, because of a
+ * version conflict at the root — is invisible to it and the build fails.
+ *
+ * Resolving from this app and aliasing explicitly makes that deterministic
+ * rather than dependent on npm's hoisting decisions. The submodule is
+ * deliberately not a workspace member: that would install its packaging
+ * toolchain (electron-builder -> node-gyp -> glob@7 -> inflight) into the repo,
+ * which dependency-hygiene.test.mjs exists to prevent.
+ */
+function hostDep(name: string): { find: string; replacement: string } {
+  return { find: name, replacement: require.resolve(name) }
+}
 
 /**
  * Singularity Flow's host build for Event Horizon.
@@ -36,7 +55,9 @@ const alias = [
   { find: 'event-horizon/core', replacement: resolve(upstream, 'src/main/core.ts') },
   { find: '@shared', replacement: resolve(upstream, 'src/shared') },
   { find: '@renderer', replacement: resolve(upstream, 'src/renderer/src') },
-  { find: '@flow', replacement: resolve(__dirname, 'src/shared') }
+  { find: '@flow', replacement: resolve(__dirname, 'src/shared') },
+  // Runtime dependencies upstream's source imports, pinned to this app's copy.
+  hostDep('diff')
 ]
 
 export default defineConfig({

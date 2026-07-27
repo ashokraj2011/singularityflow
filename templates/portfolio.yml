@@ -107,21 +107,20 @@ initiativePhases:
   epic-intake:
     label: Intake
     lanes: [business-product]
-    worldModelViews: [business]
+    worldModelViews: []
     outputs:
       - { id: source-catalog, label: Source catalog, kind: markdown, path: source-catalog.md, generator: source-catalog, required: false }
     checklist:
       - { id: epic-identity-verified, label: Epic identity reserved and verified, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
       - { id: sources-pinned, label: Additional source versions are accessible and hash-pinned, requirement: optional, acceptedAssurance: [machine-verified, system-verified], gate: warn }
-      - { id: repository-grounded, label: Repository world model matches the current source tree, requirement: must, acceptedAssurance: [machine-verified], gate: block }
-    # Intake is a collection step, not an approval ceremony. It advances automatically once
-    # the repository world model is current and committed.
+    # Intake is a collection step, not an approval ceremony. Jira identity and any pinned
+    # source material are enough to continue; repository grounding starts on each Story branch.
     bundleApproval: { mode: none, authorities: [], minimum: 0, allowSelfApproval: true }
 
   epic-requirements:
     label: Requirements
     lanes: [business-product, design-architecture]
-    worldModelViews: [business, architecture, security]
+    worldModelViews: []
     outputs:
       - { id: requirements-specification, label: Requirements specification, kind: markdown, path: requirements.md, template: initiatives/epic/requirements.md }
       - { id: requirements-traceability, label: Requirements traceability, kind: yaml, path: traceability.yml, template: initiatives/epic/requirements-traceability.yml }
@@ -129,13 +128,13 @@ initiativePhases:
     checklist:
       - { id: requirements-traceable, label: Every REQ and AC cites a pinned source, requirement: must, acceptedAssurance: [machine-verified, human-approved], gate: block }
       - { id: material-questions-resolved, label: Material scope questions are resolved or explicitly accepted, requirement: optional, acceptedAssurance: [human-approved], gate: warn }
-      - { id: impact-grounded, label: Impact analysis cites configured repositories and current world-model evidence, requirement: must, acceptedAssurance: [machine-verified], gate: block }
+      - { id: impact-grounded, label: Impact analysis resolves every named repository against workspace configuration, requirement: must, acceptedAssurance: [machine-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
 
   epic-planning:
     label: Planning
     lanes: [business-product, design-architecture, engineering]
-    worldModelViews: [business, architecture, development, testing, security]
+    worldModelViews: []
     outputs:
       - { id: story-plan, label: Executable Story plan, kind: yaml, path: story-plan.yml, template: initiatives/epic/story-plan.yml, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-requirements/impact-analysis] }
       - { id: parent-specification, label: Parent solution specification, kind: markdown, path: parent-spec.md, template: initiatives/epic/parent-spec.md, consumes: [epic-requirements/requirements-specification, epic-requirements/requirements-traceability, epic-requirements/impact-analysis] }
@@ -151,7 +150,7 @@ initiativePhases:
   epic-publish:
     label: Publish Stories
     lanes: [business-product, engineering]
-    worldModelViews: [business, architecture, development]
+    worldModelViews: []
     outputs:
       - { id: jira-write-plan, label: Jira write plan, kind: yaml, path: jira-write-plan.yml, template: initiatives/epic/jira-write-plan.yml, consumes: [epic-planning/story-plan, epic-planning/parent-specification, epic-planning/story-specification-index] }
       - { id: materialization-report, label: Jira and Git materialization report, kind: markdown, path: materialization-report.md, template: initiatives/epic/materialization-report.md, consumes: [epic-planning/story-plan, epic-planning/parent-specification, epic-planning/story-specification-index] }

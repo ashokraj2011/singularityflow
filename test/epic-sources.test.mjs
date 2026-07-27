@@ -9,7 +9,7 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
 import {
-  adoptEpicStory, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
+  adoptEpicStory, completeEpicIntake, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
   updateEpicStory, verifyEpicPlanningPackage
 } from '../src/epic-lifecycle.mjs';
 import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
@@ -160,6 +160,24 @@ test('Jira Epic snapshot is available as a pinned source without uploaded docume
   assert.match(source.content, /"key": "MOB-100"/);
   const actions = await initiativeNextActions(root, 'MOB-100');
   assert.equal(actions[0].action, 'prepare');
+});
+
+test('Epic intake advances without a repository world model and defers grounding to Story intake', async () => {
+  const root = await repository();
+  const before = await loadInitiative(root, 'MOB-100');
+  assert.equal(before.initiative.currentPhase, 'epic-intake');
+  assert.equal(before.initiative.resolution.worldModelTiming, 'story-intake');
+  assert.equal(before.initiative.resolution.worldModelGrounding, 'off');
+
+  const completed = await completeEpicIntake(root, 'MOB-100', { persona: 'product-owner' });
+  assert.equal(completed.advanced, true);
+  assert.equal(completed.initiative.currentPhase, 'epic-requirements');
+  assert.equal(completed.initiative.phases['epic-intake'].status, 'approved');
+  assert.equal(completed.initiative.phases['epic-requirements'].status, 'in_progress');
+  assert.match(
+    completed.initiative.history.at(-1).detail,
+    /repository grounding is deferred to Story intake/i
+  );
 });
 
 test('Epic traceability requires pinned source locators and complete REQ/AC Story allocation', async () => {

@@ -220,7 +220,7 @@ test('an Epic chooses which of its phase optional outputs it will produce', asyn
   assert.doesNotMatch(status.stdout, /product-roadmap/);
 });
 
-test('restart returns an Epic to its first phase without touching the branch or the world model', async () => {
+test('restart returns an Epic to its first phase without touching its branch or Story models', async () => {
   // Starting over used to mean deleting the branch and starting a new Epic — which threw away the
   // identity, the pinned sources, and the repository world model along with the mistake.
   const root = await repository();
@@ -242,7 +242,7 @@ test('restart returns an Epic to its first phase without touching the branch or 
 
   const restarted = execute(root, ['initiative', 'restart', 'INIT-AGAIN', '--reason', 'Wrong scope; starting over.'], { confirm: 'INIT-AGAIN' });
   assert.match(restarted.stdout, /INIT-AGAIN restarted at/);
-  assert.match(restarted.stdout, /branch, sources and world model kept/);
+  assert.match(restarted.stdout, /Epic branch and sources kept, Story-branch world models unchanged/);
 
   const after = await read();
   assert.equal(after.currentPhase, firstPhase);

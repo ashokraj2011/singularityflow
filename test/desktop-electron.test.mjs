@@ -305,7 +305,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Repository-owned world model/);
   assert.match(source, /Editable builder prompt/);
   assert.match(source, /World-model views/);
-  assert.match(source, /referenced view cannot be removed/i);
+  assert.match(source, /Once referenced by a stage, persona, rule, or prompt, the view is protected from deletion/i);
   assert.match(styles, /Avenir Next/);
   assert.match(styles, /Iowan Old Style/);
   assert.match(styles, /color-scheme: light/);
@@ -665,6 +665,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /chooseOnboardingWorkspace/);
   assert.match(preload, /connectOnboardingJira/);
   assert.match(preload, /resetJiraCredentials/);
+  assert.match(source, /Reset saved Jira connection/);
+  assert.match(source, /Reset saved Jira/);
+  assert.match(source, /resetAllJiraCredentials/);
+  assert.match(source, /Workspace routing and Git state will not be changed/);
   assert.match(preload, /openRepository/);
   assert.match(preload, /forgetRepository/);
   assert.match(preload, /recentWorkspaces/);
@@ -764,33 +768,19 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(main, /<webview>/);
 });
 
-test('Epic start requires visible world-model generation before Requirements', async () => {
+test('world-model generation is deferred until Story intake creates the canonical branch', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
-  // epic:start reports the world-model status; it never runs the builder itself.
-  assert.match(main, /worldModelRebuildReason/);
-  assert.match(main, /worldModel = \{ reason, ready: reason === null \}/);
-  // The renderer offers generation as an observable required step. The rewrite deliberately
-  // removes the skip path because Requirements and Planning are grounded phases.
-  assert.match(source, /worldModelOffer/);
-  assert.match(source, /Generate world model/);
-  assert.doesNotMatch(source, /Skip for now/);
-  assert.doesNotMatch(source, /onDismiss=\{\(\) => setWorldModelDismissed/);
-  // Generation is pushed with the epic branch, so it must not use the local-only path.
-  assert.match(source, /generateWorldModel\(data\.repository\.root, false, null, worldModelOffer\?\.initiativeId\)/);
-  assert.match(main, /if \(initiativeId\) \{/);
-  assert.doesNotMatch(main, /const initiativeId = branch\(root\)/);
-
-  // The builder is declared inside App. EpicStartWizard is a sibling component, so it can only
-  // reach it through a prop — and calling it without one is a ReferenceError inside a floating
-  // promise, which is how 'Generate world model' came to do nothing whatsoever when clicked.
-  // Asserting the call exists is what let that through, so assert the callee is reachable.
-  assert.match(source, /function EpicStartWizard\(\{[^}]*\bgenerateWorldModel\b/);
-  const renders = source.match(/<EpicStartWizard\b[^>]*\/>/g) ?? [];
-  assert.ok(renders.length >= 3, `expected every EpicStartWizard render site, found ${renders.length}`);
-  for (const render of renders) assert.match(render, /generateWorldModel=\{generateWorldModel\}/);
-  // And the failure is shown on the card rather than swallowed, because this is the only way on.
-  assert.match(source, /setWorldModelError/);
+  const desktop = await readFile(path.join(packageRoot, 'src', 'desktop.mjs'), 'utf8');
+  const portfolio = await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8');
+  assert.doesNotMatch(source, /worldModelOffer/);
+  assert.doesNotMatch(source, /Ground .* in a repository world model/);
+  assert.match(main, /worldModel: \{ required: false, timing: 'story-intake' \}/);
+  assert.match(desktop, /workflow\?\.workItem\?\.branch === currentBranch/);
+  assert.match(source, /Ground this Story branch before delivery work/);
+  assert.match(source, /onGenerate\(false\)/);
+  assert.match(portfolio, /epic-intake:[\s\S]*worldModelViews: \[\]/);
+  assert.doesNotMatch(portfolio, /id: repository-grounded/);
 });
 
 test('every Epic is reachable and states where its work stands', async () => {
@@ -1503,13 +1493,10 @@ test('the composer offers the work this phase actually asks for', async () => {
   assert.match(app, /onClick=\{\(\) => \{ setFollowup\(command\.prompt\); \}\}/);
 });
 
-test('a context that carries no world model says so', async () => {
-  // Grounding "off" returned an empty string and no warning, so Copilot was asked to write
-  // requirements about a repository it had been told nothing about — and then reached for shell
-  // tools to look, which read-only Plan mode denies. The denial was the symptom; the silence was
-  // the defect.
+test('Epic planning defers world-model context without warnings', async () => {
   const context = await readFile(path.join(packageRoot, 'src', 'initiative-context.mjs'), 'utf8');
-  assert.match(context, /world-model grounding is off for this initiative/);
+  assert.match(context, /deferred to Story intake/);
+  assert.doesNotMatch(context, /world-model grounding is off for this initiative/);
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   assert.match(app, /className="context-warnings"/);
   assert.match(app, /contextPack\.warnings\.map/);
@@ -1531,7 +1518,9 @@ test('the app can ask the world-model builder for the views its phases need', as
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   // The default selection is what the repository is actually asked for, not everything or nothing.
   assert.match(app, /data\.worldModel\.views\.filter\(\(view\) => \(view\.structuredReferences \?\? \[\]\)\.length\)/);
-  assert.match(app, /generateWorldModel\?\.\(undefined, undefined, buildViews\)/);
+  assert.match(app, /generateWorldModel\?\.\(false, undefined, buildViews\)/);
+  assert.match(app, /activeStoryBranch/);
+  assert.match(app, /Available after Story intake/);
 });
 
 test('an Epic picks its documents from the Artifacts pane, and the change is governed', async () => {
@@ -1584,7 +1573,8 @@ test('starting an Epic again is confirmed by its ID, at both layers', async () =
   assert.match(app, /async function restartEpic\(\) \{\s*if \(restartModal\.confirmation\.trim\(\) !== selected\.state\.initiative\.id\) return;/);
   assert.match(app, /submitDisabled = false/);
   // The modal states what is kept, because that is the whole reason to restart instead of delete.
-  assert.match(app, /the Epic identity, the pinned sources and the repository world model are kept/);
+  assert.match(app, /the Epic identity and pinned sources are kept/);
+  assert.match(app, /Story-branch world models are not changed/);
 });
 
 test('configuration is committed to the Epic branch from the tab that edits it', async () => {

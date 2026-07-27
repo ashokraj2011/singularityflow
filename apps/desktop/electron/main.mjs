@@ -764,39 +764,10 @@ function registerHandlers() {
           for (const line of lines.slice(-20)) send({ type: 'output', stream, message: line.slice(0, 1000) });
         }
       });
-      let epicIntake = null;
-      try {
-        const [{ loadInitiative, commitInitiativeChange }, { completeEpicIntake }] = await Promise.all([
-          importCliModule('initiative-state.mjs'),
-          importCliModule('epic-lifecycle.mjs')
-        ]);
-        // A Git branch is not an initiative identity. `main` used to be fed to
-        // loadInitiative here, producing initiatives/main/state.json after a
-        // perfectly successful (and slow) world-model build. Only advance an
-        // intake when Flow explicitly supplied the selected initiative ID.
-        if (initiativeId) {
-          const loaded = await loadInitiative(root, initiativeId);
-          if (loaded.initiative.resolution.profile === 'epic-planning' && loaded.initiative.currentPhase === 'epic-intake') {
-            const completed = await completeEpicIntake(root, initiativeId);
-            const publication = await commitInitiativeChange(
-              root,
-              completed.portfolio,
-              completed.initiative,
-              `[${initiativeId}][epic:intake] repository grounded`
-            );
-            epicIntake = { advanced: true, currentPhase: completed.initiative.currentPhase, publication };
-            send({ type: 'phase', phase: 'advancing', message: 'Repository grounding verified. Intake is complete; Requirements is ready.' });
-          }
-        }
-      } catch (error) {
-        // World-model generation is also available outside an Epic branch. Only a
-        // real Epic lifecycle error should be visible; absence of an Epic is normal.
-        if (!/initiative state|No initiative found|Invalid initiative|ENOENT|does not exist/i.test(error?.message ?? '')) throw error;
-      }
-      send({ type: 'phase', phase: 'finalizing', message: local ? 'Validating and committing the local world model.' : 'Validating, committing, and pushing the world model with the Epic branch.' });
+      send({ type: 'phase', phase: 'finalizing', message: local ? 'Validating and committing the local world model.' : 'Validating, committing, and pushing the world model with the Story branch.' });
       const result = await snapshot(root);
-      const response = { ...result, epicIntake };
-      send({ type: 'complete', phase: 'complete', message: epicIntake?.advanced ? 'World model generated. Requirements is ready.' : 'World model generated and committed.', result: response });
+      const response = { ...result };
+      send({ type: 'complete', phase: 'complete', message: 'Story world model generated and committed.', result: response });
       return response;
     } catch (error) {
       send({ type: 'error', phase: 'error', message: error?.message || String(error) });
@@ -2092,29 +2063,30 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       started.initiative,
       `[${epicKey}][epic:init] start ${profile}`
     );
-    // A missing or stale world model is a required next step. Generation runs Copilot and can take
-    // minutes, so the renderer shows the live prompt/log dialog. Intake cannot advance until the
-    // exact model is committed and pushed on the Epic branch.
-    let worldModel = null;
-    try {
-      const { worldModelRebuildReason } = await importCliModule('grounding.mjs');
-      const reason = await worldModelRebuildReason(root, definition);
-      worldModel = { reason, ready: reason === null };
-      if (reason === null) {
-        const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
-        const completed = await completeEpicIntake(root, epicKey, { persona });
-        const intakePublication = await commitInitiativeChange(
+    let current = started;
+    let intakePublication = null;
+    if (profile === 'epic-planning') {
+      const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
+      const completed = await completeEpicIntake(root, epicKey, { persona });
+      if (completed.advanced) {
+        intakePublication = await commitInitiativeChange(
           root,
           completed.portfolio,
           completed.initiative,
-          `[${epicKey}][epic:intake] repository grounded`
+          `[${epicKey}][epic:intake] sources accepted`
         );
-        worldModel.intake = { advanced: completed.advanced, publication: intakePublication };
+        current = await loadInitiative(root, epicKey);
       }
-    } catch (error) {
-      worldModel = { reason: error.message, ready: false, error: error.message };
     }
-    return { initiativeId: epicKey, source, publication, worldModel, attachments };
+    return {
+      initiativeId: epicKey,
+      source,
+      publication,
+      intakePublication,
+      currentPhase: current.initiative.currentPhase,
+      worldModel: { required: false, timing: 'story-intake' },
+      attachments
+    };
   });
   trustedHandle('epic:local-id-preview', async (event, { repository }) => {
     assertTrustedSender(event);
@@ -2196,7 +2168,30 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       started.initiative,
       `[${reservation.id}][epic:init] start ${profile}`
     );
-    return { initiativeId: reservation.id, source, reservation, publication };
+    let current = started;
+    let intakePublication = null;
+    if (profile === 'epic-planning') {
+      const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
+      const completed = await completeEpicIntake(root, reservation.id, { persona });
+      if (completed.advanced) {
+        intakePublication = await commitInitiativeChange(
+          root,
+          completed.portfolio,
+          completed.initiative,
+          `[${reservation.id}][epic:intake] sources accepted`
+        );
+        current = await loadInitiative(root, reservation.id);
+      }
+    }
+    return {
+      initiativeId: reservation.id,
+      source,
+      reservation,
+      publication,
+      intakePublication,
+      currentPhase: current.initiative.currentPhase,
+      worldModel: { required: false, timing: 'story-intake' }
+    };
   });
   trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap

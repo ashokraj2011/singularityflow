@@ -73,9 +73,11 @@ and Planning show the exact `/sflow-*` command to run from the open repository,
 with one-click copy controls. The installed skill composes the selected phase,
 persona, repository world model, approved inputs, remote skills, requirements,
 and templates inside the user’s normal Copilot CLI session. Refresh the desktop
-after the skill commits and pushes its result. Repository world-model generation
-is the one deliberate exception: Electron can invoke that long-running operation
-and displays its prompt, progress, and result.
+after the skill commits and pushes its result. Epic planning uses pinned Jira and
+uploaded source evidence; it does not require a world model. After Story intake
+creates the canonical Story branch, repository world-model generation becomes
+the one deliberate desktop Copilot operation and its commit is pushed on that
+Story branch before phase work begins.
 
 The desktop also includes **Agent workbench → Event Horizon**, a separate
 permission-gated ACP execution surface. It opens the active repository
@@ -983,7 +985,7 @@ On first launch, a five-step onboarding wizard collects only the local setup nee
 4. Any existing Singularity repositories you want to add now (optional).
 5. Jira Cloud or Data Center access, or an explicit **Not using Jira** choice.
 
-Progress is saved locally, so the wizard can be resumed after closing the app. The selected workspace is canonicalized and checked for write access before it is saved. The completed profile is stored in Electron application data and is never committed to a repository. Jira credentials are validated in the main process and encrypted through the operating-system credential store; only connection status is shown to the UI. A new setup cannot finish on stale disconnected state: it requires a verified connection or an explicit **Not using Jira** decision. If the encrypted credential store becomes unreadable, both onboarding and the Jira workspace offer an explicit local reset without changing repository or Git state. Repositories and Jira can both be added later, so a name, role, workspace directory, and Jira decision are enough to reach the ready screen.
+Progress is saved locally, so the wizard can be resumed after closing the app. The selected workspace is canonicalized and checked for write access before it is saved. The completed profile is stored in Electron application data and is never committed to a repository. Jira credentials are validated in the main process and encrypted through the operating-system credential store; only connection status is shown to the UI. A new setup cannot finish on stale disconnected state: it requires a verified connection or an explicit **Not using Jira** decision. **Reset saved Jira connection** is always available from the workspace switcher and Jira workspace—not only during recovery. It clears encrypted credentials for this OS account without changing workspace routing, repository configuration, or Git state, then opens Jira setup for immediate reconnection. Repositories and Jira can both be added later, so a name, role, workspace directory, and Jira decision are enough to reach the ready screen.
 
 The wizard also recovers from local folders moving during setup. A missing
 required workspace returns the user to the workspace step; missing optional

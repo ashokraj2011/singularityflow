@@ -1,16 +1,12 @@
 # Repository Impact Analysis — {{workId}}
 #
-# Copilot must ground every repository/component assertion in the current
-# repository world model. Repository IDs must exist in singularity/portfolio.yml.
-# Evidence entries use a governed world-model path plus heading or line locator.
+# At Epic planning time Copilot resolves repository ownership against the
+# workspace registry and cites pinned business/technical sources. Detailed
+# code-level impact analysis begins later on each canonical Story branch, after
+# that branch has generated its repository world model.
 
 version: 1
 epicId: "{{workId}}"
-worldModel:
-  sourceTreeSha256: ""
-  generatedAt: ""
-  commit: ""
-
 repositories: {}
 # repositories:
 #   mobile:
@@ -29,8 +25,8 @@ repositories: {}
 #     operations: []
 #     risks: []
 #     evidence:
-#       - path: singularity/world-model/views/architecture.md
-#         locator: "Authentication"
+#       - sourceId: SRC-001
+#         locator: "Authentication requirements"
 #         sha256: ""
 
 unaffected: []
@@ -38,7 +34,7 @@ unaffected: []
 #   - repository: reporting
 #     reason: No contract or data-flow dependency
 #     evidence:
-#       - path: singularity/world-model/views/architecture.md
+#       - sourceId: SRC-002
 #         locator: "Reporting boundary"
 #         sha256: ""
 

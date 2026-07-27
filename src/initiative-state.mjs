@@ -251,10 +251,14 @@ export async function createInitiative(root, {
   assertAuthorityMembership(resolved);
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
-  resolution.worldModelGrounding = groundingMode(definition);
+  resolution.worldModelTiming = profile === 'epic-planning' ? 'story-intake' : 'initiative';
+  resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
+    ? 'off'
+    : groundingMode(definition);
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
+    worldModelTiming: resolution.worldModelTiming,
     worldModelGrounding: resolution.worldModelGrounding,
     worldModelOutputDir: resolution.worldModelOutputDir
   })).digest('hex');
@@ -523,11 +527,10 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
  * Take an Epic back to its first phase without taking anything else with it.
  *
  * Starting over used to mean deleting the branch and starting a new Epic, which is a bigger
- * hammer than the job: it threw away the Jira identity, the pinned sources, and — because a fresh
- * Epic branches from the default branch and rebuilds — the repository world model. None of that is
- * what "start again" means. Restarting keeps the branch it is already on, keeps the identity and
- * the pinned evidence, and touches nothing outside this Epic's own directory, so the world model
- * cannot be a casualty of it.
+ * hammer than the job: it threw away the Jira identity and pinned sources. None of that is what
+ * "start again" means. Restarting keeps the branch it is already on, keeps the identity and pinned
+ * evidence, and touches nothing outside this Epic's own directory. Story-branch world models are
+ * outside the Epic restart boundary.
  *
  * Two things it deliberately does not do. It does not erase history: the record of the first
  * attempt is the reason anyone can explain the second. And it does not reuse the old resolution —
@@ -541,10 +544,14 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   const definition = await loadDefinition(root);
-  resolution.worldModelGrounding = groundingMode(definition);
+  resolution.worldModelTiming = initiative.initiative.profile === 'epic-planning' ? 'story-intake' : 'initiative';
+  resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
+    ? 'off'
+    : groundingMode(definition);
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
+    worldModelTiming: resolution.worldModelTiming,
     worldModelGrounding: resolution.worldModelGrounding,
     worldModelOutputDir: resolution.worldModelOutputDir
   })).digest('hex');

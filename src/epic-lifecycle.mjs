@@ -1,19 +1,14 @@
-import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { loadDefinition } from './config.mjs';
 import { identity } from './git.mjs';
-import { registerInitiativeEvidence, recordSha256 } from './initiative-evidence.mjs';
+import { recordSha256 } from './initiative-evidence.mjs';
 import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
   loadInitiative, saveInitiative, secureInitiativePath
 } from './initiative-state.mjs';
-import {
-  worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot
-} from './grounding.mjs';
 import {
   nowIso, SingularityFlowError, snapshot, writeText
 } from './util.mjs';
@@ -25,10 +20,6 @@ export const EPIC_PHASES = Object.freeze({
   publish: 'epic-publish'
 });
 
-function sha256(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
-
 function render(text, values) {
   return text.replace(/\{\{([A-Za-z0-9_-]+)\}\}/g, (_match, key) => values[key] ?? '');
 }
@@ -39,55 +30,19 @@ function planningOutput(initiative, id) {
   return output;
 }
 
-export async function assertEpicWorldModelReady(root) {
-  const definition = await loadDefinition(root);
-  const reason = await worldModelRebuildReason(root, definition);
-  if (reason) {
-    throw new SingularityFlowError(`${reason} Generate the repository world model before continuing to Requirements.`);
-  }
-  const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const source = await worldModelSourceSnapshot(root, definition);
-  const manifest = JSON.parse(await readFile(path.join(root, outputDir, 'manifest.json'), 'utf8'));
-  const commit = worldModelCommit(root, outputDir);
-  if (!commit || manifest.source_tree_sha256 !== source.sha256) {
-    throw new SingularityFlowError('The repository world model does not match the current source tree. Generate it again before continuing.');
-  }
-  return {
-    outputDir,
-    commit,
-    sourceTreeSha256: source.sha256,
-    generatedAt: manifest.generated_at ?? manifest.generatedAt ?? null,
-    manifestSha256: sha256(JSON.stringify(manifest))
-  };
-}
-
 /**
- * Intake is collection, not an approval ceremony. Once the repository model is
- * exact and committed, record machine evidence and move to Requirements.
+ * Epic intake is collection, not repository analysis. Jira identity or a local
+ * Epic description is sufficient to enter Requirements. Repository grounding
+ * starts only after a Story has its canonical branch.
  */
 export async function completeEpicIntake(root, initiativeId, { persona = null } = {}) {
-  let { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.resolution.profile !== 'epic-planning') {
     throw new SingularityFlowError('Automatic Intake completion is available only for the Epic planning profile.');
   }
   if (initiative.currentPhase !== EPIC_PHASES.intake) {
-    return { portfolio, initiative, worldModel: await assertEpicWorldModelReady(root), advanced: false };
+    return { portfolio, initiative, advanced: false };
   }
-  const worldModel = await assertEpicWorldModelReady(root);
-  await registerInitiativeEvidence(root, {
-    initiativeId,
-    phaseId: EPIC_PHASES.intake,
-    checkId: 'repository-grounded',
-    assurance: 'machine-verified',
-    verificationMethod: 'exact-source-tree-world-model',
-    source: {
-      externalId: worldModel.commit,
-      version: worldModel.sourceTreeSha256,
-      observedState: `World model generated ${worldModel.generatedAt ?? 'at an unavailable timestamp'} from exact source tree ${worldModel.sourceTreeSha256}`
-    },
-    persona
-  });
-  ({ portfolio, initiative } = await loadInitiative(root, initiativeId));
   const phase = initiative.phases[EPIC_PHASES.intake];
   const at = nowIso();
   phase.status = 'approved';
@@ -102,10 +57,10 @@ export async function completeEpicIntake(root, initiativeId, { persona = null } 
     persona,
     event: 'epic_intake_completed',
     phase: EPIC_PHASES.intake,
-    detail: `repository grounded at ${worldModel.commit.slice(0, 12)}`
+    detail: 'Epic identity and pinned source catalog accepted; repository grounding is deferred to Story intake'
   });
   await saveInitiative(root, portfolio, initiative);
-  return { portfolio, initiative, worldModel, advanced: true };
+  return { portfolio, initiative, advanced: true };
 }
 
 /**

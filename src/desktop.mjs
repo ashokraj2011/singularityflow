@@ -380,12 +380,13 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     worldModel: {
       root: modelRoot,
       repositoryOwned: true,
+      timing: 'story-intake',
       generatedAt: worldModelManifest?.generated_at ?? null,
-      // Why the model cannot be used as grounding right now: missing, uncommitted, stale, or
-      // invalid — null when it is usable. Every snapshot carries it so any screen can offer to
-      // build it, rather than each caller rediscovering the state. A freshly cloned repository
-      // reports "not been built", which is what makes the prompt appear on first open.
-      rebuildReason: await worldModelRebuildReason(root, definition),
+      // Main and Epic branches stay quiet. Grounding is requested only after Story intake has
+      // created and checked out the canonical Story branch that will own the generated model.
+      rebuildReason: workflow?.workItem?.branch === currentBranch
+        ? await worldModelRebuildReason(root, definition)
+        : null,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],

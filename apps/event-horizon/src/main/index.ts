@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import type { DirEntry, MainEvent, PromptRequest } from '../shared/ipc'
+import { isFlowWorkspaceContext, type FlowWorkspaceContext } from '../shared/flowContext'
 import { availableAgents } from './agents'
 import { statPaths } from './attachments'
 import { SessionManager } from './manager'
@@ -17,6 +18,19 @@ let handlersRegistered = false
 export interface EventHorizonLaunchOptions {
   cwd?: string | null
   agentId?: string
+  flowContext?: FlowWorkspaceContext | null
+}
+
+const flowContexts = new Map<string, FlowWorkspaceContext>()
+
+function setFlowContext(cwd: string, context?: FlowWorkspaceContext | null): void {
+  if (!context) return
+  if (!isFlowWorkspaceContext(context)) throw new Error('Flow supplied an invalid Event Horizon context.')
+  if (resolve(context.repository.root) !== resolve(cwd)) {
+    throw new Error('Flow context repository does not match the Event Horizon working directory.')
+  }
+  flowContexts.set(resolve(cwd), context)
+  mainWindow?.webContents.send('acp:event', { type: 'flow:context', cwd: resolve(cwd), context })
 }
 
 export async function eventHorizonStatus(): Promise<{
@@ -39,6 +53,7 @@ async function activateWorkspace(cwd: string, agentId: string): Promise<void> {
 
 export function openEventHorizonWindow(options: EventHorizonLaunchOptions = {}): BrowserWindow {
   registerEventHorizonHandlers()
+  if (options.cwd) setFlowContext(options.cwd, options.flowContext)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show()
     mainWindow.focus()
@@ -136,6 +151,7 @@ export function registerEventHorizonHandlers(): void {
   handlersRegistered = true
 
   handle('agents:list', () => availableAgents())
+  handle('flow:context', (cwd: string) => flowContexts.get(resolve(cwd)) ?? null)
   handle('sessions:list', () => manager.list())
   handle('sessions:create', (opts: { cwd: string; agentId: string }) =>
     manager.create(opts.cwd, opts.agentId)

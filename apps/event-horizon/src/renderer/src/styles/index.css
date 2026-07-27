@@ -81,6 +81,37 @@ textarea {
   height: 100%;
 }
 
+.flow-current-work {
+  min-width: 0;
+  max-width: 470px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--bg-raised);
+  font-size: 11px;
+}
+.flow-current-work span { overflow: hidden; max-width: 140px; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; }
+.flow-current-work strong { color: var(--text); font-weight: 650; }
+.flow-current-work i { color: var(--green); font-style: normal; }
+.flow-current-work em { color: var(--text-dim); font-style: normal; font-variant-numeric: tabular-nums; }
+.flow-work-sheet { width: min(680px, calc(100vw - 40px)); }
+.flow-work-title small { color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.flow-work-title h2 { margin: 4px 0 0; font-size: 24px; }
+.flow-work-title p { margin: 2px 0 18px; color: var(--text-dim); }
+.flow-work-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--border); }
+.flow-work-details div { min-width: 0; display: grid; gap: 2px; padding: 10px 12px; background: var(--bg-raised); }
+.flow-work-details dt { color: var(--text-faint); font-size: 10px; text-transform: uppercase; }
+.flow-work-details dd { overflow: hidden; margin: 0; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.flow-work-list { display: grid; gap: 7px; }
+.flow-work-list > div { display: grid; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 11px; background: var(--bg-raised); }
+.flow-work-list strong { font-size: 12px; }
+.flow-work-list span,.flow-work-list p { margin: 0; color: var(--text-dim); font-size: 11px; }
+.flow-work-list code { overflow: hidden; color: var(--text-faint); font: 10px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.flow-work-captured { display: block; margin-top: 16px; color: var(--text-faint); }
+
 .sidebar {
   width: 260px;
   background: var(--bg-inset);

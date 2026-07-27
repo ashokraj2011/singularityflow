@@ -681,6 +681,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /workspace:configuration-update/);
   assert.match(main, /workspace:archive/);
   assert.match(main, /workspace:restore/);
+  assert.match(main, /active-workspace\.json/);
+  assert.match(main, /activateDesktopWorkspace\(created\.workspace\.id\)/);
+  assert.match(main, /activateDesktopWorkspace\(updated\.workspace\.id\)/);
+  assert.match(main, /app\.getPath\('home'\), '\.singularity-flow', 'workspaces\.json'/);
+  assert.match(main, /importLegacyWorkspaceRegistry/);
+  assert.match(main, /legacyWorkspaceRegistryPath/);
   assert.doesNotMatch(main, /copilot-service:start/);
   assert.doesNotMatch(main, /copilot-service:model/);
   assert.doesNotMatch(main, /copilot-service:stop/);
@@ -709,7 +715,9 @@ test('Epic start requires visible world-model generation before Requirements', a
   assert.doesNotMatch(source, /Skip for now/);
   assert.doesNotMatch(source, /onDismiss=\{\(\) => setWorldModelDismissed/);
   // Generation is pushed with the epic branch, so it must not use the local-only path.
-  assert.match(source, /generateWorldModel\(data\.repository\.root, false\)/);
+  assert.match(source, /generateWorldModel\(data\.repository\.root, false, null, worldModelOffer\?\.initiativeId\)/);
+  assert.match(main, /if \(initiativeId\) \{/);
+  assert.doesNotMatch(main, /const initiativeId = branch\(root\)/);
 
   // The builder is declared inside App. EpicStartWizard is a sibling component, so it can only
   // reach it through a prop — and calling it without one is a ReferenceError inside a floating
@@ -806,7 +814,7 @@ test('a world-model rebuild cannot lose the views the repository already has', a
   assert.match(resolver, /persona\.worldModelViews \?\? \[\]/);
   assert.match(resolver, /file\.path\.includes\('\/views\/'\)/);
   assert.match(app, /const requested = views\?\.length \? views : requiredWorldModelViews\(\)/);
-  assert.match(app, /window\.singularity\.generateWorldModel\(repository, local, requested\)/);
+  assert.match(app, /window\.singularity\.generateWorldModel\(repository, local, requested, initiativeId\)/);
 });
 
 test('no DOM handler is bound bare to a function whose first argument crosses IPC', async () => {
@@ -1446,7 +1454,7 @@ test('the app can ask the world-model builder for the views its phases need', as
   assert.match(main, /\/\^\[a-z\]\[a-z0-9-\]\*\$\/\.test\(view\)/);
 
   const preload = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'preload.cjs'), 'utf8');
-  assert.match(preload, /generateWorldModel: \(repository, local = true, views = null\)/);
+  assert.match(preload, /generateWorldModel: \(repository, local = true, views = null, initiativeId = null\)/);
 
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   // The default selection is what the repository is actually asked for, not everything or nothing.

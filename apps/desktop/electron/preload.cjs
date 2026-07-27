@@ -2,7 +2,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('singularity', {
   agentWorkbenchStatus: (repository) => ipcRenderer.invoke('agent-workbench:status', { repository }),
-  openAgentWorkbench: (repository, agentId = 'copilot') => ipcRenderer.invoke('agent-workbench:open', { repository, agentId }),
+  openAgentWorkbench: (repository, agentId = 'copilot', flowContext = null) =>
+    ipcRenderer.invoke('agent-workbench:open', { repository, agentId, flowContext }),
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
   saveOnboarding: (profile, complete = false) => ipcRenderer.invoke('onboarding:save', { profile, complete }),
   chooseOnboardingWorkspace: () => ipcRenderer.invoke('onboarding:choose-workspace'),
@@ -52,7 +53,8 @@ contextBridge.exposeInMainWorld('singularity', {
   selectInitiativeOutputs: (repository, initiativeId, phaseId, outputIds, reason) => ipcRenderer.invoke('initiative:outputs-select', { repository, initiativeId, phaseId, outputIds, reason }),
   recordInitiativeEvidence: (repository, initiativeId, phaseId, checkId, reason, observedState) =>
     ipcRenderer.invoke('initiative:evidence-record', { repository, initiativeId, phaseId, checkId, reason, observedState }),
-  generateWorldModel: (repository, local = true, views = null) => ipcRenderer.invoke('worldmodel:generate', { repository, local, views }),
+  generateWorldModel: (repository, local = true, views = null, initiativeId = null) =>
+    ipcRenderer.invoke('worldmodel:generate', { repository, local, views, initiativeId }),
   onWorldModelProgress: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('worldmodel:progress', handler);

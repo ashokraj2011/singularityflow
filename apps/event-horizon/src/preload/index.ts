@@ -8,6 +8,7 @@ import type { AcpStudioApi, MainEvent } from '../shared/ipc'
  * handler.
  */
 const api: AcpStudioApi = {
+  getFlowContext: (cwd) => ipcRenderer.invoke('flow:context', cwd),
   listAgents: () => ipcRenderer.invoke('agents:list'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   createSession: (opts) => ipcRenderer.invoke('sessions:create', opts),

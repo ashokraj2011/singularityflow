@@ -434,6 +434,10 @@ equivalent.
 Desktop also provides **Delivery → Story intake** as the developer entry
 workflow:
 
+This path does not require an Epic to be created or selected in Singularity
+Flow. The Jira Story is the intake identity; a Jira parent Epic is captured
+when present and shown as optional lineage.
+
 1. choose an assigned Jira Story or enter an exact Story key or browse URL;
 2. review its description, acceptance criteria, attachments, status, assignee,
    and parent Epic;

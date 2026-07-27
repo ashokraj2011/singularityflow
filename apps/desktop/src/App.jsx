@@ -55,8 +55,8 @@ const navSections = [
   {
     label: 'Epic planning',
     items: [
-      ['epics', 'Epics'],
-      ['business-requirements', 'Requirements'],
+      ['epics', 'Epic overview'],
+      ['business-requirements', 'Requirements workspace'],
       ['business-planning', 'Planning'],
       ['business-stories', 'Create Stories'],
       ['templates', 'Artifact templates']
@@ -4132,7 +4132,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira }) {
 
   const canStart = connected && story && repositoryId && selectedRepository?.state === 'ready' && workType && persona;
   return <div className="page story-intake-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">Developer entry point</span><h1>Start work from a Jira Story</h1><p>Choose the Story, verify its Epic and repository lineage, then create or resume the canonical Jira-key branch with a pinned workflow.</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'Jira ready' : 'Jira setup required'}</Pill></header>
+    <header className="page-heading row-between"><div><span className="eyebrow">Developer entry point · no Epic intake required</span><h1>Start directly from a Jira Story</h1><p>Choose the Story, verify its optional parent Epic and repository lineage, then create or resume the canonical Jira-key branch with a pinned workflow.</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'Jira ready' : 'Jira setup required'}</Pill></header>
     <section className="story-intake-journey" aria-label="Jira Story intake workflow">
       {[
         ['1', 'Choose Story'],

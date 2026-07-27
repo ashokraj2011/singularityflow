@@ -207,6 +207,8 @@ Successful Jira/Git publication completes planning and opens the delivery
 dashboard. Developers use **Delivery → Story intake** to choose an assigned
 Jira Story or enter its exact key, inspect the parent Epic and acceptance
 criteria, confirm repository routing, and select the workflow and persona. The
+Story can be started directly without first creating or selecting an Epic in
+Singularity Flow; any Jira parent is retained as optional lineage. The
 same entry point is available through `/sflow-story-start`; a Story published
 by a governed Epic can still be fetched with `/sflow-story-fetch`. Intake pins
 the Jira snapshot, creates or resumes the canonical Jira-key branch, commits,

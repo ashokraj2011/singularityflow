@@ -178,6 +178,9 @@ test('desktop provides a governed Jira Story intake workflow', async () => {
     readFile(path.join(packageRoot, 'HELP.md'), 'utf8')
   ]);
   assert.match(source, /\['story-intake', 'Story intake'\]/);
+  assert.match(source, /\['epics', 'Epic overview'\]/);
+  assert.match(source, /\['business-requirements', 'Requirements workspace'\]/);
+  assert.match(source, /no Epic intake required/);
   assert.match(source, /function JiraStoryIntake/);
   assert.match(source, /Choose Story[\s\S]*Review context[\s\S]*Route repository[\s\S]*Select workflow[\s\S]*Start delivery/);
   assert.match(source, /workspaceJiraStories/);
@@ -364,7 +367,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(source, /disabled=\{!data\.portfolio\?\.jira\?\.enabled\}/);
   assert.match(source, /Describe the work/);
   assert.match(source, /const navSections/);
-  assert.match(source, /\['epics', 'Epics'\]/);
+  assert.match(source, /\['epics', 'Epic overview'\]/);
   assert.match(source, /\['inbox', 'Approval inbox'\]/);
   assert.match(source, /Sources/);
   assert.match(source, /PhaseGovernance/);
@@ -482,7 +485,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   // rest of the setup surfaces, so every destination is one grouping deep.
   assert.doesNotMatch(source, /label: 'Advanced'/);
   assert.match(source, /\['workspaces', 'Workspace configuration'\]/);
-  assert.match(source, /\['business-requirements', 'Requirements'\]/);
+  assert.match(source, /\['business-requirements', 'Requirements workspace'\]/);
   assert.match(source, /\['business-planning', 'Planning'\]/);
   assert.match(source, /\['templates', 'Artifact templates'\]/);
   assert.match(source, /\['business-stories', 'Create Stories'\]/);

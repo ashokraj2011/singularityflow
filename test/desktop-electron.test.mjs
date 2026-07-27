@@ -929,6 +929,11 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.match(source, /onAllEpics=\{showAllEpics\}/);
   assert.match(source, /← All Epics/);
   assert.match(source, /＋ New Epic/);
+  assert.match(source, /const \[tab, setTab\] = useState\('overview'\)/);
+  assert.match(source, /Cross-phase summary · no phase authoring/);
+  assert.match(source, /Open Requirements workspace/);
+  assert.match(source, /Open Planning/);
+  assert.match(source, /Open Create Stories/);
   // "New Epic" must land on the wizard, not the list.
   assert.match(source, /startNew=\{epicIntent === 'new'\}/);
   assert.match(source, /useState\(Boolean\(startNew\)\)/);

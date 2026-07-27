@@ -4857,7 +4857,9 @@ function ConfigurationPublish({ data, initiativeId, dirty, busy, publishConfigur
 }
 
 function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, action, reload, bootstrapPortfolio, openPlanning, setupJira, generateWorldModel, openEpic, localRole, jiraAccount, publishConfiguration = null, busy = false, entryTab = null, onAllEpics = null, reportProblem = null, onStagePage = null }) {
-  const [tab, setTab] = useState('intake');
+  // Epic overview is a read-mostly lifecycle dashboard. Phase authoring lives on the dedicated
+  // Requirements and Planning pages; opening an Epic must not silently drop the user into Intake.
+  const [tab, setTab] = useState('overview');
   const [materializationModal, setMaterializationModal] = useState(null);
   const { openArtifact, artifactViewer } = useArtifactViewer({ repository: data.repository.root, downloadFile });
   // Starting again keeps the branch, the identity, the pinned sources and the world model; only
@@ -4892,17 +4894,9 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       setTab(entryTab);
       return;
     }
-    const phase = selected?.state.currentPhase;
-    // Requirements and Planning are canonical sidebar pages. The Epic page remains an overview
-    // plus intake surface, so opening an Epic never creates a second copy of either phase.
-    const nextTab = ['epic-intake', 'epic-requirements', 'epic-planning'].includes(phase)
-      ? 'intake'
-      : phase === 'epic-publish'
-        ? 'publish'
-        : selected?.state.status === 'complete'
-          ? 'complete'
-          : null;
-    if (nextTab) setTab(nextTab);
+    // Selecting or reopening an Epic always lands on the cross-phase summary. The journey rail
+    // remains the explicit route to Sources, Requirements, Planning, Stories, and Completion.
+    if (selected) setTab('overview');
   }, [entryTab, selected?.state.initiative.id, selected?.state.currentPhase, selected?.state.status]);
   if (!portfolio) return <div className="page initiative-page"><EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={setupJira} /></div>;
   const configValue = editor.path === data.portfolioPath ? editor.content : data.portfolioText;
@@ -5081,14 +5075,21 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     // hid this defect on the other rail. Say so instead.
     reportProblem?.(`No action is wired for '${next?.sourceId ?? next?.id ?? 'unknown'}'. Nothing was changed — please report this.`);
   }
+  const epicWorkspaceTitle = {
+    overview: 'Epic overview',
+    intake: 'Epic sources',
+    publish: 'Create Stories',
+    complete: 'Delivery overview',
+    configuration: 'Epic configuration'
+  }[tab] ?? 'Epic workspace';
   return <div className="page initiative-page">
-    <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? 'Epic workspace' : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p>{onAllEpics && <div className="row gap epic-workspace-exits">
+    <header className="page-heading initiative-heading"><div><span className="eyebrow">Cross-repository control plane · Epic planning and delivery lineage</span><h1>{selected?.state.initiative.profile === 'epic-planning' ? epicWorkspaceTitle : 'Initiative orchestration'}</h1><p>Move from pinned sources to approved requirements, Jira Stories, canonical branches, review packets, and Epic progress.</p>{onAllEpics && <div className="row gap epic-workspace-exits">
       {/* Selecting an Epic replaces the Epic list with this workspace, so without these the list
           and the start wizard are only reachable by blanking the top-bar Epic selector. */}
       <button className="ghost compact" onClick={() => onAllEpics()}>← All Epics</button>
       {selected && <button className="ghost compact" onClick={() => setRestartModal({ confirmation: '', reason: '' })} title="Return this Epic to its first phase on the same branch">↺ Start again</button>}
       <button className="secondary compact" onClick={() => onAllEpics('new')}>＋ New Epic</button>
-      <button className={`ghost compact ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab(tab === 'configuration' ? (selected?.journey?.stage === 'stories' ? 'publish' : selected?.journey?.stage ?? 'intake') : 'configuration')}>⚙ Configuration</button>
+      <button className={`ghost compact ${tab === 'configuration' ? 'active' : ''}`} onClick={() => setTab(tab === 'configuration' ? 'overview' : 'configuration')}>⚙ Configuration</button>
     </div>}</div><div className="epic-identity-strip" title="These identities are recorded separately and are not claimed to be cryptographically equivalent"><span><b>Local role</b>{localRole ?? data.desktopProfile?.role ?? 'not set'}</span><span><b>Jira account</b>{jiraAccount ?? data.jiraSession?.connection?.email ?? data.jiraSession?.connection?.account?.emailAddress ?? 'not connected'}</span><span><b>Git identity</b>{data.identities?.git?.email ?? 'not configured'}</span><span><b>GitHub login</b>{data.identities?.github ?? 'not signed in'}</span></div></header>
     {selected?.journey && <EpicJourneyRail journey={selected.journey} onSelect={selectJourneyStage} onNext={continueJourney} />}
     {businessStage && <section className={`business-stage-intro ${businessStage.prerequisite ? 'ready' : 'waiting'}`}>
@@ -5119,6 +5120,15 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
       <EpicArtifactView selected={selected} phases={['epic-publish']} title="Publication records" detail="After Jira and Git materialization, generate the final write-plan and receipt report, then complete the planning governance gate." downloadFile={downloadFile} openPlanning={openPlanning} />
       <PhaseGovernance data={data} selected={selected} phaseId="epic-publish" action={action} reload={reload} />
     </div> : tab === 'complete' ? <div className="epic-workspace-view"><section className="panel epic-delivery-summary"><header className="panel-heading"><div><span className="eyebrow">Read-only downstream view</span><h2>Story delivery progress</h2><p>Developers continue in their own tools. Singularity aggregates the canonical Story branches and returns review packets here.</p></div><button className="secondary" onClick={synchronizeStories}>↻ Synchronize Story branches</button></header></section><EpicReviewView data={data} selected={selected} action={action} reload={reload} /><EpicCompletionPanel data={data} selected={selected} action={action} reload={reload} synchronizeStories={synchronizeStories} reviewExternalStory={() => setTab('planning')} /></div> : <>
+      {state.initiative.profile === 'epic-planning' && <section className="epic-overview-purpose">
+        <div><span className="eyebrow">Cross-phase summary · no phase authoring</span><h2>Epic overview</h2><p>Monitor the complete Epic, its governed documents, approvals, Story delivery, time, tokens, and cost. Open a phase workspace when you need to create or approve phase-specific content.</p></div>
+        <nav aria-label="Open an Epic phase workspace">
+          <button className="secondary compact" onClick={() => setTab('intake')}>Review Epic sources</button>
+          <button className="primary compact" onClick={() => onStagePage?.('requirements')}>Open Requirements workspace</button>
+          <button className="secondary compact" onClick={() => onStagePage?.('planning')}>Open Planning</button>
+          <button className="secondary compact" onClick={() => onStagePage?.('stories')}>Open Create Stories</button>
+        </nav>
+      </section>}
       <section className="initiative-hero">
         <div><div className="row gap"><Pill tone="accent">{state.initiative.profileLabel}</Pill><Pill tone={state.status === 'complete' ? 'good' : 'neutral'}>{state.status}</Pill><Pill>configured-local identity</Pill></div><h2>{state.initiative.title}</h2><p>{state.initiative.id} · branch {state.initiative.branch} · current phase {state.currentPhase ?? 'complete'}</p></div><ProgressRing value={progress.percentage} />
       </section>

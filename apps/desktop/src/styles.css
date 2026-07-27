@@ -5447,3 +5447,45 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
   .session-choice-explainer > i { display: none; }
   .session-policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.epic-overview-purpose {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 24px 28px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green-700);
+  border-radius: 18px;
+  background: linear-gradient(110deg, var(--surface) 0%, #f3faf6 100%);
+  box-shadow: 0 12px 28px rgba(20, 71, 48, 0.07);
+}
+
+.epic-overview-purpose h2 {
+  margin: 4px 0 6px;
+}
+
+.epic-overview-purpose p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.epic-overview-purpose nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+  min-width: min(440px, 42%);
+}
+
+@media (max-width: 1050px) {
+  .epic-overview-purpose {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .epic-overview-purpose nav {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+}

@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/electron/cli-runner.mjs';
+import { installElectronNetworkFetch } from '../apps/desktop/electron/network-fetch.mjs';
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
@@ -74,6 +75,30 @@ else process.stdout.write(JSON.stringify({ opened: process.cwd() }));
     () => invokeCliProcess({ executable: process.execPath, cli: fixture, repository: root, args: ['wait'], env: process.env, timeoutMs: 50 }),
     /did not finish within 1 seconds/
   );
+});
+
+test('Electron installs its OS-trust-store network fetch before registering IPC handlers', async () => {
+  const calls = [];
+  const network = {
+    fetch(...args) {
+      calls.push(args);
+      return Promise.resolve({ ok: true, source: 'electron' });
+    }
+  };
+  const target = { fetch: () => Promise.resolve({ source: 'node' }) };
+  const installed = installElectronNetworkFetch(network, target);
+  assert.equal(target.fetch, installed);
+  assert.deepEqual(await target.fetch('https://jira.example.test/rest/api/3/serverInfo', { redirect: 'error' }), {
+    ok: true,
+    source: 'electron'
+  });
+  assert.deepEqual(calls, [['https://jira.example.test/rest/api/3/serverInfo', { redirect: 'error' }]]);
+  assert.throws(() => installElectronNetworkFetch({}, target), /Electron net\.fetch is unavailable/);
+
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  assert.match(main, /import \{[^}]*\bnet\b[^}]*\} from 'electron'/);
+  const ready = main.slice(main.indexOf('app.whenReady().then'));
+  assert.ok(ready.indexOf('installElectronNetworkFetch(net);') < ready.indexOf('registerHandlers();'));
 });
 
 test('Electron welcome screen opens the workspace boundary and preserves loading feedback', async () => {

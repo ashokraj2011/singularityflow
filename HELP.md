@@ -964,6 +964,18 @@ session:
   requireBeforeTools: true
 ```
 
+Phase-boundary context behavior is separately configurable:
+
+```yaml
+contextPolicy:
+  onApproval: new       # keep | compact | new
+  onRejection: keep
+  phaseOverrides:
+    implementation: compact
+```
+
+Once an approval reaches its threshold and its commit is pushed, `new` tells the contributor to run `/clear` and then `/sflow-next`; `compact` uses `/compact`; and `keep` continues in the same conversation. Initiative phases use `/sflow-initiative-next`. Flow cannot execute a built-in slash command inside its parent Copilot session, so it prints and visibly hands off the exact commands instead. The newly loaded phase is rebuilt from committed governed context, not remembered chat history. Rejection defaults to `keep`, and missing configuration remains backward-compatible.
+
 For work items, `off` preserves the current-branch behavior, `reuse` accepts an active work-item branch but asks when none is active, and `prompt` asks once for every distinct Copilot session ID. `/sflow-session` shows remote candidates and asks for an exact work ID or Jira ID. It then runs the equivalent of:
 
 ```bash

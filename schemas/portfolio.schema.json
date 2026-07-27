@@ -8,6 +8,19 @@
     "version": { "const": 1 },
     "initiativeRoot": { "type": "string" },
     "templatesRoot": { "type": "string" },
+    "contextPolicy": {
+      "type": "object",
+      "properties": {
+        "phaseBoundary": { "enum": ["keep", "compact", "new"] },
+        "onApproval": { "enum": ["keep", "compact", "new"] },
+        "onRejection": { "enum": ["keep", "compact", "new"] },
+        "phaseOverrides": {
+          "type": "object",
+          "additionalProperties": { "enum": ["keep", "compact", "new"] }
+        }
+      },
+      "additionalProperties": false
+    },
     "identity": {
       "type": "object",
       "properties": {

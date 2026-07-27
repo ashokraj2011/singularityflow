@@ -123,6 +123,7 @@ import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
+import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import {
   listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources
 } from './epic-sources.mjs';
@@ -1189,6 +1190,7 @@ async function approveCommand(positionals, options) {
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
+  formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
 }
 
 async function rejectCommand(positionals, options) {
@@ -1198,6 +1200,7 @@ async function rejectCommand(positionals, options) {
   const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
   await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
+  formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
 }
 
 async function syncCommand() {
@@ -2161,6 +2164,7 @@ async function initiativeCommand(positionals, options) {
     if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
     if (result.next) console.log(`Current phase: ${result.next}`);
     else if (result.initiative.status === 'complete') console.log('Initiative complete.');
+    formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
     return;
   }
   if (subcommand === 'reject') {

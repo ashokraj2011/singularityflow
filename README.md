@@ -412,6 +412,18 @@ session:
   requireBeforeTools: true
 ```
 
+New repositories also rotate Copilot context after an approved phase:
+
+```yaml
+contextPolicy:
+  onApproval: new       # keep | compact | new
+  onRejection: keep
+  phaseOverrides:
+    implementation: compact
+```
+
+The boundary is advisory because a child process cannot clear its parent Copilot CLI conversation. After the approval commit and push succeed, the CLI prints the exact next actions. `new` prints `/clear` followed by `/sflow-next`, `compact` prints `/compact` followed by `/sflow-next`, and `keep` continues directly. The next skill reconstructs its phase prompt from approved Git artifacts, pinned inputs, the selected persona, templates, remote-agent Markdown, and required world-model views. Clearing therefore removes conversation history without losing governed state. It reduces tokens sent in later phases but does not refund tokens already consumed. Rejections default to `keep` so the correction conversation retains review feedback. The normalized policy is pinned in work-item and initiative state; configurations without it retain the earlier `keep` behavior.
+
 `/sflow-session` applies this policy in order. For each new Copilot session it asks for the exact work ID or Jira ID, lists committed work-item branches from the configured Git remote, fetches the remote, checks out a missing local tracking branch, and fast-forwards to the exact remote head. Only then does it ask for or reuse a persona. A resumed conversation with the same Copilot session ID retains the binding. `/sflow-persona` changes the persona at any time.
 
 The attach path is deliberately conservative: dirty, missing, malformed, ahead, or diverged branches stop with a clear message. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.

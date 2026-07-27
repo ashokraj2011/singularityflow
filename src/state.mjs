@@ -20,6 +20,7 @@ import {
 } from './sequence.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
+import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -244,6 +245,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       documents: structuredClone(resolution.documents ?? config.documents ?? {}),
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
       session: normalizeSessionPolicy(config.session ?? {}),
+      contextPolicy: snapshotState.contextPolicy ?? normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) }),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
     },
@@ -291,6 +293,10 @@ function upgradeWorkflow(workflow) {
     workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session ?? {});
     workflow.resolution.sessionLegacy = true;
   } else workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
+  if (!workflow.resolution.contextPolicy) {
+    workflow.resolution.contextPolicy = normalizeContextPolicy();
+    workflow.resolution.contextPolicyLegacy = true;
+  } else workflow.resolution.contextPolicy = normalizeContextPolicy(workflow.resolution.contextPolicy);
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
@@ -725,7 +731,15 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
   await updateArtifactMetadata(root, config, workflow, phase); await registerApprovedSnapshot(root, config, workflow, phase);
   await writeDecision(root, config, workflow, phase, decision);
   workflow.history.push({ at: decision.at, actor: key, persona: session.persona, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
-  await saveWorkflow(root, config, workflow); return { phase, next: reached ? currentPhase(workflow) : phase, approval: { approvedBy: key, ...decision }, reached };
+  await saveWorkflow(root, config, workflow);
+  const next = reached ? currentPhase(workflow) : phase;
+  const contextBoundary = reached
+    ? contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+      nextPhase: next?.id ?? null,
+      complete: workflow.status === 'complete'
+    })
+    : null;
+  return { phase, next, approval: { approvedBy: key, ...decision }, reached, contextBoundary };
 }
 
 async function registerApprovedSnapshot(root, config, workflow, phase) {
@@ -775,7 +789,14 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
   workflow.history.push({ at: timestamp, actor: key, persona: session.persona, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
-  await saveWorkflow(root, config, workflow); return workflow.phases[targetId];
+  await saveWorkflow(root, config, workflow);
+  return {
+    ...workflow.phases[targetId],
+    contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
+      event: 'rejection',
+      nextPhase: targetId
+    })
+  };
 }
 
 export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
@@ -813,6 +834,11 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
       const expectedSession = normalizeSessionPolicy(config.session ?? {});
       const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
       if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session persona policy differs from the immutable configuration snapshot.');
+    }
+    if (!workflow.resolution?.contextPolicyLegacy) {
+      const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
+      const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
+      if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');
     }
   }
   let activeCount = 0;

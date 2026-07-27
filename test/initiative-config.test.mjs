@@ -43,6 +43,7 @@ test('starter portfolio resolves lite and enterprise profiles with generic phase
   assert.equal(enterprise.phases.find((phase) => phase.id === 'elaboration').checklist.length, 15);
   assert.equal(enterprise.phases.find((phase) => phase.id === 'delivery').checklist.find((check) => check.id === 'monitoring-healthy').freshness.validFor, '24h');
   assert.ok(enterprise.phases.every((phase) => phase.bundleApproval.allowSelfApproval));
+  assert.deepEqual(lite.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.doesNotMatch(await readFile(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /brokerage/i);
 });
 

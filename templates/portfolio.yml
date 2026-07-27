@@ -2,6 +2,11 @@ version: 1
 initiativeRoot: singularity/initiatives
 templatesRoot: singularity/templates
 
+contextPolicy:
+  onApproval: new
+  onRejection: keep
+  phaseOverrides: {}
+
 git:
   remote: origin
   publish: required

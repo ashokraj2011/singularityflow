@@ -328,6 +328,7 @@ Usage:
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
   singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
   singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
+  singularity-flow story start <STORY-KEY> [--selection-receipt TOKEN] [--fetch]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]
   singularity-flow story submit
@@ -3740,6 +3741,10 @@ async function storyFetchCommand(positionals, options) {
 async function storyCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
+  if (subcommand === 'start') {
+    const storyKey = requirePositional(positionals, 2, 'Jira Story key');
+    return startCommand(['start', storyKey], { ...options, jira: true });
+  }
   if (subcommand === 'inbox') return storyInboxCommand(options);
   if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
   const config = await loadConfig(root);

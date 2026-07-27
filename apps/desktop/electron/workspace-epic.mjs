@@ -24,13 +24,13 @@ export function workspaceJiraRouting(workspace, credentials = {}) {
   };
 }
 
-export function jiraIssueKeyFromReference(value) {
+function jiraKeyFromReference(value, label) {
   const raw = String(value ?? '').trim();
   let reference = raw;
   if (/^https:\/\//i.test(raw)) {
     let url;
     try { url = new URL(raw); } catch {
-      throw new Error('The Jira Epic URL is invalid. Paste a complete HTTPS browse URL such as https://company.atlassian.net/browse/KAN-8.');
+      throw new Error(`The Jira ${label} URL is invalid. Paste a complete HTTPS browse URL such as https://company.atlassian.net/browse/KAN-8.`);
     }
     reference = url.pathname.match(/\/browse\/([^/?#]+)/i)?.[1]
       ?? url.searchParams.get('selectedIssue')
@@ -39,13 +39,20 @@ export function jiraIssueKeyFromReference(value) {
   }
   const key = reference.trim().toUpperCase();
   if (!/^(?:[A-Z][A-Z0-9_]*-\d+|\d+)$/.test(key)) {
-    throw new Error('Enter a Jira Epic key such as KAN-8, paste its Jira browse URL, or enter its numeric issue ID.');
+    throw new Error(`Enter a Jira ${label} key such as KAN-8, paste its Jira browse URL, or enter its numeric issue ID.`);
   }
   return key;
 }
 
-export function assertWorkspaceEpicKey(routing, value) {
-  const key = jiraIssueKeyFromReference(value);
+export function jiraIssueKeyFromReference(value) {
+  return jiraKeyFromReference(value, 'Epic');
+}
+
+export function jiraStoryKeyFromReference(value) {
+  return jiraKeyFromReference(value, 'Story');
+}
+
+function assertWorkspaceIssueKey(routing, key) {
   if (key.includes('-')) {
     const issueProject = key.slice(0, key.lastIndexOf('-'));
     if (!routing.projectKeys.includes(issueProject)) {
@@ -53,6 +60,14 @@ export function assertWorkspaceEpicKey(routing, value) {
     }
   }
   return key;
+}
+
+export function assertWorkspaceEpicKey(routing, value) {
+  return assertWorkspaceIssueKey(routing, jiraIssueKeyFromReference(value));
+}
+
+export function assertWorkspaceStoryKey(routing, value) {
+  return assertWorkspaceIssueKey(routing, jiraStoryKeyFromReference(value));
 }
 
 export function assertWorkspaceEpicIssue(routing, issue) {
@@ -63,6 +78,15 @@ export function assertWorkspaceEpicIssue(routing, issue) {
     throw new Error(`Jira ${key} is outside this workspace. Allowed projects: ${routing.projectKeys.join(', ') || 'none'}.`);
   }
   return issue;
+}
+
+export function assertWorkspaceStoryIssue(routing, issue) {
+  const normalized = assertWorkspaceEpicIssue(routing, issue);
+  const type = String(normalized.issueType ?? '').trim().toLowerCase();
+  if (type === 'epic' || Number(normalized.hierarchyLevel) >= 1) {
+    throw new Error(`Jira ${normalized.key} is a ${normalized.issueType ?? 'higher-level work item'}, not a Story.`);
+  }
+  return normalized;
 }
 
 export function summarizeWorkspaceEpicProjects(results) {

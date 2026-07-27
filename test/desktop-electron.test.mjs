@@ -9,7 +9,10 @@ import { invokeCliProcess, validateRepositoryDirectory } from '../apps/desktop/e
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  assertWorkspaceStoryIssue,
+  assertWorkspaceStoryKey,
   jiraIssueKeyFromReference,
+  jiraStoryKeyFromReference,
   summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
   workspacePortfolioConfiguration
@@ -152,7 +155,11 @@ test('workspace Epic intake scopes Jira and derives portfolio configuration from
   assert.equal(assertWorkspaceEpicKey(routing, 'https://company.atlassian.net/browse/KAN-8'), 'KAN-8');
   assert.equal(assertWorkspaceEpicKey(routing, '10042'), '10042');
   assert.equal(jiraIssueKeyFromReference('https://company.atlassian.net/browse/MOB-42'), 'MOB-42');
+  assert.equal(jiraStoryKeyFromReference('https://company.atlassian.net/browse/MOB-42'), 'MOB-42');
+  assert.equal(assertWorkspaceStoryKey(routing, 'mob-42'), 'MOB-42');
   assert.equal(assertWorkspaceEpicIssue(routing, { key: 'KAN-8' }).key, 'KAN-8');
+  assert.equal(assertWorkspaceStoryIssue(routing, { key: 'MOB-42', issueType: 'Story', hierarchyLevel: 0 }).key, 'MOB-42');
+  assert.throws(() => assertWorkspaceStoryIssue(routing, { key: 'KAN-8', issueType: 'Epic', hierarchyLevel: 1 }), /not a Story/);
   assert.throws(() => assertWorkspaceEpicIssue(routing, { key: 'OTHER-2' }), /outside this workspace/);
   assert.throws(() => assertWorkspaceEpicKey(routing, 'OTHER-2'), /outside this workspace/);
   const configuration = workspacePortfolioConfiguration(workspace, credentials);
@@ -160,6 +167,33 @@ test('workspace Epic intake scopes Jira and derives portfolio configuration from
   assert.deepEqual(configuration.jira.allowedProjects, ['KAN', 'MOB']);
   assert.equal(configuration.jira.projectKey, 'KAN');
   assert.equal(configuration.jira.writeMode, 'approved');
+});
+
+test('desktop provides a governed Jira Story intake workflow', async () => {
+  const [source, styles, preload, main, help] = await Promise.all([
+    readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8'),
+    readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8'),
+    readFile(path.join(packageRoot, 'apps/desktop/electron/preload.cjs'), 'utf8'),
+    readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8'),
+    readFile(path.join(packageRoot, 'HELP.md'), 'utf8')
+  ]);
+  assert.match(source, /\['story-intake', 'Story intake'\]/);
+  assert.match(source, /function JiraStoryIntake/);
+  assert.match(source, /Choose Story[\s\S]*Review context[\s\S]*Route repository[\s\S]*Select workflow[\s\S]*Start delivery/);
+  assert.match(source, /workspaceJiraStories/);
+  assert.match(source, /workspaceJiraStory/);
+  assert.match(source, /startStoryWizard/);
+  assert.match(source, /Continue with <code>\/sflow-phase<\/code>/);
+  assert.match(styles, /\.story-intake-journey/);
+  assert.match(styles, /\.story-intake-grid/);
+  assert.match(preload, /workspace:jira-stories/);
+  assert.match(preload, /workspace:jira-story/);
+  assert.match(preload, /story:start/);
+  assert.match(main, /trustedHandle\('workspace:jira-stories'/);
+  assert.match(main, /trustedHandle\('workspace:jira-story'/);
+  assert.match(main, /trustedHandle\('story:start'/);
+  assert.match(main, /commitAndPublish/);
+  assert.match(help, /Delivery → Story intake/);
 });
 
 test('workspace Epic listing keeps valid projects when another Jira route is invalid', () => {

@@ -31,10 +31,15 @@ contextBridge.exposeInMainWorld('singularity', {
   connectWorkspaceJira: (repository, workspace, connection) => ipcRenderer.invoke('workspace:jira-connect', { repository, workspace, connection }),
   disconnectWorkspaceJira: (repository, workspace) => ipcRenderer.invoke('workspace:jira-disconnect', { repository, workspace }),
   workspaceJiraEpics: (repository, workspace, refresh = false) => ipcRenderer.invoke('workspace:jira-epics', { repository, workspace, refresh }),
+  workspaceJiraStories: (repository, workspace, refresh = false) => ipcRenderer.invoke('workspace:jira-stories', { repository, workspace, refresh }),
   correctWorkspaceJiraRoute: (repository, workspace, currentProjectKey, epicReference) => ipcRenderer.invoke('workspace:jira-route-correct', {
     repository, workspace, currentProjectKey, epicReference
   }),
   workspaceJiraEpic: (repository, workspace, epicKey) => ipcRenderer.invoke('workspace:jira-epic', { repository, workspace, epicKey }),
+  workspaceJiraStory: (repository, workspace, storyKey) => ipcRenderer.invoke('workspace:jira-story', { repository, workspace, storyKey }),
+  startStoryWizard: (repository, workspace, repositoryId, storyKey, workType, persona) => ipcRenderer.invoke('story:start', {
+    repository, workspace, repositoryId, storyKey, workType, persona
+  }),
   previewWorkspace: (repository, options) => ipcRenderer.invoke('workspace:preview', { repository, ...options }),
   createWorkspace: (repository, options) => ipcRenderer.invoke('workspace:create', { repository, ...options }),
   workspaceStatus: (workspace) => ipcRenderer.invoke('workspace:status', { workspace }),

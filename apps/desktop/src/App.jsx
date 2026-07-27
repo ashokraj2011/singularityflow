@@ -65,6 +65,7 @@ const navSections = [
   {
     label: 'Delivery',
     items: [
+      ['story-intake', 'Story intake'],
       ['dashboard', 'Overview'],
       ['studio', 'Artifact studio'],
       ['impact', 'Impact analysis'],
@@ -208,7 +209,8 @@ function NavIcon({ name }) {
   const aliases = {
     'business-requirements': 'documents',
     'business-planning': 'planning',
-    'business-stories': 'epics'
+    'business-stories': 'epics',
+    'story-intake': 'jira'
   };
   const paths = navIconPaths[aliases[name] ?? name] ?? navIconPaths.dashboard;
   return <svg className="nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths.map((item) => <path d={item} key={item} />)}</svg>;
@@ -4038,6 +4040,144 @@ function epicStageLabel(item) {
   return item.currentPhaseLabel ?? 'Not started';
 }
 
+function JiraStoryIntake({ data, action, onStarted, onSetupJira }) {
+  const workspacePath = data.workspace?.workspace?.path;
+  const workspaceManifest = data.workspace?.workspace;
+  const repositoryHealth = data.workspace?.repositories ?? [];
+  const repositoryConfiguration = workspaceManifest?.repositories ?? {};
+  const [jira, setJira] = useState(null);
+  const [stories, setStories] = useState([]);
+  const [warnings, setWarnings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [storyReference, setStoryReference] = useState('');
+  const [selectedKey, setSelectedKey] = useState('');
+  const [story, setStory] = useState(null);
+  const [repositoryId, setRepositoryId] = useState('');
+  const workTypes = Object.entries(data.definition?.workTypes ?? {});
+  const personas = Object.entries(data.definition?.personas ?? {});
+  const [workType, setWorkType] = useState(workTypes[0]?.[0] ?? '');
+  const [persona, setPersona] = useState(
+    data.session?.persona && data.definition?.personas?.[data.session.persona]
+      ? data.session.persona
+      : personas[0]?.[0] ?? ''
+  );
+
+  const repositories = repositoryHealth.map((health) => {
+    const configured = repositoryConfiguration[health.id] ?? {};
+    return {
+      ...health,
+      projectKey: String(configured.jira?.board ?? health.jira?.board ?? '').trim().toUpperCase(),
+      displayName: configured.metadata?.name ?? health.metadata?.name ?? health.id
+    };
+  });
+  const storyProject = story?.project?.key ?? (story?.key?.includes('-') ? story.key.slice(0, story.key.lastIndexOf('-')) : '');
+  const routedRepositories = repositories.filter((repository) => repository.projectKey === storyProject);
+  const selectedRepository = repositories.find((repository) => repository.id === repositoryId) ?? null;
+  const existing = story ? data.workItems.find((item) => item.id === story.key) : null;
+  const connected = jira?.credentials?.connected && jira?.routing?.configured;
+
+  async function loadJira(refresh = false) {
+    if (!workspacePath) return;
+    setLoading(true);
+    try {
+      const context = await window.singularity.workspaceJiraContext(data.repository.root, workspacePath);
+      setJira(context);
+      if (!context.credentials?.connected || !context.routing?.configured) {
+        setStories([]);
+        return;
+      }
+      const result = await window.singularity.workspaceJiraStories(data.repository.root, workspacePath, refresh);
+      setStories(result.stories ?? []);
+      setWarnings(result.warnings ?? []);
+    } catch (error) {
+      setWarnings([{ message: error.message }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadJira(false); }, [workspacePath]);
+
+  async function fetchStory(reference = selectedKey || storyReference) {
+    if (!reference.trim()) return;
+    const result = await action(() =>
+      window.singularity.workspaceJiraStory(data.repository.root, workspacePath, reference));
+    if (!result) return;
+    setStory(result);
+    setStoryReference(result.key);
+    setSelectedKey(stories.some((item) => item.key === result.key) ? result.key : '');
+    const project = result.project?.key ?? result.key.slice(0, result.key.lastIndexOf('-'));
+    const candidates = repositories.filter((repository) => repository.projectKey === project && repository.state === 'ready');
+    setRepositoryId(candidates[0]?.id ?? '');
+  }
+
+  async function start() {
+    const result = await action(
+      () => window.singularity.startStoryWizard(
+        data.repository.root,
+        workspacePath,
+        repositoryId,
+        story.key,
+        workType,
+        persona
+      ),
+      existing ? `${story.key} resumed` : `${story.key} workflow created, committed, and pushed`
+    );
+    if (result) onStarted(result);
+  }
+
+  if (!workspacePath) {
+    return <div className="page story-intake-page"><Empty title="Open a project workspace first" detail="Story intake needs workspace repository routing and Jira project configuration." /></div>;
+  }
+
+  const canStart = connected && story && repositoryId && selectedRepository?.state === 'ready' && workType && persona;
+  return <div className="page story-intake-page">
+    <header className="page-heading row-between"><div><span className="eyebrow">Developer entry point</span><h1>Start work from a Jira Story</h1><p>Choose the Story, verify its Epic and repository lineage, then create or resume the canonical Jira-key branch with a pinned workflow.</p></div><Pill tone={connected ? 'good' : 'warn'}>{connected ? 'Jira ready' : 'Jira setup required'}</Pill></header>
+    <section className="story-intake-journey" aria-label="Jira Story intake workflow">
+      {[
+        ['1', 'Choose Story'],
+        ['2', 'Review context'],
+        ['3', 'Route repository'],
+        ['4', 'Select workflow'],
+        ['5', 'Start delivery']
+      ].map(([number, label], index) => <React.Fragment key={number}><span className={(story ? index < 2 : index === 0) || (repositoryId && index === 2) || (workType && persona && index === 3) ? 'active' : ''}><b>{number}</b><small>{label}</small></span>{index < 4 && <i />}</React.Fragment>)}
+    </section>
+
+    <section className="story-intake-grid">
+      <article className="panel story-picker-panel">
+        <header className="panel-heading"><div><span className="eyebrow">Step 1 · Jira</span><h2>Choose an assigned Story</h2><p>The list uses the Jira projects configured for this workspace. Backlog-only work is not loaded.</p></div><button className="secondary compact" disabled={loading || !connected} onClick={() => loadJira(true)}>{loading ? 'Refreshing…' : '↻ Refresh'}</button></header>
+        {!connected && <div className="notice warn"><div><strong>Jira is not ready for this workspace.</strong><span>Connect this operating-system user and verify each repository’s Jira project key.</span></div><button className="secondary" onClick={onSetupJira}>Set up Jira</button></div>}
+        {warnings.map((warning, index) => <div className="notice warn" key={`${warning.projectKey ?? 'jira'}-${index}`}><strong>{warning.projectKey ? `${warning.projectKey} could not be loaded` : 'Could not load Jira Stories'}</strong><span>{warning.message}</span></div>)}
+        <div className="story-picker-list">
+          {stories.map((item) => <button className={selectedKey === item.key ? 'active' : ''} key={item.key} onClick={() => { setSelectedKey(item.key); void fetchStory(item.key); }}><StatusDot status={item.statusCategory === 'Done' ? 'approved' : 'in_progress'} /><span><strong>{item.key} — {item.title}</strong><small>{item.status ?? 'unknown'} · {item.priority ?? 'no priority'}{item.parent?.key ? ` · parent ${item.parent.key}` : ''}</small></span><em>→</em></button>)}
+          {!loading && connected && !stories.length && <div className="inline-empty">No assigned Stories were found. Enter an exact Story key below.</div>}
+        </div>
+        <div className="exact-story-entry"><label><span>Exact Story key or Jira URL</span><input value={storyReference} onChange={(event) => setStoryReference(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void fetchStory(); }} placeholder="KAN-123 or https://…/browse/KAN-123" /></label><button className="secondary" disabled={!connected || !storyReference.trim()} onClick={() => fetchStory()}>Fetch Story</button></div>
+      </article>
+
+      <article className="panel story-context-panel">
+        <header className="panel-heading"><div><span className="eyebrow">Steps 2–4 · Governed context</span><h2>{story ? `${story.key} intake` : 'Review before starting'}</h2><p>Nothing is committed until the exact Story, repository, workflow, and persona are visible here.</p></div>{story && <Pill tone="accent">{story.status ?? 'unknown'}</Pill>}</header>
+        {!story ? <Empty title="Choose a Jira Story" detail="Its description, acceptance criteria, attachments, parent Epic, and repository route will appear here." /> : <>
+          <section className="story-jira-summary">
+            <div><span>Story</span><strong>{story.title}</strong><small>{story.issueType} · {story.priority ?? 'No priority'} · {story.assignee ?? 'Unassigned'}</small></div>
+            <div><span>Parent lineage</span><strong>{story.parent?.key ?? 'No Jira parent'}</strong><small>{story.parent?.title ?? 'This Story can still be governed directly and linked later.'}</small></div>
+            <div><span>Acceptance criteria</span><strong>{story.acceptanceCriteria ? 'Available' : 'Not supplied'}</strong><small>{story.acceptanceCriteria || 'Capture missing criteria during the first workflow phase.'}</small></div>
+            <div><span>Attachments</span><strong>{story.attachments?.length ?? 0}</strong><small>Metadata is pinned in the Jira snapshot; governed files can be uploaded after intake.</small></div>
+          </section>
+          <details className="story-description" open><summary>Description</summary><p>{story.description || 'No Jira description was supplied.'}</p></details>
+          <div className="story-intake-selectors">
+            <label><span>Delivery repository</span><select value={repositoryId} onChange={(event) => setRepositoryId(event.target.value)}><option value="">Choose the routed repository</option>{routedRepositories.map((repository) => <option key={repository.id} value={repository.id} disabled={repository.state !== 'ready'}>{repository.displayName} · {repository.id} ({repository.state})</option>)}</select><small>{routedRepositories.length ? `Jira ${storyProject} is mapped by workspace configuration.` : `No ready repository is mapped to Jira project ${storyProject}. Edit Workspace configuration first.`}</small></label>
+            <label><span>Story workflow</span><select value={workType} onChange={(event) => setWorkType(event.target.value)}>{workTypes.map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>The selected workflow is pinned for this Story after intake.</small></label>
+            <label><span>Session persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{personas.map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>The persona applies locally to this session and can be changed on resume.</small></label>
+          </div>
+          {existing && <div className="notice accent"><strong>{story.key} already exists in this repository.</strong><span>Starting will fetch and resume its canonical branch instead of creating a second workflow.</span></div>}
+          <footer className="story-intake-action"><div><strong>What happens next</strong><span>Singularity checks out <code>{story.key}</code>, pins the Jira snapshot, creates the workflow state, commits it, and pushes the branch. Continue with <code>/sflow-phase</code> in Copilot CLI.</span></div><button className="primary" disabled={!canStart} onClick={start}>{existing ? `Resume ${story.key}` : 'Start Story workflow'}</button></footer>
+        </>}
+      </article>
+    </section>
+  </div>;
+}
+
 function EpicsHome({ data, action, reload, openEpic, generateWorldModel, onSetupJira, startNew = false }) {
   // "New Epic" from inside an Epic workspace clears the selection and lands here; honour that
   // intent by opening the wizard directly instead of dropping the user on the list.
@@ -6448,7 +6588,7 @@ export default function App() {
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
       />}
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'story-intake' && <JiraStoryIntake data={data} action={action} onStarted={(result) => acceptOpened(result, 'dashboard')} onSetupJira={() => setJiraSetupOpen(true)} />}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
         ? <PhaseCliWorkspace requestedPhaseId="epic-requirements" data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'phase' && (data.initiative && planningFocus?.phase
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />

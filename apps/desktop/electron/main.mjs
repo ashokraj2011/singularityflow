@@ -28,6 +28,8 @@ import {
 import {
   assertWorkspaceEpicIssue,
   assertWorkspaceEpicKey,
+  assertWorkspaceStoryIssue,
+  assertWorkspaceStoryKey,
   jiraIssueKeyFromReference,
   summarizeWorkspaceEpicProjects,
   workspaceJiraRouting,
@@ -442,7 +444,9 @@ async function snapshot(repository, workId = null, initiativeId = null) {
   if (activeWorkspace?.workspace?.path) {
     const { workspaceStatus } = await workspaceModule();
     const status = await workspaceStatus(activeWorkspace.workspace.path);
-    if (path.resolve(status.leadRepositoryPath) === activeRepository) {
+    const belongsToWorkspace = status.repositories.some((entry) =>
+      entry.absolutePath && path.resolve(entry.absolutePath) === activeRepository);
+    if (belongsToWorkspace) {
       activeWorkspace = status;
       result.workspace = status;
     }
@@ -1748,6 +1752,60 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     }));
     return summarizeWorkspaceEpicProjects(projectResults);
   });
+  trustedHandle('workspace:jira-stories', async (event, { repository, workspace, refresh = false }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const [{ readWorkspace }, { listMyIssues }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('jira.mjs')
+    ]);
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before listing Stories.');
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    const results = await Promise.all(routing.projectKeys.map(async (projectKey) => {
+      const repositoryIds = Object.entries(manifest.repositories)
+        .filter(([, value]) => String(value?.jira?.board ?? '').trim().toUpperCase() === projectKey)
+        .map(([repositoryId]) => repositoryId);
+      try {
+        const key = jiraCacheKey(connection, 'workspace-stories', projectKey);
+        const cached = !refresh && jiraCacheRead(key, 5);
+        const response = cached ?? await listMyIssues({
+          project: projectKey,
+          issueType: 'Story',
+          limit: 100,
+          connection
+        });
+        if (!cached) jiraCacheWrite(key, response);
+        return { projectKey, repositoryIds, issues: response.issues ?? [] };
+      } catch (error) {
+        return { projectKey, repositoryIds, error };
+      }
+    }));
+    const stories = new Map();
+    const warnings = [];
+    for (const result of results) {
+      if (result.error) {
+        warnings.push({
+          projectKey: result.projectKey,
+          repositoryIds: result.repositoryIds,
+          message: result.error.message
+        });
+        continue;
+      }
+      for (const issue of result.issues) {
+        if (!stories.has(issue.key)) stories.set(issue.key, { ...issue, repositoryIds: result.repositoryIds });
+      }
+    }
+    return {
+      stories: [...stories.values()].sort((left, right) =>
+        String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))
+        || String(left.key).localeCompare(String(right.key))),
+      warnings
+    };
+  });
   trustedHandle('workspace:jira-route-correct', async (event, {
     repository, workspace, currentProjectKey, epicReference
   }) => {
@@ -1814,6 +1872,119 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       throw new Error(`Jira ${key} is a ${issue.issueType ?? 'work item'}, not an Epic.`);
     }
     return issue;
+  });
+  trustedHandle('workspace:jira-story', async (event, { repository, workspace, storyKey }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const [{ readWorkspace }, { getIssue }] = await Promise.all([
+      workspaceModule(),
+      importCliModule('jira.mjs')
+    ]);
+    const manifest = await readWorkspace(workspaceRoot);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before fetching a Story.');
+    const key = assertWorkspaceStoryKey(routing, storyKey);
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    return assertWorkspaceStoryIssue(routing, await getIssue(key, { connection }));
+  });
+  trustedHandle('story:start', async (event, {
+    repository, workspace, repositoryId, storyKey, workType, persona
+  }) => {
+    assertTrustedSender(event);
+    assertRepository(repository);
+    const workspaceRoot = assertWorkspace(workspace);
+    const workspaceApi = await workspaceModule();
+    const [manifest, workspaceHealth] = await Promise.all([
+      workspaceApi.readWorkspace(workspaceRoot),
+      workspaceApi.workspaceStatus(workspaceRoot)
+    ]);
+    const delivery = workspaceHealth.repositories.find((entry) => entry.id === repositoryId);
+    if (!delivery) throw new Error(`Repository '${repositoryId}' is not part of this workspace.`);
+    if (delivery.state !== 'ready' || !delivery.absolutePath) {
+      throw new Error(`Repository '${repositoryId}' is not ready. Repair the workspace before starting this Story.`);
+    }
+    const root = await validateRepositoryDirectory(delivery.absolutePath);
+    const credentials = await jiraCredentialStore().safeStatus();
+    const routing = workspaceJiraRouting(manifest, credentials);
+    if (!routing.connected) throw new Error('Connect Jira for this operating-system account before starting a Story.');
+    const key = assertWorkspaceStoryKey(routing, storyKey);
+    const configuredProject = String(manifest.repositories?.[repositoryId]?.jira?.board ?? '').trim().toUpperCase();
+    const storyProject = key.includes('-') ? key.slice(0, key.lastIndexOf('-')) : null;
+    if (storyProject && configuredProject !== storyProject) {
+      throw new Error(`Jira ${key} is routed to project ${storyProject}, but repository '${repositoryId}' is configured for ${configuredProject || 'no Jira project'}.`);
+    }
+    const connection = await jiraCredentialStore().load(credentials.selected);
+    const [
+      { getIssue },
+      { resolveWorkType },
+      { assertClean, checkout, identity },
+      { commitAndPublish, createWorkflow, loadConfig, loadWorkflow, validateId, workflowPath },
+      { setPersonaSession }
+    ] = await Promise.all([
+      importCliModule('jira.mjs'),
+      importCliModule('config.mjs'),
+      importCliModule('git.mjs'),
+      importCliModule('state.mjs'),
+      importCliModule('session.mjs')
+    ]);
+    const [config, fetched] = await Promise.all([
+      loadConfig(root),
+      getIssue(key, { connection })
+    ]);
+    const source = assertWorkspaceStoryIssue(routing, fetched);
+    const sourceProject = String(source.project?.key ?? source.key.slice(0, source.key.lastIndexOf('-'))).toUpperCase();
+    if (configuredProject !== sourceProject) {
+      throw new Error(`Jira ${source.key} belongs to project ${sourceProject}, but repository '${repositoryId}' is configured for ${configuredProject || 'no Jira project'}.`);
+    }
+    validateId(config, source.key);
+    if (!config.workTypes?.[workType]) throw new Error(`Unknown Story workflow '${workType ?? ''}'.`);
+    if (!config.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    const baseBranch = manifest.repositories?.[repositoryId]?.defaultBranch || config.defaultBaseBranch;
+    assertClean(root);
+    checkout(root, source.key, { base: baseBranch, fetch: true });
+    const actor = identity(root);
+    await setPersonaSession(root, config, actor, persona, source.key);
+    let workflow;
+    let publication = null;
+    let resumed = false;
+    if (existsSync(workflowPath(root, config, source.key))) {
+      workflow = await loadWorkflow(root, config, source.key);
+      resumed = true;
+    } else {
+      workflow = await createWorkflow(root, config, {
+        id: source.key,
+        title: source.title ?? source.key,
+        source: {
+          ...source,
+          type: 'jira',
+          epicId: source.parent?.key ?? null
+        },
+        baseBranch,
+        workType,
+        persona,
+        resolved: resolveWorkType(config, workType)
+      });
+      publication = await commitAndPublish(
+        root,
+        config,
+        workflow,
+        `[${source.key}][init] start ${workType} workflow`
+      );
+    }
+    const opened = await openRepository(root, { workspace: workspaceHealth });
+    return {
+      ...opened,
+      storyIntake: {
+        source,
+        repositoryId,
+        resumed,
+        publication,
+        currentPhase: workflow.currentPhase,
+        command: `/sflow-phase ${source.key}`
+      }
+    };
   });
   trustedHandle('jira:children', async (event, { repository, epicKey, refresh = false }) => {
     assertTrustedSender(event);

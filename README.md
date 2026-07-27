@@ -161,6 +161,8 @@ use the four-phase `epic-planning` profile:
 /sflow-epic-review
 /sflow-epic-review-decision
 /sflow-epic-merge-plan
+/sflow-story-start
+/sflow-story-fetch
 /sflow-story-checks
 /sflow-worldmodel
 /sflow-agents
@@ -202,8 +204,13 @@ Copilot explicitly stops after drafting so business reviewers can use the UI to
 edit, split, add tasks and key/value metadata, or adopt a Jira Story that is not
 linked to the Epic. Direct adoption preserves the Story's existing Jira parent.
 Successful Jira/Git publication completes planning and opens the delivery
-dashboard. Developers fetch their assigned Story with `/sflow-story-fetch`,
-finalize it independently, and the Product Owner closes the Epic only after the
+dashboard. Developers use **Delivery → Story intake** to choose an assigned
+Jira Story or enter its exact key, inspect the parent Epic and acceptance
+criteria, confirm repository routing, and select the workflow and persona. The
+same entry point is available through `/sflow-story-start`; a Story published
+by a governed Epic can still be fetched with `/sflow-story-fetch`. Intake pins
+the Jira snapshot, creates or resumes the canonical Jira-key branch, commits,
+and pushes before phase work begins. Developers finalize independently, and the Product Owner closes the Epic only after the
 exact parent specification and every blocking Story's spec-to-code evidence
 match. Each stage keeps completed work available for audit.
 

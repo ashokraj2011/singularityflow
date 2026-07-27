@@ -250,6 +250,7 @@ Use the collision-safe Copilot commands:
 /sflow-epic-review-decision
 /sflow-epic-merge-plan
 /sflow-story-inbox
+/sflow-story-start
 /sflow-story-fetch
 /sflow-story-branch
 /sflow-story-checks
@@ -277,6 +278,7 @@ singularity-flow epic stories tasks STORY-001 add --title "Add integration tests
 singularity-flow epic jira preview --artifact epic-requirements/requirements-specification --artifact epic-planning/parent-specification --artifact-to epic
 singularity-flow epic jira apply --plan <exact-sha256>
 singularity-flow story inbox --assigned-to-me
+singularity-flow story start MOB-123 --fetch
 singularity-flow story fetch MOB-123 --directory ../mobile
 singularity-flow finalize
 singularity-flow epic review MOB-123
@@ -428,6 +430,23 @@ spec-to-code readiness and permits completion only when every blocking Story is
 ready. Local role, Jira account, configured Git identity, and GitHub login are
 displayed as separate identity domains; none is described as cryptographically
 equivalent.
+
+Desktop also provides **Delivery → Story intake** as the developer entry
+workflow:
+
+1. choose an assigned Jira Story or enter an exact Story key or browse URL;
+2. review its description, acceptance criteria, attachments, status, assignee,
+   and parent Epic;
+3. confirm the workspace repository selected by the Jira project route;
+4. select the immutable Story workflow and the current session persona;
+5. create or resume the canonical branch named exactly after the Jira key,
+   pin the normalized Jira snapshot, commit, and push;
+6. continue phase authoring in Copilot CLI with `/sflow-phase`, then return to
+   Overview for progress, documents, approvals, and finalization.
+
+Use `/sflow-story-start <KEY>` for the same intake in Copilot. Use
+`/sflow-story-fetch <KEY>` when the Story was already published from a governed
+Epic plan and has a repository seed and Jira lineage property.
 
 For a compact command-line view of the same business journey, use
 `singularity-flow epic journey [INIT-ID]`. It renders one progress rail —

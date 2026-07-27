@@ -2499,6 +2499,79 @@ textarea:focus {
 .jira-projects > button.active,
 .jira-epics > button.active { box-shadow: inset 3px 0 #18794e; }
 
+.story-intake-page { display: grid; align-content: start; gap: 22px; }
+.story-intake-journey {
+  display: flex;
+  align-items: center;
+  padding: 18px 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(24, 55, 40, .06);
+}
+.story-intake-journey > span { display: flex; align-items: center; gap: 9px; color: var(--muted); white-space: nowrap; }
+.story-intake-journey > span b {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #ccd8d0;
+  border-radius: 50%;
+  font-size: 12px;
+  background: #fff;
+}
+.story-intake-journey > span.active { color: #0d6944; }
+.story-intake-journey > span.active b { border-color: #188655; background: #e9f7ee; color: #0d6944; }
+.story-intake-journey > span small { font-size: 12px; font-weight: 650; letter-spacing: .01em; }
+.story-intake-journey > i { flex: 1; min-width: 22px; height: 1px; margin: 0 13px; background: #dbe3de; }
+.story-intake-grid { display: grid; grid-template-columns: minmax(360px, .8fr) minmax(560px, 1.2fr); gap: 20px; align-items: start; }
+.story-picker-panel,.story-context-panel { overflow: hidden; }
+.story-picker-panel .panel-heading,.story-context-panel .panel-heading { margin: 0; padding: 24px; border-bottom: 1px solid var(--line); }
+.story-picker-panel > .notice { margin: 16px 18px 0; }
+.story-picker-list { max-height: 430px; overflow: auto; }
+.story-picker-list > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.story-picker-list > button:hover,.story-picker-list > button.active { background: #eff8f2; }
+.story-picker-list > button.active { box-shadow: inset 3px 0 #177c4e; }
+.story-picker-list > button > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.story-picker-list > button strong,.story-picker-list > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-picker-list > button small { color: var(--muted); }
+.story-picker-list > button em { color: #177c4e; font-style: normal; }
+.exact-story-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; padding: 20px; border-top: 1px solid var(--line); background: #fafcfb; }
+.exact-story-entry label,.story-intake-selectors label { display: grid; gap: 7px; }
+.exact-story-entry label > span,.story-intake-selectors label > span { color: #53635a; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.story-jira-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.story-jira-summary > div { display: grid; gap: 6px; padding: 20px 22px; background: #fff; }
+.story-jira-summary span { color: #708078; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.story-jira-summary strong { font-size: 16px; color: #183d2c; }
+.story-jira-summary small { color: var(--muted); line-height: 1.45; }
+.story-description { padding: 18px 22px; border-bottom: 1px solid var(--line); background: #fbfdfb; }
+.story-description summary { cursor: pointer; color: #174c34; font-weight: 700; }
+.story-description p { margin: 12px 0 0; color: #526159; line-height: 1.65; white-space: pre-wrap; }
+.story-intake-selectors { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 15px; padding: 22px; }
+.story-intake-selectors label small { color: var(--muted); line-height: 1.4; }
+.story-context-panel > .notice { margin: 0 22px 18px; }
+.story-intake-action { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 22px; border-top: 1px solid var(--line); background: linear-gradient(100deg, #f1faf4, #fffaf0); }
+.story-intake-action > div { display: grid; gap: 5px; }
+.story-intake-action > div span { color: var(--muted); line-height: 1.5; }
+.story-intake-action > button { flex: 0 0 auto; }
+
+@media (max-width: 1180px) {
+  .story-intake-grid { grid-template-columns: 1fr; }
+  .story-intake-journey > span small { display: none; }
+}
+
 .requirement-workspace,
 .template-layout,
 .planning-page,

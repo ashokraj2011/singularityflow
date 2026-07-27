@@ -44,6 +44,7 @@ test('new Copilot sessions require work-item selection before persona selection 
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow choices begin approve HOOK-2 --fetch --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow choices answer ${receipt} phase-confirmation intake --json` } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow start HOOK-2 --story-file /tmp/story.yml --selection-receipt ${receipt}` } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow story start HOOK-2 --fetch --selection-receipt ${receipt}` } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow approve HOOK-2 --fetch --selection-receipt ${receipt}` } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `cd "/tmp/repository path" && singularity-flow choices status ${receipt} --json` } }), {});
   const unsafeStart = await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow start HOOK-2 --selection-receipt ${receipt}; rm -rf output` } });

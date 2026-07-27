@@ -66,6 +66,17 @@ test('plugin provides direct Jira connection, assigned work, sprint board, and g
   assert.match(update, /Never infer the Story, transition, assignee, priority, sprint, or comment/);
 });
 
+test('plugin provides governed Jira Story intake with explicit workflow and persona choices', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-story-start', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-story-start/);
+  assert.match(content, /singularity-flow jira assigned --type Story --json/);
+  assert.match(content, /singularity-flow jira pull <STORY-KEY> --json/);
+  assert.match(content, /singularity-flow story start <STORY-KEY> --fetch/);
+  assert.match(content, /workflow-template and persona options/);
+  assert.match(content, /--selection-receipt <TOKEN>/);
+  assert.match(content, /canonical branch is the exact Jira key/);
+});
+
 test('Epic Story drafting stops for UI review before Jira publication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-story-draft', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-epic-story-draft/);

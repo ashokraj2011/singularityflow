@@ -531,7 +531,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Recent workspaces/);
   assert.match(source, /Workspace configuration/);
   assert.match(source, /Jira project key/);
-  assert.match(source, /KAN from KAN-8/);
+  assert.match(source, /Jira project key <em>optional<\/em>/);
+  assert.match(source, /Add or change it any time through Edit workspace/);
+  assert.doesNotMatch(source, /&& repository\.jiraBoard\.trim\(\)/);
+  assert.match(source, /Jira project keys are optional/);
   assert.match(source, /Epic-level artifacts are committed here/);
   assert.match(source, /Review save plan/);
   assert.match(source, /Save workspace now/);

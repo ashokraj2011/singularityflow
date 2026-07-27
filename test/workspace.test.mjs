@@ -121,6 +121,38 @@ test('workspace configuration is independent from Jira hierarchy and pins reposi
   assert.equal(created.workspace.repositories.services.jira.board, 'PAY-SVC');
 });
 
+test('workspace Jira project routing is optional and can be added later', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-optional-jira-'));
+  const remote = await remoteRepository(root, 'platform');
+  const created = await saveWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'optional-jira',
+    name: 'Optional Jira',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: remote,
+        defaultBranch: 'main',
+        jira: {},
+        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
+      }
+    }
+  }, { confirmation: 'optional-jira' });
+  assert.equal(created.workspace.repositories.platform.jira.board, null);
+
+  const updated = await updateWorkspaceConfiguration(created.workspace.path, {
+    name: created.workspace.name,
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        ...created.workspace.repositories.platform,
+        jira: { board: 'KAN' }
+      }
+    }
+  }, { confirmation: 'optional-jira' });
+  assert.equal(updated.workspace.repositories.platform.jira.board, 'KAN');
+});
+
 test('workspace manifest keeps repositories isolated below repos and requires a lead', () => {
   const base = {
     version: 1,

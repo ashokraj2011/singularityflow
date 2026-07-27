@@ -1354,6 +1354,7 @@ button.ghost { color: #096b43; }
 .workspace-identity-grid { display: grid; grid-template-columns: minmax(220px,1fr) minmax(180px,.65fr); gap: 16px; padding: 22px; border-bottom: 1px solid var(--line); background: #fbfcfa; }
 .workspace-identity-grid label,.workspace-repository-fields label { display: grid; gap: 7px; }
 .workspace-identity-grid label > span,.workspace-repository-fields label > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .065em; text-transform: uppercase; }
+.workspace-repository-fields label > span em { margin-left: 4px; color: var(--subtle); font-size: 9px; font-style: normal; font-weight: 540; letter-spacing: 0; text-transform: lowercase; }
 .workspace-repository-fields label > small { color: var(--muted); font-size: 9px; line-height: 1.35; }
 .workspace-identity-grid input,.workspace-repository-fields input,.workspace-metadata-editor input { width: 100%; min-width: 0; height: 42px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 0 12px; background: #fff; color: var(--ink); }
 .workspace-directory-field { grid-column: 1/-1; }

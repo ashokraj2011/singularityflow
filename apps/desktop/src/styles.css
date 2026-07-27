@@ -2011,6 +2011,9 @@ input, select, textarea { border-radius: 11px !important; }
 .jira-create-target > div { display: grid; grid-column: 1/-1; gap: 3px; }
 .jira-create-target > div > small,.jira-create-target label > span,.jira-existing-target > span { color: var(--muted); font-size: 11px; font-weight: 550; letter-spacing: .04em; text-transform: uppercase; }
 .jira-create-target label,.jira-existing-target { display: grid; gap: 6px; }
+.jira-existing-notice { margin: 16px 22px 0; align-items: center; }
+.jira-existing-notice > div { display: grid; gap: 4px; }
+.jira-existing-notice button { white-space: nowrap; }
 .jira-actions { display: flex; gap: 10px; }
 .jira-actions button { flex: 1; }
 .jira-adoption { display: grid; gap: 4px; padding: 13px 15px; border-radius: 12px; background: #f5f7f4; }

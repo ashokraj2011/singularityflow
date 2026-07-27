@@ -22,7 +22,6 @@ import {
   validateOnboardingWorkspace
 } from './onboarding-profile.mjs';
 import {
-  firstUsableRepository,
   inspectWorkspaceSelection
 } from './workspace-selection.mjs';
 import {
@@ -261,53 +260,53 @@ async function clearDesktopWorkspaceSelection(workspacePath) {
 }
 
 async function openWorkspaceStatus(status, { message = null } = {}) {
-  let repository = null;
+  let repository;
   try {
     repository = requireReadyLeadRepository(status);
-  } catch {
-    const jira = await jiraCredentialStore().safeStatus();
-    const profile = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
-    repository = await firstUsableRepository(
-      [...(profile.repositories ?? []), ...await recentRepositories()],
-      validateRepositoryDirectory
-    );
-    if (!repository) {
-      throw new Error(
-        `Workspace '${status.workspace.name}' is saved at ${status.workspace.path}, but its lead repository is not ready. `
-        + `Add one initialized Singularity repository, reopen this workspace, and use Repair missing clones.`
-      );
-    }
-  }
-  const result = await openRepository(repository, { workspace: status });
-  if (message) {
-    result.workspaceSetup = {
-      mode: status.healthy ? 'saved' : 'saved-needs-repair',
-      message
+  } catch (error) {
+    return {
+      repository: null,
+      workspace: status,
+      workspaceSetup: {
+        baseDirectory: path.dirname(status.workspace.path),
+        mode: 'saved-needs-repair',
+        message: message
+          ?? `Workspace '${status.workspace.name}' is saved, but its lead repository is not ready. ${error.message}`
+      }
     };
   }
-  return result;
+  try {
+    const result = await openRepository(repository, { workspace: status });
+    if (message) {
+      result.workspaceSetup = {
+        mode: status.healthy ? 'saved' : 'saved-needs-repair',
+        message
+      };
+    }
+    return result;
+  } catch (error) {
+    return {
+      repository: null,
+      workspace: status,
+      workspaceSetup: {
+        baseDirectory: path.dirname(status.workspace.path),
+        mode: 'saved-needs-repository',
+        message: message
+          ? `${message} The lead clone is not initialized for Singularity Flow: ${error.message}`
+          : `Workspace '${status.workspace.name}' is saved, but its lead clone is not initialized for Singularity Flow: ${error.message}`
+      }
+    };
+  }
 }
 
 async function openWorkspaceSetup(baseDirectory) {
-  const jira = await jiraCredentialStore().safeStatus();
-  const profile = await readOnboardingProfile(onboardingProfilePath(), { jiraConnected: jira.connected });
-  const repository = await firstUsableRepository(
-    [...(profile.repositories ?? []), ...await recentRepositories()],
-    validateRepositoryDirectory
-  );
-  if (!repository) {
-    throw new Error(
-      `No managed workspace exists under ${baseDirectory}. Open or add one initialized Singularity repository first, `
-      + `then create the Jira-anchored workspace from Project workspaces.`
-    );
-  }
-  const result = await openRepository(repository);
   return {
-    ...result,
+    repository: null,
+    workspace: null,
     workspaceSetup: {
       baseDirectory,
       mode: 'create',
-      message: 'No existing workspace was found. Configure the Jira anchor and repositories, then create it here.'
+      message: 'No existing workspace was found. Add the lead Git repository and participating repositories, then save the new workspace here.'
     }
   };
 }
@@ -1603,18 +1602,16 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
   });
   trustedHandle('workspace:configuration-preview', async (event, {
-    repository, baseDirectory, id, name, repositories, leadRepository
+    baseDirectory, id, name, repositories, leadRepository
   }) => {
     assertTrustedSender(event);
-    assertRepository(repository);
     const { previewWorkspaceConfiguration } = await workspaceModule();
     return previewWorkspaceConfiguration({ baseDirectory, id, name, repositories, leadRepository });
   });
   trustedHandle('workspace:configuration-create', async (event, {
-    repository, baseDirectory, id, name, repositories, leadRepository, confirmation
+    baseDirectory, id, name, repositories, leadRepository, confirmation
   }) => {
     assertTrustedSender(event);
-    assertRepository(repository);
     const workspaceApi = await workspaceModule();
     const created = await workspaceApi.saveWorkspaceConfiguration({
       baseDirectory, id, name, repositories, leadRepository
@@ -1627,18 +1624,16 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return openWorkspaceStatus(created.status, { message });
   });
   trustedHandle('workspace:configuration-update-preview', async (event, {
-    repository, workspace, name, repositories, leadRepository
+    workspace, name, repositories, leadRepository
   }) => {
     assertTrustedSender(event);
-    assertRepository(repository);
     const { previewWorkspaceUpdate } = await workspaceModule();
     return previewWorkspaceUpdate(assertWorkspace(workspace), { name, repositories, leadRepository });
   });
   trustedHandle('workspace:configuration-update', async (event, {
-    repository, workspace, name, repositories, leadRepository, confirmation
+    workspace, name, repositories, leadRepository, confirmation
   }) => {
     assertTrustedSender(event);
-    assertRepository(repository);
     const workspaceApi = await workspaceModule();
     const updated = await workspaceApi.updateWorkspaceConfiguration(assertWorkspace(workspace), {
       name, repositories, leadRepository

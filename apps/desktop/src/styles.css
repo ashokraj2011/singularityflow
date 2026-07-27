@@ -5555,6 +5555,20 @@ button.source-card.openable:hover { border-color: var(--brand, #2f6d4f); backgro
   min-width: min(440px, 42%);
 }
 
+.standalone-workspace {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+.standalone-workspace-main {
+  padding: 30px clamp(22px, 4vw, 72px) 64px;
+}
+
+.standalone-workspace-main .workspace-page {
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
 @media (max-width: 1050px) {
   .epic-overview-purpose {
     align-items: flex-start;

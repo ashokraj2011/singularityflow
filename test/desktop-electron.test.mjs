@@ -120,6 +120,17 @@ test('Electron routes new workspace selections to configuration before Epic inta
   assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }), 'epics');
 });
 
+test('an empty workspace directory opens the standalone configuration editor', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
+  assert.match(main, /async function openWorkspaceSetup\(baseDirectory\) \{[\s\S]*repository: null,[\s\S]*mode: 'create'/);
+  assert.doesNotMatch(main, /No managed workspace exists under/);
+  assert.match(source, /const \[workspaceDraft, setWorkspaceDraft\] = useState\(null\)/);
+  assert.match(source, /if \(!data && workspaceDraft\)[\s\S]*<WorkspaceStudio/);
+  assert.match(source, /const repositoryRoot = data\.repository\?\.root \?\? null/);
+  assert.match(source, /editorMode !== 'create' \|\| !repositoryRoot/);
+});
+
 test('workspace Epic intake scopes Jira and derives portfolio configuration from the selected workspace', () => {
   const workspace = {
     leadRepository: 'lead',

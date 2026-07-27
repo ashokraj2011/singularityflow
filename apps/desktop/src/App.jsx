@@ -959,6 +959,86 @@ function StoryPlanAnalysis({ analysis }) {
 
 function StatusDot({ status }) { return <span className={`status-dot ${String(status).replaceAll('_', '-')}`} title={status} />; }
 
+function storyOrbitStatus(story) {
+  const percentage = story.progress?.percentage ?? (story.status === 'complete' ? 100 : 0);
+  if (story.stale) return { id: 'stale', label: 'Needs refresh' };
+  if (story.blocked) return { id: 'blocked', label: 'Blocked' };
+  if (story.status === 'complete' || percentage >= 100) return { id: 'complete', label: 'Complete' };
+  if (percentage > 0 || story.currentPhase) return { id: 'active', label: 'In delivery' };
+  if (story.materialized) return { id: 'seeded', label: 'Ready for developer' };
+  return { id: 'planned', label: 'Planned' };
+}
+
+function StoryDeliveryOrbit({ epic }) {
+  const stories = epic.stories ?? [];
+  const [selectedId, setSelectedId] = useState(stories[0]?.id ?? null);
+  useEffect(() => {
+    if (!stories.some((story) => story.id === selectedId)) setSelectedId(stories[0]?.id ?? null);
+  }, [stories, selectedId]);
+  const selected = stories.find((story) => story.id === selectedId) ?? stories[0] ?? null;
+  const selectedStatus = selected ? storyOrbitStatus(selected) : null;
+  const maximumNodes = 12;
+  const visibleStories = stories.slice(0, maximumNodes);
+  const hiddenStories = Math.max(0, stories.length - maximumNodes);
+  const counts = stories.reduce((result, story) => {
+    const status = storyOrbitStatus(story).id;
+    result[status] = (result[status] ?? 0) + 1;
+    return result;
+  }, {});
+  const dependencies = selected?.dependsOn?.map((dependency) => typeof dependency === 'string' ? dependency : dependency.story) ?? [];
+  return <section className="story-delivery-orbit" aria-label={`Story delivery orbit for ${epic.title}`}>
+    <div className="story-orbit-visual">
+      <div className={`story-orbit-track ${visibleStories.length > 8 ? 'dense' : ''}`} style={{ '--orbit-progress': `${Math.max(0, Math.min(100, epic.percentage ?? 0)) * 3.6}deg` }}>
+        <div className="story-orbit-center">
+          <span>Epic delivery</span>
+          <strong>{epic.percentage ?? 0}%</strong>
+          <small>{epic.complete}/{epic.total} Stories complete</small>
+        </div>
+        {visibleStories.map((story, index) => {
+          const status = storyOrbitStatus(story);
+          const angle = -90 + ((360 / visibleStories.length) * index);
+          const radians = angle * (Math.PI / 180);
+          const left = 50 + (42 * Math.cos(radians));
+          const top = 50 + (42 * Math.sin(radians));
+          const percentage = story.progress?.percentage ?? (story.status === 'complete' ? 100 : 0);
+          return <button
+            type="button"
+            key={story.id}
+            className={`story-orbit-node ${status.id} ${selected?.id === story.id ? 'selected' : ''}`}
+            style={{ left: `${left}%`, top: `${top}%` }}
+            onClick={() => setSelectedId(story.id)}
+            aria-pressed={selected?.id === story.id}
+            aria-label={`${story.workId ?? story.id}: ${status.label}, ${percentage}% complete`}
+          >
+            <span>{status.id === 'complete' ? '✓' : percentage ? `${percentage}%` : '○'}</span>
+            <strong>{story.workId ?? story.id}</strong>
+            <small>{status.label}</small>
+          </button>;
+        })}
+        {hiddenStories > 0 && <div className="story-orbit-overflow">+{hiddenStories}<small>in table</small></div>}
+      </div>
+    </div>
+    <aside className="story-orbit-inspector">
+      <header><span className="eyebrow">Selected Story</span><Pill tone={selectedStatus?.id === 'complete' ? 'good' : ['blocked', 'stale'].includes(selectedStatus?.id) ? 'warn' : selectedStatus?.id === 'active' ? 'accent' : 'neutral'}>{selectedStatus?.label ?? 'No Stories'}</Pill></header>
+      {selected ? <>
+        <h3>{selected.title ?? selected.workId ?? selected.id}</h3>
+        <div className="story-orbit-identities"><span><b>Work ID</b><code>{selected.workId ?? selected.id}</code></span><span><b>Jira</b><code>{selected.jiraKey ?? 'not created'}</code></span></div>
+        <dl>
+          <div><dt>Repository</dt><dd>{selected.repository}</dd></div>
+          <div><dt>Current phase</dt><dd>{selected.currentPhase ?? (selected.materialized ? 'Ready for developer' : 'Planning')}</dd></div>
+          <div><dt>Branch state</dt><dd>{selected.materialized ? 'Canonical branch created' : 'Not materialized'}</dd></div>
+          <div><dt>Dependencies</dt><dd>{dependencies.length ? dependencies.join(', ') : 'None'}</dd></div>
+        </dl>
+        <div className="story-orbit-progress"><span><b>Delivery progress</b><em>{selected.progress?.percentage ?? (selected.status === 'complete' ? 100 : 0)}%</em></span><i><b style={{ width: `${selected.progress?.percentage ?? (selected.status === 'complete' ? 100 : 0)}%` }} /></i></div>
+        {(selected.stale || selected.blocked) && <p className="story-orbit-alert">⚠ {selected.stale ? 'The committed Story context is stale and must be synchronized.' : 'This Story is blocked by delivery lineage or a dependency.'}</p>}
+      </> : <p>No Stories are present in this Epic plan.</p>}
+      <footer className="story-orbit-legend" aria-label="Story status legend">
+        {[['complete', 'Complete'], ['active', 'In delivery'], ['seeded', 'Ready'], ['blocked', 'Blocked'], ['stale', 'Stale'], ['planned', 'Planned']].map(([id, label]) => <span key={id} className={id}><i />{label}<b>{counts[id] ?? 0}</b></span>)}
+      </footer>
+    </aside>
+  </section>;
+}
+
 // height is a prop because this editor is no longer always the only thing in its column; where it
 // shares space it fills what is left instead of assuming the viewport minus a constant.
 function SourceEditor({ path, value, onChange, language = 'markdown', dirty, onSave, onDownload, onImport, readOnly = false, height = 'calc(100vh - 245px)' }) {
@@ -5171,7 +5251,8 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <header className="panel-heading"><div><span className="eyebrow">Repository delivery graph</span><h2>Epic-level story progress</h2></div><div className="row gap"><span>{report.children.materialized}/{children.length} materialized</span><button className="secondary compact" onClick={synchronizeStories} disabled={!report.children.materialized}>↻ Sync story branches</button><button className="primary compact" onClick={previewMaterialization} disabled={selected.materialization.phaseStatus !== 'approved'}>Create Jira & Git stories</button></div></header>
         {!epics.length ? <div className="inline-empty">The story plan has no Epics yet. Run <code>/sflow-epic-story-draft</code> in Copilot CLI, then refresh and review its Epic IDs and Story Work IDs here.</div> : <div className="epic-progress-list">{epics.map((epic) => <section key={epic.id} className={epic.stale ? 'stale' : ''}>
           <header><div><span className="id-pair"><b>Epic ID</b><code>{epic.id}</code></span><span className="id-pair"><b>Jira ID</b><code>{epic.jiraKey ?? 'not created'}</code></span><h3>{epic.title}</h3></div><div className="epic-progress-summary"><strong>{epic.percentage}%</strong><span>{epic.complete}/{epic.total} complete</span><div><i style={{ width: `${epic.percentage}%` }} /></div></div></header>
-          <div className="epic-story-table"><div className="epic-story-head"><span>Story Work ID / Jira ID</span><span>Repository</span><span>Phase</span><span>Progress</span><span>State</span></div>{epic.stories.map((story) => <article key={story.id} className={`${story.stale ? 'stale' : ''} ${story.blocked ? 'blocked' : ''}`}><span><strong>{story.workId}</strong><small>Jira: {story.jiraKey ?? 'not created'}</small></span><span>{story.repository}</span><span>{story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')}</span><span className="story-progress"><i><b style={{ width: `${story.progress?.percentage ?? 0}%` }} /></i><em>{story.progress?.percentage ?? 0}%</em></span><span><Pill tone={story.stale || story.blocked ? 'warn' : story.status === 'complete' ? 'good' : story.materialized ? 'accent' : 'neutral'}>{story.stale ? 'stale' : story.blocked ? 'blocked' : story.status}</Pill>{story.blocking && <small>blocking</small>}</span></article>)}</div>
+          <StoryDeliveryOrbit epic={epic} />
+          <details className="epic-story-details"><summary>View detailed Story table <span>{epic.total} Stories</span></summary><div className="epic-story-table"><div className="epic-story-head"><span>Story Work ID / Jira ID</span><span>Repository</span><span>Phase</span><span>Progress</span><span>State</span></div>{epic.stories.map((story) => <article key={story.id} className={`${story.stale ? 'stale' : ''} ${story.blocked ? 'blocked' : ''}`}><span><strong>{story.workId}</strong><small>Jira: {story.jiraKey ?? 'not created'}</small></span><span>{story.repository}</span><span>{story.currentPhase ?? (story.materialized ? 'seeded' : 'planned')}</span><span className="story-progress"><i><b style={{ width: `${story.progress?.percentage ?? 0}%` }} /></i><em>{story.progress?.percentage ?? 0}%</em></span><span><Pill tone={story.stale || story.blocked ? 'warn' : story.status === 'complete' ? 'good' : story.materialized ? 'accent' : 'neutral'}>{story.stale ? 'stale' : story.blocked ? 'blocked' : story.status}</Pill>{story.blocking && <small>blocking</small>}</span></article>)}</div></details>
         </section>)}</div>}
       </section>
       <div className="initiative-grid">

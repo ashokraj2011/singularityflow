@@ -346,6 +346,11 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Assurance & freshness/);
   assert.match(source, /Repository delivery graph/);
   assert.match(source, /Epic-level story progress/);
+  assert.match(source, /function StoryDeliveryOrbit/);
+  assert.match(source, /aria-label=\{`Story delivery orbit for \$\{epic\.title\}`\}/);
+  assert.match(source, /View detailed Story table/);
+  assert.match(styles, /\.story-delivery-orbit/);
+  assert.match(styles, /\.story-orbit-node\.blocked/);
   // Was 'Epic lifecycle wizard' — that rail was a duplicate of the engine-driven journey rail.
   assert.match(source, /Epic journey progress/);
   assert.match(source, /Turn an Epic into delivery-ready Stories/);

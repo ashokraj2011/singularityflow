@@ -2,49 +2,31 @@
   "name": "singularity-event-horizon",
   "version": "0.9.0",
   "private": true,
-  "description": "Event Horizon — a Singularity tool. Desktop client for coding agents that speak the Agent Client Protocol.",
+  "description": "Singularity Flow's host for Event Horizon — thin integration layer over the upstream tool.",
   "main": "./out/main/index.js",
-  "author": "Ashok Raj",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=cjs --target=node22 --outfile=out/smoke.cjs --log-level=error && node out/smoke.cjs",
-    "skills:check": "esbuild scripts/skills-check.ts --bundle --platform=node --format=esm --target=node22 --alias:@shared=./src/shared --outfile=out/skills-check.mjs --log-level=error && node out/skills-check.mjs",
-    "context:check": "esbuild scripts/context-check.ts --bundle --platform=node --format=esm --target=node22 --outfile=out/context-check.mjs --log-level=error && node out/context-check.mjs",
-    "attach:check": "esbuild scripts/attach-check.ts --bundle --platform=node --format=esm --target=node22 --outfile=out/attach-check.mjs --log-level=error && node out/attach-check.mjs",
-    "check": "npm run typecheck && npm run context:check && npm run skills:check && npm run smoke && npm run attach:check",
-    "dist": "electron-vite build && electron-builder"
-  },
-  "dependencies": {
-    "diff": "^8.0.3"
+    "check": "npm run typecheck && npm run build"
   },
   "devDependencies": {
-    "@types/diff": "^7.0.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "diff": "^8.0.3",
     "electron": "43.1.1",
-    "electron-builder": "^26.0.12",
     "electron-vite": "^2.3.0",
     "highlight.js": "^11.11.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "react-markdown": "^9.0.1",
     "rehype-highlight": "^7.0.1",
     "remark-gfm": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
     "zustand": "^5.0.2"
-  },
-  "build": {
-    "appId": "ai.singularity.event-horizon",
-    "productName": "Event Horizon",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "package.json"],
-    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg"] }
   }
 }

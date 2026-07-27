@@ -35,7 +35,8 @@
   ],
   "workspaces": [
     "apps/desktop",
-    "apps/event-horizon"
+    "apps/event-horizon",
+    "vendor/event-horizon"
   ],
   "scripts": {
     "test": "node --test",

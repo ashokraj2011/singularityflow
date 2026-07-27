@@ -4,7 +4,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
@@ -13,9 +17,24 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@flow/*": [
+        "src/shared/*"
+      ],
+      "@shared/*": [
+        "../../vendor/event-horizon/src/shared/*"
+      ],
+      "@renderer/*": [
+        "../../vendor/event-horizon/src/renderer/src/*"
+      ],
+      "event-horizon/renderer": [
+        "../../vendor/event-horizon/src/renderer/src/index.ts"
+      ]
     }
   },
-  "include": ["src/renderer/**/*", "src/preload/index.d.ts", "src/shared/**/*"]
+  "include": [
+    "src/renderer/**/*",
+    "src/shared/**/*",
+    "../../vendor/event-horizon/src/renderer/src/**/*",
+    "../../vendor/event-horizon/src/shared/**/*"
+  ]
 }

@@ -4,22 +4,37 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2023"],
-    "types": ["node"],
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true,
     "baseUrl": ".",
-    "paths": { "@shared/*": ["src/shared/*"] }
+    "paths": {
+      "@flow/*": [
+        "src/shared/*"
+      ],
+      "@shared/*": [
+        "../../vendor/event-horizon/src/shared/*"
+      ],
+      "event-horizon/core": [
+        "../../vendor/event-horizon/src/main/core.ts"
+      ],
+      "event-horizon/providers/singularity-flow": [
+        "../../vendor/event-horizon/src/main/providers/singularityFlow.ts"
+      ]
+    }
   },
   "include": [
     "electron.vite.config.ts",
     "src/main/**/*",
-    "src/preload/**/*",
     "src/shared/**/*",
-    "src/renderer/src/slashMenu.ts",
-    "scripts/**/*"
+    "../../vendor/event-horizon/src/main/**/*",
+    "../../vendor/event-horizon/src/shared/**/*"
   ]
 }

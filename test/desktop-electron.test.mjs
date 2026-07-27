@@ -117,12 +117,16 @@ test('desktop Jira Cloud connection is a URL, username, and PAT flow', async () 
 
 test('Jira Epic adoption can create a governed Epic or target a typed existing initiative', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const main = await readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8');
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   assert.match(source, />Create governed Epic</);
   assert.match(source, />Use existing initiative</);
   assert.match(source, /Use \{selectedEpic\.key\} as the immutable Git identity/);
   assert.match(source, /list="jira-initiative-options"/);
   assert.ok(source.includes('startEpicWizard(data.repository.root, selectedEpic.key, createProfile, createPersona)'));
+  assert.match(source, /refreshInitiatives\(data\.repository\.root\)/);
+  assert.match(main, /resumed: true/);
+  assert.match(main, /already exists but does not contain a governed initiative/);
   assert.match(source, /'Create & adopt into Git'/);
   assert.match(styles, /\.jira-initiative-target/);
   assert.match(styles, /\.jira-target-choice button\.active/);

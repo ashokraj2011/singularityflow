@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { assignLocalStoryIds, nextLocalEpicId, reserveLocalEpicBranch } from '../src/local-identity.mjs';
+import { checkout, fetchRemote, hasUpstream, refExists } from '../src/git.mjs';
 import { listInitiatives } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
 
@@ -115,6 +116,32 @@ test('Epic home discovers committed initiative state from remote branches', asyn
   assert.equal(items[0].currentPhaseStatus, 'awaiting_approval');
   assert.equal(items[0].percentage, 50);
   assert.equal(items[0].source, 'origin/SF-E-001');
+});
+
+test('fetching repairs an existing single-branch workspace clone', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-narrow-clone-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'origin.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Planner'], { cwd: source });
+  run('git', ['config', 'user.email', 'planner@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# Remote branches\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, remote], { cwd: base });
+  run('git', ['switch', '-c', 'KAN-8'], { cwd: source });
+  await writeFile(path.join(source, 'epic.md'), '# KAN-8\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Epic'], { cwd: source });
+  run('git', ['push', remote, 'KAN-8'], { cwd: source });
+  run('git', ['clone', '--branch', 'main', '--single-branch', remote, clone], { cwd: base });
+
+  assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), false);
+  fetchRemote(clone);
+  assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), true);
+  assert.equal(checkout(clone, 'KAN-8', { fetch: true, existingOnly: true }), 'tracked-remote');
+  assert.equal(hasUpstream(clone), true);
 });
 
 test('an Epic whose branch was never pushed is still listed from another branch', async () => {

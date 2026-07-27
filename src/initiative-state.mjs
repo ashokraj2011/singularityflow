@@ -841,6 +841,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
     }
   }
   if (pushed.status !== 0) {
+    const reason = (pushed.stderr || pushed.stdout).trim();
     await writeJson(pending.absolute, {
       schemaVersion: 1,
       initiativeId: initiative.initiative.id,
@@ -849,9 +850,13 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
       commit: sha,
       appendOnly,
       createdAt: nowIso(),
-      error: (pushed.stderr || pushed.stdout).trim()
+      error: reason
     });
-    throw new SingularityFlowError(`Initiative commit ${sha.slice(0, 8)} was retained locally but push failed. Run singularity-flow initiative sync after fixing remote access.`);
+    throw new SingularityFlowError(
+      `Initiative commit ${sha.slice(0, 8)} was retained locally but push failed.`
+      + `${reason ? ` Git reported: ${reason}` : ''} `
+      + 'Run singularity-flow initiative sync after fixing remote access.'
+    );
   }
   return { sha: branch(root) === initiative.initiative.branch ? head(root) : sha, pushed: true, replayed };
 }

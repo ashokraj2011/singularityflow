@@ -1774,6 +1774,14 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   }, [data.repository.root, policy?.enabled]);
 
   useEffect(() => {
+    let current = true;
+    window.singularity.refreshInitiatives(data.repository.root)
+      .then(() => { if (current) return reload(null, null); })
+      .catch(() => {});
+    return () => { current = false; };
+  }, [data.repository.root]);
+
+  useEffect(() => {
     setInitiativeId(data.selectedInitiativeId ?? data.initiatives?.[0]?.id ?? '');
     if (data.selectedInitiativeId) setInitiativeTarget('existing');
   }, [data.selectedInitiativeId, data.initiatives]);
@@ -1868,7 +1876,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
       }
       return window.singularity.adoptJiraEpic(data.repository.root, targetId, selectedEpic.key, repositoryMap);
     }, initiativeTarget === 'new'
-      ? `${selectedEpic.key} created as a governed Epic, adopted, committed, and pushed`
+      ? `${selectedEpic.key} is governed in Git; its Jira hierarchy was adopted, committed, and pushed`
       : `${selectedEpic.key} adopted into ${targetId}, committed, and pushed`);
     if (!result) return;
     setAdoption(result);

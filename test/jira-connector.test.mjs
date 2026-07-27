@@ -58,6 +58,46 @@ test('Jira Cloud username and PAT use Basic authentication', async () => {
   assert.equal(result.payload.accountId, 'developer-1');
 });
 
+test('Jira Cloud JSON POSTs include the external-client XSRF exemption header', async () => {
+  const result = await jiraRequest('/rest/api/3/search/jql', {
+    method: 'post',
+    body: { jql: 'project = "APP"', maxResults: 50 },
+    connection: {
+      baseUrl: 'https://office.atlassian.net',
+      username: 'developer@example.com',
+      pat: 'cloud-pat'
+    },
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'https://office.atlassian.net/rest/api/3/search/jql');
+      assert.equal(init.method, 'POST');
+      assert.equal(init.headers['X-Atlassian-Token'], 'no-check');
+      assert.equal(init.headers.Authorization, `Basic ${Buffer.from('developer@example.com:cloud-pat').toString('base64')}`);
+      assert.deepEqual(JSON.parse(init.body), { jql: 'project = "APP"', maxResults: 50 });
+      return response({ issues: [], isLast: true });
+    }
+  });
+  assert.deepEqual(result.payload, { issues: [], isLast: true });
+});
+
+test('Jira XSRF failures explain that a corporate proxy may have stripped the exemption header', async () => {
+  await assert.rejects(
+    () => jiraRequest('/rest/api/3/search/jql', {
+      method: 'POST',
+      body: { jql: 'project = "APP"' },
+      maxRetries: 0,
+      connection: {
+        baseUrl: 'https://office.atlassian.net',
+        username: 'developer@example.com',
+        pat: 'cloud-pat'
+      },
+      fetchImpl: async () => response('XSRF check failed', 403)
+    }),
+    (error) => error?.status === 403
+      && error?.category === 'authorization'
+      && /corporate proxy removed X-Atlassian-Token/.test(error.message)
+  );
+});
+
 test('Jira request retries throttling and sends Data Center PAT only as Bearer auth', async () => {
   let calls = 0;
   const waits = [];

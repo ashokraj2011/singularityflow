@@ -417,6 +417,7 @@ export async function jiraRequest(apiPath, {
   const resolved = resolveConnection({ connection, env });
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node.js runtime does not provide fetch().');
   const target = jiraApiTarget(apiPath, resolved);
+  const requestMethod = String(method ?? 'GET').toUpperCase();
   const retries = boundedInteger(maxRetries, 3, 0, MAX_REQUEST_RETRIES);
   const timeoutMs = boundedInteger(requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 1, MAX_REQUEST_TIMEOUT_MS);
   const responseLimit = boundedInteger(maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES, 1, MAX_RESPONSE_BYTES);
@@ -429,13 +430,16 @@ export async function jiraRequest(apiPath, {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       response = await fetchImpl(target, {
-        method,
+        method: requestMethod,
         redirect: 'error',
         signal: controller.signal,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          Authorization: authorizationHeader(resolved)
+          Authorization: authorizationHeader(resolved),
+          ...(resolved.deployment === 'cloud' && !['GET', 'HEAD'].includes(requestMethod)
+            ? { 'X-Atlassian-Token': 'no-check' }
+            : {})
         },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
@@ -481,9 +485,12 @@ export async function jiraRequest(apiPath, {
       }
     }
     if (!response.ok) {
-      const detail = typeof payload === 'string'
+      let detail = typeof payload === 'string'
         ? payload
         : payload?.errorMessages?.join('; ') || payload?.errors && JSON.stringify(payload.errors) || payload?.message || JSON.stringify(payload);
+      if (response.status === 403 && /xsrf check failed/i.test(String(detail))) {
+        detail = `${detail}. Jira did not receive its external-client XSRF exemption header; check whether a corporate proxy removed X-Atlassian-Token.`;
+      }
       const category = response.status === 401 ? 'authentication'
         : response.status === 403 ? 'authorization'
           : response.status === 404 ? 'not-found'

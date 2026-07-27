@@ -2010,6 +2010,57 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     );
     return { initiativeId: reservation.id, source, reservation, publication };
   });
+  trustedHandle('story:choose-documents', async (event, { repository, directory = false }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: directory ? 'Add a Story source folder' : 'Add Story source documents',
+      defaultPath: root,
+      properties: directory
+        ? ['openDirectory', 'createDirectory']
+        : ['openFile', 'multiSelections']
+    });
+    if (result.canceled) return [];
+    return Promise.all(result.filePaths.map(async (file) => {
+      const info = await lstat(file);
+      return {
+        path: file,
+        name: path.basename(file),
+        kind: info.isDirectory() ? 'directory' : 'file',
+        bytes: info.isFile() ? info.size : null
+      };
+    }));
+  });
+  trustedHandle('story:start', async (event, { repository, intake = {} }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { manualStorySource, startStory } = await importCliModule('story-start.mjs');
+    const mode = intake.mode === 'jira' ? 'jira' : 'manual';
+    let source;
+    let workId = String(intake.workId ?? '').trim();
+    if (mode === 'jira') {
+      const reference = String(intake.jiraKey ?? '').trim();
+      if (!reference) throw new Error('Enter a Jira Story key before starting.');
+      const governed = await governedJiraConnection(root, { issueKey: reference });
+      const { getIssue } = await importCliModule('jira.mjs');
+      source = await getIssue(reference, { connection: governed.connection });
+      if (String(source.issueType ?? '').toLowerCase() === 'epic' || Number(source.hierarchyLevel) === 1) {
+        throw new Error(`Jira ${source.key ?? reference} is an Epic. Use Epic intake for Epic-level planning.`);
+      }
+      workId = source.key ?? reference;
+      if (governed.root !== root) throw new Error('Jira Story routing resolved outside the active repository.');
+    } else {
+      source = manualStorySource(workId, intake);
+    }
+    return startStory(root, {
+      id: workId,
+      source,
+      workType: intake.workType,
+      persona: intake.persona,
+      files: Array.isArray(intake.files) ? intake.files : [],
+      urls: Array.isArray(intake.urls) ? intake.urls : []
+    });
+  });
   trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap
   }) => {

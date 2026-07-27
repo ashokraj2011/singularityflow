@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import test from 'node:test';
+import YAML from 'yaml';
+import { manualStorySource, startStory } from '../src/story-start.mjs';
+
+function run(command, args, cwd) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Desktop Story Tester'
+    }
+  });
+  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  return result;
+}
+
+async function repository() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Desktop Story Tester'], root);
+  run('git', ['config', 'user.email', 'desktop-story@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# Desktop Story intake\n');
+  run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'init'], root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  return root;
+}
+
+test('desktop Story intake creates durable manual state and resumes an existing branch', async () => {
+  const root = await repository();
+  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-source-'));
+  const sourceFile = path.join(sourceDirectory, 'brief.md');
+  await writeFile(sourceFile, '# Brief\nPinned desktop evidence.\n');
+  const source = manualStorySource('WORK-901', {
+    title: 'Add customer export',
+    user: 'Operations analyst',
+    description: 'Exports are assembled manually.',
+    desiredOutcome: 'Create an auditable export.',
+    inScope: 'Filtered records\nCSV download',
+    outOfScope: 'Scheduled delivery',
+    acceptanceCriteria: 'Authorized users can export\nUnauthorized users are denied',
+    parentEpicId: 'EPIC-42'
+  });
+  const created = await startStory(root, {
+    id: 'WORK-901',
+    source,
+    workType: 'feature',
+    persona: 'product-owner',
+    files: [sourceFile],
+    urls: ['https://example.com/export-reference']
+  });
+
+  assert.equal(created.resumed, false);
+  assert.equal(created.workId, 'WORK-901');
+  assert.equal(created.documents.length, 2);
+  const workRoot = path.join(root, 'singularity/work-items/WORK-901');
+  const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.workItem.source.type, 'manual');
+  assert.equal(workflow.lineage.epicId, 'EPIC-42');
+  const story = await readFile(path.join(workRoot, 'USER-STORY.md'), 'utf8');
+  assert.match(story, /Operations analyst/);
+  assert.match(story, /Authorized users can export/);
+  const documents = JSON.parse(await readFile(path.join(workRoot, 'documents.json'), 'utf8'));
+  assert.deepEqual(documents.documents.map((item) => item.type), ['file', 'url']);
+  const log = run('git', ['log', '--format=%s'], root).stdout;
+  assert.match(log, /\[WORK-901\]\[init\] start feature workflow/);
+  assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 2);
+
+  const resumed = await startStory(root, {
+    id: 'WORK-901',
+    source: manualStorySource('WORK-901', { title: 'Ignored because state exists' }),
+    workType: 'bugfix',
+    persona: 'developer'
+  });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.workflow.workItem.workType, 'feature');
+});
+
+test('manual Story source requires only a Work ID and title while normalizing optional lists', () => {
+  const source = manualStorySource('LOCAL-2', {
+    title: 'Small local Story',
+    constraints: 'One\n\nTwo',
+    acceptanceCriteria: ''
+  });
+  assert.equal(source.id, 'LOCAL-2');
+  assert.deepEqual(source.constraints, ['One', 'Two']);
+  assert.deepEqual(source.acceptanceCriteria, []);
+  assert.throws(() => manualStorySource('LOCAL-3', {}), /Story title/);
+});

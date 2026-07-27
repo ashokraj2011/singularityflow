@@ -144,6 +144,12 @@ contextBridge.exposeInMainWorld('singularity', {
   startLocalEpic: (repository, title, description, goal, profile, persona) => ipcRenderer.invoke('epic:start-local', {
     repository, title, description, goal, profile, persona
   }),
+  chooseStoryDocuments: (repository, directory = false) => ipcRenderer.invoke('story:choose-documents', {
+    repository, directory
+  }),
+  startStory: (repository, intake) => ipcRenderer.invoke('story:start', {
+    repository, intake
+  }),
   previewJiraAdoption: (repository, initiativeId, epicKey, repositoryMap = {}) => ipcRenderer.invoke('jira:adopt-preview', { repository, initiativeId, epicKey, repositoryMap }),
   adoptJiraEpic: (repository, initiativeId, epicKey, repositoryMap = {}, replace = false) => ipcRenderer.invoke('jira:adopt', { repository, initiativeId, epicKey, repositoryMap, replace }),
   createJiraWritePlan: (repository, initiativeId, artifacts = []) => ipcRenderer.invoke('jira:write-plan', { repository, initiativeId, artifacts }),

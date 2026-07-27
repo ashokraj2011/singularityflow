@@ -483,6 +483,13 @@ Initiative-planning Jira writes are never immediate UI mutations. `initiative ji
 
 Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
 
+In the desktop app, open **Delivery → New Story** and leave **Create without
+Jira** selected. Enter a Work ID and title, optionally add Story context,
+source files, an exported folder, or reference URLs, then choose the workflow
+template and session persona. **Create Story branch** creates and publishes the
+same durable state as the CLI command below. If that Work-ID branch already
+exists, the desktop fetches and resumes it instead of creating a duplicate.
+
 ```bash
 singularity-flow start WORK-123 \
   --story-file ./manual-story.yml \

@@ -65,6 +65,7 @@ const navSections = [
   {
     label: 'Delivery',
     items: [
+      ['story-intake', 'New Story'],
       ['dashboard', 'Overview'],
       ['studio', 'Artifact studio'],
       ['impact', 'Impact analysis'],
@@ -208,7 +209,8 @@ function NavIcon({ name }) {
   const aliases = {
     'business-requirements': 'documents',
     'business-planning': 'planning',
-    'business-stories': 'epics'
+    'business-stories': 'epics',
+    'story-intake': 'studio'
   };
   const paths = navIconPaths[aliases[name] ?? name] ?? navIconPaths.dashboard;
   return <svg className="nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths.map((item) => <path d={item} key={item} />)}</svg>;
@@ -4154,6 +4156,131 @@ function EpicReviewView({ data, selected, action, reload }) {
   </div>;
 }
 
+function StoryIntake({ data, action, reload, onStarted, onSetupJira }) {
+  const workTypes = data.definition?.workTypes ?? {};
+  const personas = data.definition?.personas ?? {};
+  const workspaceRepositories = Object.values(data.workspace?.workspace?.repositories ?? {});
+  const jiraAvailable = Boolean(
+    data.portfolio?.jira?.enabled
+    || workspaceRepositories.some((repository) => repository.jira?.board)
+  );
+  const [mode, setMode] = useState('manual');
+  const [form, setForm] = useState(() => ({
+    workId: '',
+    jiraKey: '',
+    title: '',
+    user: '',
+    description: '',
+    desiredOutcome: '',
+    inScope: '',
+    outOfScope: '',
+    stakeholders: '',
+    urgency: '',
+    constraints: '',
+    dependencies: '',
+    acceptanceCriteria: '',
+    risks: '',
+    notes: '',
+    parentEpicId: '',
+    workType: workTypes.feature ? 'feature' : Object.keys(workTypes)[0] ?? '',
+    persona: preferredPersonaForRole(data.desktopProfile?.role, personas)
+      ?? Object.keys(personas)[0]
+      ?? ''
+  }));
+  const [documents, setDocuments] = useState([]);
+  const [urls, setUrls] = useState('');
+  function field(name, value) {
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+  async function chooseDocuments(directory = false) {
+    const selected = await action(
+      () => window.singularity.chooseStoryDocuments(data.repository.root, directory)
+    );
+    if (!selected?.length) return;
+    setDocuments((current) => [
+      ...current,
+      ...selected.filter((candidate) => !current.some((item) => item.path === candidate.path))
+    ]);
+  }
+  function removeDocument(target) {
+    setDocuments((current) => current.filter((item) => item.path !== target));
+  }
+  async function start() {
+    const result = await action(
+      () => window.singularity.startStory(data.repository.root, {
+        ...form,
+        mode,
+        files: documents.map((document) => document.path),
+        urls: urls.split(/\r?\n/).map((url) => url.trim()).filter(Boolean)
+      }),
+      mode === 'jira'
+        ? 'Jira Story fetched; governed Story branch is ready'
+        : 'Manual Story committed and pushed; governed Story branch is ready'
+    );
+    if (!result) return;
+    await reload(result.workId, null);
+    onStarted(result);
+  }
+  const ready = mode === 'jira'
+    ? jiraAvailable && form.jiraKey.trim() && form.workType && form.persona
+    : form.workId.trim() && form.title.trim() && form.workType && form.persona;
+  return <div className="story-intake-page">
+    <header className="story-intake-heading">
+      <div><span className="eyebrow">Story delivery</span><h1>Start a governed Story</h1><p>Create a Story without Jira, or fetch an existing Jira Story. Singularity creates or resumes the exact Work-ID branch and publishes the intake state for every contributor.</p></div>
+      <div className="story-intake-flow" aria-label="Story delivery flow"><span className="active"><i>1</i><small>Intake</small></span><b /><span><i>2</i><small>Design</small></span><b /><span><i>3</i><small>Build</small></span><b /><span><i>4</i><small>Verify</small></span><b /><span><i>✓</i><small>Finalize</small></span></div>
+    </header>
+    <section className="panel story-intake-panel">
+      <div className="story-source-choice" role="group" aria-label="Story source">
+        <button className={mode === 'manual' ? 'active' : ''} onClick={() => setMode('manual')}><strong>Create without Jira</strong><small>Use your own Work ID, description, and source documents</small></button>
+        <button className={mode === 'jira' ? 'active' : ''} onClick={() => jiraAvailable ? setMode('jira') : onSetupJira()}><strong>Bring from Jira</strong><small>{jiraAvailable ? 'Fetch an existing Story, Task, or Bug' : 'Configure Jira before fetching a Story'}</small>{!jiraAvailable && <b>Set up Jira →</b>}</button>
+      </div>
+      <div className="story-intake-body">
+        {mode === 'jira' ? <section className="story-intake-section">
+          <header><span>1</span><div><h2>Choose the Jira Story</h2><p>The returned Jira key becomes the canonical Work ID and Git branch.</p></div></header>
+          <div className="story-field-grid">
+            <label className="wide"><span>Jira Story key</span><input value={form.jiraKey} onChange={(event) => field('jiraKey', event.target.value.toUpperCase())} placeholder="KAN-142" /><small>Story, Task, or Bug. Epic keys belong in Epic intake.</small></label>
+          </div>
+        </section> : <section className="story-intake-section">
+          <header><span>1</span><div><h2>Describe the Story</h2><p>Only the Work ID and title are required. Everything else may be added now or refined during Intake.</p></div></header>
+          <div className="story-field-grid">
+            <label><span>Work ID</span><input value={form.workId} onChange={(event) => field('workId', event.target.value)} placeholder="WORK-123" /><small>This becomes the canonical branch name.</small></label>
+            <label><span>Parent Epic ID <em>optional</em></span><input value={form.parentEpicId} onChange={(event) => field('parentEpicId', event.target.value)} placeholder="KAN-8 or EPIC-001" /></label>
+            <label className="wide"><span>Story title</span><input value={form.title} onChange={(event) => field('title', event.target.value)} placeholder="Add invoice export" /></label>
+            <label><span>User or audience <em>optional</em></span><input value={form.user} onChange={(event) => field('user', event.target.value)} placeholder="Finance analyst" /></label>
+            <label><span>Desired outcome <em>optional</em></span><input value={form.desiredOutcome} onChange={(event) => field('desiredOutcome', event.target.value)} placeholder="Export filtered invoices safely" /></label>
+            <label className="wide"><span>Problem or description <em>optional</em></span><textarea rows="3" value={form.description} onChange={(event) => field('description', event.target.value)} placeholder="What needs to change, and why?" /></label>
+          </div>
+          <details className="story-intake-details"><summary>More Story context <small>scope, dependencies, acceptance criteria, and risks</small></summary><div className="story-field-grid">
+            <label><span>In scope <em>optional</em></span><textarea rows="3" value={form.inScope} onChange={(event) => field('inScope', event.target.value)} placeholder="One item per line" /></label>
+            <label><span>Out of scope <em>optional</em></span><textarea rows="3" value={form.outOfScope} onChange={(event) => field('outOfScope', event.target.value)} placeholder="One item per line" /></label>
+            <label><span>Stakeholders <em>optional</em></span><textarea rows="3" value={form.stakeholders} onChange={(event) => field('stakeholders', event.target.value)} placeholder="One stakeholder per line" /></label>
+            <label><span>Urgency <em>optional</em></span><textarea rows="3" value={form.urgency} onChange={(event) => field('urgency', event.target.value)} /></label>
+            <label><span>Constraints <em>optional</em></span><textarea rows="3" value={form.constraints} onChange={(event) => field('constraints', event.target.value)} placeholder="One constraint per line" /></label>
+            <label><span>Dependencies <em>optional</em></span><textarea rows="3" value={form.dependencies} onChange={(event) => field('dependencies', event.target.value)} placeholder="One dependency per line" /></label>
+            <label className="wide"><span>Acceptance criteria <em>optional</em></span><textarea rows="4" value={form.acceptanceCriteria} onChange={(event) => field('acceptanceCriteria', event.target.value)} placeholder="One measurable criterion per line" /></label>
+            <label><span>Risks <em>optional</em></span><textarea rows="3" value={form.risks} onChange={(event) => field('risks', event.target.value)} placeholder="One risk per line" /></label>
+            <label><span>Notes <em>optional</em></span><textarea rows="3" value={form.notes} onChange={(event) => field('notes', event.target.value)} /></label>
+          </div></details>
+        </section>}
+        <section className="story-intake-section">
+          <header><span>2</span><div><h2>Add source material</h2><p>Files, exported design folders, screenshots, PDFs, and HTTPS references are hash-recorded with the Story.</p></div></header>
+          <div className="story-document-actions"><button className="secondary" onClick={() => chooseDocuments(false)}>＋ Add files</button><button className="secondary" onClick={() => chooseDocuments(true)}>＋ Add folder</button><small>Optional · imported only when you start the Story</small></div>
+          {!!documents.length && <div className="story-document-list">{documents.map((document) => <div key={document.path}><span><strong>{document.name}</strong><small>{document.kind} · {document.path}</small></span><button className="ghost compact" onClick={() => removeDocument(document.path)}>Remove</button></div>)}</div>}
+          <label className="story-url-field"><span>Reference URLs <em>optional</em></span><textarea rows="3" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={'https://example.com/brief\nhttps://www.figma.com/design/...'} /><small>One HTTP or HTTPS URL per line.</small></label>
+        </section>
+        <section className="story-intake-section">
+          <header><span>3</span><div><h2>Choose the delivery workflow</h2><p>The selected phase sequence is pinned to this Story. Persona is active for this local desktop session.</p></div></header>
+          <div className="story-field-grid">
+            <label><span>Workflow template</span><select value={form.workType} onChange={(event) => field('workType', event.target.value)}>{Object.entries(workTypes).map(([id, item]) => <option value={id} key={id}>{item.label ?? id}</option>)}</select></label>
+            <label><span>Persona</span><select value={form.persona} onChange={(event) => field('persona', event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label ?? id}</option>)}</select></label>
+          </div>
+        </section>
+      </div>
+      <footer className="story-intake-footer"><div><strong>{mode === 'jira' ? 'Jira identity will be pinned' : 'No Jira connection required'}</strong><span>If the Work-ID branch already exists, Singularity fetches it and continues instead of creating a duplicate.</span></div><button className="primary" disabled={!ready} onClick={start}>{mode === 'jira' ? 'Fetch & start Story' : 'Create Story branch'}</button></footer>
+    </section>
+  </div>;
+}
+
 const epicJourneySteps = ['Sources', 'Requirements', 'Planning', 'Stories', 'Complete'];
 
 function EpicJourneyDiagram({ activeStep = 0 }) {
@@ -6448,7 +6575,7 @@ export default function App() {
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
       />}
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'story-intake' && <StoryIntake data={data} action={action} reload={reload} onStarted={() => setPage('dashboard')} onSetupJira={() => setJiraSetupOpen(true)} />}{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
         ? <PhaseCliWorkspace requestedPhaseId="epic-requirements" data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'phase' && (data.initiative && planningFocus?.phase
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />

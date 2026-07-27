@@ -331,6 +331,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Describe the work/);
   assert.match(source, /const navSections/);
   assert.match(source, /\['epics', 'Epics'\]/);
+  assert.match(source, /\['story-intake', 'New Story'\]/);
+  assert.match(source, /function StoryIntake/);
+  assert.match(source, /Create without Jira/);
+  assert.match(source, /Only the Work ID and title are required/);
   assert.match(source, /\['inbox', 'Approval inbox'\]/);
   assert.match(source, /Sources/);
   assert.match(source, /PhaseGovernance/);
@@ -354,6 +358,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /completeEpicDelivery:/);
   assert.match(preload, /startEpicWizard:/);
   assert.match(preload, /startLocalEpic:/);
+  assert.match(preload, /chooseStoryDocuments:/);
+  assert.match(preload, /startStory:/);
   // The experience split is gone, so the bridge that persisted the chosen mode is gone with it.
   assert.doesNotMatch(preload, /setExperienceMode:/);
   assert.match(preload, /openInitiative:/);
@@ -366,6 +372,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:complete/);
   assert.match(main, /epic:start/);
   assert.match(main, /epic:start-local/);
+  assert.match(main, /story:choose-documents/);
+  assert.match(main, /story:start/);
   assert.doesNotMatch(main, /onboarding:experience/);
   assert.match(main, /initiative:open/);
   assert.match(main, /initiative:phase-publish/);

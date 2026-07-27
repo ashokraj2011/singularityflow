@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -34,6 +34,7 @@ import {
   workspaceJiraRouting,
   workspacePortfolioConfiguration
 } from './workspace-epic.mjs';
+import { installElectronNetworkFetch } from './network-fetch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const preload = path.join(here, 'preload.cjs');
@@ -2373,6 +2374,11 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Node's fetch does not consistently follow the operating system trust store and
+  // managed proxy settings. Every dynamically imported Jira/storage client resolves
+  // globalThis.fetch at call time, so install Chromium's network stack before IPC can
+  // invoke any of them.
+  installElectronNetworkFetch(net);
   registerHandlers();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

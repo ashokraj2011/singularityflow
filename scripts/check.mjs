@@ -79,7 +79,6 @@ if (!desktopJson.build?.extraResources?.some((item) => item.to === 'event-horizo
 if (desktopJson.build?.win?.icon !== 'build/icon.ico') fail('desktop Windows packages must use build/icon.ico');
 if (!desktopJson.build?.mac?.target?.every((target) => target.arch?.includes('universal'))) fail('desktop macOS targets must be universal');
 if (desktopJson.build?.nsis?.oneClick !== false || desktopJson.build?.nsis?.allowToChangeInstallationDirectory !== true) fail('desktop NSIS installer must use the assisted, changeable-directory flow');
-if (!existsSync(path.join(root, '.github/workflows/desktop-release.yml'))) fail('desktop release workflow is missing');
 if (!packageJson.files?.includes('DISTRIBUTION.md') || !existsSync(path.join(root, 'DISTRIBUTION.md'))) fail('desktop distribution guide must ship in the npm package');
 for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md']) {
   if (!packageJson.files?.includes(initiativeDocument) || !existsSync(path.join(root, initiativeDocument))) fail(`${initiativeDocument} must ship in the npm package`);
@@ -87,7 +86,12 @@ for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIA
 if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync(path.join(root, 'RELEASE-EPIC-STORY-LINEAGE.md'))) {
   fail('Epic-to-Story lineage release notes must ship in the npm package');
 }
-checked.push('.github/workflows/desktop-release.yml', 'DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
+// The GitHub Actions release workflow is an optional convenience. Corporate repositories often
+// prohibit workflow-file changes by PAT policy and use local scripts or Artifactory pipelines
+// instead. Validate it through its own CI when present, but never make local installation depend
+// on the file existing.
+if (existsSync(path.join(root, '.github/workflows/desktop-release.yml'))) checked.push('.github/workflows/desktop-release.yml');
+checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
 
 const allFiles = repositoryFiles();
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {

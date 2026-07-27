@@ -52,6 +52,7 @@ const alias = [
     replacement: resolve(upstream, 'src/main/providers/singularityFlow.ts')
   },
   { find: 'event-horizon/renderer', replacement: resolve(upstream, 'src/renderer/src/index.ts') },
+  { find: 'event-horizon/contract', replacement: resolve(upstream, 'src/main/contract.ts') },
   { find: 'event-horizon/core', replacement: resolve(upstream, 'src/main/core.ts') },
   { find: '@shared', replacement: resolve(upstream, 'src/shared') },
   { find: '@renderer', replacement: resolve(upstream, 'src/renderer/src') },

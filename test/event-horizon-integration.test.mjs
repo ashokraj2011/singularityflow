@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,21 +74,22 @@ test('embedded Event Horizon reuses the active repository and preserves permissi
   assert.match(chrome, /SlotContext/);
   assert.match(chrome, /isFlowWorkspaceContext/);
 
-  // Upstream: session reuse, the activate event, and the permission gate.
-  const upstreamApp = await readFile(path.join(root, 'vendor/event-horizon/src/main/app.ts'), 'utf8');
-  const agents = await readFile(path.join(root, 'vendor/event-horizon/src/main/agents.ts'), 'utf8');
-  const store = await readFile(path.join(root, 'vendor/event-horizon/src/renderer/src/store.ts'), 'utf8');
-  const permission = await readFile(path.join(root, 'vendor/event-horizon/src/renderer/src/components/PermissionCard.tsx'), 'utf8');
+  // Upstream is checked through its declared contract, never by reading its
+  // source. Grepping internals means a rename upstream breaks this build while
+  // the integration is healthy — and that makes Event Horizon undevelopable
+  // without opening this repo alongside it.
+  const { requireContract, EVENT_HORIZON_CONTRACT } = await import(
+    pathToFileURL(path.join(root, 'apps/event-horizon/out/contract.mjs')).href
+  );
 
-  assert.match(upstreamApp, /export async function activateWorkspace/);
-  assert.match(upstreamApp, /session:activate/);
-  assert.match(upstreamApp, /setHostContext/);
-  assert.match(agents, /GitHub Copilot CLI/);
-  assert.match(agents, /Claude Code/);
-  assert.match(agents, /Gemini CLI/);
-  assert.match(store, /case 'session:activate'/);
-  assert.match(store, /case 'host:context'/);
-  assert.match(permission, /answerPermission/);
+  const need = requireContract({
+    version: 1,
+    capabilities: ['hostContext', 'uiSlots', 'workspaceProviders', 'contextDocuments', 'permissionGate', 'sessionReuse'],
+    events: ['host:context', 'session:activate']
+  });
+  assert.ok(need.ok, need.ok ? '' : need.reason);
+  assert.ok(EVENT_HORIZON_CONTRACT.api.includes('activateWorkspace'));
+  assert.ok(EVENT_HORIZON_CONTRACT.api.includes('setHostContext'));
 });
 
 test('Event Horizon injects the exact Flow phase, persona, and world-model context into agents', async () => {

@@ -7,9 +7,10 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npm run build:contract",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "check": "npm run typecheck && npm run build"
+    "check": "npm run typecheck && npm run build",
+    "build:contract": "esbuild ../../vendor/event-horizon/src/main/contract.ts --bundle --platform=neutral --format=esm --outfile=out/contract.mjs --log-level=error"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -27,6 +28,7 @@
     "remark-gfm": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "esbuild": "^0.21.5"
   }
 }

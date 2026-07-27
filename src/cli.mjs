@@ -1923,24 +1923,19 @@ async function initiativeCommand(positionals, options) {
     const started = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
     let current = started;
-    let groundingReason = null;
     if (profile === 'epic-planning') {
-      groundingReason = await worldModelRebuildReason(root, config);
-      if (!groundingReason) {
-        const completed = await completeEpicIntake(root, initiativeId, { persona: selectedPersona.persona });
-        if (completed.advanced) {
-          await commitInitiativeChange(root, completed.portfolio, completed.initiative, `[${initiativeId}][epic:intake] repository grounded`);
-          current = await loadInitiative(root, initiativeId);
-        }
+      const completed = await completeEpicIntake(root, initiativeId, { persona: selectedPersona.persona });
+      if (completed.advanced) {
+        await commitInitiativeChange(root, completed.portfolio, completed.initiative, `[${initiativeId}][epic:intake] sources accepted`);
+        current = await loadInitiative(root, initiativeId);
       }
     }
     const progress = initiativeProgress(current.initiative);
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
-    console.log(groundingReason
-      ? `Next: singularity-flow wm build (required before Requirements: ${groundingReason})`
-      : `Next: singularity-flow epic requirements prepare`);
+    console.log('Next: singularity-flow epic requirements prepare');
+    if (profile === 'epic-planning') console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
   if (subcommand === 'resume') {
@@ -1975,7 +1970,7 @@ async function initiativeCommand(positionals, options) {
   }
   if (subcommand === 'restart') {
     const confirmed = await confirmInitiativeExact(
-      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, the Epic identity, the pinned sources and the repository world model are kept.`,
+      `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, Epic identity, and pinned sources are kept; Story-branch world models are not changed.`,
       initiativeId
     );
     if (!confirmed) throw new SingularityFlowError('Restart was not confirmed.');
@@ -1986,7 +1981,7 @@ async function initiativeCommand(positionals, options) {
     });
     const state = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
-    console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; branch, sources and world model kept. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'outputs') {
@@ -3014,7 +3009,7 @@ async function epicCommand(positionals, options) {
           root,
           completed.portfolio,
           completed.initiative,
-          `[${initiativeId}][epic:intake] repository grounded`
+          `[${initiativeId}][epic:intake] sources accepted`
         );
         loaded = await loadInitiative(root, initiativeId);
       }

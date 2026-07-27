@@ -289,22 +289,15 @@ function WorkspaceSelector({ items, currentWorkspace = null, busy, onOpen }) {
 
 // The workspace switcher lives in the top bar, so the current workspace is visible from every
 // page instead of being pinned to the bottom of the sidebar.
-// A repository with no usable world model cannot ground anything: Requirements, impact analysis,
-// and Story planning all read it as phase context, so without it Copilot reasons about a codebase
-// it has never seen. A freshly cloned or newly onboarded repository always starts in that state,
-// so this asks on open — wherever the user is — instead of waiting for a phase to silently produce
-// ungrounded work or for a grounding gate to fail much later.
 function WorldModelPrompt({ reason, busy, onGenerate }) {
   return <section className="world-model-prompt" role="status">
     <span className="world-model-prompt-mark" aria-hidden="true">◈</span>
     <div>
-      <strong>Ground this repository before planning</strong>
-      <p>{reason} This is the only desktop action that invokes Copilot. Requirements and Story planning run in your normal Copilot CLI through the `/sflow-*` skills.</p>
+      <strong>Ground this Story branch before delivery work</strong>
+      <p>{reason} Story intake is complete, so Copilot can now inspect this repository and commit the model to the canonical Story branch. The first phase cannot be generated until grounding is current.</p>
     </div>
     <div className="row">
-      {/* Called with no argument on purpose: a bare onClick hands the handler a React event, and
-          this one's first parameter is a repository path that goes straight over IPC. */}
-      <button className="primary compact" onClick={() => onGenerate()} disabled={busy}>Generate world model</button>
+      <button className="primary compact" onClick={() => onGenerate(false)} disabled={busy}>Generate &amp; push world model</button>
     </div>
   </section>;
 }
@@ -411,7 +404,7 @@ function Screensaver({ onExit }) {
   </main>;
 }
 
-function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, recentWorkspaces, busy, openWorkspace }) {
+function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, recentWorkspaces, busy, openWorkspace, onResetJira }) {
   const workspaceName = data.workspace?.workspace.name ?? repoName;
   // The top bar truncates, so the full context — including which repository is the lead — stays
   // available as the tooltip rather than being dropped along with the sidebar card.
@@ -429,6 +422,10 @@ function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, re
     </button>
     {repositoryMenu && <div className="repository-menu" role="dialog" aria-label="Switch workspace">
       <WorkspaceSelector items={recentWorkspaces} currentWorkspace={data.workspace?.workspace} busy={busy} onOpen={openWorkspace} />
+      <div className="workspace-quick-actions">
+        <button type="button" className="ghost danger-text" disabled={busy} onClick={onResetJira}>Reset saved Jira connection</button>
+        <small>Removes Jira credentials from this OS account. Workspace routing and Git files are kept.</small>
+      </div>
     </div>}
   </div>;
 }
@@ -1279,6 +1276,16 @@ function WorkspaceJiraConnection({ data, action, onDone }) {
     const result = await action(() => window.singularity.disconnectWorkspaceJira(data.repository.root, workspace.path), 'Jira disconnected from this OS account');
     if (result) setStatus({ credentials: result, routing: status?.routing });
   }
+  async function resetCredentials() {
+    if (!window.confirm('Reset every saved Jira connection for this OS account? Workspace routing and Git state will not be changed.')) return;
+    const result = await action(
+      () => window.singularity.resetJiraCredentials(data.repository.root),
+      'All saved Jira credentials were reset; reconnect when ready'
+    );
+    if (!result) return;
+    setConnection((current) => ({ ...current, token: '' }));
+    setStatus({ credentials: result, routing: status?.routing });
+  }
   const projectKeys = status?.routing?.projectKeys
     ?? [...new Set(Object.values(workspace.repositories).map((repository) => repository.jira?.board).filter(Boolean))];
   const connected = status?.credentials?.connected;
@@ -1286,7 +1293,7 @@ function WorkspaceJiraConnection({ data, action, onDone }) {
     && connection.token
     && (connection.authMode === 'pat' || connection.email);
   return <div className="page workspace-jira-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">Workspace integration</span><h1>Connect Jira</h1><p>The workspace already owns project routing. Add only your Jira account credentials; they stay encrypted in the operating-system keychain.</p></div><button className="ghost" onClick={onDone}>Close</button></header>
+    <header className="page-heading row-between"><div><span className="eyebrow">Workspace integration</span><h1>Connect Jira</h1><p>The workspace already owns project routing. Add only your Jira account credentials; they stay encrypted in the operating-system keychain.</p></div><div className="row gap"><button className="ghost danger-text" onClick={resetCredentials}>Reset saved Jira</button><button className="ghost" onClick={onDone}>Close</button></div></header>
     <section className="workspace-jira-routing panel">
       <div><span className="jira-mark">J</span><div><span className="eyebrow">Configured project scope</span><h2>{workspace.name}</h2><p>{projectKeys.length ? `This connection must be able to access ${projectKeys.join(', ')}.` : 'Add a Jira project key to a workspace repository before connecting.'}</p></div></div>
       {connected ? <div className="workspace-jira-connected"><Pill tone="good">Connected</Pill><strong>{status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}</strong><small>{status.credentials.connection?.baseUrl}</small><button className="secondary compact" onClick={disconnect}>Disconnect</button></div> : <div className="jira-connect-form workspace-jira-form">
@@ -1787,9 +1794,10 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   }
 
   async function resetCredentials() {
+    if (!window.confirm('Reset every saved Jira connection for this OS account? Repository policy, workspace routing, and Git state will not be changed.')) return;
     const result = await action(
       () => window.singularity.resetJiraCredentials(data.repository.root),
-      'Unreadable Jira credentials removed; reconnect when ready'
+      'All saved Jira credentials were reset; reconnect when ready'
     );
     if (result) {
       setStatus({ policy, credentials: result });
@@ -1867,7 +1875,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
 
   const connected = status?.credentials?.connected;
   return <div className="page jira-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">Secure corporate integration</span><h1>Jira workspace</h1><p>Credentials stay in the operating-system keychain. Every import is hash-snapshotted; every write is previewed, confirmed, committed, and receipted.</p></div><div className="row gap"><button className="ghost compact" onClick={onDone}>Back to Epic</button><button className="ghost compact" onClick={onConfigure}>Policy YAML</button>{connected && <><Pill tone="good">Connected</Pill><button className="secondary compact" onClick={() => loadProjects(true)}>↻ Refresh</button><button className="ghost compact" onClick={disconnect}>Disconnect</button></>}</div></header>
+    <header className="page-heading row-between"><div><span className="eyebrow">Secure corporate integration</span><h1>Jira workspace</h1><p>Credentials stay in the operating-system keychain. Every import is hash-snapshotted; every write is previewed, confirmed, committed, and receipted.</p></div><div className="row gap"><button className="ghost compact" onClick={onDone}>Back to Epic</button><button className="ghost compact" onClick={onConfigure}>Policy YAML</button><button className="ghost compact danger-text" onClick={resetCredentials}>Reset saved Jira</button>{connected && <><Pill tone="good">Connected</Pill><button className="secondary compact" onClick={() => loadProjects(true)}>↻ Refresh</button><button className="ghost compact" onClick={disconnect}>Disconnect</button></>}</div></header>
     {!connected ? status?.credentials?.recovery?.required ? <section className="jira-credential-recovery panel" role="alert">
       <span className="jira-mark">!</span>
       <div><span className="eyebrow">Local credential recovery</span><h2>Jira credentials cannot be read</h2><p>{status.credentials.recovery.message}</p><p>Reset removes only the unreadable encrypted Jira file from this operating-system account. Repository configuration and Git state are unchanged.</p></div>
@@ -4272,7 +4280,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira }) {
             <label><span>Session persona</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{personas.map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>The persona applies locally to this session and can be changed on resume.</small></label>
           </div>
           {existing && <div className="notice accent"><strong>{story.key} already exists in this repository.</strong><span>Starting will fetch and resume its canonical branch instead of creating a second workflow.</span></div>}
-          <footer className="story-intake-action"><div><strong>What happens next</strong><span>Singularity checks out <code>{story.key}</code>, pins the Jira snapshot, creates the workflow state, commits it, and pushes the branch. Continue with <code>/sflow-phase</code> in Copilot CLI.</span></div><button className="primary" disabled={!canStart} onClick={start}>{existing ? `Resume ${story.key}` : 'Start Story workflow'}</button></footer>
+          <footer className="story-intake-action"><div><strong>What happens next</strong><span>Singularity checks out <code>{story.key}</code>, pins the Jira snapshot, creates and pushes the workflow branch, then asks you to generate the repository world model on that branch. Continue with <code>/sflow-phase</code> after grounding succeeds.</span></div><button className="primary" disabled={!canStart} onClick={start}>{existing ? `Resume ${story.key}` : 'Start Story workflow'}</button></footer>
         </>}
       </article>
     </section>
@@ -4426,10 +4434,6 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   const jiraConfigured = Boolean(data.portfolio?.jira?.enabled || (workspacePath && workspaceProjectKeys.length));
   const [source, setSource] = useState(jiraConfigured ? 'jira' : 'local');
   const [status, setStatus] = useState(null);
-  // Offered, never forced: generating the world model runs Copilot and can take minutes, so the
-  // epic starts either way and the model can be built onto the epic branch from here.
-  const [worldModelOffer, setWorldModelOffer] = useState(null);
-  const [worldModelError, setWorldModelError] = useState('');
   const [epicKey, setEpicKey] = useState('');
   const [selectedEpicKey, setSelectedEpicKey] = useState('');
   const [fetchedEpic, setFetchedEpic] = useState(null);
@@ -4630,29 +4634,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
       `Epic ${fetchedEpic.key} fetched from Jira, initialized, committed, and pushed`
     );
     if (!result) return;
-    // The epic branch exists and is pushed. If the repository has no usable world model, offer to
-    // build it now so every phase prompt can be grounded, rather than reloading straight past it.
-    if (result.worldModel?.reason) {
-      setWorldModelOffer({ initiativeId: result.initiativeId ?? fetchedEpic.key, reason: result.worldModel.reason });
-      return;
-    }
     await reload(null, fetchedEpic.key);
-  }
-  async function generateWorldModelForEpic() {
-    // Nothing below is allowed to fail silently: this button is the only way forward from this
-    // card, so a thrown error has to land on the card rather than in an unhandled rejection.
-    setWorldModelError('');
-    try {
-      if (typeof generateWorldModel !== 'function') throw new Error('The world-model builder is not wired into this screen. Build it from the World model page instead.');
-      // local=false: publish normally so the model is pushed with the epic branch.
-      const built = await generateWorldModel(data.repository.root, false, null, worldModelOffer?.initiativeId);
-      if (!built) return; // generateWorldModel already reported why.
-      const target = worldModelOffer?.initiativeId;
-      setWorldModelOffer(null);
-      await reload(null, target);
-    } catch (error) {
-      setWorldModelError(error?.message || String(error));
-    }
   }
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
   const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
@@ -4664,22 +4646,6 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   const canStart = source === 'jira'
     ? connected && fetchedEpic?.key === epicKey && profile && persona && !alreadyStarted
     : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
-  if (worldModelOffer) return <div className="epic-start-wizard">
-    <section className="epic-start-form">
-      <div className="epic-start-step">
-        <b>✓</b>
-        <div>
-          <span className="eyebrow">Epic started</span>
-          <h3>Ground {worldModelOffer.initiativeId} in a repository world model?</h3>
-          <p>{worldModelOffer.reason} Generating it now runs GitHub Copilot over this repository and can take several minutes. The live run window shows the exact prompt, progress, and Copilot output. The model must be validated, committed, and pushed before Intake advances automatically to Requirements.</p>
-          <div className="row" style={{ marginTop: 14 }}>
-            <button className="primary" onClick={generateWorldModelForEpic}>Generate world model</button>
-          </div>
-          {worldModelError && <p className="field-error" role="alert">{worldModelError}</p>}
-        </div>
-      </div>
-    </section>
-  </div>;
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <div className="epic-start-intro-copy">
@@ -5221,7 +5187,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         {publishConfiguration && <ConfigurationPublish data={data} initiativeId={selected?.state.initiative.id ?? null} dirty={configValue !== configOriginal} busy={busy} publishConfiguration={publishConfiguration} />}
         <SourceEditor path={data.portfolioPath} value={configValue} dirty={configValue !== configOriginal} onChange={(content) => setEditor({ path: data.portfolioPath, content, original: configOriginal, kind: 'portfolio' })} onSave={saveEditor} onDownload={() => downloadFile(data.portfolioPath)} language="yaml" height="100%" />
       </div>
-    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><ImportedEpicView selected={selected} /><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Optional intake notes" detail="The pinned Jira Epic and repository world model are sufficient to continue. Add files or text only when they improve the requirements context." downloadFile={downloadFile} openPlanning={openPlanning} /></div> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView data={data} selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-planning']} title="Parent and Story specifications" detail="Review the parent solution contract and every Story-specific specification together with the editable Story list. One exact bundle approval covers the complete handoff." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-planning" action={action} reload={reload} /></div> : tab === 'publish' ? <div className="epic-workspace-view">
+    </div> : !selected ? <EpicStartWizard data={data} action={action} reload={reload} generateWorldModel={generateWorldModel} openEpic={openEpic} onSetupJira={setupJira} /> : tab === 'intake' ? <div className="epic-workspace-view"><ImportedEpicView selected={selected} /><EpicSourcesView data={data} selected={selected} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-intake']} title="Optional intake notes" detail="The pinned Jira Epic or local Epic description is sufficient to continue. Add files or text only when they improve the requirements context; repository grounding begins after Story intake." downloadFile={downloadFile} openPlanning={openPlanning} /></div> : tab === 'planning' ? <div className="epic-workspace-view"><EpicStoryPlanView data={data} selected={selected} openPlanning={openPlanning} downloadFile={downloadFile} action={action} reload={reload} /><EpicArtifactView selected={selected} phases={['epic-planning']} title="Parent and Story specifications" detail="Review the parent solution contract and every Story-specific specification together with the editable Story list. One exact bundle approval covers the complete handoff." downloadFile={downloadFile} openPlanning={openPlanning} /><PhaseGovernance data={data} selected={selected} phaseId="epic-planning" action={action} reload={reload} /></div> : tab === 'publish' ? <div className="epic-workspace-view">
       <section className="panel jira-artifact-publish">
         <header className="panel-heading"><div><span className="eyebrow">Reviewed outbound package</span><h2>Select what Jira receives</h2><p>The exact file hashes become part of the Jira write plan. Selected Markdown/YAML files are attached with hash-stamped filenames; retries reuse matching attachments.</p></div><Pill tone={state.phases['epic-planning']?.status === 'approved' ? 'good' : 'warn'}>{state.phases['epic-planning']?.status === 'approved' ? 'Planning package approved' : 'Approve Planning first'}</Pill></header>
         <div className="jira-artifact-options">{jiraArtifactCandidates.map((document) => { const reference = `${document.phase}/${document.id}`; return <label key={reference} className={jiraArtifacts[reference] ? 'selected' : ''}><input type="checkbox" checked={Boolean(jiraArtifacts[reference])} onChange={(event) => setJiraArtifacts((current) => ({ ...current, [reference]: event.target.checked }))} /><span><strong>{document.label}</strong><small>{reference} · {document.sha256.slice(0, 12)}</small></span><Pill tone={document.status === 'approved' ? 'good' : 'neutral'}>{document.status}</Pill></label>; })}</div>
@@ -5266,7 +5232,7 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     {repositoryModal && <DesignerModal title="Add a participating repository" detail="Application identity and custom key/value pairs are stored as governed Git metadata under repositories.<id>.metadata in singularity/portfolio.yml." submitLabel="Add to YAML draft" error={repositoryModal.error} onCancel={() => setRepositoryModal(null)} onSubmit={addRepository}><div className="modal-grid"><label><span>Repository ID</span><input autoFocus value={repositoryModal.values.id} placeholder="mobile" onChange={(event) => repositoryField('id', event.target.value)} /></label><label><span>Application ID</span><input value={repositoryModal.values.appId} placeholder="APP-1001" onChange={(event) => repositoryField('appId', event.target.value)} /></label><label className="full"><span>Application name</span><input value={repositoryModal.values.name} placeholder="Mobile application" onChange={(event) => repositoryField('name', event.target.value)} /></label><label className="full"><span>Git URL</span><input value={repositoryModal.values.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => repositoryField('url', event.target.value)} /></label><label><span>Default branch</span><input value={repositoryModal.values.defaultBranch} onChange={(event) => repositoryField('defaultBranch', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={repositoryModal.values.required} onChange={(event) => repositoryField('required', event.target.checked)} />Required for initiative delivery</label></div><div className="repository-metadata-fields"><header><div><strong>Custom metadata</strong><span>Examples: owner, businessUnit, costCenter, criticality.</span></div><button type="button" className="ghost compact" onClick={() => repositoryField('metadata', [...repositoryModal.values.metadata, { key: '', value: '' }])}>＋ Add field</button></header>{repositoryModal.values.metadata.map((entry, index) => <div key={index}><input aria-label={`Repository metadata key ${index + 1}`} value={entry.key} placeholder="owner" onChange={(event) => repositoryMetadataField(index, 'key', event.target.value)} /><input aria-label={`Repository metadata value ${index + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => repositoryMetadataField(index, 'value', event.target.value)} /><button type="button" className="ghost compact" aria-label={`Remove repository metadata ${index + 1}`} onClick={() => repositoryField('metadata', repositoryModal.values.metadata.filter((_, entryIndex) => entryIndex !== index))}>×</button></div>)}</div></DesignerModal>}
     {restartModal && <DesignerModal
       title={`Start ${selected.state.initiative.id} again?`}
-      detail={`This returns the Epic to its first phase and discards this attempt's artifacts. It stays on branch ${selected.state.initiative.branch}: the Epic identity, the pinned sources and the repository world model are kept, and this attempt stays on the record. The phase shape is resolved again from current configuration.`}
+      detail={`This returns the Epic to its first phase and discards this attempt's artifacts. It stays on branch ${selected.state.initiative.branch}: the Epic identity and pinned sources are kept, and this attempt stays on the record. Story-branch world models are not changed. The phase shape is resolved again from current configuration.`}
       submitLabel="Start again"
       danger
       submitDisabled={restartModal.confirmation.trim() !== selected.state.initiative.id}
@@ -5479,7 +5445,7 @@ const lifecycleSteps = [
     number: '02',
     eyebrow: 'Lead Git repository',
     title: 'Pin the evidence',
-    detail: 'Source hashes, the repository world model, workflow profile, persona, and templates are committed to the Epic branch.'
+    detail: 'Source hashes, workflow profile, persona, and templates are committed to the Epic branch. Repository grounding begins later on each Story branch.'
   },
   {
     id: 'copilot-planning',
@@ -5815,6 +5781,7 @@ function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importR
   });
   const current = data.worldModel.files.find((file) => file.path === selected) ?? null;
   const prompt = data.worldModelPrompt;
+  const activeStoryBranch = data.workflow?.workItem?.branch === data.repository.branch;
   function selectPrompt() {
     setSelected('prompt');
     setEditor({ path: prompt.path, content: prompt.content, original: prompt.content, kind: 'prompt' });
@@ -5823,8 +5790,8 @@ function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importR
     const result = await addView(modal.id.trim());
     if (result) setModal(null);
   }
-  return <div className="template-layout"><aside className="file-list world-model-list"><header><span className="eyebrow">Repository grounding</span><h2>World model</h2><div className="repo-only"><StatusDot status="approved" /><span>Repository only</span></div></header><button className={selected === 'registry' ? 'active' : ''} onClick={() => setSelected('registry')}><span>VW</span><div><strong>View registry</strong><small>{data.worldModel.views.length} governed views</small></div></button><button className={selected === 'prompt' ? 'active' : ''} onClick={selectPrompt}><span>PR</span><div><strong>Builder prompt</strong><small>{prompt.missing ? 'create repository copy' : 'editable repository source'}</small></div></button><div className="file-list-divider"><span>Generated outputs</span></div>{data.worldModel.files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => setSelected(file.path)}><span>{file.name.endsWith('.md') ? 'MD' : 'JS'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
-    <main className="template-main">{selected === 'registry' ? <><div className="world-model-banner"><div><span className="eyebrow">Governed repository context</span><h1>Repository-owned world model</h1><p>Define the approved views that prompts, personas, stages, workflow overrides, and injection rules may consume. A referenced view cannot be removed until every dependency is cleared.</p></div><dl><div><dt>Output</dt><dd>{data.worldModel.root}</dd></div><div><dt>Grounding</dt><dd>{data.definition.worldModel?.grounding ?? 'off'}</dd></div><div><dt>Builder</dt><dd>{data.definition.worldModel?.promptSource ?? 'builtin'}</dd></div><div><dt>Generated</dt><dd>{data.worldModel.generatedAt ? new Date(data.worldModel.generatedAt).toLocaleString() : 'Not generated'}</dd></div></dl><div className="row"><button className="secondary compact" disabled={!buildViews.length} onClick={() => generateWorldModel?.(undefined, undefined, buildViews)} title={buildViews.length ? `Build ${buildViews.join(', ')} and commit locally without pushing` : 'Choose at least one view to build'}>{buildViews.length === builtViews.length && buildViews.every((view) => builtViews.includes(view)) ? 'Rebuild selected views' : `Build ${buildViews.length} view${buildViews.length === 1 ? '' : 's'}`}</button><button className="primary compact" onClick={() => setModal({ id: '', error: null })}>＋ Add view</button></div>
+  return <div className="template-layout"><aside className="file-list world-model-list"><header><span className="eyebrow">Story-branch grounding</span><h2>World model</h2><div className="repo-only"><StatusDot status={activeStoryBranch ? 'approved' : 'not_started'} /><span>{activeStoryBranch ? 'Story branch active' : 'Available after Story intake'}</span></div></header><button className={selected === 'registry' ? 'active' : ''} onClick={() => setSelected('registry')}><span>VW</span><div><strong>View registry</strong><small>{data.worldModel.views.length} governed views</small></div></button><button className={selected === 'prompt' ? 'active' : ''} onClick={selectPrompt}><span>PR</span><div><strong>Builder prompt</strong><small>{prompt.missing ? 'create repository copy' : 'editable repository source'}</small></div></button><div className="file-list-divider"><span>Generated outputs</span></div>{data.worldModel.files.map((file) => <button key={file.path} className={current?.path === file.path ? 'active' : ''} onClick={() => setSelected(file.path)}><span>{file.name.endsWith('.md') ? 'MD' : 'JS'}</span><div><strong>{file.name.split('/').at(-1)}</strong><small>{file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : 'root'}</small></div></button>)}</aside>
+    <main className="template-main">{selected === 'registry' ? <><div className="world-model-banner"><div><span className="eyebrow">Governed repository context</span><h1>Repository-owned world model</h1><p>Configure the approved views now. Generation unlocks after Jira Story intake creates the canonical Story branch, so the resulting model is committed and pushed with that Story instead of changing <code>main</code>.</p></div><dl><div><dt>Output</dt><dd>{data.worldModel.root}</dd></div><div><dt>Grounding</dt><dd>{activeStoryBranch ? data.definition.worldModel?.grounding ?? 'off' : 'waiting for Story intake'}</dd></div><div><dt>Builder</dt><dd>{data.definition.worldModel?.promptSource ?? 'builtin'}</dd></div><div><dt>Generated</dt><dd>{data.worldModel.generatedAt ? new Date(data.worldModel.generatedAt).toLocaleString() : 'Not generated'}</dd></div></dl><div className="row"><button className="secondary compact" disabled={!activeStoryBranch || !buildViews.length} onClick={() => generateWorldModel?.(false, undefined, buildViews)} title={!activeStoryBranch ? 'Start or resume a Jira Story first' : buildViews.length ? `Build ${buildViews.join(', ')} and push it with ${data.repository.branch}` : 'Choose at least one view to build'}>{activeStoryBranch ? (buildViews.length === builtViews.length && buildViews.every((view) => builtViews.includes(view)) ? 'Rebuild & push selected views' : `Build & push ${buildViews.length} view${buildViews.length === 1 ? '' : 's'}`) : 'Available after Story intake'}</button><button className="primary compact" onClick={() => setModal({ id: '', error: null })}>＋ Add view</button></div>
 <div className="view-picker">
   <span className="view-picker-label">Views to build</span>
   <div className="view-picker-options">{data.worldModel.views.map((view) => {
@@ -6250,6 +6217,15 @@ export default function App() {
   const publishReady = data?.repository.publishReady === true;
   const publishHint = !configurationChanges.length ? 'No workflow, template, persona, prompt, skill, or agent changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
   async function action(task, success) { setBusy(true); setToast(null); try { const result = await task(); if (success && result != null) setToast({ tone: 'good', text: success }); return result; } catch (error) { setToast({ tone: 'bad', text: error?.message || String(error) }); return null; } finally { setBusy(false); } }
+  async function resetAllJiraCredentials() {
+    if (!window.confirm('Reset every saved Jira connection for this OS account? Workspace routing and Git state will not be changed.')) return;
+    setRepositoryMenu(false);
+    const result = await action(
+      () => window.singularity.resetJiraCredentials(data.repository.root),
+      'All saved Jira credentials were reset'
+    );
+    if (result) setJiraSetupOpen(true);
+  }
   async function refreshRecentWorkspaces() {
     try { const items = await window.singularity.recentWorkspaces(); setRecentWorkspaces(items); return items; }
     catch (error) { setToast({ tone: 'bad', text: `Could not load recent workspaces: ${error.message}` }); return []; }
@@ -6647,7 +6623,7 @@ export default function App() {
       const initiativeId = explicitInitiativeId ?? data?.selectedInitiativeId ?? data?.initiative?.state?.initiative?.id ?? null;
       const result = await window.singularity.generateWorldModel(repository, local, requested, initiativeId);
       setWorldModelRun((current) => current ? { ...current, status: 'success', phase: 'complete', phaseLabel: local ? 'World model committed locally' : 'World model committed and pushed', finishedAt: Date.now(), steps: [...new Set([...(current.steps ?? []), 'complete'])] } : current);
-      setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Epic branch' });
+      setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Story branch' });
       await reload();
       return result;
     } catch (error) {
@@ -6762,7 +6738,7 @@ export default function App() {
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navigationSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : id === 'screensaver' ? openScreensaver() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
-    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={() => publish()} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
+    <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} onResetJira={resetAllJiraCredentials} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={() => publish()} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt
         reason={data.worldModel.rebuildReason}
         busy={busy || worldModelRun?.status === 'running'}

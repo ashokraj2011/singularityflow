@@ -29,9 +29,10 @@ through one final pull request.
   `portfolio.repositories` and every referenced world-model view must exist in the
   committed manifest. Carried by the `impact-grounded` checklist item; blocking
   under `grounding: enforce`, warning otherwise.
-- **World model at Epic start.** Starting an Epic reports a missing, uncommitted,
-  or stale world model instead of failing, and Flow Studio offers to build it on
-  the Epic branch. `singularity-flow wm build --local` commits without pushing.
+- **Story-scoped world model (current behavior).** Epic Intake accepts Jira identity
+  and pinned source material without repository-grounding warnings. After Story
+  intake creates the canonical Story branch, Flow builds, commits, and pushes the
+  world model there before phase authoring begins.
 - **Initiative template self-healing.** Starting an initiative and preparing a
   phase install any packaged template the repository lacks — into the templates
   root the portfolio declares — and commit what they installed. A profile that

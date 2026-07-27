@@ -1806,6 +1806,9 @@ body {
 .topbar-workspace-text small { color: var(--muted); font-size: 10px; }
 .topbar-workspace-button > i { color: var(--muted); font-style: normal; font-size: 11px; }
 .topbar-workspace .repository-menu { top: calc(100% + 9px); right: 0; bottom: auto; left: auto; }
+.workspace-quick-actions { display: grid; gap: 5px; margin: 10px 4px 2px; padding-top: 10px; border-top: 1px solid var(--line); }
+.workspace-quick-actions button { justify-self: start; padding: 7px 9px; }
+.workspace-quick-actions small { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .topbar .icon-action { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding-inline: 12px; white-space: nowrap; }
 .topbar .icon-action .nav-glyph { width: 16px; height: 16px; }
 .topbar button.primary {

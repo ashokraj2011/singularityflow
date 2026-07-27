@@ -552,7 +552,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
         externalId: initiative.resolution.resolutionSha256,
         version: String(nextGeneration),
         observedState: checkId === 'impact-grounded'
-          ? `Impact map resolved against the portfolio and committed world model${impact.warnings.length ? ` with ${impact.warnings.length} warning(s)` : ''}`
+          ? `Impact map repository IDs resolved against the pinned workspace portfolio${impact.warnings.length ? ` with ${impact.warnings.length} warning(s)` : ''}`
           : (traceability?.passes ?? []).join('; ')
       },
       persona

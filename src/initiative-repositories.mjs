@@ -168,11 +168,10 @@ export function validateInitiativeBreakdown(value, portfolio) {
   return { version: value.version, initiativeId: value.initiativeId ?? null, epics, stories };
 }
 
-// The epic-planning phase asks Copilot, grounded in the committed world model, which repositories and
-// which parts of the system an epic touches. The prompt is grounded but the answer is not checked,
-// so a hallucinated repository or view would flow straight into the breakdown. Every repository
-// named must exist in the portfolio, and every world-model view referenced must exist in the
-// committed manifest.
+// Epic planning resolves repository ownership from the committed workspace registry and pinned
+// source evidence. The generated answer still needs deterministic checking: every repository
+// named must exist in the portfolio. Custom profiles may additionally name world-model views, and
+// those references must exist whenever a manifest is available.
 export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = 'warn' } = {}) {
   const problems = [];
   const repositories = repositoryMap?.repositories ?? {};

@@ -6,7 +6,7 @@ description: Create the governed, repository-owned User Story package from appro
 # Draft Epic Stories
 
 1. Run `singularity-flow epic planning status --json`. Stop if Requirements is not approved.
-2. Run `singularity-flow epic planning prepare` and read the complete governed prompt, approved requirements, impact analysis, world-model views, and repository registry.
+2. Run `singularity-flow epic planning prepare` and read the complete governed prompt, approved requirements, impact analysis, pinned source evidence, and workspace repository registry. Do not request a world model on the Epic branch.
 3. Author `story-plan.yml`, `parent-spec.md`, and one complete Story specification per `STORY-nnn`.
 4. Give every Story a configured repository, workflow type, REQ/AC allocation, dependencies, test expectations, and implementation boundaries. Group Stories by owning repository. Do not invent Jira keys or assignees.
 5. Run `singularity-flow epic planning publish`.

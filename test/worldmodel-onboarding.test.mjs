@@ -122,7 +122,7 @@ test('bootstrap installs initiative templates missing from a repository initiali
   }
 });
 
-test('the desktop snapshot reports why a repository cannot be grounded, so a fresh clone is asked', async () => {
+test('the desktop snapshot keeps main quiet until Story intake creates an active workflow branch', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-prompt-'));
   const root = path.join(base, 'app');
   await mkdir(root);
@@ -134,10 +134,11 @@ test('the desktop snapshot reports why a repository cannot be grounded, so a fre
   git(['add', '.'], root);
   git(['commit', '-m', 'init'], root);
 
-  // A repository that has never had a world model built is exactly the state a fresh clone or a
-  // newly onboarded repository lands in. The snapshot must say so, because the prompt offering to
-  // build it reads this field — without it no screen can know grounding is unavailable.
+  // Workspace setup and Epic intake happen on main or an Epic branch before any Story has an
+  // owning workflow. They must not show a grounding warning: Story intake is the lifecycle
+  // boundary that creates the canonical branch and makes the model actionable.
   const snapshot = await desktopSnapshot(root);
-  assert.match(snapshot.worldModel.rebuildReason, /has not been built/);
+  assert.equal(snapshot.worldModel.timing, 'story-intake');
+  assert.equal(snapshot.worldModel.rebuildReason, null);
   assert.equal(snapshot.worldModel.files.length, 0);
 });

@@ -527,13 +527,14 @@ test('Epic intake is non-authoring and Requirements consumes the pinned source m
   const portfolio = validatePortfolio(template);
   const intake = portfolio.initiativePhases['epic-intake'];
 
-  // source-catalog is generated and optional. Intake has one hard concern only: the repository
-  // world model must match the current source tree.
+  // Intake only accepts the Epic identity and pinned sources. All authored enrichment is optional,
+  // and repository grounding begins after Story intake creates the canonical Story branch.
   const catalog = intake.outputs.find((output) => output.id === 'source-catalog');
   assert.equal(catalog.generator, 'source-catalog');
   assert.equal(catalog.template, null);
   assert.equal(catalog.required, false);
-  assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional', 'must']);
+  assert.deepEqual(intake.checklist.map((check) => check.requirement), ['optional', 'optional']);
+  assert.deepEqual(intake.worldModelViews, []);
 
   const requirements = portfolio.initiativePhases['epic-requirements'];
   assert.deepEqual(

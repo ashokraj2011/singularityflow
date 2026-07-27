@@ -155,9 +155,10 @@ phase:
 Intake → Requirements → Planning → Publish → Delivery
 ```
 
-Intake has no document or approval ceremony. The Jira snapshot is enough to
-continue; notes and files are optional. A repository world model matching the
-current source tree is mandatory and generation is visible in the Copilot log.
+Intake has no document, world-model, or approval ceremony. The Jira snapshot is
+enough to continue; notes and files are optional. Repository grounding begins
+only after each Jira Story has its canonical branch, so `main` and Epic branches
+never show missing/stale model warnings.
 Requirements has one approval over requirements, traceability, and impact
 analysis. Planning has one approval over the editable Story list, parent
 specification, and every per-Story specification.
@@ -476,7 +477,7 @@ headings:
 | `requirements-traceability.yml` | Requirements traceability matrix — the machine-checked citation graph |
 | `open-questions.md` | RAID log (Risks, Assumptions, Issues, Dependencies) plus a decision record and escalation trail |
 | `story-plan.yml` | Decomposition written to INVEST, carrying the `dependsOn` graph that later produces the merge order |
-| `repository-map.yml` | Impact analysis: change type, blast radius, interfaces crossed, migrations, and the world-model evidence for each claim — plus repositories examined and found unaffected |
+| `repository-map.yml` | Epic-level impact analysis: configured repository ownership, change type, interfaces, migrations, and pinned source evidence — plus repositories examined and found unaffected |
 | `dependency-map.md` | Delivery sequence, dependency graph, critical path, repository boundaries, and integration strategy |
 | `high-level-specification.md` | Solution shape with a context view, component and interface tables, non-functional budgets allocated to components, and architecture decision records |
 | `materialization-report.md` | Handoff record: Jira and branch receipts, traceability confirmation, deviations, retries, outstanding work |
@@ -488,8 +489,9 @@ Epic's contract — it is reported as a changed template instead.
 
 Two templates are validated as well as generated. `requirements-traceability.yml`
 must cite pinned sources with a locator for every `REQ-nnn` and `AC-nnn`, and
-`repository-map.yml` must name only configured repositories and declared
-world-model views. For Jira-backed Epics, the committed Jira Epic snapshot is
+`repository-map.yml` must name only configured repositories. Detailed code-level
+impact is added after Story intake using that Story branch's world model. For
+Jira-backed Epics, the committed Jira Epic snapshot is
 also a valid pinned source, so uploaded documents are useful enrichment rather
 than a prerequisite. Both ship with the live structure empty and the full schema
 in comments, so a freshly generated artifact passes the gates and fails only once
@@ -584,10 +586,10 @@ session. Successful generation and lifecycle actions commit and push through
 the existing Singularity Flow guarantees. Refresh Electron to inspect the
 result, run governance checks, and approve it.
 
-Repository world-model generation is the only desktop Copilot operation. It is
-kept in Electron because it is repository-wide, can take several minutes, and
-benefits from a visible prompt, progress log, generation timestamp, commit, and
-push result.
+Repository world-model generation is the only desktop Copilot operation. It
+appears after Story intake, runs against the checked-out canonical Story branch,
+and displays its prompt, progress log, generation timestamp, commit, and push
+result. Epic intake and planning do not invoke it.
 
 ### Agent workbench: Event Horizon
 
@@ -1250,10 +1252,11 @@ singularity-flow wm compose --phase design --task "Design invoice export" --dry-
 singularity-flow wm compose --phase design --task "Design invoice export"
 ```
 
-`wm init`, `wm build`, `wm check`, and `wm context` are repository-scoped and do
-not require a Jira, Epic, Story, or work-item ID. `/sflow-worldmodel` must not ask
-for one for those operations. A governed work ID and persona apply only when
-`wm compose` is creating a phase prompt for that work item.
+The low-level `wm init`, `wm build`, `wm check`, and `wm context` commands remain
+repository-scoped and do not take a Jira/work-item argument. In the governed UI
+and `/sflow-story-start` lifecycle, however, generation is deliberately deferred
+until Story intake has created and checked out the canonical Story branch. A
+governed work ID and persona apply when `wm compose` creates a phase prompt.
 
 `wm build` runs the configured generator in a detached analysis worktree. Only
 its isolated output is accepted. Singularity Flow validates the manifest and
@@ -1261,14 +1264,16 @@ every declared regular file, rejects escaping paths/symlinks and unexpected
 repository writes, records a source-tree hash, atomically installs the output,
 commits it, and publishes it according to `git.publish`.
 
-Pass `--local` to commit the world model to the current branch **without pushing**
-it — for example during workspace onboarding, so the model is not published to the
-remote default branch. The commit then rides the first work-item branch forked
-from this branch and is pushed with it. Because the local commit diverges from the
-remote default branch, start the work item **without `--fetch`** (which would run
-`git pull --ff-only` on the base and fail); reconcile the base branch afterward.
-Singularity Desktop's **World model** page exposes the same action as **Generate
-world model** (always `--local`).
+`--local` remains available for diagnostics, but the normal Story lifecycle does
+not use it. Desktop and `/sflow-story-start` build after Story intake and publish
+the model commit directly to the canonical Story branch. The **World model** page
+therefore keeps generation disabled on `main` and Epic branches.
+
+From the workspace switcher, choose **Reset saved Jira connection** at any time
+to delete all encrypted Jira credentials for the current OS account. This does
+not edit workspace routing, `portfolio.yml`, repository files, or Git history;
+the Jira setup window opens immediately so a different URL/account/token can be
+verified.
 
 The initiative portfolio routes context to world-model views that must be declared
 in the repository's `workflow.yml` under `worldModel.views`. Portfolio bootstrap

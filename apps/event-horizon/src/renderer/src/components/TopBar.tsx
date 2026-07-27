@@ -10,9 +10,11 @@ export function TopBar({ session }: { session: SessionSnapshot }): React.JSX.Ele
   const restartSession = useStore((s) => s.restartSession)
   const runCommand = useStore((s) => s.runCommand)
   const refreshContext = useStore((s) => s.refreshContext)
+  const flowContext = useStore((s) => s.flowContexts[session.cwd])
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [flowPanelOpen, setFlowPanelOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -41,6 +43,14 @@ export function TopBar({ session }: { session: SessionSnapshot }): React.JSX.Ele
       <span className="cwd" title={session.cwd}>
         {home}
       </span>
+      {flowContext && (
+        <button className="flow-current-work" title="Show current Singularity Flow work" onClick={() => setFlowPanelOpen(true)}>
+          <span>{flowContext.workspace.name}</span>
+          <strong>{flowContext.work.id ?? flowContext.repository.name}</strong>
+          <i>{flowContext.work.phase ?? flowContext.work.status ?? 'repository'}</i>
+          {flowContext.work.progress != null && <em>{flowContext.work.progress}%</em>}
+        </button>
+      )}
 
       <span className="spacer" />
 
@@ -145,6 +155,33 @@ export function TopBar({ session }: { session: SessionSnapshot }): React.JSX.Ele
       </div>
 
       {panelOpen && <ContextPanel session={session} onClose={() => setPanelOpen(false)} />}
+      {flowPanelOpen && flowContext && (
+        <div className="overlay" onMouseDown={() => setFlowPanelOpen(false)}>
+          <div className="sheet flow-work-sheet" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="sheet-head"><span>Current Flow work</span><button className="icon-btn" onClick={() => setFlowPanelOpen(false)}>✕</button></div>
+            <div className="sheet-body">
+              <div className="flow-work-title"><small>{flowContext.work.kind}</small><h2>{flowContext.work.id ?? flowContext.repository.name}</h2><p>{flowContext.work.title}</p></div>
+              <dl className="flow-work-details">
+                <div><dt>Workspace</dt><dd>{flowContext.workspace.name}</dd></div>
+                <div><dt>Repository</dt><dd>{flowContext.repository.name} · {flowContext.repository.branch}</dd></div>
+                <div><dt>Phase</dt><dd>{flowContext.work.phase ?? 'Not in a governed phase'}</dd></div>
+                <div><dt>Status</dt><dd>{flowContext.work.status ?? 'Repository context'}</dd></div>
+                {flowContext.work.parentId && <div><dt>Parent</dt><dd>{flowContext.work.parentId}</dd></div>}
+                <div><dt>Persona</dt><dd>{flowContext.persona ?? 'Not selected'}</dd></div>
+                <div><dt>Progress</dt><dd>{flowContext.work.progress == null ? 'Unavailable' : `${flowContext.work.progress}%`}</dd></div>
+                <div><dt>Revision</dt><dd>{flowContext.revision?.slice(0, 12) ?? 'Unavailable'}</dd></div>
+              </dl>
+              <div className="sheet-sep" />
+              <div className="sheet-row-head"><span>Governed documents · {flowContext.documents.length}</span></div>
+              <div className="flow-work-list">{flowContext.documents.length ? flowContext.documents.map((document) => <div key={document.id}><strong>{document.label}</strong><span>{document.phase ?? 'supporting'} · {document.status ?? 'recorded'}</span><code>{document.path}</code></div>) : <p>No governed documents in this projection.</p>}</div>
+              <div className="sheet-sep" />
+              <div className="sheet-row-head"><span>Next valid actions</span></div>
+              <div className="flow-work-list">{flowContext.nextActions.length ? flowContext.nextActions.map((item, index) => <div key={`${item.label}:${index}`}><strong>{item.label}</strong>{item.command && <code>{item.command}</code>}</div>) : <p>No next action reported.</p>}</div>
+              <small className="flow-work-captured">Read-only snapshot captured {new Date(flowContext.generatedAt).toLocaleString()}.</small>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   )
 }

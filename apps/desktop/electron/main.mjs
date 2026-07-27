@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { invokeCliProcess, REPOSITORY_SNAPSHOT_TIMEOUT_MS, validateRepositoryDirectory } from './cli-runner.mjs';
@@ -40,10 +40,26 @@ let activeRepository = null;
 let activeWorkspace = null;
 let mainWindow = null;
 let eventHorizonModulePromise = null;
+let workspaceRegistryImportPromise = null;
 const jiraCache = new Map();
 
 function recentRepositoriesPath() { return path.join(app.getPath('userData'), 'recent-repositories.json'); }
-function workspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
+// Desktop, CLI, Copilot skills and Event Horizon must see one workspace
+// registry. Keeping a second copy under Electron userData made a workspace
+// appear saved in the app while `sflow-workspace current` reported none.
+function workspaceStateDirectory() {
+  return path.dirname(process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
+    || path.join(app.getPath('home'), '.singularity-flow', 'workspaces.json'));
+}
+function workspaceRegistryPath() {
+  return path.resolve(process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
+    || path.join(workspaceStateDirectory(), 'workspaces.json'));
+}
+function legacyWorkspaceRegistryPath() { return path.join(app.getPath('userData'), 'workspaces.json'); }
+function activeWorkspaceSelectionPath() {
+  return path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
+    || path.join(workspaceStateDirectory(), 'active-workspace.json'));
+}
 function jiraCredentialsPath() { return path.join(app.getPath('userData'), 'jira-credentials.json'); }
 function storageCredentialsPath() { return path.join(app.getPath('userData'), 'storage-credentials.json'); }
 function onboardingProfilePath() { return path.join(app.getPath('userData'), 'onboarding.json'); }
@@ -218,7 +234,28 @@ async function openExistingWorkspace(workspacePath) {
   const workspace = await readWorkspace(workspacePath);
   const status = await workspaceStatus(workspace.path);
   await rememberWorkspace(workspaceRegistryPath(), workspace, status);
+  await activateDesktopWorkspace(workspace.id);
   return openWorkspaceStatus(status);
+}
+
+async function activateDesktopWorkspace(reference) {
+  const { activateWorkspaceContext } = await importCliModule('workspace-context.mjs');
+  await mkdir(path.dirname(activeWorkspaceSelectionPath()), { recursive: true });
+  return activateWorkspaceContext(workspaceRegistryPath(), activeWorkspaceSelectionPath(), reference);
+}
+
+async function clearDesktopWorkspaceSelection(workspacePath) {
+  const { readActiveWorkspaceContext } = await importCliModule('workspace-context.mjs');
+  const selected = await readActiveWorkspaceContext(
+    activeWorkspaceSelectionPath(),
+    workspaceRegistryPath(),
+    { refresh: false }
+  ).catch(() => null);
+  if (selected?.workspacePath === path.resolve(workspacePath)) {
+    await unlink(activeWorkspaceSelectionPath()).catch((error) => {
+      if (error?.code !== 'ENOENT') throw error;
+    });
+  }
 }
 
 async function openWorkspaceStatus(status, { message = null } = {}) {
@@ -274,12 +311,39 @@ async function openWorkspaceSetup(baseDirectory) {
 }
 
 async function recentWorkspaces() {
+  await importLegacyWorkspaceRegistry();
   const { readWorkspaceRegistry } = await workspaceModule();
   const entries = await readWorkspaceRegistry(workspaceRegistryPath());
   return Promise.all(entries.map(async (entry) => ({
     ...entry,
     available: existsSync(path.join(entry.path, 'workspace.json'))
   })));
+}
+
+async function importLegacyWorkspaceRegistry() {
+  if (workspaceRegistryImportPromise) return workspaceRegistryImportPromise;
+  workspaceRegistryImportPromise = (async () => {
+    const legacy = legacyWorkspaceRegistryPath();
+    const shared = workspaceRegistryPath();
+    if (legacy === shared || !existsSync(legacy)) return;
+    const workspaceApi = await workspaceModule();
+    const entries = await workspaceApi.readWorkspaceRegistry(legacy);
+    for (const entry of entries) {
+      if (entry.archivedAt || !existsSync(path.join(entry.path, 'workspace.json'))) continue;
+      try {
+        const workspace = await workspaceApi.readWorkspace(entry.path);
+        const status = await workspaceApi.workspaceStatus(workspace.path);
+        await workspaceApi.rememberWorkspace(shared, workspace, status);
+      } catch {
+        // A missing or invalid legacy entry stays in the untouched legacy file
+        // for manual recovery; it must not prevent the desktop from starting.
+      }
+    }
+  })().catch((error) => {
+    workspaceRegistryImportPromise = null;
+    throw error;
+  });
+  return workspaceRegistryImportPromise;
 }
 
 function cliPath() {
@@ -432,7 +496,7 @@ function registerHandlers() {
       description: 'A permission-gated ACP workbench for Copilot and other compatible coding agents.'
     };
   });
-  trustedHandle('agent-workbench:open', async (_event, { repository, agentId = 'copilot' }) => {
+  trustedHandle('agent-workbench:open', async (_event, { repository, agentId = 'copilot', flowContext = null }) => {
     const root = assertRepository(repository);
     const module = await eventHorizonModule();
     const status = await module.eventHorizonStatus();
@@ -441,7 +505,7 @@ function registerHandlers() {
     if (selected.available === false) {
       throw new Error(`${selected.name} was not found on this computer. Install its ACP command and reopen the Agent workbench.`);
     }
-    module.openEventHorizonWindow({ cwd: root, agentId });
+    module.openEventHorizonWindow({ cwd: root, agentId, flowContext });
     return { opened: true, repository: root, agent: selected };
   });
   trustedHandle('onboarding:get', async (event) => {
@@ -547,6 +611,7 @@ function registerHandlers() {
   trustedHandle('workspace:forget', async (event, { workspace }) => {
     assertTrustedSender(event);
     const { forgetWorkspace } = await workspaceModule();
+    await clearDesktopWorkspaceSelection(workspace);
     await forgetWorkspace(workspaceRegistryPath(), workspace);
     if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
     return recentWorkspaces();
@@ -555,6 +620,7 @@ function registerHandlers() {
     assertTrustedSender(event);
     const { archiveWorkspace } = await workspaceModule();
     await archiveWorkspace(workspaceRegistryPath(), assertWorkspace(workspace), { confirmation });
+    await clearDesktopWorkspaceSelection(workspace);
     if (activeWorkspace?.workspace?.path === path.resolve(workspace)) activeWorkspace = null;
     return recentWorkspaces();
   });
@@ -668,7 +734,7 @@ function registerHandlers() {
     });
     return snapshot(root);
   });
-  trustedHandle('worldmodel:generate', async (event, { repository, local = true, views = null }) => {
+  trustedHandle('worldmodel:generate', async (event, { repository, local = true, views = null, initiativeId = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const send = (payload) => {
@@ -697,28 +763,32 @@ function registerHandlers() {
       });
       let epicIntake = null;
       try {
-        const [{ branch }, { loadInitiative, commitInitiativeChange }, { completeEpicIntake }] = await Promise.all([
-          importCliModule('git.mjs'),
+        const [{ loadInitiative, commitInitiativeChange }, { completeEpicIntake }] = await Promise.all([
           importCliModule('initiative-state.mjs'),
           importCliModule('epic-lifecycle.mjs')
         ]);
-        const initiativeId = branch(root);
-        const loaded = await loadInitiative(root, initiativeId);
-        if (loaded.initiative.resolution.profile === 'epic-planning' && loaded.initiative.currentPhase === 'epic-intake') {
-          const completed = await completeEpicIntake(root, initiativeId);
-          const publication = await commitInitiativeChange(
-            root,
-            completed.portfolio,
-            completed.initiative,
-            `[${initiativeId}][epic:intake] repository grounded`
-          );
-          epicIntake = { advanced: true, currentPhase: completed.initiative.currentPhase, publication };
-          send({ type: 'phase', phase: 'advancing', message: 'Repository grounding verified. Intake is complete; Requirements is ready.' });
+        // A Git branch is not an initiative identity. `main` used to be fed to
+        // loadInitiative here, producing initiatives/main/state.json after a
+        // perfectly successful (and slow) world-model build. Only advance an
+        // intake when Flow explicitly supplied the selected initiative ID.
+        if (initiativeId) {
+          const loaded = await loadInitiative(root, initiativeId);
+          if (loaded.initiative.resolution.profile === 'epic-planning' && loaded.initiative.currentPhase === 'epic-intake') {
+            const completed = await completeEpicIntake(root, initiativeId);
+            const publication = await commitInitiativeChange(
+              root,
+              completed.portfolio,
+              completed.initiative,
+              `[${initiativeId}][epic:intake] repository grounded`
+            );
+            epicIntake = { advanced: true, currentPhase: completed.initiative.currentPhase, publication };
+            send({ type: 'phase', phase: 'advancing', message: 'Repository grounding verified. Intake is complete; Requirements is ready.' });
+          }
         }
       } catch (error) {
         // World-model generation is also available outside an Epic branch. Only a
         // real Epic lifecycle error should be visible; absence of an Epic is normal.
-        if (!/initiative state|Invalid initiative|ENOENT|does not exist/i.test(error?.message ?? '')) throw error;
+        if (!/initiative state|No initiative found|Invalid initiative|ENOENT|does not exist/i.test(error?.message ?? '')) throw error;
       }
       send({ type: 'phase', phase: 'finalizing', message: local ? 'Validating and committing the local world model.' : 'Validating, committing, and pushing the world model with the Epic branch.' });
       const result = await snapshot(root);
@@ -1503,6 +1573,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     };
     const created = await workspaceApi.createWorkspace(input, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
+    await activateDesktopWorkspace(created.workspace.id);
     return openRepository(requireReadyLeadRepository(created.status), { workspace: created.status });
   });
   trustedHandle('workspace:configuration-preview', async (event, {
@@ -1523,6 +1594,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       baseDirectory, id, name, repositories, leadRepository
     }, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), created.workspace, created.status);
+    await activateDesktopWorkspace(created.workspace.id);
     const message = created.materializationError
       ? `Workspace configuration saved. Some repositories could not be cloned: ${created.materializationError}`
       : `Workspace ${created.workspace.name} saved and all repositories are ready.`;
@@ -1546,6 +1618,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       name, repositories, leadRepository
     }, { confirmation });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), updated.workspace, updated.status);
+    await activateDesktopWorkspace(updated.workspace.id);
     const message = updated.materializationError
       ? `Workspace changes saved. Some new repositories could not be cloned: ${updated.materializationError}`
       : `Workspace ${updated.workspace.name} updated and all repositories are ready.`;
@@ -1566,6 +1639,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     const workspaceApi = await workspaceModule();
     const repaired = await workspaceApi.repairWorkspace(assertWorkspace(workspace));
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), repaired.status.workspace, repaired.status);
+    await activateDesktopWorkspace(repaired.status.workspace.id);
     return {
       ...repaired,
       snapshot: repaired.status.healthy
@@ -1715,6 +1789,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       leadRepository: manifest.leadRepository
     }, { confirmation: manifest.anchor.key });
     await workspaceApi.rememberWorkspace(workspaceRegistryPath(), updated.workspace, updated.status);
+    await activateDesktopWorkspace(updated.workspace.id);
     jiraCache.clear();
     return openWorkspaceStatus(updated.status, {
       message: `Jira routing updated from ${existingProject} to ${replacementProject} for ${affectedRepositories.join(', ')}.`

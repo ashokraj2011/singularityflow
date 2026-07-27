@@ -31,7 +31,7 @@ test('Flow exposes Event Horizon through a dedicated menu and a narrow launch br
   assert.match(app, /\['agent-workbench', 'Agent workbench'\]/);
   assert.match(app, /function AgentWorkbench/);
   assert.match(app, /Event Horizon/);
-  assert.match(app, /window\.singularity\.openAgentWorkbench\(repository, selectedAgent\)/);
+  assert.match(app, /window\.singularity\.openAgentWorkbench\(repository, selectedAgent, flowContext\)/);
   assert.match(preload, /agentWorkbenchStatus:/);
   assert.match(preload, /openAgentWorkbench:/);
   assert.match(main, /trustedHandle\('agent-workbench:status'/);
@@ -49,10 +49,13 @@ test('embedded Event Horizon reuses the active repository and preserves permissi
   assert.match(entry, /openEventHorizonWindow\(options/);
   assert.match(entry, /activateWorkspace\(options\.cwd/);
   assert.match(entry, /session:activate/);
+  assert.match(entry, /flow:context/);
+  assert.match(entry, /FlowWorkspaceContext/);
   assert.match(entry, /registerEventHorizonHandlers/);
   assert.match(agents, /GitHub Copilot CLI/);
   assert.match(agents, /Claude Code/);
   assert.match(agents, /Gemini CLI/);
   assert.match(store, /case 'session:activate'/);
+  assert.match(store, /case 'flow:context'/);
   assert.match(permission, /answerPermission/);
 });

@@ -9,6 +9,7 @@ import type {
   ToolCall
 } from './acp'
 import type { ContextInfo, UsageInfo } from './contextInfo'
+import type { FlowWorkspaceContext } from './flowContext'
 
 /* ------------------------------------------------------------ view model */
 
@@ -146,6 +147,7 @@ export type MainEvent =
   | { type: 'session:patch'; sessionId: string; patch: Partial<SessionSnapshot> }
   | { type: 'session:removed'; sessionId: string }
   | { type: 'session:turnEnded'; sessionId: string; stopReason: StopReason }
+  | { type: 'flow:context'; cwd: string; context: FlowWorkspaceContext }
 
 /* ------------------------------------------------------------- fs types */
 
@@ -158,6 +160,7 @@ export interface DirEntry {
 /* ----------------------------------------------------------------- API */
 
 export interface AcpStudioApi {
+  getFlowContext(cwd: string): Promise<FlowWorkspaceContext | null>
   listAgents(): Promise<AgentDefinition[]>
   listSessions(): Promise<SessionSnapshot[]>
   createSession(opts: { cwd: string; agentId: string }): Promise<SessionSnapshot>

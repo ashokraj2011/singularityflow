@@ -8,6 +8,7 @@ import type {
   SessionSnapshot,
   SkillInfo
 } from '@shared/ipc'
+import type { FlowWorkspaceContext } from '@shared/flowContext'
 import { resolveSkillInvocation } from './slashMenu'
 
 interface StoreState {
@@ -21,6 +22,7 @@ interface StoreState {
   attachments: Record<string, AttachmentSummary[]>
   launching: boolean
   launchError: string | null
+  flowContexts: Record<string, FlowWorkspaceContext>
   loadSkills: (sessionId: string) => Promise<void>
   addAttachments: (kind: 'file' | 'folder') => Promise<void>
   removeAttachment: (path: string) => void
@@ -48,6 +50,7 @@ export const useStore = create<StoreState>((set, get) => ({
   attachments: {},
   launching: false,
   launchError: null,
+  flowContexts: {},
 
   loadSkills: async (sessionId) => {
     const session = get().sessions[sessionId]
@@ -72,11 +75,20 @@ export const useStore = create<StoreState>((set, get) => ({
       activeId: sessions[0]?.id ?? null
     })
     for (const s of sessions) void get().loadSkills(s.id)
+    for (const s of sessions) {
+      void window.acp.getFlowContext(s.cwd).then((context) => {
+        if (context) set({ flowContexts: { ...get().flowContexts, [s.cwd]: context } })
+      })
+    }
   },
 
   applyEvent: (event) => {
     const state = get()
     switch (event.type) {
+      case 'flow:context': {
+        set({ flowContexts: { ...state.flowContexts, [event.cwd]: event.context } })
+        return
+      }
       case 'session:activate': {
         if (state.sessions[event.sessionId]) set({ activeId: event.sessionId })
         return

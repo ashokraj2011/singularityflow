@@ -4403,7 +4403,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
     try {
       if (typeof generateWorldModel !== 'function') throw new Error('The world-model builder is not wired into this screen. Build it from the World model page instead.');
       // local=false: publish normally so the model is pushed with the epic branch.
-      const built = await generateWorldModel(data.repository.root, false);
+      const built = await generateWorldModel(data.repository.root, false, null, worldModelOffer?.initiativeId);
       if (!built) return; // generateWorldModel already reported why.
       const target = worldModelOffer?.initiativeId;
       setWorldModelOffer(null);
@@ -5579,10 +5579,67 @@ function AgentWorkbench({ data, action }) {
   const agents = status?.agents ?? [];
   const selected = agents.find((agent) => agent.id === selectedAgent);
   const workspaceSessions = (status?.sessions ?? []).filter((session) => session.cwd === repository);
+  const initiative = data.initiative;
+  const workflow = data.workflow;
+  const work = initiative ? {
+    kind: 'epic',
+    id: initiative.state.initiative.id,
+    title: initiative.state.initiative.title,
+    phase: initiative.state.currentPhase,
+    status: initiative.state.status,
+    progress: initiative.progress?.percentage ?? null,
+    parentId: null
+  } : workflow ? {
+    kind: 'story',
+    id: workflow.workItem.id,
+    title: workflow.workItem.title,
+    phase: workflow.currentPhase,
+    status: workflow.status,
+    progress: data.progress?.percentage ?? null,
+    parentId: workflow.workItem.parentStoryId ?? workflow.workItem.epicId ?? null
+  } : {
+    kind: 'repository',
+    id: null,
+    title: repository.split('/').at(-1),
+    phase: null,
+    status: null,
+    progress: null,
+    parentId: null
+  };
+  const flowContext = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    workspace: {
+      id: data.workspace?.workspace?.id ?? null,
+      name: data.workspace?.workspace?.name ?? repository.split('/').at(-1),
+      path: data.workspace?.workspace?.path ?? null
+    },
+    repository: {
+      id: null,
+      name: repository.split('/').at(-1),
+      root: repository,
+      branch: data.repository.branch,
+      role: data.workspace ? 'lead' : 'standalone'
+    },
+    work,
+    persona: data.session?.persona ?? null,
+    documents: (initiative?.documents ?? data.documents ?? []).slice(0, 50).map((document) => ({
+      id: document.id ?? document.path,
+      label: document.label ?? document.title ?? document.path?.split('/').at(-1) ?? 'Document',
+      phase: document.phase ?? null,
+      path: document.path,
+      status: document.status ?? null
+    })).filter((document) => document.path),
+    nextActions: (initiative?.nextActions ?? []).slice(0, 10).map((item) => ({
+      label: item.reason ?? item.action,
+      command: item.command ?? null
+    })),
+    revision: data.repository.commit ?? data.repository.head ?? null
+  };
 
   async function openWorkbench() {
     const result = await action(
-      () => window.singularity.openAgentWorkbench(repository, selectedAgent),
+      () => window.singularity.openAgentWorkbench(repository, selectedAgent, flowContext),
       `${selected?.name ?? 'Agent'} opened in Event Horizon`
     );
     if (result) await refresh();
@@ -6230,7 +6287,7 @@ export default function App() {
     return [...new Set([...fromPersonas, ...built])].filter(Boolean);
   }
 
-  async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined, views = null) {
+  async function generateWorldModel(repositoryOrLocal = true, localArgument = undefined, views = null, explicitInitiativeId = null) {
     // Both of these cross the IPC boundary, so both must be primitives. A bare onClick hands this
     // function a React event as its first argument; that used to land in `local` and fail
     // structured clone with 'An object could not be cloned.' — a message that says nothing about
@@ -6259,7 +6316,8 @@ export default function App() {
     setBusy(true);
     setToast(null);
     try {
-      const result = await window.singularity.generateWorldModel(repository, local, requested);
+      const initiativeId = explicitInitiativeId ?? data?.selectedInitiativeId ?? data?.initiative?.state?.initiative?.id ?? null;
+      const result = await window.singularity.generateWorldModel(repository, local, requested, initiativeId);
       setWorldModelRun((current) => current ? { ...current, status: 'success', phase: 'complete', phaseLabel: local ? 'World model committed locally' : 'World model committed and pushed', finishedAt: Date.now(), steps: [...new Set([...(current.steps ?? []), 'complete'])] } : current);
       setToast({ tone: 'good', text: local ? 'World model generated and committed locally (not pushed)' : 'World model generated and pushed with the Epic branch' });
       await reload();

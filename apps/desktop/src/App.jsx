@@ -1604,7 +1604,6 @@ function WorkspaceStudio({
         && repository.url.trim()
         && repository.name.trim()
         && repository.appId.trim()
-        && repository.jiraBoard.trim()
         && metadataValid;
     });
   const formReady = Boolean(
@@ -1658,7 +1657,7 @@ function WorkspaceStudio({
         <label className="workspace-directory-field"><span>{editorMode === 'edit' ? 'Workspace location' : 'Local working directory'}</span><div><input readOnly value={baseDirectory} placeholder="Choose a parent folder" />{editorMode !== 'edit' && <button className="secondary" onClick={chooseBase}>{baseDirectory ? 'Change' : 'Choose'}</button>}</div></label>
       </div>
       <div className="workspace-repository-config">
-        <header><div><span className="eyebrow">Repository registry</span><h3>Add delivery repositories</h3><p>Every repository requires its Jira project key, application identity, and exactly one lead designation.</p></div><div className="row"><button className="ghost compact" onClick={addRepositoryManually}>＋ Enter URL</button><button className="secondary compact" onClick={addRepositories}>＋ Add local repos</button></div></header>
+        <header><div><span className="eyebrow">Repository registry</span><h3>Add delivery repositories</h3><p>Every repository requires an application identity and exactly one lead designation. Jira routing is optional and can be added later.</p></div><div className="row"><button className="ghost compact" onClick={addRepositoryManually}>＋ Enter URL</button><button className="secondary compact" onClick={addRepositories}>＋ Add local repos</button></div></header>
         {repositories.map((repository, index) => { const materialized = materializedRepositoryIds.has(repository.id); return <article className={`workspace-repository-editor ${leadIndex === index ? 'lead' : ''}`} key={`${index}-${repository.localPath}`}>
           <header><label className="workspace-lead-choice"><input type="radio" name="lead-repository" checked={leadIndex === index} onChange={() => { setLeadIndex(index); resetPreview(); }} /><span><strong>{leadIndex === index ? 'Lead repository' : 'Make lead'}</strong><small>{leadIndex === index ? 'Epic-level artifacts are committed here' : materialized ? 'Existing materialized repository' : 'New repository will be cloned'}</small></span></label>{repositories.length > 1 && !materialized && <button className="ghost compact" onClick={() => removeRepository(index)}>Remove</button>}</header>
           <div className="workspace-repository-fields">
@@ -1666,13 +1665,13 @@ function WorkspaceStudio({
             <label><span>Display name</span><input value={repository.name} placeholder="Mobile application" onChange={(event) => updateRepository(index, 'name', event.target.value)} /></label>
             <label className="wide"><span>Git clone URL</span><input readOnly={materialized} value={repository.url} placeholder="git@github.com:company/mobile.git" onChange={(event) => updateRepository(index, 'url', event.target.value)} /></label>
             <label><span>Default branch</span><input readOnly={materialized} value={repository.defaultBranch} placeholder="main" onChange={(event) => updateRepository(index, 'defaultBranch', event.target.value)} /></label>
-            <label><span>Jira project key</span><input value={repository.jiraBoard} placeholder="MOB" onChange={(event) => updateRepository(index, 'jiraBoard', event.target.value.toUpperCase())} /><small>For example, KAN from KAN-8—not the board name.</small></label>
+            <label><span>Jira project key <em>optional</em></span><input value={repository.jiraBoard} placeholder="Add later if needed" onChange={(event) => updateRepository(index, 'jiraBoard', event.target.value.toUpperCase())} /><small>Needed only for Jira features. Add or change it any time through Edit workspace.</small></label>
             <label><span>Application ID</span><input value={repository.appId} placeholder="APP-1001" onChange={(event) => updateRepository(index, 'appId', event.target.value)} /></label>
           </div>
           <div className="workspace-metadata-editor"><header><div><strong>Additional metadata</strong><span>Optional repository-specific key/value pairs.</span></div><button className="ghost compact" onClick={() => addMetadata(index)}>＋ Add field</button></header>{repository.metadata.map((entry, metadataIndex) => <div key={metadataIndex}><input aria-label={`Repository ${index + 1} metadata key ${metadataIndex + 1}`} value={entry.key} placeholder="owner" onChange={(event) => updateMetadata(index, metadataIndex, 'key', event.target.value)} /><input aria-label={`Repository ${index + 1} metadata value ${metadataIndex + 1}`} value={entry.value} placeholder="Digital Channels" onChange={(event) => updateMetadata(index, metadataIndex, 'value', event.target.value)} /><button className="ghost compact" aria-label={`Remove metadata ${metadataIndex + 1}`} onClick={() => removeMetadata(index, metadataIndex)}>×</button></div>)}</div>
         </article>; })}
       </div>
-      {!validRepositories && <div className="workspace-form-note">Complete a unique repository ID, display name, Git URL, Jira project key, and Application ID for every repository.</div>}
+      {!validRepositories && <div className="workspace-form-note">Complete a unique repository ID, display name, Git URL, and Application ID for every repository. Jira project keys are optional.</div>}
       <div className="workspace-preview-actions" ref={saveActions}>{preview ? <><div className="workspace-save-plan"><strong>Preview ready — not saved yet</strong><small>The configuration will be stored in workspace.json; repository clones can be repaired independently.</small></div><code>{preview.root}/workspace.json</code><button className="primary" onClick={create}>{editorMode === 'edit' ? 'Save workspace changes' : 'Save workspace now'}</button></> : <div className="workspace-save-plan"><strong>No save plan yet</strong><small>Complete the required fields, then use the review action above.</small></div>}</div>
       {preview && <div className="workspace-operation-list">{preview.operations.map((operation) => <div key={operation.repository}><Pill tone={operation.repository === repositories[leadIndex]?.id.trim() ? 'accent' : 'neutral'}>{operation.repository === repositories[leadIndex]?.id.trim() ? 'Epic lead' : operation.action}</Pill><strong>{operation.repository}</strong><code>{operation.url}</code><span>{operation.target}</span></div>)}</div>}
     </section>}

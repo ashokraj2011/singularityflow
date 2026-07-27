@@ -882,12 +882,34 @@ function registerHandlers() {
   trustedHandle('initiative:open', async (event, { repository, initiativeId }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
-    const [{ loadDefinition }, { assertClean, checkout }] = await Promise.all([
+    const [{ loadDefinition }, {
+      assertClean,
+      branch,
+      changes,
+      checkout,
+      fetchRemote,
+      hasRemote
+    }] = await Promise.all([
       importCliModule('config.mjs'),
       importCliModule('git.mjs')
     ]);
     const definition = await loadDefinition(root);
-    assertClean(root);
+    const currentBranch = branch(root);
+    const pendingChanges = changes(root).trim().split('\n').filter(Boolean);
+    // Opening the Epic already checked out is a read operation. Refusing it hid the dashboard and
+    // authored documents precisely when a contributor most needed to inspect pending work. Fetch
+    // remote refs, but never pull, switch, stash, or rewrite over a dirty working tree.
+    if (currentBranch === initiativeId && pendingChanges.length) {
+      const remote = definition.git?.remote ?? 'origin';
+      if (hasRemote(root, remote)) fetchRemote(root, remote);
+      const result = await snapshot(root, null, initiativeId);
+      result.repository.openMode = 'local-edits';
+      result.repository.openMessage = `Viewing ${initiativeId} with ${pendingChanges.length} uncommitted change${pendingChanges.length === 1 ? '' : 's'}. Remote references were fetched, but the branch was not pulled; your local edits were preserved.`;
+      return result;
+    }
+    // A branch switch can overwrite or strand unrelated edits, so it keeps the hard clean-tree
+    // boundary used by the CLI resume path.
+    if (currentBranch !== initiativeId) assertClean(root);
     checkout(root, initiativeId, {
       base: definition.defaultBaseBranch,
       fetch: true,

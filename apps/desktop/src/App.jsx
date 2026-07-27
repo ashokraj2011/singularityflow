@@ -6310,17 +6310,22 @@ export default function App() {
   async function selectInitiative(event) {
     const initiativeId = event.target.value || null;
     const result = initiativeId
-      ? await action(() => window.singularity.openInitiative(data.repository.root, initiativeId), `Opened latest ${initiativeId} branch`)
+      ? await action(() => window.singularity.openInitiative(data.repository.root, initiativeId))
       : await reload(null, null);
     if (result) setData(result);
+    if (result && initiativeId) setToast(result.repository.openMode === 'local-edits'
+      ? { tone: 'warn', text: result.repository.openMessage }
+      : { tone: 'good', text: `Opened latest ${initiativeId} branch` });
     if (result && initiativeId) setPage('epics');
   }
   async function openEpic(initiativeId) {
     const result = await action(
-      () => window.singularity.openInitiative(data.repository.root, initiativeId),
-      `Opened latest ${initiativeId} branch`
+      () => window.singularity.openInitiative(data.repository.root, initiativeId)
     );
     if (result) setData(result);
+    if (result) setToast(result.repository.openMode === 'local-edits'
+      ? { tone: 'warn', text: result.repository.openMessage }
+      : { tone: 'good', text: `Opened latest ${initiativeId} branch` });
     if (result) setPage('epics');
   }
   function openEpicJourneyStage(stage) {

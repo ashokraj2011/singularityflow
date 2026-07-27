@@ -415,6 +415,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:start-local/);
   assert.doesNotMatch(main, /onboarding:experience/);
   assert.match(main, /initiative:open/);
+  assert.match(main, /currentBranch === initiativeId && pendingChanges\.length/);
+  assert.match(main, /result\.repository\.openMode = 'local-edits'/);
+  assert.match(main, /Remote references were fetched, but the branch was not pulled/);
+  assert.match(source, /result\.repository\.openMode === 'local-edits'/);
   assert.match(main, /initiative:phase-publish/);
   assert.match(main, /initiative:phase-approve/);
   assert.match(main, /StorageCredentialStore/);

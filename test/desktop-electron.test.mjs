@@ -180,6 +180,11 @@ test('desktop provides a governed Jira Story intake workflow', async () => {
   assert.match(source, /\['story-intake', 'Story intake'\]/);
   assert.match(source, /\['epics', 'Epic overview'\]/);
   assert.match(source, /\['business-requirements', 'Requirements workspace'\]/);
+  assert.match(source, /const navigationSections = useMemo/);
+  assert.match(source, /initiativeProfile === 'epic-planning'/);
+  assert.match(source, /label: 'Initiative delivery'/);
+  assert.match(source, /\$\{currentInitiativePhaseLabel\} workspace/);
+  assert.match(source, /requestedPhaseId=\{initiativeProfile === 'epic-planning' \? 'epic-requirements' : currentInitiativePhaseId\}/);
   assert.match(source, /no Epic intake required/);
   assert.match(source, /function JiraStoryIntake/);
   assert.match(source, /Choose Story[\s\S]*Review context[\s\S]*Route repository[\s\S]*Select workflow[\s\S]*Start delivery/);
@@ -916,6 +921,10 @@ test('Copilot CLI handoff carries the active phase without opening an embedded s
   assert.match(source, /<CopilotCliPage data=\{data\} phaseId=\{planningFocus\?\.phase\}/);
   assert.match(source, /id === 'planning' \? openStudio\(\) :/);
   assert.match(source, /function copilotCliCommands\(\{ phaseId, epicId = null, workId = null \}\)/);
+  assert.match(source, /if \(epicId\) return \[/);
+  assert.match(source, /\/sflow-initiative-phase \$\{phaseId\} --initiative \$\{epicId\}/);
+  assert.match(source, /singularity-flow initiative documents \$\{phaseId\} --initiative \$\{epicId\}/);
+  assert.match(source, /\/sflow-initiative-next \$\{epicId\}/);
   assert.doesNotMatch(source, /onClick=\{openPlanning\}/);
 });
 
@@ -931,6 +940,7 @@ test('the Epic workspace can reach the Epic list, and an imported Jira Epic is v
   assert.match(source, /＋ New Epic/);
   assert.match(source, /const \[tab, setTab\] = useState\('overview'\)/);
   assert.match(source, /Cross-phase summary · no phase authoring/);
+  assert.match(source, /function openOverviewStage\(stage\)/);
   assert.match(source, /Open Requirements workspace/);
   assert.match(source, /Open Planning/);
   assert.match(source, /Open Create Stories/);
@@ -965,7 +975,7 @@ test('Requirements is a dedicated CLI-handoff phase page and explains sequence l
   // currently selected Epic.
   assert.match(workspace, /requestedPhaseId = null/);
   assert.match(workspace, /const phaseId = requestedPhaseId \?\? state\.currentPhase \?\? 'epic-intake'/);
-  assert.match(source, /<PhaseCliWorkspace requestedPhaseId="epic-requirements"/);
+  assert.match(source, /<PhaseCliWorkspace requestedPhaseId=\{initiativeProfile === 'epic-planning' \? 'epic-requirements' : currentInitiativePhaseId\}/);
   assert.match(workspace, /const current = state\.currentPhase === phaseId/);
   assert.match(workspace, /phase-lock notice/);
   assert.match(workspace, /<PhaseGovernance/);

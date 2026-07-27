@@ -2898,6 +2898,24 @@ function copilotCliCommands({ phaseId, epicId = null, workId = null }) {
       purpose: 'Re-read committed state and show the next valid action without changing it.'
     }
   ];
+  if (epicId) return [
+    {
+      skill: `/sflow-initiative-phase ${phaseId} --initiative ${epicId}`,
+      shell: `singularity-flow initiative phase ${phaseId} --initiative ${epicId}`,
+      purpose: `Compose the governed ${phaseId} prompt, author its configured outputs, and publish the exact initiative generation.`,
+      primary: true
+    },
+    {
+      skill: `/sflow-initiative-documents ${phaseId} --initiative ${epicId}`,
+      shell: `singularity-flow initiative documents ${phaseId} --initiative ${epicId}`,
+      purpose: 'List and display every generated initiative document in full before review or approval.'
+    },
+    {
+      skill: `/sflow-initiative-next ${epicId}`,
+      shell: `singularity-flow initiative next ${epicId}`,
+      purpose: 'Re-read committed initiative state and show the next valid action without changing it.'
+    }
+  ];
   return [
     {
       skill: '/sflow-next',
@@ -5075,6 +5093,15 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
     // hid this defect on the other rail. Say so instead.
     reportProblem?.(`No action is wired for '${next?.sourceId ?? next?.id ?? 'unknown'}'. Nothing was changed — please report this.`);
   }
+  function openOverviewStage(stage) {
+    if (onStagePage) return onStagePage(stage);
+    if (stage === 'stories') return setTab('publish');
+    const phaseId = {
+      requirements: 'epic-requirements',
+      planning: 'epic-planning'
+    }[stage];
+    if (phaseId) return openPlanning?.(phaseId);
+  }
   const epicWorkspaceTitle = {
     overview: 'Epic overview',
     intake: 'Epic sources',
@@ -5124,9 +5151,9 @@ function InitiativeStudio({ data, editor, setEditor, saveEditor, downloadFile, a
         <div><span className="eyebrow">Cross-phase summary · no phase authoring</span><h2>Epic overview</h2><p>Monitor the complete Epic, its governed documents, approvals, Story delivery, time, tokens, and cost. Open a phase workspace when you need to create or approve phase-specific content.</p></div>
         <nav aria-label="Open an Epic phase workspace">
           <button className="secondary compact" onClick={() => setTab('intake')}>Review Epic sources</button>
-          <button className="primary compact" onClick={() => onStagePage?.('requirements')}>Open Requirements workspace</button>
-          <button className="secondary compact" onClick={() => onStagePage?.('planning')}>Open Planning</button>
-          <button className="secondary compact" onClick={() => onStagePage?.('stories')}>Open Create Stories</button>
+          <button className="primary compact" onClick={() => openOverviewStage('requirements')}>Open Requirements workspace</button>
+          <button className="secondary compact" onClick={() => openOverviewStage('planning')}>Open Planning</button>
+          <button className="secondary compact" onClick={() => openOverviewStage('stories')}>Open Create Stories</button>
         </nav>
       </section>}
       <section className="initiative-hero">
@@ -6101,14 +6128,38 @@ export default function App() {
     return () => window.removeEventListener('keydown', toggleNavigation);
   }, []);
   const repoName = useMemo(() => data?.repository.root.split('/').at(-1), [data]);
-  const activeNavigation = useMemo(() => navSections
+  const initiativeProfile = data?.initiative?.state?.initiative?.profile ?? null;
+  const currentInitiativePhaseId = data?.initiative?.state?.currentPhase
+    ?? data?.initiative?.state?.phaseOrder?.at(-1)
+    ?? null;
+  const currentInitiativePhaseLabel = data?.initiative?.state?.resolution?.phases
+    ?.find((phase) => phase.id === currentInitiativePhaseId)?.label
+    ?? currentInitiativePhaseId
+    ?? 'Current phase';
+  const navigationSections = useMemo(() => {
+    if (!data?.initiative || initiativeProfile === 'epic-planning') return navSections;
+    // Requirements, Planning and Create Stories are contracts of the compact Epic-planning
+    // profile. Showing them for enterprise initiatives routed the user to phase IDs that do not
+    // exist. Enterprise profiles expose their resolved current phase instead.
+    return navSections.map((section) => section.label !== 'Epic planning'
+      ? section
+      : {
+          label: 'Initiative delivery',
+          items: [
+            ['epics', 'Initiative overview'],
+            ['business-requirements', `${currentInitiativePhaseLabel} workspace`],
+            ['templates', 'Artifact templates']
+          ]
+        });
+  }, [data?.initiative, initiativeProfile, currentInitiativePhaseLabel]);
+  const activeNavigation = useMemo(() => navigationSections
     .flatMap((section) => section.items.map(([id, label]) => ({ id, label, section: section.label })))
     .find((item) => item.id === page)
     // The phase workspace is reached from the journey rail, not the sidebar, so it names itself
     // after the phase it is showing rather than reading 'Workspace'.
     ?? (page === 'phase' && planningFocus?.phase
       ? { id: page, label: data?.initiative?.state.phases?.[planningFocus.phase]?.label ?? planningFocus.phase, section: data?.initiative?.state.initiative.id ?? 'Epic phase' }
-      : { id: page, label: 'Workspace', section: 'Singularity' }), [page, planningFocus, data?.initiative]);
+      : { id: page, label: 'Workspace', section: 'Singularity' }), [page, planningFocus, data?.initiative, navigationSections]);
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
@@ -6591,7 +6642,7 @@ export default function App() {
     <Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
   return <div className={`shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-    <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : id === 'screensaver' ? openScreensaver() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
+    <aside className="sidebar"><FlowBrand className="brand flow-brand-sidebar" context={data.workspace ? data.workspace.workspace.anchor.key : 'Workspace'} /><button className="sidebar-edge-toggle" type="button" title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (⌘/Ctrl+B)`} aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!sidebarCollapsed} aria-controls="primary-navigation" onClick={() => setSidebarCollapsed((current) => !current)}><NavIcon name={sidebarCollapsed ? 'expand' : 'collapse'} /></button><nav id="primary-navigation" aria-label="Primary navigation">{navigationSections.map((section) => <section key={section.label} className={`nav-section nav-section-${section.label.toLowerCase().replaceAll(' ', '-')}`}><span className="nav-section-label">{section.label}</span>{section.items.map(([id, label]) => <button key={id} title={sidebarCollapsed ? label : undefined} aria-label={label} className={page === id ? 'active' : ''} onClick={() => id === 'workflow' ? workflowPage() : id === 'initiatives' ? initiativePage() : id === 'planning' ? openStudio() : id === 'resources' ? resourcesPage() : id === 'agents' ? agentsPage() : id === 'screensaver' ? openScreensaver() : setPage(id)}><i><NavIcon name={id} /></i><span className="nav-label">{label}</span>{id === 'inbox' && data.approvalInbox.count > 0 && <span className="nav-badge">{data.approvalInbox.count}</span>}</button>)}</section>)}</nav><div className="sidebar-bottom"><div className={`connection ${data.repository.changes.length ? 'dirty' : ''}`}><span /><em>{data.repository.changes.length ? `${data.repository.changes.length} uncommitted change(s)` : data.workspace ? `${data.workspace.counts.ready}/${data.workspace.counts.repositories} repositories ready` : 'Workspace required'}</em></div></div></aside>
     <main className="content"><header className="topbar"><div className="topbar-leading"><div className="page-context"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="context-selectors"><select aria-label="Work item" value={data.selectedWorkId ?? ''} onChange={selectWorkItem}><option value="">Story work item</option>{data.workItems.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>{data.portfolio && <select aria-label="Epic" value={data.selectedInitiativeId ?? ''} onChange={selectInitiative}><option value="">Choose Epic</option>{/* Every Epic, whatever its delivery profile: this selector is how you switch Epics, and filtering it by profile hid started work from the only control that switches to it. */}{data.initiatives.map((item) => <option value={item.id} key={item.id}>{item.id} — {item.title}</option>)}</select>}{data.workflow && <Pill tone="accent">{data.workflow.currentPhase ?? 'complete'}</Pill>}{data.initiative && <Pill tone="accent">{data.initiative.state.currentPhase ?? 'complete'}</Pill>}</div></div><div className="topbar-title" aria-live="polite"><span>{activeNavigation.section}</span><strong>{activeNavigation.label}</strong></div><div className="topbar-actions"><TopbarWorkspace data={data} repoName={repoName} repositoryMenu={repositoryMenu} setRepositoryMenu={setRepositoryMenu} recentWorkspaces={recentWorkspaces} busy={busy} openWorkspace={openWorkspace} /><button className="ghost icon-action" onClick={() => reload()} disabled={busy} title="Refresh workspace"><NavIcon name="refresh" /><span>Refresh</span></button><button className="ghost icon-action" onClick={exportBundle} disabled={busy} title="Download configuration"><NavIcon name="download" /><span>Download config</span></button><button className="secondary icon-action" onClick={validate} disabled={busy}><NavIcon name="validate" /><span>Validate</span></button><button className="primary icon-action" onClick={() => publish()} disabled={busy || !publishReady} title={publishHint}><NavIcon name="publish" /><span>Commit &amp; push</span></button></div></header>
       {data.worldModel?.rebuildReason && page !== 'world-model' && <WorldModelPrompt
         reason={data.worldModel.rebuildReason}
@@ -6599,7 +6650,7 @@ export default function App() {
         onGenerate={generateWorldModel}
       />}
       <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'story-intake' && <JiraStoryIntake data={data} action={action} onStarted={(result) => acceptOpened(result, 'dashboard')} onSetupJira={() => setJiraSetupOpen(true)} />}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
-        ? <PhaseCliWorkspace requestedPhaseId="epic-requirements" data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
+        ? <PhaseCliWorkspace requestedPhaseId={initiativeProfile === 'epic-planning' ? 'epic-requirements' : currentInitiativePhaseId} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'phase' && (data.initiative && planningFocus?.phase
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative

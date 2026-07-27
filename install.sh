@@ -161,6 +161,31 @@ install_copilot_telemetry() {
 
 cd "$PROJECT_DIR"
 
+sync_clean_submodules() {
+  local dirty_submodules
+  # A normal git pull updates the parent repository's gitlink but does not move an already
+  # checked-out submodule. The parent then reports "M vendor/event-horizon" even though the
+  # submodule has no authored changes. Align that safe case automatically, but never overwrite
+  # modified or untracked files inside a submodule.
+  dirty_submodules="$(git submodule foreach --quiet --recursive '
+    if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+      printf "%s\n" "$displaypath"
+    fi
+  ')"
+  if [[ -n "$dirty_submodules" ]]; then
+    printf '%s\n' 'Error: one or more submodules contain uncommitted changes:' >&2
+    printf '%s\n' "$dirty_submodules" >&2
+    printf '%s\n' 'Commit or stash those submodule changes before installation.' >&2
+    exit 1
+  fi
+  git submodule sync --recursive
+  git submodule update --init --recursive
+}
+
+# Normalize a clean checkout before evaluating the parent status. This turns a harmless stale
+# submodule checkout into the exact revision recorded by the current parent commit.
+sync_clean_submodules
+
 if [[ -n "$(git status --porcelain)" ]]; then
   printf '%s\n' 'Error: the checkout has uncommitted changes. Commit or stash them before installation.' >&2
   git status --short >&2
@@ -169,6 +194,8 @@ fi
 
 printf '%s\n' 'Updating the current tracked branch...'
 git pull --ff-only
+# Pull may change a gitlink. Materialize the new pinned revision before builds and packaging.
+sync_clean_submodules
 
 REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"

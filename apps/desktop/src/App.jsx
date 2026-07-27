@@ -430,6 +430,49 @@ function TopbarWorkspace({ data, repoName, repositoryMenu, setRepositoryMenu, re
   </div>;
 }
 
+function jiraCredentialDraft(connection = {}, deployment = 'cloud') {
+  return {
+    name: connection.name ?? 'corporate-jira',
+    deployment: connection.deployment ?? deployment,
+    baseUrl: connection.baseUrl ?? '',
+    username: connection.username ?? connection.email ?? '',
+    pat: ''
+  };
+}
+
+function jiraCredentialPayload(connection, deployment = connection.deployment) {
+  const cloud = deployment !== 'data-center';
+  return {
+    name: connection.name,
+    deployment,
+    baseUrl: connection.baseUrl,
+    username: cloud ? connection.username : null,
+    pat: connection.pat,
+    authMode: cloud ? 'user-token' : 'pat'
+  };
+}
+
+function jiraCredentialsReady(connection, deployment = connection.deployment) {
+  return /^https:\/\//i.test(connection.baseUrl)
+    && Boolean(connection.pat)
+    && (deployment === 'data-center' || Boolean(connection.username));
+}
+
+function JiraCredentialFields({ connection, setConnection, deploymentLocked = false }) {
+  const cloud = connection.deployment !== 'data-center';
+  const update = (field, value) => setConnection((current) => ({ ...current, [field]: value }));
+  return <>
+    {!deploymentLocked && <div className="jira-deployment-choice full wide" role="group" aria-label="Jira connection type">
+      <button type="button" className={cloud ? 'active' : ''} onClick={() => update('deployment', 'cloud')}><strong>Jira Cloud</strong><small>Username + PAT/API token</small></button>
+      <button type="button" className={!cloud ? 'active' : ''} onClick={() => update('deployment', 'data-center')}><strong>Data Center</strong><small>Bearer PAT</small></button>
+    </div>}
+    <label className="full wide"><span>Jira URL</span><input value={connection.baseUrl} placeholder={cloud ? 'https://company.atlassian.net' : 'https://jira.company.example'} onChange={(event) => update('baseUrl', event.target.value)} /></label>
+    {cloud && <label><span>Username or email</span><input autoComplete="username" value={connection.username} placeholder="you@company.com" onChange={(event) => update('username', event.target.value)} /></label>}
+    <label><span>{cloud ? 'PAT / API token' : 'Personal access token'}</span><input type="password" autoComplete="current-password" value={connection.pat} placeholder="Stored in OS keychain" onChange={(event) => update('pat', event.target.value)} /></label>
+    <p className="jira-credential-note full wide">{cloud ? 'Cloud authentication sends Basic base64(username:PAT). Your password is never requested.' : 'Data Center sends the PAT as a Bearer token. Your password is never requested.'}</p>
+  </>;
+}
+
 function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
   const [draft, setDraft] = useState(() => ({
     ...initial,
@@ -437,14 +480,7 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     repositories: initial.repositories ?? [],
     jiraChoice: jira?.connected ? 'connected' : (initial.jiraChoice ?? 'later')
   }));
-  const [connection, setConnection] = useState({
-    name: 'corporate-jira',
-    deployment: 'cloud',
-    baseUrl: jira?.connection?.baseUrl ?? '',
-    email: jira?.connection?.email ?? '',
-    token: '',
-    authMode: jira?.connection?.authMode ?? 'user-token'
-  });
+  const [connection, setConnection] = useState(() => jiraCredentialDraft(jira?.connection));
   const [jiraStatus, setJiraStatus] = useState(jira ?? { connected: false });
   const [working, setWorking] = useState(false);
   const [error, setError] = useState(null);
@@ -514,12 +550,10 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
     setError(null);
     try {
       const result = await window.singularity.connectOnboardingJira({
-        ...connection,
-        email: connection.deployment === 'data-center' ? null : connection.email,
-        authMode: connection.deployment === 'data-center' ? 'pat' : connection.authMode
+        ...jiraCredentialPayload(connection)
       });
       setJiraStatus({ connected: true, active: result.active, connection: result.connection });
-      setConnection((current) => ({ ...current, token: '' }));
+      setConnection((current) => ({ ...current, pat: '' }));
       update('jiraChoice', 'connected');
     } catch (connectError) {
       setError(connectError?.message || String(connectError));
@@ -597,12 +631,9 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
                 <span>✓</span><div><strong>Connected securely</strong><small>{jiraStatus.connection?.baseUrl ?? 'Credential available in this OS account'}</small></div><Pill tone="good">Ready</Pill>
               </div> : <>
                 <div className="onboarding-jira-form">
-                  <label><span>Deployment</span><select value={connection.deployment} onChange={(event) => setConnection((current) => ({ ...current, deployment: event.target.value, authMode: event.target.value === 'data-center' ? 'pat' : 'user-token' }))}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label>
-                  <label className="wide"><span>Jira HTTPS URL</span><input value={connection.baseUrl} placeholder="https://company.atlassian.net" onChange={(event) => setConnection((current) => ({ ...current, baseUrl: event.target.value }))} /></label>
-                  {connection.deployment === 'cloud' && <label><span>Email</span><input type="email" value={connection.email} placeholder="you@company.com" onChange={(event) => setConnection((current) => ({ ...current, email: event.target.value }))} /></label>}
-                  <label><span>{connection.deployment === 'cloud' ? 'API token' : 'Personal access token'}</span><input type="password" value={connection.token} placeholder="Stored in OS keychain" onChange={(event) => setConnection((current) => ({ ...current, token: event.target.value }))} /></label>
+                  <JiraCredentialFields connection={connection} setConnection={setConnection} />
                 </div>
-                <div className="onboarding-jira-actions"><button className="primary compact" disabled={working || !connection.baseUrl || !connection.token || (connection.deployment === 'cloud' && !connection.email)} onClick={connectJira}>{working ? 'Verifying…' : 'Verify Jira'}</button><button className="ghost compact" onClick={() => update('jiraChoice', 'not-used')}>Skip</button></div>
+                <div className="onboarding-jira-actions"><button className="primary compact" disabled={working || !jiraCredentialsReady(connection)} onClick={connectJira}>{working ? 'Verifying…' : 'Verify Jira'}</button><button className="ghost compact" onClick={() => update('jiraChoice', 'not-used')}>Skip</button></div>
               </>}
             </section>
           </div>}
@@ -1239,14 +1270,7 @@ function workspaceRepositoryDraft(repository) {
 function WorkspaceJiraConnection({ data, action, onDone }) {
   const workspace = data.workspace?.workspace;
   const [status, setStatus] = useState(null);
-  const [connection, setConnection] = useState({
-    name: 'corporate-jira',
-    deployment: 'cloud',
-    baseUrl: '',
-    email: '',
-    token: '',
-    authMode: 'user-token'
-  });
+  const [connection, setConnection] = useState(() => jiraCredentialDraft());
   async function refresh() {
     const result = await action(() => window.singularity.workspaceJiraContext(data.repository.root, workspace.path));
     if (!result) return;
@@ -1257,19 +1281,17 @@ function WorkspaceJiraConnection({ data, action, onDone }) {
         name: result.credentials.connection.name,
         deployment: result.credentials.connection.deployment,
         baseUrl: result.credentials.connection.baseUrl,
-        email: result.credentials.connection.email ?? '',
-        authMode: result.credentials.connection.authMode
+        username: result.credentials.connection.username ?? result.credentials.connection.email ?? ''
       }));
     }
   }
   useEffect(() => { void refresh(); }, [data.repository.root, workspace?.path]);
   async function connect() {
     const result = await action(() => window.singularity.connectWorkspaceJira(data.repository.root, workspace.path, {
-      ...connection,
-      email: connection.authMode === 'pat' ? null : connection.email
+      ...jiraCredentialPayload(connection)
     }), 'Jira connection verified and stored securely');
     if (!result) return;
-    setConnection((current) => ({ ...current, token: '' }));
+    setConnection((current) => ({ ...current, pat: '' }));
     setStatus({ credentials: result, routing: result.routing });
   }
   async function disconnect() {
@@ -1283,25 +1305,19 @@ function WorkspaceJiraConnection({ data, action, onDone }) {
       'All saved Jira credentials were reset; reconnect when ready'
     );
     if (!result) return;
-    setConnection((current) => ({ ...current, token: '' }));
+    setConnection((current) => ({ ...current, pat: '' }));
     setStatus({ credentials: result, routing: status?.routing });
   }
   const projectKeys = status?.routing?.projectKeys
     ?? [...new Set(Object.values(workspace.repositories).map((repository) => repository.jira?.board).filter(Boolean))];
   const connected = status?.credentials?.connected;
-  const ready = /^https:\/\//i.test(connection.baseUrl)
-    && connection.token
-    && (connection.authMode === 'pat' || connection.email);
+  const ready = jiraCredentialsReady(connection);
   return <div className="page workspace-jira-page">
     <header className="page-heading row-between"><div><span className="eyebrow">Workspace integration</span><h1>Connect Jira</h1><p>The workspace already owns project routing. Add only your Jira account credentials; they stay encrypted in the operating-system keychain.</p></div><div className="row gap"><button className="ghost danger-text" onClick={resetCredentials}>Reset saved Jira</button><button className="ghost" onClick={onDone}>Close</button></div></header>
     <section className="workspace-jira-routing panel">
       <div><span className="jira-mark">J</span><div><span className="eyebrow">Configured project scope</span><h2>{workspace.name}</h2><p>{projectKeys.length ? `This connection must be able to access ${projectKeys.join(', ')}.` : 'Add a Jira project key to a workspace repository before connecting.'}</p></div></div>
-      {connected ? <div className="workspace-jira-connected"><Pill tone="good">Connected</Pill><strong>{status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}</strong><small>{status.credentials.connection?.baseUrl}</small><button className="secondary compact" onClick={disconnect}>Disconnect</button></div> : <div className="jira-connect-form workspace-jira-form">
-        <label><span>Deployment</span><select value={connection.deployment} onChange={(event) => { const deployment = event.target.value; setConnection((current) => ({ ...current, deployment, authMode: deployment === 'data-center' ? 'pat' : 'user-token' })); }}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label>
-        <label className="full"><span>Jira HTTPS URL</span><input value={connection.baseUrl} placeholder="https://company.atlassian.net" onChange={(event) => setConnection((current) => ({ ...current, baseUrl: event.target.value }))} /></label>
-        {connection.authMode !== 'pat' && <label className="full"><span>Account email</span><input type="email" value={connection.email} onChange={(event) => setConnection((current) => ({ ...current, email: event.target.value }))} /></label>}
-        <label><span>Authentication</span><select value={connection.authMode} onChange={(event) => setConnection((current) => ({ ...current, authMode: event.target.value }))}>{connection.deployment === 'cloud' ? <><option value="user-token">User API token</option><option value="service-account">Service account token</option></> : <option value="pat">Personal access token</option>}</select></label>
-        <label><span>{connection.authMode === 'pat' ? 'Personal access token' : 'API token'}</span><input type="password" value={connection.token} onChange={(event) => setConnection((current) => ({ ...current, token: event.target.value }))} /></label>
+      {connected ? <div className="workspace-jira-connected"><Pill tone="good">Connected</Pill><strong>{status.credentials.connection?.account?.displayName ?? status.credentials.connection?.username ?? status.credentials.connection?.email}</strong><small>{status.credentials.connection?.baseUrl}</small><button className="secondary compact" onClick={disconnect}>Disconnect</button></div> : <div className="jira-connect-form workspace-jira-form">
+        <JiraCredentialFields connection={connection} setConnection={setConnection} />
         <button className="primary full" disabled={!ready || !projectKeys.length} onClick={connect}>Test connection & save securely</button>
       </div>}
     </section>
@@ -1726,14 +1742,9 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   const policy = data.portfolio?.jira;
   const repositoryIds = Object.keys(data.portfolio?.repositories ?? {});
   const [status, setStatus] = useState(null);
-  const [connection, setConnection] = useState({
-    name: policy?.connection ?? 'corporate-jira',
-    deployment: policy?.deployment ?? 'cloud',
-    baseUrl: '',
-    email: '',
-    token: '',
-    authMode: policy?.deployment === 'data-center' ? 'pat' : 'user-token'
-  });
+  const [connection, setConnection] = useState(() => jiraCredentialDraft({
+    name: policy?.connection ?? 'corporate-jira'
+  }, policy?.deployment ?? 'cloud'));
   const [projects, setProjects] = useState([]);
   const [projectKey, setProjectKey] = useState(policy?.projectKey ?? '');
   const [epics, setEpics] = useState([]);
@@ -1769,15 +1780,10 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
 
   async function connect() {
     const result = await action(() => window.singularity.connectJira(data.repository.root, {
-      name: connection.name,
-      deployment: connection.deployment,
-      baseUrl: connection.baseUrl,
-      authMode: connection.authMode,
-      email: connection.authMode === 'pat' ? null : connection.email,
-      token: connection.token
+      ...jiraCredentialPayload(connection, policy.deployment)
     }), 'Jira connection verified and stored securely');
     if (!result) return;
-    setConnection((current) => ({ ...current, token: '' }));
+    setConnection((current) => ({ ...current, pat: '' }));
     setStatus({ policy, credentials: { connected: true, active: result.active, connection: result.connection } });
     setProjects(result.discovery.projects ?? []);
     const next = projectKey || policy.projectKey || result.discovery.projects?.[0]?.key || '';
@@ -1861,16 +1867,14 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
     setConnection((current) => ({
       ...current,
       deployment: setup.deployment,
-      baseUrl: setup.baseUrl,
-      authMode: setup.deployment === 'data-center' ? 'pat' : 'user-token'
+      baseUrl: setup.baseUrl
     }));
     bootstrapPortfolio(await reload() ?? snapshot);
   }} jiraFirst onCancel={onDone} /></div>;
   if (!policy?.enabled) return <JiraPolicySetup data={data} action={action} reload={reload} onConfigured={(setup) => setConnection((current) => ({
     ...current,
     deployment: setup.deployment,
-    baseUrl: setup.baseUrl,
-    authMode: setup.deployment === 'data-center' ? 'pat' : 'user-token'
+    baseUrl: setup.baseUrl
   }))} onCancel={onDone} />;
 
   const connected = status?.credentials?.connected;
@@ -1880,8 +1884,8 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
       <span className="jira-mark">!</span>
       <div><span className="eyebrow">Local credential recovery</span><h2>Jira credentials cannot be read</h2><p>{status.credentials.recovery.message}</p><p>Reset removes only the unreadable encrypted Jira file from this operating-system account. Repository configuration and Git state are unchanged.</p></div>
       <button className="primary" onClick={resetCredentials}>Reset Jira credentials</button>
-      </section> : <section className="jira-connect panel"><div className="jira-connect-copy"><span className="jira-mark">J</span><span className="eyebrow">One-time setup</span><h2>Connect your Jira account</h2><p>{policy.deployment === 'cloud' ? 'Use an Atlassian API token. The renderer never receives it again after this form is submitted.' : 'Use a Jira Data Center personal access token. Password authentication is not supported.'}</p><ul><li>HTTPS and repository host allowlists are enforced.</li><li>Permissions are discovered before writes.</li><li>Tokens never enter Git, CLI child environments, logs, or planning prompts.</li></ul></div><div className="jira-connect-form"><label><span>Connection name · repository policy</span><input value={connection.name} readOnly /></label><label><span>Deployment</span><select value={connection.deployment} onChange={(event) => { const deployment = event.target.value; setConnection({ ...connection, deployment, authMode: deployment === 'data-center' ? 'pat' : 'user-token' }); }}><option value="cloud">Jira Cloud</option><option value="data-center">Jira Data Center</option></select></label><label className="full"><span>Jira HTTPS URL</span><input placeholder="https://company.atlassian.net" value={connection.baseUrl} onChange={(event) => setConnection({ ...connection, baseUrl: event.target.value })} /></label>{connection.authMode !== 'pat' && <label className="full"><span>Account email</span><input type="email" autoComplete="username" value={connection.email} onChange={(event) => setConnection({ ...connection, email: event.target.value })} /></label>}<label><span>Authentication</span><select value={connection.authMode} onChange={(event) => setConnection({ ...connection, authMode: event.target.value })}>{connection.deployment === 'cloud' ? <><option value="user-token">User API token</option><option value="service-account">Service account token</option></> : <option value="pat">Personal access token</option>}</select></label><label><span>{connection.authMode === 'pat' ? 'PAT' : 'API token'}</span><input type="password" autoComplete="current-password" value={connection.token} onChange={(event) => setConnection({ ...connection, token: event.target.value })} /></label><button className="primary full" disabled={!connection.baseUrl || !connection.token || (connection.authMode !== 'pat' && !connection.email)} onClick={connect}>Test connection & save securely</button>{status?.error && <p className="warning-copy full">{status.error}</p>}</div></section> : <>
-      <section className="jira-context-strip"><div><span>Connection</span><strong>{status.credentials.connection?.name}</strong><small>{status.credentials.connection?.baseUrl}</small></div><div><span>Account</span><strong>{status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}</strong><small>{status.credentials.connection?.authMode}</small></div><div><span>Policy</span><strong>{policy.writeMode} writes</strong><small>{policy.allowedProjects?.length ? `${policy.allowedProjects.length} allowed projects` : 'all visible projects'}</small></div><div><span>Cache</span><strong>{policy.read.cacheMinutes} minutes</strong><small>manual refresh available</small></div></section>
+      </section> : <section className="jira-connect panel"><div className="jira-connect-copy"><span className="jira-mark">J</span><span className="eyebrow">One-time setup</span><h2>Connect your Jira account</h2><p>{policy.deployment === 'cloud' ? 'Enter the Jira URL, username, and PAT/API token. The renderer never receives the token again after this form is submitted.' : 'Enter the Jira URL and Data Center personal access token. Password authentication is not supported.'}</p><ul><li>HTTPS and repository host allowlists are enforced.</li><li>Permissions are discovered before writes.</li><li>Tokens never enter Git, CLI child environments, logs, or planning prompts.</li></ul></div><div className="jira-connect-form"><JiraCredentialFields connection={{ ...connection, deployment: policy.deployment }} setConnection={setConnection} deploymentLocked /><button className="primary full" disabled={!jiraCredentialsReady(connection, policy.deployment)} onClick={connect}>Test connection & save securely</button>{status?.error && <p className="warning-copy full">{status.error}</p>}</div></section> : <>
+      <section className="jira-context-strip"><div><span>Connection</span><strong>{status.credentials.connection?.name}</strong><small>{status.credentials.connection?.baseUrl}</small></div><div><span>Account</span><strong>{status.credentials.connection?.account?.displayName ?? status.credentials.connection?.username ?? status.credentials.connection?.email}</strong><small>{status.credentials.connection?.authMode}</small></div><div><span>Policy</span><strong>{policy.writeMode} writes</strong><small>{policy.allowedProjects?.length ? `${policy.allowedProjects.length} allowed projects` : 'all visible projects'}</small></div><div><span>Cache</span><strong>{policy.read.cacheMinutes} minutes</strong><small>manual refresh available</small></div></section>
       <div className="jira-browser">
         <aside className="jira-projects panel"><header><span className="eyebrow">Scope</span><h2>Projects</h2></header>{!projects.length && <button className="primary" onClick={() => loadProjects()}>Load permitted projects</button>}{projects.map((project) => <button className={project.key === projectKey ? 'active' : ''} key={project.key} onClick={() => loadEpics(project.key)}><span>{project.key.slice(0, 2)}</span><div><strong>{project.name}</strong><small>{project.key} · {project.projectType ?? 'software'}</small></div></button>)}</aside>
         <section className="jira-epics panel"><header className="panel-heading"><div><span className="eyebrow">Existing Jira hierarchy</span><h2>{projectKey ? `${projectKey} Epics` : 'Choose a project'}</h2></div><span>{epics.length} visible</span></header>{!epics.length && projectKey && <div className="inline-empty">No Epics loaded. Refresh the project to query Jira.</div>}{epics.map((epic) => <button className={selectedEpic?.key === epic.key ? 'active' : ''} key={epic.key} onClick={() => chooseEpic(epic)}><StatusDot status={epic.statusCategory === 'Done' ? 'approved' : 'in_progress'} /><div><strong>{epic.key} — {epic.title}</strong><small>{epic.status ?? 'unknown status'} · updated {formatRecentTime(epic.updatedAt)}</small></div><span>→</span></button>)}</section>

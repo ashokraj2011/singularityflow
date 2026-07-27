@@ -424,15 +424,15 @@ On another terminal, `resume --fetch` fetches and fast-forwards the work-item br
 
 ### Jira intake
 
-Jira access uses Atlassian REST directly. Provide an Atlassian account email and API token; never use or commit an Atlassian password:
+Jira access uses Atlassian REST directly. Jira Cloud needs only the Jira URL, Atlassian username/email, and PAT/API token. The desktop presents exactly those credential fields and sends the standard Basic-auth value `base64(username:PAT)`; it never requests an Atlassian password:
 
 ```bash
 export JIRA_BASE_URL="https://company.atlassian.net"
-export JIRA_EMAIL="person@company.com"
-export JIRA_API_TOKEN="<api-token-from-atlassian>"
+export JIRA_USERNAME="person@company.com"
+export JIRA_PAT="<api-token-from-atlassian>"
 ```
 
-The CLI does not load `.env` files. Set these values for the current shell, inject them from a password manager, or configure them as protected CI secrets. Discover optional custom-field IDs and then export the fields used by your Jira site:
+`JIRA_EMAIL` and `JIRA_API_TOKEN` remain accepted aliases. The CLI does not load `.env` files. Set these values for the current shell, inject them from a password manager, or configure them as protected CI secrets. Discover optional custom-field IDs and then export the fields used by your Jira site:
 
 ```bash
 singularity-flow jira fields --query "Acceptance Criteria"
@@ -456,7 +456,7 @@ singularity-flow jira assigned --project ENG
 singularity-flow start ENG-142 --jira
 ```
 
-Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`; the Cloud path continues to use email plus API token. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
+Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and a Bearer `JIRA_PAT`; the Cloud path uses username plus PAT/API token with Basic authentication. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
 
 - `/sflow-jira-status` checks the connection and authenticated Jira identity.
 - `/sflow-jira-doctor` checks the active workspace, repository Jira policy, CLI credential availability, identity, configured projects, permissions, boards, and Epic visibility, then prints corrective actions.

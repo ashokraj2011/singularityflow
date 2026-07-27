@@ -32,12 +32,30 @@ function response(payload, status = 200, headers = {}) {
 test('Jira connections enforce HTTPS and deployment-specific authentication', () => {
   assert.throws(() => normalizeJiraConnection({ baseUrl: 'http://jira.example.com', email: 'a@b.com', token: 'secret' }), /HTTPS/);
   assert.throws(() => normalizeJiraConnection({ baseUrl: 'https://jira.example.com', deployment: 'data-center', email: 'a@b.com', token: 'secret', authMode: 'user-token' }), /Data Center/);
-  const cloud = normalizeJiraConnection({ name: 'office', baseUrl: 'https://office.atlassian.net/', email: 'a@b.com', token: 'secret' });
+  const cloud = normalizeJiraConnection({ name: 'office', baseUrl: 'https://office.atlassian.net/', username: 'a@b.com', pat: 'secret' });
   assert.equal(cloud.baseUrl, 'https://office.atlassian.net');
   assert.equal(cloud.auth.mode, 'user-token');
+  assert.equal(cloud.auth.username, 'a@b.com');
+  assert.equal(cloud.auth.email, 'a@b.com');
   const dc = normalizeJiraConnection({ baseUrl: 'https://jira.office.example', deployment: 'data-center', token: 'pat', authMode: 'pat' });
   assert.equal(dc.apiVersion, '2');
   assert.equal(dc.auth.email, null);
+});
+
+test('Jira Cloud username and PAT use Basic authentication', async () => {
+  const result = await jiraRequest('/rest/api/3/myself', {
+    connection: {
+      baseUrl: 'https://office.atlassian.net',
+      username: 'developer@example.com',
+      pat: 'cloud-pat'
+    },
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'https://office.atlassian.net/rest/api/3/myself');
+      assert.equal(init.headers.Authorization, `Basic ${Buffer.from('developer@example.com:cloud-pat').toString('base64')}`);
+      return response({ accountId: 'developer-1' });
+    }
+  });
+  assert.equal(result.payload.accountId, 'developer-1');
 });
 
 test('Jira request retries throttling and sends Data Center PAT only as Bearer auth', async () => {
@@ -604,13 +622,14 @@ test('desktop Jira credentials are encrypted at rest and public status never ret
     name: 'corporate-jira',
     deployment: 'cloud',
     baseUrl: 'https://office.atlassian.net',
-    auth: { mode: 'user-token', email: 'developer@example.com', token: 'never-plaintext' },
+    auth: { mode: 'user-token', username: 'developer@example.com', email: 'developer@example.com', token: 'never-plaintext' },
     account: { displayName: 'Developer' }
   });
   const disk = await readFile(file, 'utf8');
   assert.doesNotMatch(disk, /never-plaintext|developer@example\.com/);
   const status = await store.status();
   assert.equal(status.connected, true);
+  assert.equal(status.connection.username, 'developer@example.com');
   assert.equal(status.connection.email, 'developer@example.com');
   assert.equal(JSON.stringify(status).includes('never-plaintext'), false);
   assert.equal((await store.load()).auth.token, 'never-plaintext');

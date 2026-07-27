@@ -45,6 +45,7 @@ function publicConnection(connection) {
     baseUrl: connection.baseUrl,
     cloudId: connection.cloudId ?? null,
     authMode: connection.auth?.mode,
+    username: connection.auth?.username ?? connection.auth?.email ?? null,
     email: connection.auth?.email ?? null,
     connectedAt: connection.connectedAt ?? null,
     account: connection.account ?? null,

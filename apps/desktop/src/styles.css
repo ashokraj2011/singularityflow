@@ -1432,6 +1432,13 @@ button.ghost { color: #096b43; }
 .workspace-jira-form label > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
 .workspace-jira-form .full { grid-column: 1/-1; }
 .workspace-jira-form input,.workspace-jira-form select { min-height: 42px; }
+.jira-deployment-choice { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 5px; background: var(--surface-muted); }
+.jira-deployment-choice button { min-height: 54px; display: grid; gap: 2px; border: 1px solid transparent; border-radius: 9px; padding: 8px 12px; color: var(--muted); text-align: left; background: transparent; cursor: pointer; }
+.jira-deployment-choice button:hover { color: var(--ink); background: #fff; }
+.jira-deployment-choice button.active { border-color: #a8cbb5; color: var(--evergreen-900); background: #fff; box-shadow: 0 4px 14px rgba(17,122,77,.08); }
+.jira-deployment-choice strong { font-size: 12px; font-weight: 680; }
+.jira-deployment-choice small { color: inherit; font-size: 10px; }
+.jira-credential-note { margin: -4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 @media (max-width: 1320px) {
   .studio-insight-grid { grid-template-columns: 1fr; }
@@ -2955,7 +2962,7 @@ label > span,
 .onboarding-jira-card { padding-top: 40px; }
 .onboarding-jira-form { display: grid; grid-template-columns: 180px minmax(220px,1fr); gap: 13px; margin-top: 15px; }
 .onboarding-jira-form label { display: grid; gap: 6px; }
-.onboarding-jira-form label.wide { grid-column: auto; }
+.onboarding-jira-form .wide { grid-column: 1/-1; }
 .onboarding-jira-form input,.onboarding-jira-form select { min-height: 43px; padding: 0 11px; }
 .onboarding-jira-actions { display: flex; align-items: center; gap: 10px; margin-top: 13px; }
 .onboarding-jira-connected { min-height: 70px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 12px; margin-top: 15px; border: 1px solid #9acaae; border-radius: 12px; padding: 10px 14px; background: #eff9f3; }

@@ -40,10 +40,16 @@ export function normalizeJiraConnection(input = {}) {
   if (deployment === 'data-center' && mode !== 'pat') throw new SingularityFlowError('Jira Data Center uses PAT authentication in this connector.');
   if (deployment === 'cloud' && mode === 'pat') throw new SingularityFlowError('Jira Cloud uses an API token with an email or service-account identity.');
 
-  const email = input.auth?.email ?? input.email ?? null;
-  const token = input.auth?.token ?? input.apiToken ?? input.token ?? null;
+  const username = input.auth?.username
+    ?? input.auth?.email
+    ?? input.username
+    ?? input.email
+    ?? null;
+  const token = input.auth?.token ?? input.pat ?? input.apiToken ?? input.token ?? null;
   if (!token) throw new SingularityFlowError('A Jira API token or PAT is required.');
-  if (mode !== 'pat' && !email) throw new SingularityFlowError('Jira Cloud authentication requires an email address.');
+  if (mode !== 'pat' && !username) {
+    throw new SingularityFlowError('Jira Cloud authentication requires a username or Atlassian account email.');
+  }
 
   const cloudId = input.cloudId ? String(input.cloudId).trim() : null;
   const apiBaseUrl = cloudId
@@ -56,19 +62,25 @@ export function normalizeJiraConnection(input = {}) {
     apiBaseUrl,
     apiVersion: deployment === 'cloud' ? '3' : '2',
     cloudId,
-    auth: { mode, email: email ? String(email).trim() : null, token: String(token) }
+    auth: {
+      mode,
+      username: username ? String(username).trim() : null,
+      // Keep the email alias for existing callers and encrypted credential records.
+      email: username ? String(username).trim() : null,
+      token: String(token)
+    }
   };
 }
 
 export function jiraCredentials(env = process.env) {
   const baseUrl = env.JIRA_BASE_URL?.replace(/\/$/, '');
   const deployment = String(env.JIRA_DEPLOYMENT ?? 'cloud').toLowerCase();
-  const email = env.JIRA_EMAIL ?? null;
-  const apiToken = env.JIRA_API_TOKEN ?? env.JIRA_PAT;
-  if (!baseUrl || !apiToken || (deployment !== 'data-center' && !email)) {
-    throw new SingularityFlowError('Jira access requires JIRA_BASE_URL plus JIRA_EMAIL and JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center. Singularity Flow never accepts or stores a password.');
+  const username = env.JIRA_USERNAME ?? env.JIRA_EMAIL ?? null;
+  const apiToken = env.JIRA_PAT ?? env.JIRA_API_TOKEN;
+  if (!baseUrl || !apiToken || (deployment !== 'data-center' && !username)) {
+    throw new SingularityFlowError('Jira access requires JIRA_BASE_URL plus JIRA_USERNAME (or JIRA_EMAIL) and JIRA_PAT (or JIRA_API_TOKEN) for Cloud, or JIRA_PAT for Data Center. Singularity Flow never accepts or stores a password.');
   }
-  return { baseUrl, email, apiToken, deployment };
+  return { baseUrl, username, email: username, apiToken, deployment };
 }
 
 export function jiraConnectionFromEnv(env = process.env) {
@@ -76,8 +88,8 @@ export function jiraConnectionFromEnv(env = process.env) {
   return normalizeJiraConnection({
     baseUrl: credentials.baseUrl,
     deployment: credentials.deployment,
-    email: credentials.email,
-    token: credentials.apiToken,
+    username: credentials.username,
+    pat: credentials.apiToken,
     authMode: credentials.deployment === 'data-center' ? 'pat' : (env.JIRA_AUTH_MODE ?? 'user-token'),
     cloudId: env.JIRA_CLOUD_ID,
     name: env.JIRA_CONNECTION_NAME ?? 'environment'
@@ -321,7 +333,7 @@ function validateBoardId(value) {
 
 function authorizationHeader(connection) {
   if (connection.auth.mode === 'pat') return `Bearer ${connection.auth.token}`;
-  return `Basic ${Buffer.from(`${connection.auth.email}:${connection.auth.token}`).toString('base64')}`;
+  return `Basic ${Buffer.from(`${connection.auth.username ?? connection.auth.email}:${connection.auth.token}`).toString('base64')}`;
 }
 
 function jiraApiTarget(apiPath, connection) {

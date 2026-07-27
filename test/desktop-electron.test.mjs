@@ -101,6 +101,20 @@ test('Electron installs its OS-trust-store network fetch before registering IPC 
   assert.ok(ready.indexOf('installElectronNetworkFetch(net);') < ready.indexOf('registerHandlers();'));
 });
 
+test('desktop Jira Cloud connection is a URL, username, and PAT flow', async () => {
+  const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
+  const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
+  assert.match(source, /function JiraCredentialFields/);
+  assert.match(source, />Jira URL<\/span>/);
+  assert.match(source, />Username or email<\/span>/);
+  assert.match(source, /cloud \? 'PAT \/ API token' : 'Personal access token'/);
+  assert.match(source, /Basic base64\(username:PAT\)/);
+  assert.match(source, /jiraCredentialPayload\(connection/);
+  assert.equal((source.match(/<JiraCredentialFields\b/g) ?? []).length, 3);
+  assert.match(styles, /\.jira-deployment-choice/);
+  assert.match(styles, /\.jira-credential-note/);
+});
+
 test('Electron welcome screen opens the workspace boundary and preserves loading feedback', async () => {
   const source = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   assert.match(source, /Opening workspace…/);

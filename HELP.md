@@ -742,9 +742,11 @@ Set Jira credentials in the shell or a protected secret manager. Do not commit c
 
 ```bash
 export JIRA_BASE_URL="https://company.atlassian.net"
-export JIRA_EMAIL="person@company.com"
-export JIRA_API_TOKEN="<api-token>"
+export JIRA_USERNAME="person@company.com"
+export JIRA_PAT="<api-token>"
 ```
+
+The desktop Jira Cloud connection asks for those same three values: Jira URL, username/email, and PAT/API token. It sends Basic authentication as `base64(username:PAT)` and never requests a Jira password. `JIRA_EMAIL` and `JIRA_API_TOKEN` remain supported CLI aliases.
 
 Discover site-specific custom fields:
 

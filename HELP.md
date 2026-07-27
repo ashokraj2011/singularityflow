@@ -1239,11 +1239,21 @@ Sync retries the existing history without rebasing, resetting, or force-pushing.
 The world model grounds phase generation in repository facts:
 
 ```bash
+cd /path/to/the/repository
+singularity-flow wm init
+singularity-flow wm build --depth standard
+singularity-flow wm check
+
+# Optional phase/task-focused build
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
-singularity-flow wm check
 ```
+
+`wm init`, `wm build`, `wm check`, and `wm context` are repository-scoped and do
+not require a Jira, Epic, Story, or work-item ID. `/sflow-worldmodel` must not ask
+for one for those operations. A governed work ID and persona apply only when
+`wm compose` is creating a phase prompt for that work item.
 
 `wm build` runs the configured generator in a detached analysis worktree. Only
 its isolated output is accepted. Singularity Flow validates the manifest and

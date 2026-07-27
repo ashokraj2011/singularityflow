@@ -85,7 +85,7 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
   let active = existing;
   if (!workItemSelectionRequired && !selectionRequired && valid && sessionId) active = await bindPersonaToCopilotSession(root, definition, selectedWorkId, record);
   if (workItemSelectionRequired) return {
-    additionalContext: `Singularity Flow work-item selection is required for Copilot session ${sessionId ?? '(unknown)'}. Invoke /sflow-session before using implementation or lifecycle tools. Ask the contributor for a work ID or Jira ID, fetch the configured Git remote, and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
+    additionalContext: `Singularity Flow work-item selection is required for implementation and lifecycle work in Copilot session ${sessionId ?? '(unknown)'}. Invoke /sflow-session before using those tools. Repository-scoped /sflow-worldmodel initialization, build, freshness checks, and context inspection are allowed without a work or Jira ID. Ask the contributor for a work ID or Jira ID only when attaching to governed Story work; fetch the configured Git remote and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
   };
   if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sflow-session to attach to a remote work/Jira ID.` };
   const choices = Object.entries(definition.personas).map(([id, persona]) => `${persona.label} (${id})`).join(', ');
@@ -111,8 +111,27 @@ function setupCommandText(toolArgs) {
   return scoped?.[1]?.trim() ?? command;
 }
 
+function isRepositoryWorldModelCall(payload) {
+  const command = setupCommandText(payload.toolArgs);
+  if (/[;&|`$<>\n]/.test(command)) return false;
+  const prefix = '(?:singularity-flow|sflow) wm';
+  if (new RegExp(`^${prefix} (?:init|check)(?: 2>&1)?$`).test(command)) return true;
+
+  const quoted = `(?:"[^"]*"|'[^']*')`;
+  const identifier = '[A-Za-z0-9._:/,+@=-]+';
+  const buildOption = `(?:--local|--depth (?:quick|standard|deep)|--(?:phase|views) ${identifier}|--(?:task|focus) (?:${quoted}|${identifier}))`;
+  if (new RegExp(`^${prefix} build(?: ${buildOption})*(?: 2>&1)?$`).test(command)) return true;
+
+  const contextOption = `(?:--concat|--evidence|--no-persona|--task (?:${quoted}|${identifier}))`;
+  return new RegExp(`^${prefix} context ${identifier}(?: ${contextOption})*(?: 2>&1)?$`).test(command);
+}
+
 function isPersonaToolCall(payload) {
   const command = setupCommandText(payload.toolArgs);
+  // Building and inspecting the repository model is repository maintenance, not Story work.
+  // Keep this exception deliberately narrow: it accepts only the documented world-model
+  // subcommands and flags, rejects shell metacharacters, and does not admit --runner or --out.
+  if (isRepositoryWorldModelCall(payload)) return true;
   if (/^(?:singularity-flow|sflow) choices (?:begin start [A-Za-z0-9._-]+|begin approve [A-Za-z0-9._-]+(?: --fetch)?|answer [0-9a-f-]{36} (?:intake-source|workflow-template|persona|phase-confirmation) [A-Za-z0-9._-]+|status [0-9a-f-]{36})(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) (?:story )?start\s/.test(command)
     && /(?:^|\s)--selection-receipt\s+[0-9a-f-]{36}(?:\s|$)/.test(command)

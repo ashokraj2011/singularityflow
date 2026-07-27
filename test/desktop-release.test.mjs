@@ -157,10 +157,9 @@ test('Artifactory dry-run is network-free and normal upload refuses replacement'
   await assert.rejects(() => publishDesktopReleaseToArtifactory(local.directory, { env, dryRun: true }), /Only official/);
 });
 
-test('desktop builder configuration defines universal DMG and assisted NSIS installer', async () => {
+test('desktop builder and local release commands define universal DMG and assisted NSIS installer', async () => {
   const desktop = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'));
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  const workflow = await readFile(path.join(root, '.github/workflows/desktop-release.yml'), 'utf8');
   assert.equal(desktop.build.appId, 'dev.singularityflow.desktop');
   assert.equal(desktop.build.win.icon, 'build/icon.ico');
   assert.deepEqual(desktop.build.mac.target.flatMap((target) => target.arch), ['universal', 'universal']);
@@ -172,8 +171,4 @@ test('desktop builder configuration defines universal DMG and assisted NSIS inst
   assert.ok(desktop.build.extraResources.some((item) => item.to === 'event-horizon/out'));
   assert.match(packageJson.scripts['desktop:package:mac'], /desktop-release\.mjs package --platform mac/);
   assert.match(packageJson.scripts['desktop:package:win'], /desktop-release\.mjs package --platform win/);
-  assert.match(workflow, /runs-on: macos-14/);
-  assert.match(workflow, /runs-on: windows-2022/);
-  assert.match(workflow, /gh release create .*--draft --verify-tag/);
-  assert.match(workflow, /SINGULARITY_FLOW_ARTIFACTORY_TOKEN/);
 });

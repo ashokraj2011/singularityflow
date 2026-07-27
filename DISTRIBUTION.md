@@ -65,7 +65,16 @@ WIN_CSC_KEY_PASSWORD     Certificate password
 
 ## GitHub release
 
-Add the signing values above as GitHub Actions secrets. The workflow `.github/workflows/desktop-release.yml` runs on an existing `v<package-version>` tag or through manual dispatch. Every version field in the root package, desktop package, lock file, plugin manifest, and marketplace manifest must match the tag.
+Add the signing values above as GitHub Actions secrets. The optional workflow
+`.github/workflows/desktop-release.yml` runs on an existing
+`v<package-version>` tag or through manual dispatch. Every version field in the
+root package, desktop package, lock file, plugin manifest, and marketplace
+manifest must match the tag.
+
+Corporate repositories may delete this workflow when GitHub Actions is disabled
+or PAT policy prohibits workflow-file updates. `install.sh`, `npm test`, and
+`npm run check` do not require it. The local macOS/Windows packaging and
+Artifactory publishing commands documented below remain available.
 
 Example release:
 

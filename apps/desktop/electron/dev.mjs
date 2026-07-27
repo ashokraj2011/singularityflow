@@ -2,15 +2,19 @@ import electron from 'electron';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
+import { desktopDevServerOptions, listeningDesktopPort } from './dev-server.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const port = Number.parseInt(process.env.SINGULARITY_FLOW_DESKTOP_PORT ?? '5173', 10);
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SINGULARITY_FLOW_DESKTOP_PORT must be a valid TCP port.');
-const server = await createServer({ root, server: { host: '127.0.0.1', port, strictPort: true } });
+const serverOptions = desktopDevServerOptions();
+const server = await createServer({ root, server: serverOptions });
 await server.listen();
+const port = listeningDesktopPort(server, serverOptions.port);
+if (port !== serverOptions.port) {
+  console.log(`Desktop port ${serverOptions.port} is already in use; continuing on http://${serverOptions.host}:${port}.`);
+}
 const child = spawn(electron, ['.'], {
   cwd: root,
-  env: { ...process.env, VITE_DEV_SERVER_URL: `http://127.0.0.1:${port}` },
+  env: { ...process.env, VITE_DEV_SERVER_URL: `http://${serverOptions.host}:${port}` },
   stdio: 'inherit'
 });
 const close = async () => { await server.close(); };

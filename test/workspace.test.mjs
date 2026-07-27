@@ -187,6 +187,13 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-'));
   const mobile = await remoteRepository(root, 'mobile');
   const platform = await remoteRepository(root, 'platform');
+  const platformSource = path.join(root, 'platform-source');
+  run('git', ['switch', '-c', 'KAN-8'], { cwd: platformSource });
+  await writeFile(path.join(platformSource, 'KAN-8.md'), '# Governed Epic\n');
+  run('git', ['add', '.'], { cwd: platformSource });
+  run('git', ['commit', '-m', 'Add governed Epic branch'], { cwd: platformSource });
+  run('git', ['push', platform, 'KAN-8'], { cwd: platformSource });
+  run('git', ['switch', 'main'], { cwd: platformSource });
   const baseDirectory = path.join(root, 'workspaces');
   const input = workspaceInput(baseDirectory, {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform', metadata: { appId: 'APP-PLATFORM', name: 'Shared platform' } },
@@ -221,6 +228,11 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   );
 
   const lead = created.status.leadRepositoryPath;
+  assert.equal(
+    run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/KAN-8'], { cwd: lead, allowFailure: true }).status,
+    0,
+    'workspace clones must retain remote governed branches'
+  );
   await writeFile(path.join(lead, 'local.txt'), 'dirty');
   const fetched = await fetchWorkspace(created.workspace.path);
   assert.equal(fetched.results.find((item) => item.repository === 'platform').reason, 'dirty');

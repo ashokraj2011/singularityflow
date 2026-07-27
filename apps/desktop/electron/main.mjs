@@ -2019,9 +2019,30 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
     if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
     assertClean(root);
-    checkout(root, epicKey, { base: definition.defaultBaseBranch, fetch: true });
+    const checkoutMode = checkout(root, epicKey, { base: definition.defaultBaseBranch, fetch: true });
     const actor = identity(root);
     await setPersonaSession(root, definition, actor, persona, epicKey);
+    if (!checkoutMode.startsWith('created-from-')) {
+      try {
+        const existing = await loadInitiative(root, epicKey, portfolio);
+        return {
+          initiativeId: epicKey,
+          source,
+          resumed: true,
+          publication: null,
+          intakePublication: null,
+          currentPhase: existing.initiative.currentPhase,
+          worldModel: { required: false, timing: 'story-intake' },
+          attachments: null
+        };
+      } catch (error) {
+        if (!String(error?.message ?? '').includes('No initiative found')) throw error;
+        throw new Error(
+          `Git branch ${epicKey} already exists but does not contain a governed initiative. `
+          + 'Choose a different Epic ID or resolve the branch before starting.'
+        );
+      }
+    }
     const created = await createInitiative(root, {
       id: epicKey,
       title: source.title ?? epicKey,

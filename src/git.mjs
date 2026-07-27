@@ -71,7 +71,19 @@ export function assertClean(root) {
 }
 
 export function fetchRemote(root, remote = 'origin') {
-  if (hasRemote(root, remote)) git(['fetch', '--prune', remote], { cwd: root, stdio: 'inherit' });
+  if (!hasRemote(root, remote)) return;
+  // Managed workspaces used to be cloned with --single-branch, leaving the configured fetch
+  // refspec pinned to main. A normal `git fetch origin` then never discovered Epic and Story
+  // branches created by another machine, so the desktop could create a conflicting local branch
+  // and only discover the collision when push was rejected. Broaden the named remote once and
+  // fetch its branch namespace. Persisting the refspec is important: Git will not recognize a
+  // fetched ref as a valid upstream if that ref is outside remote.<name>.fetch.
+  const trackingProbe = `refs/remotes/${remote}/singularity-flow-probe`;
+  if (git(['check-ref-format', trackingProbe], { cwd: root, allowFailure: true }).status !== 0) {
+    throw new SingularityFlowError(`Git remote '${remote}' cannot be used as a remote-tracking namespace.`);
+  }
+  git(['remote', 'set-branches', remote, '*'], { cwd: root });
+  git(['fetch', '--prune', remote], { cwd: root, stdio: 'inherit' });
 }
 
 export function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
@@ -84,6 +96,14 @@ export function pullFastForward(root) {
   if (hasUpstream(root)) git(['pull', '--ff-only'], { cwd: root, stdio: 'inherit' });
 }
 
+function configureUpstream(root, name, remote) {
+  // `git branch --set-upstream-to origin/name` refuses a perfectly valid remote-tracking ref
+  // when the clone's original fetch refspec was --single-branch. Record the standard upstream
+  // pair directly so existing managed clones can be repaired without rewriting unrelated config.
+  git(['config', '--local', `branch.${name}.remote`, remote], { cwd: root });
+  git(['config', '--local', `branch.${name}.merge`, `refs/heads/${name}`], { cwd: root });
+}
+
 export function checkout(root, name, {
   base = 'main',
   fetch = false,
@@ -93,16 +113,27 @@ export function checkout(root, name, {
   validBranch(root, name);
   if (fetch) fetchRemote(root, remote);
   if (branch(root) === name) {
-    if (fetch) pullFastForward(root);
+    if (fetch && refExists(root, `refs/remotes/${remote}/${name}`)) {
+      if (!hasUpstream(root)) {
+        configureUpstream(root, name, remote);
+      }
+      pullFastForward(root);
+    }
     return 'already-current';
   }
   if (refExists(root, `refs/heads/${name}`)) {
     git(['switch', name], { cwd: root, stdio: 'inherit' });
-    if (fetch) pullFastForward(root);
+    if (fetch && refExists(root, `refs/remotes/${remote}/${name}`)) {
+      if (!hasUpstream(root)) {
+        configureUpstream(root, name, remote);
+      }
+      pullFastForward(root);
+    }
     return 'checked-out-local';
   }
   if (refExists(root, `refs/remotes/${remote}/${name}`)) {
-    git(['switch', '--track', '-c', name, `${remote}/${name}`], { cwd: root, stdio: 'inherit' });
+    git(['switch', '--no-track', '-c', name, `${remote}/${name}`], { cwd: root, stdio: 'inherit' });
+    configureUpstream(root, name, remote);
     return 'tracked-remote';
   }
   if (existingOnly) throw new SingularityFlowError(`Branch ${name} does not exist locally or on ${remote}.`);
@@ -174,7 +205,10 @@ export function commit(root, message) {
 }
 
 export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
-  return git(['push', '-u', remote, `HEAD:${branchName}`], { cwd: root, stdio: 'inherit', allowFailure: true });
+  // Capture stderr so desktop and recovery records contain Git's real rejection reason. Callers
+  // already surface their own success result, while an inherited child left error="" and reduced
+  // every failure to the unhelpful generic "fix remote access" message.
+  return git(['push', '-u', remote, `HEAD:${branchName}`], { cwd: root, allowFailure: true });
 }
 
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {

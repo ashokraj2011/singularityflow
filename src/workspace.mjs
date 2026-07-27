@@ -455,7 +455,9 @@ async function cloneIntoWorkspace(root, operation) {
   const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
   const staging = path.join(stagingRoot, 'repository');
   await assertInside(root, staging);
-  const result = run('git', ['clone', '--branch', operation.branch, '--single-branch', '--', operation.url, staging], {
+  // Check out the configured default branch, but retain remote-tracking refs for governed Epic
+  // and Story branches. State transfer depends on seeing branches created from other terminals.
+  const result = run('git', ['clone', '--branch', operation.branch, '--', operation.url, staging], {
     cwd: root,
     allowFailure: true
   });

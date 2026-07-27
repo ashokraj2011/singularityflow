@@ -439,6 +439,7 @@ Verify access before starting work:
 
 ```bash
 singularity-flow jira status
+singularity-flow jira doctor
 singularity-flow jira pull ENG-142
 singularity-flow jira assigned --project ENG
 singularity-flow start ENG-142 --jira
@@ -447,6 +448,7 @@ singularity-flow start ENG-142 --jira
 Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and `JIRA_PAT`; the Cloud path continues to use email plus API token. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
 
 - `/sflow-jira-status` checks the connection and authenticated Jira identity.
+- `/sflow-jira-doctor` checks the active workspace, repository Jira policy, CLI credential availability, identity, configured projects, permissions, boards, and Epic visibility, then prints corrective actions.
 - `/sflow-jira-assigned` lists incomplete Stories assigned to that identity.
 - `/sflow-jira-board` lists Stories grouped under active/future sprints and never queries the backlog.
 - `/sflow-jira-update` changes one Story only after displaying its current state and receiving exact Story-key confirmation.
@@ -895,6 +897,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow jira boards\|board` | Discover Jira Software boards and list Stories in active/future sprints with backlog excluded. |
 | `singularity-flow jira fields --query <TEXT>` | Discover Jira custom-field IDs for acceptance criteria, points, sprint, or other metadata. |
 | `singularity-flow jira status\|projects\|epics\|children\|permissions` | Discover connection, visible hierarchy, and effective project permissions. |
+| `singularity-flow jira doctor [--json]` | Diagnose workspace policy, CLI credentials, identity, project access, permissions, boards, and Epic visibility without changing anything. |
 | `singularity-flow jira transitions\|transition\|assign\|priority\|sprint\|comment` | Inspect transitions or update one exact Jira Story with mandatory `--confirm <STORY-KEY>`. |
 | `singularity-flow initiative jira-adopt <EPIC>` | Preview or adopt a Jira Epic and its children into a Git initiative with repository mappings. |
 | `singularity-flow initiative jira-plan` | Create, commit, and push a hash-pinned outbound Jira change plan. |

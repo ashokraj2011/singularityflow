@@ -55,6 +55,7 @@ import {
   getIssueProperty, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions,
   listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue
 } from './jira.mjs';
+import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
@@ -242,6 +243,7 @@ Usage:
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
   singularity-flow jira status [--json]
+  singularity-flow jira doctor [--json]
   singularity-flow jira assigned [--project KEY] [--type Story] [--limit 25] [--json]
   singularity-flow jira list [same options]             Compatibility alias for jira assigned
   singularity-flow jira projects [--query TEXT]
@@ -1531,6 +1533,13 @@ function jiraSprintLabel(issue) {
 
 async function jiraCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'Jira subcommand');
+  if (subcommand === 'doctor') {
+    const result = await jiraDoctor(repoRoot());
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(jiraDoctorText(result));
+    if (!result.ok) process.exitCode = 2;
+    return;
+  }
   if (subcommand === 'status') {
     const result = await discoverJiraConnection();
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

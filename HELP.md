@@ -753,6 +753,7 @@ Connection and hierarchy commands:
 
 ```bash
 singularity-flow jira status
+singularity-flow jira doctor
 singularity-flow jira projects
 singularity-flow jira epics --project APP
 singularity-flow jira children APP-100
@@ -762,7 +763,9 @@ singularity-flow jira boards --project APP
 singularity-flow jira board 42 --state active,future --type Story
 ```
 
-The board command reads only the selected board's active and future sprints and groups Stories by sprint. It does not call the Jira backlog endpoint. Use `/sflow-jira-status`, `/sflow-jira-assigned`, and `/sflow-jira-board` for the same read-only flows inside Copilot CLI.
+The board command reads only the selected board's active and future sprints and groups Stories by sprint. It does not call the Jira backlog endpoint. Use `/sflow-jira-status`, `/sflow-jira-doctor`, `/sflow-jira-assigned`, and `/sflow-jira-board` for the same read-only flows inside Copilot CLI.
+
+`singularity-flow jira doctor` is the full configuration diagnostic. It checks the active workspace and selected repository, `singularity/portfolio.yml` Jira policy, required CLI credential-variable presence, authenticated identity, configured project visibility, effective permissions, Jira Software boards, and visible Epics. It never prints secrets or changes Jira, Git, or repository files. Electron credentials remain in the operating-system credential store and are intentionally unavailable to the standalone CLI; the doctor reports this distinction instead of treating a successful desktop sign-in as CLI configuration.
 
 An explicitly invoked `/sflow-jira-update` can change one Story at a time:
 

@@ -30,6 +30,7 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
 
 test('plugin provides direct Jira connection, assigned work, sprint board, and guarded update skills', async () => {
   const status = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-status', 'SKILL.md'), 'utf8');
+  const doctor = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-doctor', 'SKILL.md'), 'utf8');
   const assigned = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-assigned', 'SKILL.md'), 'utf8');
   const board = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-board', 'SKILL.md'), 'utf8');
   const update = await readFile(path.join(pluginRoot, 'skills', 'sflow-jira-update', 'SKILL.md'), 'utf8');
@@ -41,6 +42,10 @@ test('plugin provides direct Jira connection, assigned work, sprint board, and g
   assert.match(status, /Do not search, glob, inspect, or read repository files/);
   assert.match(status, /Do not create, edit, delete, commit, or push any file/);
   assert.match(status, /If the command fails, report that failure and stop/);
+  assert.match(doctor, /singularity-flow jira doctor --json/);
+  assert.match(doctor, /first and only tool call/);
+  assert.match(doctor, /Do not create, edit, or delete files/);
+  assert.match(doctor, /Electron keychain credentials are not exposed to Copilot CLI/);
 
   assert.match(assigned, /singularity-flow jira assigned/);
   assert.match(assigned, /status category not Done/);

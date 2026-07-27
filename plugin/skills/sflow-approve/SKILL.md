@@ -18,6 +18,7 @@ Anyone may choose any persona, but the chosen persona must be configured to appr
 6. Require the reviewer to type the exact phase name for final confirmation; selection UI must not weaken this deliberate approval control. Self-approval is allowed but must remain visibly warned and must never be described as independent review.
 7. The CLI commits and pushes the decision and advances only after the distinct-identity threshold is met.
 8. Report the decision commit, persona, self-approval status, remaining approvals, and next phase. Do not merge, deploy, or modify Jira.
+9. When the approval threshold advances the workflow, reproduce the CLI's `Context boundary` and `Next Copilot actions` lines exactly. If the policy says `new`, stop and ask the contributor to run `/clear` and then `/sflow-next`; do not begin the next phase in the current conversation. If it says `compact`, ask for `/compact` before `/sflow-next`. `keep` may continue normally.
 
 Selection-receipt bridge for shells without persistent stdin:
 

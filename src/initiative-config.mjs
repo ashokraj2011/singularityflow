@@ -6,6 +6,7 @@ import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
+import { normalizeContextPolicy } from './context-policy.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -405,6 +406,10 @@ export function validatePortfolio(value) {
     normalizedPhases[id] = normalizePhase(phase, id);
   }
   portfolio.initiativePhases = normalizedPhases;
+  portfolio.contextPolicy = normalizeContextPolicy(portfolio.contextPolicy ?? {}, {
+    phaseIds: Object.keys(normalizedPhases),
+    label: 'portfolio contextPolicy'
+  });
 
   for (const [id, profile] of Object.entries(portfolio.initiativeProfiles)) {
     safeId(id, 'Initiative profile ID'); object(profile, `Initiative profile '${id}'`);
@@ -499,7 +504,8 @@ export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = n
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
     identity: { ...structuredClone(portfolio.identity), authority, configurablePerEpic: false },
     jira: structuredClone(portfolio.jira),
-    storage: structuredClone(portfolio.storage)
+    storage: structuredClone(portfolio.storage),
+    contextPolicy: structuredClone(portfolio.contextPolicy)
   };
 }
 
@@ -542,6 +548,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     identity: resolved.identity,
     jira: resolved.jira,
     storage: resolved.storage,
+    contextPolicy: resolved.contextPolicy,
     lifecycleMode: resolved.lifecycleMode,
     templates
   });
@@ -557,6 +564,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     approvalAuthorities: structuredClone(resolved.approvalAuthorities),
     identity: structuredClone(resolved.identity),
     jira: structuredClone(resolved.jira),
-    storage: structuredClone(resolved.storage)
+    storage: structuredClone(resolved.storage),
+    contextPolicy: structuredClone(resolved.contextPolicy)
   };
 }

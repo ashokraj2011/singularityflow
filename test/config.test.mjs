@@ -20,6 +20,9 @@ import {
   validateDefinition
 } from '../src/config.mjs';
 import { groundingMode } from '../src/grounding.mjs';
+import {
+  contextBoundaryHandoff, normalizeContextPolicy
+} from '../src/context-policy.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -28,6 +31,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.equal(bugfix.phases.find((item) => item.id === 'fix-spec').template, 'bugfix/fix-spec.md');
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
+  assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
   assert.equal(definition.worldModel.grounding, 'enforce');
@@ -85,6 +89,24 @@ test('Copilot session persona policy is configurable and absent configuration st
   assert.throws(() => normalizeSessionPolicy({ personaSelection: 'always' }), /must be off, reuse, or prompt/);
   assert.throws(() => normalizeSessionPolicy({ promptOnResume: 'yes' }), /must be boolean/);
   assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);
+});
+
+test('phase context boundaries default legacy configs to keep and support approval overrides', () => {
+  assert.deepEqual(normalizeContextPolicy(), { onApproval: 'keep', onRejection: 'keep', phaseOverrides: {} });
+  assert.deepEqual(
+    normalizeContextPolicy({
+      onApproval: 'new',
+      onRejection: 'keep',
+      phaseOverrides: { implementation: 'compact' }
+    }, { phaseIds: ['requirements', 'implementation'] }),
+    { onApproval: 'new', onRejection: 'keep', phaseOverrides: { implementation: 'compact' } }
+  );
+  assert.deepEqual(contextBoundaryHandoff({ onApproval: 'new' }, 'requirements', { nextPhase: 'design' }).commands, ['/clear', '/sflow-next']);
+  assert.deepEqual(contextBoundaryHandoff({ onApproval: 'compact' }, 'requirements', { nextSkill: '/sflow-initiative-next' }).commands, ['/compact', '/sflow-initiative-next']);
+  assert.deepEqual(contextBoundaryHandoff({ onApproval: 'new' }, 'conformance', { complete: true }).commands, ['/clear']);
+  assert.throws(() => normalizeContextPolicy({ onApproval: 'reset' }), /must be keep, compact, or new/);
+  assert.throws(() => normalizeContextPolicy({ phaseOverrides: { missing: 'new' } }, { phaseIds: ['intake'] }), /unknown phase 'missing'/);
+  assert.throws(() => normalizeContextPolicy({ phaseBoundary: 'new', onApproval: 'compact' }), /must match/);
 });
 
 test('Copilot Studio configuration has bounded, repository-safe defaults', () => {

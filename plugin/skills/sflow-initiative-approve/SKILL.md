@@ -15,5 +15,6 @@ Approval authority comes from configured local Git name/email groups, not the se
 5. Record the two answers with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 6. Only after `ready: true`, run `singularity-flow initiative approve <OUTPUT-ID|phase> --initiative <INIT-ID> --selection-receipt <TOKEN>`.
 7. Report the approved content/bundle hash, actor identity, authority group, persona, self-approval warning, remaining distinct approvals, advancement, commit, and push.
+8. When phase approval advances the initiative, reproduce the CLI's context-boundary guidance. For `new`, stop and ask the contributor to run `/clear` followed by `/sflow-initiative-next`; for `compact`, ask for `/compact` first. Do not author the next initiative phase in the old conversation.
 
 If `ask_user` is unavailable or disabled, stop without approval. Every approval creates and pushes its own commit. Never describe self-approval as independent review.

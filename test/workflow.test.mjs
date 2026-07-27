@@ -174,8 +174,12 @@ test('next executes one valid lifecycle action at a time', async () => {
 
   const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
   assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  assert.match(approved.stdout, /Context boundary: new/);
+  assert.match(approved.stdout, /1\. \/clear/);
+  assert.match(approved.stdout, /2\. \/sflow-next/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
+  assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-owner`);
 });
 

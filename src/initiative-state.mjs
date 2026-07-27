@@ -11,6 +11,7 @@ import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { renderInitiativeGenerator } from './initiative-generators.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { groundingMode } from './grounding.mjs';
+import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
@@ -86,6 +87,7 @@ function validateInitiativeRuntimeState(initiative, expectedId = initiative?.ini
   if (initiative.resolution.profile !== initiative.initiative.profile) {
     throw new SingularityFlowError(`Initiative '${expectedId}' profile differs from its immutable resolution.`);
   }
+  initiative.resolution.contextPolicy = normalizeContextPolicy(initiative.resolution.contextPolicy ?? {});
   if (initiative.initiative.branch !== expectedId) {
     throw new SingularityFlowError(`Initiative '${expectedId}' branch identity is invalid.`);
   }

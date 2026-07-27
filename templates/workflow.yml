@@ -1,6 +1,15 @@
 version: 1
 inputsMode: record
 
+# Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
+# followed by `/sflow-next`; the new conversation reconstructs its prompt from
+# approved Git artifacts, persona guidance, inputs, and world-model views.
+contextPolicy:
+  onApproval: new
+  onRejection: keep
+  # Per-phase values may be keep, compact, or new.
+  phaseOverrides: {}
+
 # Sequence gates are immutable per work item. Soft gates ask for an explicit
 # interactive confirmation and audit the override; hard gates exit immediately.
 sequenceGates:

@@ -18,6 +18,7 @@ import { identity } from './git.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
 } from './util.mjs';
+import { contextBoundaryHandoff } from './context-policy.mjs';
 
 const RECORD_CATEGORIES = new Set(['evidence', 'approvals', 'invalidations']);
 
@@ -660,7 +661,14 @@ export async function approveInitiative(root, {
     detail: `${target.type}/${target.id} ${reached ? 'threshold reached' : 'approval recorded'}`
   });
   await saveInitiative(root, portfolio, initiative);
-  return { portfolio, initiative, approval: appended, reached, selfApproval, next: initiative.currentPhase };
+  const contextBoundary = reached && target.type === 'phase'
+    ? contextBoundaryHandoff(initiative.resolution.contextPolicy, selectedPhase, {
+      nextPhase: initiative.currentPhase,
+      nextSkill: '/sflow-initiative-next',
+      complete: initiative.status === 'complete'
+    })
+    : null;
+  return { portfolio, initiative, approval: appended, reached, selfApproval, next: initiative.currentPhase, contextBoundary };
 }
 
 export async function initiativeEvidenceStatus(root, initiativeId, phaseId = null, { now = new Date() } = {}) {

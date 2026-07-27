@@ -42,6 +42,19 @@
         "inputsMode": { "enum": ["off", "record", "enforce"] },
         "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
         "sequenceGates": { "type": "object", "additionalProperties": { "enum": ["hard", "soft"] } },
+        "contextPolicy": {
+          "type": "object",
+          "properties": {
+            "onApproval": { "enum": ["keep", "compact", "new"] },
+            "onRejection": { "enum": ["keep", "compact", "new"] },
+            "phaseOverrides": {
+              "type": "object",
+              "additionalProperties": { "enum": ["keep", "compact", "new"] }
+            }
+          },
+          "additionalProperties": false
+        },
+        "contextPolicyLegacy": { "type": "boolean" },
         "session": {
           "type": "object",
           "properties": {

@@ -17,6 +17,7 @@ import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateR
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
+import { normalizeContextPolicy } from './context-policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -124,6 +125,7 @@ export function validateDefinition(definition) {
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
+  normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
   normalizeLogging(definition.logging ?? {});
   groundingMode(definition);
@@ -469,7 +471,8 @@ export function resolveWorkType(definition, workTypeId) {
   const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
   const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
-  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), sequenceGates, documents, phases };
+  const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
+  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), sequenceGates, contextPolicy, documents, phases };
 }
 
 export async function snapshotResolution(root, definition, resolved) {
@@ -497,6 +500,7 @@ export async function snapshotResolution(root, definition, resolved) {
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: groundingMode(definition),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
+    contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     templates
   };
 }

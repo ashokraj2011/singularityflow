@@ -37,6 +37,10 @@ test('plugin provides direct Jira connection, assigned work, sprint board, and g
   assert.match(status, /singularity-flow jira status --json/);
   assert.match(status, /JIRA_DEPLOYMENT=data-center/);
   assert.match(status, /Never print an API token/);
+  assert.match(status, /first and only tool call/);
+  assert.match(status, /Do not search, glob, inspect, or read repository files/);
+  assert.match(status, /Do not create, edit, delete, commit, or push any file/);
+  assert.match(status, /If the command fails, report that failure and stop/);
 
   assert.match(assigned, /singularity-flow jira assigned/);
   assert.match(assigned, /status category not Done/);

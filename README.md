@@ -79,15 +79,6 @@ creates the canonical Story branch, repository world-model generation becomes
 the one deliberate desktop Copilot operation and its commit is pushed on that
 Story branch before phase work begins.
 
-The desktop also includes **Agent workbench → Event Horizon**, a separate
-permission-gated ACP execution surface. It opens the active repository
-automatically and can run GitHub Copilot CLI, Claude Code ACP, or Gemini CLI
-when the corresponding command is installed. Event Horizon shows streaming
-responses, reasoning, plans, tool calls, diffs, attachments, model and mode
-controls, context, usage, and inline allow/deny decisions. It never advances a
-Flow phase or grants an approval by itself; governed artifacts and decisions
-still move through Singularity Flow.
-
 The Electron **Workspace configuration** view creates a disposable local
 directory containing one isolated clone per participating repository, a clearly
 ungoverned document inbox, and local caches. Each repository records its Jira
@@ -1033,17 +1024,6 @@ repository path, primary `/sflow-*` skill, shell equivalent, upload command,
 and next-step command. Questions, persona-aware authoring, and model interaction
 therefore happen in the already authenticated Copilot CLI. The resulting Git
 artifacts appear in Electron after refresh.
-
-The optional **Agent workbench** is deliberately separate from those phase
-pages. It opens Event Horizon as another managed window in the same installed
-desktop application, scopes the selected ACP agent to the active repository,
-and leaves Flow lifecycle transitions explicit. When Flow opens the workbench,
-the exact active Epic or Story, phase, and persona select a read-only governed
-prompt containing the phase contract, repository world-model views, remote
-agent skills, and approved evidence. Event Horizon injects it once with the
-first user turn and shows a **Singularity grounding active** disclosure; it
-never substitutes a merely recent work item for the host-selected ID. See
-[the Flow ↔ Event Horizon contract](docs/EVENT-HORIZON-CONTRACT.md).
 
 Install the personal Copilot plugin with:
 

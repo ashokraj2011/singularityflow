@@ -80,12 +80,6 @@ const navSections = [
     ]
   },
   {
-    label: 'Agent tools',
-    items: [
-      ['agent-workbench', 'Agent workbench']
-    ]
-  },
-  {
     label: 'Configuration',
     items: [
       ['workspaces', 'Workspace configuration'],
@@ -193,7 +187,6 @@ const navIconPaths = {
   resources: ['M5 4h14v16H5z M8 9l2 2-2 2 M12 15h4'],
   'world-model': ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18'],
   agents: ['M7 8h10a3 3 0 0 1 3 3v7H4v-7a3 3 0 0 1 3-3z M9 13h.01 M15 13h.01 M9 17h6 M12 3v5 M9 3h6'],
-  'agent-workbench': ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 2 M4 12h3 M17 12h3'],
   screensaver: ['M4 5h16v11H4z M8 20h8 M12 16v4 M7 9h4 M13 9h4 M7 12h10'],
   help: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M9.7 9a2.5 2.5 0 1 1 3.2 2.4c-.9.4-.9 1-.9 1.6 M12 17h.01'],
   epics: ['M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5'],
@@ -6033,160 +6026,6 @@ function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importR
   </div>;
 }
 
-function AgentWorkbench({ data, action }) {
-  const repository = data.repository.root;
-  const [status, setStatus] = useState(null);
-  const [selectedAgent, setSelectedAgent] = useState('copilot');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const next = await window.singularity.agentWorkbenchStatus(repository);
-      setStatus(next);
-      const available = next.agents.find((agent) => agent.available !== false);
-      setSelectedAgent((current) => next.agents.some((agent) => agent.id === current && agent.available !== false)
-        ? current
-        : available?.id ?? next.agents[0]?.id ?? 'copilot');
-    } catch (caught) {
-      setError(caught?.message || String(caught));
-    } finally {
-      setLoading(false);
-    }
-  }, [repository]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  const agents = status?.agents ?? [];
-  const selected = agents.find((agent) => agent.id === selectedAgent);
-  const workspaceSessions = (status?.sessions ?? []).filter((session) => session.cwd === repository);
-  const initiative = data.initiative;
-  const workflow = data.workflow;
-  const work = initiative ? {
-    kind: 'epic',
-    id: initiative.state.initiative.id,
-    title: initiative.state.initiative.title,
-    phase: initiative.state.currentPhase,
-    status: initiative.state.status,
-    progress: initiative.progress?.percentage ?? null,
-    parentId: null
-  } : workflow ? {
-    kind: 'story',
-    id: workflow.workItem.id,
-    title: workflow.workItem.title,
-    phase: workflow.currentPhase,
-    status: workflow.status,
-    progress: data.progress?.percentage ?? null,
-    parentId: workflow.workItem.parentStoryId ?? workflow.workItem.epicId ?? null
-  } : {
-    kind: 'repository',
-    id: null,
-    title: repository.split('/').at(-1),
-    phase: null,
-    status: null,
-    progress: null,
-    parentId: null
-  };
-  const flowContext = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    workspace: {
-      id: data.workspace?.workspace?.id ?? null,
-      name: data.workspace?.workspace?.name ?? repository.split('/').at(-1),
-      path: data.workspace?.workspace?.path ?? null
-    },
-    repository: {
-      id: null,
-      name: repository.split('/').at(-1),
-      root: repository,
-      branch: data.repository.branch,
-      role: data.workspace ? 'lead' : 'standalone'
-    },
-    work,
-    persona: data.session?.persona ?? null,
-    documents: (initiative?.documents ?? data.documents ?? []).slice(0, 50).map((document) => ({
-      id: document.id ?? document.path,
-      label: document.label ?? document.title ?? document.path?.split('/').at(-1) ?? 'Document',
-      phase: document.phase ?? null,
-      path: document.path,
-      status: document.status ?? null
-    })).filter((document) => document.path),
-    nextActions: (initiative?.nextActions ?? []).slice(0, 10).map((item) => ({
-      label: item.reason ?? item.action,
-      command: item.command ?? null
-    })),
-    revision: data.repository.commit ?? data.repository.head ?? null
-  };
-
-  async function openWorkbench() {
-    const result = await action(
-      () => window.singularity.openAgentWorkbench(repository, selectedAgent, flowContext),
-      `${selected?.name ?? 'Agent'} opened in Event Horizon`
-    );
-    if (result) await refresh();
-  }
-
-  return <section className="agent-workbench-page">
-    <header className="agent-workbench-hero">
-      <div className="event-horizon-mark" aria-hidden="true"><span /></div>
-      <div>
-        <span className="eyebrow">Singularity agent runtime</span>
-        <h1>Event Horizon</h1>
-        <p>Work with Copilot or another ACP-compatible coding agent in a permission-gated desktop session. Every command, edit, diff, question, and approval stays visible in the transcript.</p>
-      </div>
-      <Pill tone="accent">Bundled with Flow</Pill>
-    </header>
-
-    <div className="agent-workbench-grid">
-      <section className="panel agent-launch-panel">
-        <header className="panel-heading">
-          <div><span className="eyebrow">Current project context</span><h2>Open this repository in an agent session</h2><p>Flow passes the active repository to Event Horizon. The workbench does not change Epic approvals or advance governed phases by itself.</p></div>
-          <Pill tone={workspaceSessions.length ? 'good' : 'neutral'}>{workspaceSessions.length} session{workspaceSessions.length === 1 ? '' : 's'}</Pill>
-        </header>
-        <div className="agent-workbench-repository">
-          <span className="agent-repository-icon">{repository.split('/').at(-1)?.slice(0, 1).toUpperCase()}</span>
-          <div><strong>{repository.split('/').at(-1)}</strong><small>{repository}</small></div>
-        </div>
-        {loading ? <div className="agent-workbench-loading">Discovering ACP agents on this computer…</div> : error ? <div className="notice bad">{error}</div> : <>
-          <label className="agent-workbench-picker">
-            <span>Agent</span>
-            <select value={selectedAgent} onChange={(event) => setSelectedAgent(event.target.value)}>
-              {agents.map((agent) => <option key={agent.id} value={agent.id} disabled={agent.available === false}>{agent.name}{agent.available === false ? ' — not installed' : ''}</option>)}
-            </select>
-          </label>
-          <div className="agent-runtime-list">
-            {agents.map((agent) => <div className={agent.id === selectedAgent ? 'selected' : ''} key={agent.id}>
-              <i className={agent.available === false ? 'offline' : 'online'} />
-              <span><strong>{agent.name}</strong><small>{agent.available === false ? `Install ${agent.command} to enable this runtime` : `${agent.command} ${agent.args.join(' ')}`}</small></span>
-              <Pill tone={agent.available === false ? 'neutral' : 'good'}>{agent.available === false ? 'Unavailable' : 'Ready'}</Pill>
-            </div>)}
-          </div>
-          <div className="agent-workbench-actions">
-            <button className="secondary" onClick={refresh}>Refresh agents</button>
-            <button className="primary" disabled={!selected || selected.available === false} onClick={openWorkbench}>Open Event Horizon</button>
-          </div>
-        </>}
-      </section>
-
-      <aside className="agent-workbench-capabilities">
-        {[
-          ['Permission gates', 'Approve or deny every shell command and file operation inline.'],
-          ['Live agent controls', 'Switch model, mode, and reasoning effort when the selected agent advertises them.'],
-          ['Flow skills', 'Repository, user, and installed-plugin skills appear in slash completion.'],
-          ['Rich evidence', 'See streaming reasoning, tool output, plans, attachments, diffs, context, and token usage.']
-        ].map(([title, detail], index) => <article key={title}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{title}</h3><p>{detail}</p></div></article>)}
-      </aside>
-    </div>
-
-    <footer className="agent-workbench-boundary">
-      <strong>Governance boundary</strong>
-      <span>Event Horizon is an execution surface. Singularity Flow remains the source of truth for artifacts, lineage, publication, approvals, and phase progress.</span>
-    </footer>
-  </section>;
-}
-
 function Agents({ data, editor, setEditor, chooseAgent, saveEditor, createAgent, deleteFile, downloadFile, importAgent }) {
   const [lockView, setLockView] = useState(false);
   const [modal, setModal] = useState(null);
@@ -6970,7 +6809,7 @@ export default function App() {
         busy={busy || worldModelRun?.status === 'running'}
         onGenerate={generateWorldModel}
       />}
-      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'story-intake' && <StoryIntake data={data} action={action} reload={reload} onStarted={() => setPage('dashboard')} onJiraStarted={(result) => acceptOpened(result, 'dashboard')} onSetupJira={() => setJiraSetupOpen(true)} />}{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'agent-workbench' && <AgentWorkbench data={data} action={action} />}{page === 'business-requirements' && (data.initiative
+      <div className={busy ? 'busy view' : 'view'}><div className="page-stage" key={page}>{page === 'story-intake' && <StoryIntake data={data} action={action} reload={reload} onStarted={() => setPage('dashboard')} onJiraStarted={(result) => acceptOpened(result, 'dashboard')} onSetupJira={() => setJiraSetupOpen(true)} />}{page === 'epics' && (data.initiative ? <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} onAllEpics={showAllEpics} /> : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} startNew={epicIntent === 'new'} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-requirements' && (data.initiative
         ? <PhaseCliWorkspace requestedPhaseId={initiativeProfile === 'epic-planning' ? 'epic-requirements' : currentInitiativePhaseId} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'phase' && (data.initiative && planningFocus?.phase
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />

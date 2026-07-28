@@ -1,9 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('singularity', {
-  agentWorkbenchStatus: (repository) => ipcRenderer.invoke('agent-workbench:status', { repository }),
-  openAgentWorkbench: (repository, agentId = 'copilot', flowContext = null) =>
-    ipcRenderer.invoke('agent-workbench:open', { repository, agentId, flowContext }),
   onboarding: () => ipcRenderer.invoke('onboarding:get'),
   saveOnboarding: (profile, complete = false) => ipcRenderer.invoke('onboarding:save', { profile, complete }),
   chooseOnboardingWorkspace: () => ipcRenderer.invoke('onboarding:choose-workspace'),

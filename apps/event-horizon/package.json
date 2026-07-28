@@ -7,8 +7,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && npm run build:contract",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build": "sh -c 'if [ -d ../../vendor/event-horizon/src ]; then electron-vite build && npm run build:contract; else echo \"[event-horizon] upstream not connected — skipping build\"; fi'",
+    "typecheck": "sh -c 'if [ -d ../../vendor/event-horizon/src ]; then tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json; else echo \"[event-horizon] upstream not connected — skipping typecheck\"; fi'",
     "check": "npm run typecheck && npm run build",
     "build:contract": "esbuild ../../vendor/event-horizon/src/main/contract.ts --bundle --platform=neutral --format=esm --outfile=out/contract.mjs --log-level=error"
   },

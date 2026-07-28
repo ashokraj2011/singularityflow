@@ -231,6 +231,11 @@ async function clearDesktopWorkspaceSelection(workspacePath) {
 }
 
 async function openWorkspaceStatus(status, { message = null } = {}) {
+  const warnings = status.warnings ?? [];
+  const warningMessage = warnings.length
+    ? `Warning: ${warnings.map((warning) => warning.message).join(' ')} This does not block workspace use.`
+    : null;
+  const workspaceMessage = [message, warningMessage].filter(Boolean).join(' ');
   let repository;
   try {
     repository = requireReadyLeadRepository(status);
@@ -241,17 +246,19 @@ async function openWorkspaceStatus(status, { message = null } = {}) {
       workspaceSetup: {
         baseDirectory: path.dirname(status.workspace.path),
         mode: 'saved-needs-repair',
-        message: message
-          ?? `Workspace '${status.workspace.name}' is saved, but its lead repository is not ready. ${error.message}`
+        warnings,
+        message: workspaceMessage
+          || `Workspace '${status.workspace.name}' is saved, but its lead repository is not ready. ${error.message}`
       }
     };
   }
   try {
     const result = await openRepository(repository, { workspace: status });
-    if (message) {
+    if (workspaceMessage) {
       result.workspaceSetup = {
-        mode: status.healthy ? 'saved' : 'saved-needs-repair',
-        message
+        mode: status.healthy ? (warnings.length ? 'saved-with-warning' : 'saved') : 'saved-needs-repair',
+        message: workspaceMessage,
+        warnings
       };
     }
     return result;
@@ -262,8 +269,9 @@ async function openWorkspaceStatus(status, { message = null } = {}) {
       workspaceSetup: {
         baseDirectory: path.dirname(status.workspace.path),
         mode: 'saved-needs-repository',
-        message: message
-          ? `${message} The lead clone is not initialized for Singularity Flow: ${error.message}`
+        warnings,
+        message: workspaceMessage
+          ? `${workspaceMessage} The lead clone is not initialized for Singularity Flow: ${error.message}`
           : `Workspace '${status.workspace.name}' is saved, but its lead clone is not initialized for Singularity Flow: ${error.message}`
       }
     };
@@ -1538,7 +1546,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     await activateDesktopWorkspace(created.workspace.id);
     const message = created.materializationError
       ? `Workspace configuration saved. Some repositories could not be cloned: ${created.materializationError}`
-      : `Workspace ${created.workspace.name} saved and all repositories are ready.`;
+      : `Workspace ${created.workspace.name} saved and all repositories were cloned at their configured branches.`;
     return openWorkspaceStatus(created.status, { message });
   });
   trustedHandle('workspace:configuration-update-preview', async (event, {
@@ -1560,7 +1568,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     await activateDesktopWorkspace(updated.workspace.id);
     const message = updated.materializationError
       ? `Workspace changes saved. Some new repositories could not be cloned: ${updated.materializationError}`
-      : `Workspace ${updated.workspace.name} updated and all repositories are ready.`;
+      : `Workspace ${updated.workspace.name} updated and all repositories were materialized at their configured branches.`;
     return openWorkspaceStatus(updated.status, { message });
   });
   trustedHandle('workspace:status', async (event, { workspace }) => {

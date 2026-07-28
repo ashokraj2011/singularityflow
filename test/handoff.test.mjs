@@ -105,10 +105,20 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
 
   await writeFile(path.join(second, 'local-only.txt'), 'preserve me\n');
   const dirty = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
-  assert.equal(dirty.status, 1);
-  assert.match(dirty.stderr, /Working tree is not clean/);
+  assert.equal(dirty.status, 0);
+  assert.match(dirty.stdout, /Attached to HAND-101 from origin\/HAND-101/);
   assert.equal(await readFile(path.join(second, 'local-only.txt'), 'utf8'), 'preserve me\n');
   await unlink(path.join(second, 'local-only.txt'));
+
+  run('git', ['switch', 'main'], second);
+  await writeFile(path.join(second, 'wrong-branch-change.txt'), 'must not cross branches\n');
+  const dirtyCheckout = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
+  assert.equal(dirtyCheckout.status, 1);
+  assert.match(dirtyCheckout.stderr, /Working tree is not clean/);
+  assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'main');
+  assert.equal(await readFile(path.join(second, 'wrong-branch-change.txt'), 'utf8'), 'must not cross branches\n');
+  await unlink(path.join(second, 'wrong-branch-change.txt'));
+  flow(second, ['session', 'attach', 'HAND-101']);
 
   await writeFile(path.join(second, 'ahead.txt'), 'local commit must survive\n');
   run('git', ['add', 'ahead.txt'], second);

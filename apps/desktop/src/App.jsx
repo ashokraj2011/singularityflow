@@ -4818,6 +4818,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
     if (result) await reload();
   }
   async function start() {
+    let configurationPublished = false;
     if (!data.portfolio) {
       const initialized = await action(
         () => workspacePath
@@ -4831,6 +4832,14 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
       const published = await action(
         () => window.singularity.publish(data.repository.root, 'Initialize governed Epic planning'),
         'Epic planning configuration committed and pushed'
+      );
+      if (!published) return;
+      configurationPublished = true;
+    }
+    if (!configurationPublished && data.repository.publishReady) {
+      const published = await action(
+        () => window.singularity.publish(data.repository.root, 'Initialize Singularity Flow workspace configuration'),
+        'Workspace configuration committed and pushed'
       );
       if (!published) return;
     }
@@ -4852,15 +4861,21 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
     await reload(null, fetchedEpic.key);
   }
   const defaultBranch = data.definition.defaultBaseBranch ?? 'main';
-  const localStartReady = data.repository.branch === defaultBranch && data.repository.changes.length === 0;
+  const configurationReadyToPublish = data.repository.publishReady === true;
+  const blockingChanges = data.repository.unrelatedChanges ?? (
+    configurationReadyToPublish ? [] : data.repository.changes
+  );
+  const repositoryStartReady = data.repository.branch === defaultBranch
+    && (data.repository.changes.length === 0 || configurationReadyToPublish)
+    && blockingChanges.length === 0;
   // An Epic that already has a branch cannot be started again — the engine refuses it, and
   // rightly. What was missing was the other door: the wizard offered 'start' for work that only
   // needed opening, and then reported a CLI command this app has no way to run.
   const startedEpics = new Map((data.initiatives ?? []).map((item) => [item.id, item]));
   const alreadyStarted = source === 'jira' && fetchedEpic ? startedEpics.get(fetchedEpic.key) ?? null : null;
   const canStart = source === 'jira'
-    ? connected && fetchedEpic?.key === epicKey && profile && persona && !alreadyStarted
-    : localStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
+    ? repositoryStartReady && connected && fetchedEpic?.key === epicKey && profile && persona && !alreadyStarted
+    : repositoryStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && (!data.portfolio || !localPreview?.error);
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <div className="epic-start-intro-copy">
@@ -4876,8 +4891,9 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
         <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={selectedEpicKey} disabled={!connected || epicsLoading} onChange={(event) => { setSelectedEpicKey(event.target.value); setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({startedEpics.has(epic.key) ? 'already started' : epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !selectedEpicKey} onClick={() => fetchEpic(selectedEpicKey)}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn epic-routing-warning"><div><strong>Some configured Jira projects could not be loaded.</strong><span>{epicsError} Valid projects are still listed above.</span></div>{routingCorrection ? <button className="secondary" onClick={correctJiraRouting}>Change {routingCorrection.repositoryIds.join(', ')} from {routingCorrection.projectKey} to {referenceProjectKey}</button> : <span>Correct the Jira project key under Workspace configuration → Edit workspace.</span>}</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setSelectedEpicKey(''); setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone={alreadyStarted ? 'accent' : 'good'}>{alreadyStarted ? 'Already started' : 'Fetched from Jira'}</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{alreadyStarted ? `This Epic already has a governed branch — ${alreadyStarted.currentPhaseLabel ?? alreadyStarted.currentPhase ?? 'in progress'} on ${alreadyStarted.branch ?? alreadyStarted.id}. Continue fetches and fast-forwards that branch; no second Epic is created.` : `${fetchedEpic.issueType} · ${fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded`}</small></article>}</div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
       <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working lens</h3><div className="epic-start-controls"><label><span>Delivery workflow</span><select aria-label="Delivery workflow" value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>{initiativeProfiles[profile]?.description ?? 'Controls the governed phases and outputs for this Epic.'}</small></label><label><span>Working lens</span><select aria-label="Working lens" value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>{personas[persona]?.description ?? 'Adds a perspective to Copilot prompts for this session.'}</small></label></div><p className="epic-defaults-note">Manage these options under <strong>Configuration → Session choices</strong>. The workflow is pinned to the Epic; the working lens controls prompt perspective for your current session. Approval authority comes from your separately displayed Git identity.</p>{!data.portfolio && <p className="epic-defaults-note">The governed Epic defaults will be created when you start. No separate portfolio setup is required.</p>}</div></div>
-      {source === 'local' && !localStartReady && <div className="notice warn epic-start-blocker"><strong>Local Epic creation starts from a clean {defaultBranch} branch.</strong><span>{data.repository.changes.length ? `Commit or set aside the ${data.repository.changes.length} current working-tree change(s), then switch to ${defaultBranch}.` : `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.`}</span></div>}
-      <footer><div><strong>Next: source details → formatted requirements → Planning.</strong><span>The requirements specification and traceability file are committed to the Epic branch and become the approved inputs to Story planning.</span></div>{alreadyStarted ? <button className="primary" onClick={() => openEpic(alreadyStarted.id)}>Fetch & continue {alreadyStarted.id}</button> : <button className="primary" disabled={!canStart} onClick={start}>{source === 'jira' ? 'Use Epic & start requirements' : 'Create requirements workspace'}</button>}</footer>
+      {configurationReadyToPublish && <div className="notice good epic-start-setup"><strong>Workspace setup is ready.</strong><span>{data.repository.configurationChanges.length} generated or edited Singularity configuration file(s) will be committed and pushed before the Epic branch is created. These are not application-source changes.</span></div>}
+      {!repositoryStartReady && <div className="notice warn epic-start-blocker"><strong>Epic creation starts from the clean {defaultBranch} branch.</strong><span>{data.repository.branch !== defaultBranch ? `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.` : `Commit or set aside the ${blockingChanges.length} unrelated application-source change(s), then refresh this workspace.`}</span></div>}
+      <footer><div><strong>Next: source details → formatted requirements → Planning.</strong><span>The requirements specification and traceability file are committed to the Epic branch and become the approved inputs to Story planning.</span></div>{alreadyStarted ? <button className="primary" onClick={() => openEpic(alreadyStarted.id)}>Fetch & continue {alreadyStarted.id}</button> : <button className="primary" disabled={!canStart} onClick={start}>{configurationReadyToPublish ? 'Publish setup & start Epic' : source === 'jira' ? 'Use Epic & start requirements' : 'Create requirements workspace'}</button>}</footer>
     </section>
   </div>;
 }

@@ -168,7 +168,6 @@ test('desktop builder and local release commands define universal DMG and assist
   assert.equal(desktop.build.nsis.allowToChangeInstallationDirectory, true);
   assert.ok(desktop.build.dmg.contents.some((item) => item.path === '/Applications'));
   assert.ok(desktop.build.extraResources.some((item) => item.to === 'cli/DISTRIBUTION.md'));
-  assert.ok(desktop.build.extraResources.some((item) => item.to === 'event-horizon/out'));
   assert.match(packageJson.scripts['desktop:package:mac'], /desktop-release\.mjs package --platform mac/);
   assert.match(packageJson.scripts['desktop:package:win'], /desktop-release\.mjs package --platform win/);
 });

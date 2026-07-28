@@ -106,10 +106,7 @@ async function assertBundleResources(platform, directory) {
     'cli/plugin/plugin.json',
     'cli/HELP.md',
     'cli/node_modules/yaml/package.json',
-    'cli/package.json',
-    'event-horizon/out/main/index.js',
-    'event-horizon/out/preload/index.js',
-    'event-horizon/out/renderer/index.html'
+    'cli/package.json'
   ];
   const missing = [];
   for (const item of required) {

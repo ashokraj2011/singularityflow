@@ -251,8 +251,7 @@ export async function worldModelPromptViewReferences(root, definition) {
     definition.templatesRoot,
     definition.personaPromptsRoot,
     '.github/skills',
-    '.github/agents',
-    '.claude/agents'
+    '.github/agents'
   ];
   const source = definition.worldModel?.promptSource;
   const promptFiles = [];

@@ -122,7 +122,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   const statePath = path.join(root, 'singularity/work-items/DESK-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
   state.phases.intake.usage = [{
-    status: 'exact', source: 'copilot-otel', provider: 'github', model: 'claude-sonnet-4.6',
+    status: 'exact', source: 'copilot-otel', provider: 'github', model: 'model-alpha-1',
     inputTokens: 1200, outputTokens: 300, cachedInputTokens: 200, totalTokens: 1500,
     providerCost: 0.0123, costStatus: 'exact', persona: 'product-owner'
   }];
@@ -133,7 +133,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(snapshot.report.cost, 0.0123);
   assert.equal(snapshot.report.costStatus, 'exact');
   assert.equal(snapshot.report.tokens.total, 1500);
-  assert.equal(snapshot.report.tokens.byModel[0].model, 'claude-sonnet-4.6');
+  assert.equal(snapshot.report.tokens.byModel[0].model, 'model-alpha-1');
   assert.equal(snapshot.report.tokens.byModel[0].providerCostRecords, 1);
   assert.equal(snapshot.report.costCoverage.pricedRecords, 1);
 });

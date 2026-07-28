@@ -4,14 +4,14 @@ import { parseCopilotTelemetry } from '../src/telemetry.mjs';
 
 test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () => {
   const direct = {
-    name: 'chat claude-sonnet-4.6',
+    name: 'chat model-alpha-1',
     startTime: '2026-07-22T10:00:00.000Z',
     endTime: '2026-07-22T10:00:02.000Z',
     attributes: {
       'gen_ai.operation.name': 'chat',
       'gen_ai.provider.name': 'github',
       'gen_ai.request.model': 'auto',
-      'gen_ai.response.model': 'claude-sonnet-4.6',
+      'gen_ai.response.model': 'model-alpha-1',
       'gen_ai.usage.input_tokens': 1200,
       'gen_ai.usage.output_tokens': 300,
       'gen_ai.usage.cache_read.input_tokens': 200,
@@ -39,7 +39,7 @@ test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () 
   assert.equal(parsed.warnings.length, 0);
   assert.equal(parsed.spans.length, 2);
   assert.deepEqual(parsed.spans[0], {
-    provider: 'github', model: 'claude-sonnet-4.6', inputTokens: 1200, outputTokens: 300,
+    provider: 'github', model: 'model-alpha-1', inputTokens: 1200, outputTokens: 300,
     cachedInputTokens: 200, cacheWriteInputTokens: null, providerCost: 0.0123,
     startedAt: '2026-07-22T10:00:00.000Z', completedAt: '2026-07-22T10:00:02.000Z'
   });

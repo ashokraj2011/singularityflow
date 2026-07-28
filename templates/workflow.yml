@@ -376,9 +376,6 @@ governance:
     - singularity/personas
     - singularity/prompts
     - .github/agents
-    - .claude/agents
     - plugin/agents
     - plugin/skills
     - .github/skills
-    - .github/workflows/singularity-flow-approve.yml
-    - .github/workflows/singularity-flow-validation.yml

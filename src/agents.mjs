@@ -112,7 +112,6 @@ async function agentFiles(directory) {
 export async function discoverAgents(root) {
   const locations = [
     ['repository', path.join(root, '.github/agents')],
-    ['repository', path.join(root, '.claude/agents')],
     ['plugin', path.join(packageRoot, 'plugin/agents')]
   ];
   const agents = new Map();

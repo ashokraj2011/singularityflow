@@ -51,15 +51,13 @@ Migrated active work keeps its existing phase progression and Git history. The e
 
 Because v0.6 publication is required by the starter configuration, ensure every work-item branch has an upstream remote. If a lifecycle push fails, run `singularity-flow sync`; do not amend or force-push the pending commit.
 
-## Copilot and GitHub workflows
+## Copilot plugin
 
-Reinstall the bundled personal Copilot plugin and replace old approval/validation workflows with the v0.6 examples:
+Reinstall the bundled personal Copilot plugin:
 
 ```bash
 singularity-flow plugin install
 copilot skill list
-cp examples/singularity-flow-approve.yml .github/workflows/singularity-flow-approve.yml
-cp examples/singularity-flow-validation.yml .github/workflows/singularity-flow-validation.yml
 ```
 
 Version 0.6.1 replaces generic Copilot skill names with collision-safe commands such as `/sflow-start`, `/sflow-phase`, and `/sflow-progress`. Version 0.6.2 also removes both the legacy direct plugin identity and any previous marketplace identity on every installation, leaving exactly one current `singularity-flow@singularity-flow` entry. Close existing Copilot sessions after reinstalling so the new skill registry is loaded.

@@ -778,13 +778,13 @@ Non-dry-run composition writes both a JSON provenance record and the exact rende
 
 ## Remote Markdown prompt packs
 
-Prompt packs under `.github/agents`, `.claude/agents`, or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. The directory name follows Copilot’s platform convention; Singularity Flow presents these files as prompt packs because they are context, not people, personas, or approval authorities.
+Prompt packs under `.github/agents` or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. Singularity Flow presents these files as prompt packs because they are context, not people, personas, or approval authorities.
 
 ### Configure a repository prompt pack
 
-Create an agent Markdown file in the lead repository. For a Copilot-oriented
-agent, use `.github/agents/<agent-id>.agent.md`; `.claude/agents/<agent-id>.md`
-is also discovered. Prompt-pack and dependency IDs must use lower-case kebab-case.
+Create an agent Markdown file in the lead repository at
+`.github/agents/<agent-id>.agent.md`. Prompt-pack and dependency IDs must use
+lower-case kebab-case.
 
 For example, create `.github/agents/architecture.agent.md`:
 

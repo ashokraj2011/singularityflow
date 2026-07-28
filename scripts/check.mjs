@@ -81,14 +81,20 @@ for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIA
 if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync(path.join(root, 'RELEASE-EPIC-STORY-LINEAGE.md'))) {
   fail('Epic-to-Story lineage release notes must ship in the npm package');
 }
-// The GitHub Actions release workflow is an optional convenience. Corporate repositories often
-// prohibit workflow-file changes by PAT policy and use local scripts or Artifactory pipelines
-// instead. Validate it through its own CI when present, but never make local installation depend
-// on the file existing.
-if (existsSync(path.join(root, '.github/workflows/desktop-release.yml'))) checked.push('.github/workflows/desktop-release.yml');
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
 
 const allFiles = repositoryFiles();
+const legacyModelReferences = [['clau', 'de'].join(''), ['anthro', 'pic'].join(''), ['calu', 'de'].join('')].join('|');
+const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyModelReferences, '--', '.'], {
+  cwd: root,
+  encoding: 'utf8'
+});
+if (legacyReferenceCheck.status === 0) fail(`Legacy model/vendor references remain:\n${legacyReferenceCheck.stdout.trim()}`);
+else if (legacyReferenceCheck.status !== 1) fail(`Unable to scan legacy model/vendor references: ${legacyReferenceCheck.stderr.trim() || `git exited ${legacyReferenceCheck.status}`}`);
+const hostedAutomationRoot = ['.github', 'workflows'].join('/');
+if (allFiles.some((file) => path.relative(root, file).startsWith(`${hostedAutomationRoot}/`))) {
+  fail(`${hostedAutomationRoot}/ must remain absent; use the local release and verification scripts.`);
+}
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) fail(`${path.relative(root, file)}: JavaScript syntax check failed\n${result.stderr}`);

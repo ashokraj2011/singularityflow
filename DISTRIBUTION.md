@@ -63,18 +63,12 @@ WIN_CSC_LINK             Base64 certificate, local .pfx path, or secret URL
 WIN_CSC_KEY_PASSWORD     Certificate password
 ```
 
-## GitHub release
+## Official release
 
-Add the signing values above as GitHub Actions secrets. The optional workflow
-`.github/workflows/desktop-release.yml` runs on an existing
-`v<package-version>` tag or through manual dispatch. Every version field in the
-root package, desktop package, lock file, plugin manifest, and marketplace
-manifest must match the tag.
-
-Corporate repositories may delete this workflow when GitHub Actions is disabled
-or PAT policy prohibits workflow-file updates. `install.sh`, `npm test`, and
-`npm run check` do not require it. The local macOS/Windows packaging and
-Artifactory publishing commands documented below remain available.
+Official packages are built from a clean, verified release checkout on the
+native target platform. Every version field in the root package, desktop
+package, lock file, plugin manifest, and marketplace manifest must match the
+release tag.
 
 Example release:
 
@@ -83,11 +77,15 @@ git tag -a v0.9.0 -m "Singularity Flow 0.9.0"
 git push origin v0.9.0
 ```
 
-The workflow tests the source, builds on native macOS and Windows runners, signs and verifies the packages, validates the universal Mac binary, performs a silent Windows install/launch/uninstall smoke test, and combines both manifests. It creates a **draft** GitHub Release so a maintainer can inspect the assets before publication:
+Run the full verification and signed packaging commands on the producing hosts:
 
 ```bash
-gh release view v0.9.0
-gh release edit v0.9.0 --draft=false
+npm ci
+npm test
+npm run check
+npm run pack:dry
+npm run desktop:package:mac -- --release-mode official --sign required --tag v0.9.0
+npm run desktop:package:win -- --release-mode official --sign required --tag v0.9.0
 ```
 
 Official output contains:
@@ -128,7 +126,7 @@ npm run desktop:publish:artifactory -- \
   --dir apps/desktop/release/official/0.9.0
 ```
 
-Files are uploaded with HTTPS PUT to `<repository>/singularity-flow-desktop/<version>/`. Existing files are never overwritten unless `--replace` is supplied explicitly. The manual GitHub workflow also has an optional **Publish Artifactory** input; its URL, repository, and optional username come from repository variables and its token comes from a secret.
+Files are uploaded with HTTPS PUT to `<repository>/singularity-flow-desktop/<version>/`. Existing files are never overwritten unless `--replace` is supplied explicitly.
 
 ## Install and uninstall
 

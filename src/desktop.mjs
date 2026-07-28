@@ -535,7 +535,6 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
     || relative === DEFAULT_PLANNING_PROMPT
     || relative === posix(planningPromptSource)
     || relative.startsWith('.github/agents/')
-    || relative.startsWith('.claude/agents/')
     || removedLegacyControlFile;
 }
 
@@ -598,8 +597,7 @@ export async function deleteDesktopFile(root, requestedPath) {
     || relative.startsWith(`${initiativeTemplatesRoot}/`)
     || relative.startsWith(`${promptsRoot}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
-    || relative.startsWith('.github/agents/')
-    || relative.startsWith('.claude/agents/');
+    || relative.startsWith('.github/agents/');
   if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced working-lens prompts, repository skills, and repository prompt packs.');
   const references = [];
   if (relative.startsWith(`${templatesRoot}/`)) {

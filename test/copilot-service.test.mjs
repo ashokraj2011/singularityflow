@@ -21,9 +21,9 @@ class FakeBridge {
       sessionId: 'acp-session-1',
       version: '1.0.73',
       modes: { currentModeId: 'plan' },
-      model: model ?? 'claude-sonnet',
+      model: model ?? 'model-alpha',
       models: [
-        { value: 'claude-sonnet', label: 'Claude Sonnet' },
+        { value: 'model-alpha', label: 'Model Alpha' },
         { value: 'gpt-5', label: 'GPT-5' }
       ],
       modelSwitchSupported: true
@@ -32,9 +32,9 @@ class FakeBridge {
       sessionId: 'acp-session-1',
       version: '1.0.73',
       mode: 'plan',
-      model: model ?? 'claude-sonnet',
+      model: model ?? 'model-alpha',
       models: [
-        { value: 'claude-sonnet', label: 'Claude Sonnet' },
+        { value: 'model-alpha', label: 'Model Alpha' },
         { value: 'gpt-5', label: 'GPT-5' }
       ],
       modelSwitchSupported: true
@@ -58,7 +58,7 @@ class FakeBridge {
   async setModel(model) {
     this.model = model;
     const models = [
-      { value: 'claude-sonnet', label: 'Claude Sonnet' },
+      { value: 'model-alpha', label: 'Model Alpha' },
       { value: 'gpt-5', label: 'GPT-5' }
     ];
     this.emit({ type: 'model-changed', model, models, modelSwitchSupported: true });
@@ -126,15 +126,15 @@ test('Copilot backend starts once, routes planning events, releases context, and
     now: () => `2026-07-24T00:00:${String(tick++).padStart(2, '0')}.000Z`
   });
 
-  const started = await controller.start(repository, { model: 'claude-sonnet' });
+  const started = await controller.start(repository, { model: 'model-alpha' });
   assert.equal(started.running, true);
   assert.equal(started.state, 'ready');
   assert.equal(started.processId, 4242);
-  assert.equal(started.model, 'claude-sonnet');
+  assert.equal(started.model, 'model-alpha');
   assert.equal(started.modelSwitchSupported, true);
   assert.equal(started.connectedAt, '2026-07-24T00:00:02.000Z');
   assert.equal(bridges.length, 1);
-  assert.equal(bridges[0].model, 'claude-sonnet');
+  assert.equal(bridges[0].model, 'model-alpha');
   await controller.start(repository);
   assert.equal(bridges.length, 1);
 
@@ -145,7 +145,7 @@ test('Copilot backend starts once, routes planning events, releases context, and
   assert.ok(events.some((event) => event.channel === 'planning:event' && event.payload.planningSessionId === 'planning-1' && event.payload.type === 'agent_message_chunk'));
   assert.equal(controller.status(repository).state, 'ready');
   assert.equal(controller.status(repository).usage.totalTokens, 42);
-  assert.equal(controller.status(repository).usage.byModel[0].model, 'claude-sonnet');
+  assert.equal(controller.status(repository).usage.byModel[0].model, 'model-alpha');
 
   const answer = controller.answer(repository, 'planning-1', 'question-1', { content: { repository: 'mobile' } });
   assert.equal(answer.accepted, true);
@@ -173,7 +173,7 @@ test('Copilot backend tracks cumulative exact tokens by active model and support
       return bridge;
     }
   });
-  const started = await controller.start(repository, { model: 'claude-sonnet' });
+  const started = await controller.start(repository, { model: 'model-alpha' });
   assert.equal(started.usage.status, 'unavailable');
   bridge.emit({
     type: 'turn-complete',
@@ -195,7 +195,7 @@ test('Copilot backend tracks cumulative exact tokens by active model and support
   assert.equal(status.usage.outputTokens, 35);
   assert.equal(status.usage.cachedReadTokens, 50);
   assert.deepEqual(status.usage.byModel.map((entry) => [entry.model, entry.totalTokens]), [
-    ['claude-sonnet', 100],
+    ['model-alpha', 100],
     ['gpt-5', 75]
   ]);
 });

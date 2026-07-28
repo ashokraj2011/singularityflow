@@ -278,24 +278,24 @@ test('ACP model configuration exposes the selected model and grouped choices', (
       name: 'Model',
       category: 'model',
       type: 'select',
-      currentValue: 'claude-sonnet',
+      currentValue: 'model-alpha',
       options: [
         { value: 'auto', name: 'Automatic' },
         {
           group: 'recommended',
           name: 'Recommended',
           options: [
-            { value: 'claude-sonnet', name: 'Claude Sonnet' },
+            { value: 'model-alpha', name: 'Model Alpha' },
             { value: 'gpt-5', name: 'GPT-5' }
           ]
         }
       ]
     }
   ]);
-  assert.equal(configured.current, 'claude-sonnet');
+  assert.equal(configured.current, 'model-alpha');
   assert.equal(configured.configId, 'model');
   assert.equal(configured.switchSupported, true);
-  assert.deepEqual(configured.available.map((entry) => entry.value), ['auto', 'claude-sonnet', 'gpt-5']);
+  assert.deepEqual(configured.available.map((entry) => entry.value), ['auto', 'model-alpha', 'gpt-5']);
   assert.deepEqual(modelConfiguration([], 'requested-model'), {
     configId: null,
     current: 'requested-model',

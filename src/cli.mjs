@@ -1469,7 +1469,12 @@ async function sessionCommand(positionals, options) {
   if (subcommand === 'attach') {
     const id = requirePositional(positionals, 2, 'work or Jira ID');
     validateId(config, id);
-    assertClean(root);
+    const alreadyCurrent = branch(root) === id;
+    // A new Copilot session may begin after the previous session prepared an unpublished
+    // generation. Those governed edits must not make the exact, already-synchronized Story
+    // branch impossible to select. We still require a clean tree before changing branches or
+    // advancing HEAD; the sole exception below only binds local session metadata in place.
+    if (!alreadyCurrent) assertClean(root);
     const remote = config.git?.remote ?? 'origin';
     fetchRemote(root, remote);
     const remoteRef = `refs/remotes/${remote}/${id}`;
@@ -1484,9 +1489,21 @@ async function sessionCommand(positionals, options) {
       if (parsedWorkflow?.workItem?.id !== id || parsedWorkflow?.workItem?.branch !== id) throw new Error('identity mismatch');
       validateDefinition(YAML.parse(remoteDefinition ?? ''));
     } catch { throw new SingularityFlowError(`Remote branch ${remote}/${id} is not a valid Singularity Flow work-item branch. Expected a matching ${itemPath} and valid ${WORKFLOW_PATH}.`); }
-    const materialization = checkout(root, id, { base: config.defaultBaseBranch, existingOnly: true, remote });
-    try { fastForwardTo(root, remoteName); }
-    catch { throw new SingularityFlowError(`Local branch '${id}' cannot fast-forward to ${remote}/${id}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
+    const dirtyInPlace = alreadyCurrent && Boolean(changes(root).trim());
+    let materialization;
+    if (dirtyInPlace) {
+      if (head(root) !== remoteSha) {
+        throw new SingularityFlowError(
+          `Local branch '${id}' has uncommitted changes and is not at the exact ${remote}/${id} head. `
+          + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
+        );
+      }
+      materialization = 'bound-current-with-local-changes';
+    } else {
+      materialization = checkout(root, id, { base: config.defaultBaseBranch, existingOnly: true, remote });
+      try { fastForwardTo(root, remoteName); }
+      catch { throw new SingularityFlowError(`Local branch '${id}' cannot fast-forward to ${remote}/${id}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
+    }
     if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${id}' contains commits that are not on ${remote}/${id}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
     const attachedConfig = await loadConfig(root);
     const workflow = await loadWorkflow(root, attachedConfig, id);

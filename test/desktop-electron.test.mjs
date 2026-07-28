@@ -263,7 +263,7 @@ test('desktop provides a governed Jira Story intake workflow', async () => {
     readFile(path.join(packageRoot, 'apps/desktop/electron/main.mjs'), 'utf8'),
     readFile(path.join(packageRoot, 'HELP.md'), 'utf8')
   ]);
-  assert.match(source, /\['story-intake', 'Story intake'\]/);
+  assert.match(source, /\['story-intake', 'New Story'\]/);
   assert.match(source, /\['epics', 'Epic overview'\]/);
   assert.match(source, /\['business-requirements', 'Requirements workspace'\]/);
   assert.match(source, /const navigationSections = useMemo/);
@@ -464,6 +464,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Describe the work/);
   assert.match(source, /const navSections/);
   assert.match(source, /\['epics', 'Epic overview'\]/);
+  assert.match(source, /\['story-intake', 'New Story'\]/);
+  assert.match(source, /function StoryIntake/);
+  assert.match(source, /Create without Jira/);
+  assert.match(source, /Only the Work ID and title are required/);
   assert.match(source, /\['inbox', 'Approval inbox'\]/);
   assert.match(source, /Sources/);
   assert.match(source, /PhaseGovernance/);
@@ -487,6 +491,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(preload, /completeEpicDelivery:/);
   assert.match(preload, /startEpicWizard:/);
   assert.match(preload, /startLocalEpic:/);
+  assert.match(preload, /chooseStoryDocuments:/);
+  assert.match(preload, /startManualStory:/);
   // The experience split is gone, so the bridge that persisted the chosen mode is gone with it.
   assert.doesNotMatch(preload, /setExperienceMode:/);
   assert.match(preload, /openInitiative:/);
@@ -499,6 +505,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:complete/);
   assert.match(main, /epic:start/);
   assert.match(main, /epic:start-local/);
+  assert.match(main, /story:choose-documents/);
+  assert.match(main, /story:start-manual/);
   assert.doesNotMatch(main, /onboarding:experience/);
   assert.match(main, /initiative:open/);
   assert.match(main, /currentBranch === initiativeId && pendingChanges\.length/);

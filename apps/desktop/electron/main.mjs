@@ -2217,6 +2217,42 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       worldModel: { required: false, timing: 'story-intake' }
     };
   });
+  trustedHandle('story:choose-documents', async (event, { repository, directory = false }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: directory ? 'Add a Story source folder' : 'Add Story source documents',
+      defaultPath: root,
+      properties: directory
+        ? ['openDirectory', 'createDirectory']
+        : ['openFile', 'multiSelections']
+    });
+    if (result.canceled) return [];
+    return Promise.all(result.filePaths.map(async (file) => {
+      const info = await lstat(file);
+      return {
+        path: file,
+        name: path.basename(file),
+        kind: info.isDirectory() ? 'directory' : 'file',
+        bytes: info.isFile() ? info.size : null
+      };
+    }));
+  });
+  trustedHandle('story:start-manual', async (event, { repository, intake = {} }) => {
+    assertTrustedSender(event);
+    const root = assertRepository(repository);
+    const { manualStorySource, startStory } = await importCliModule('story-start.mjs');
+    const workId = String(intake.workId ?? '').trim();
+    const source = manualStorySource(workId, intake);
+    return startStory(root, {
+      id: workId,
+      source,
+      workType: intake.workType,
+      persona: intake.persona,
+      files: Array.isArray(intake.files) ? intake.files : [],
+      urls: Array.isArray(intake.urls) ? intake.urls : []
+    });
+  });
   trustedHandle('jira:adopt-preview', async (event, {
     repository, initiativeId, epicKey, repositoryMap
   }) => {

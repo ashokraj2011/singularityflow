@@ -49,22 +49,14 @@ test('Event Horizon is a version-aligned private workspace bundled into the desk
   );
 });
 
-test('Flow exposes Event Horizon through a dedicated menu and a narrow launch bridge', { skip }, async () => {
+test('Flow keeps Event Horizon out of the desktop UI', async () => {
   const app = await readFile(path.join(root, 'apps/desktop/src/App.jsx'), 'utf8');
   const preload = await readFile(path.join(root, 'apps/desktop/electron/preload.cjs'), 'utf8');
   const main = await readFile(path.join(root, 'apps/desktop/electron/main.mjs'), 'utf8');
 
-  assert.match(app, /\['agent-workbench', 'Agent workbench'\]/);
-  assert.match(app, /function AgentWorkbench/);
-  assert.match(app, /Event Horizon/);
-  assert.match(app, /window\.singularity\.openAgentWorkbench\(repository, selectedAgent, flowContext\)/);
-  assert.match(preload, /agentWorkbenchStatus:/);
-  assert.match(preload, /openAgentWorkbench:/);
-  assert.match(main, /trustedHandle\('agent-workbench:status'/);
-  assert.match(main, /trustedHandle\('agent-workbench:open'/);
-  assert.match(main, /assertRepository\(repository\)/);
-  assert.match(main, /SINGULARITY_FLOW_EMBED_EVENT_HORIZON/);
-  assert.match(main, /openEventHorizonWindow\(\{ cwd: root, agentId, flowContext \}\)/);
+  assert.doesNotMatch(app, /agent-workbench|AgentWorkbench|Event Horizon/);
+  assert.doesNotMatch(preload, /agentWorkbench|agent-workbench/);
+  assert.doesNotMatch(main, /eventHorizon|agent-workbench|SINGULARITY_FLOW_EMBED_EVENT_HORIZON/);
 });
 
 test('embedded Event Horizon reuses the active repository and preserves permission-gated ACP sessions', { skip }, async () => {

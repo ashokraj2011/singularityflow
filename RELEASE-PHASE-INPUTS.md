@@ -152,11 +152,11 @@ The script's forced uninstall/reinstall is required because the public version r
 - First trust and updates require human confirmation; sync never mutates the lock.
 - Remote skills are not slash commands and cannot escape active agent phase/persona routing.
 - Generated outputs cannot escape the current phase artifact directory or imply submission/approval.
-- Workflow, lock, agent, template, persona, skill, and GitHub workflow paths are protected during generation.
+- Workflow, lock, agent, template, persona, and skill paths are protected during generation.
 
 ## Known gaps and next work
 
 - Rejection preserves historical records and invalidates lifecycle approvals, but explicit invalidation markers inside older input/agent context records are deferred.
 - Portfolio reporting across every work item (`report --all`) is not implemented.
-- This repository still ships example GitHub workflows rather than enabling a CI workflow in `.github/workflows/` by default.
+- Release verification runs through the local test, check, packaging, and Artifactory commands.
 - DNS resolution is delegated to the Node HTTPS stack; literal local/private hosts are rejected, while enterprise egress policy should remain the authoritative network control.

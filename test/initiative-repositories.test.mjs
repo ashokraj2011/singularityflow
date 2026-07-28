@@ -415,13 +415,13 @@ test('initiative telemetry reports exact and partial model-cost coverage without
     totalTokens: 125,
     exactRecords: 1,
     unavailableRecords: 0,
-    models: ['claude-enterprise'],
+    models: ['model-enterprise'],
     providerCost: 0.0125
   };
   await saveInitiative(root, loaded.portfolio, loaded.initiative);
 
   let report = await deriveInitiativeReport(root, 'INIT-MULTI');
-  assert.deepEqual(report.telemetry.models, ['claude-enterprise']);
+  assert.deepEqual(report.telemetry.models, ['model-enterprise']);
   assert.equal(report.telemetry.totalTokens, 125);
   assert.equal(report.telemetry.providerCost, 0.0125);
   assert.equal(report.telemetry.costStatus, 'exact');
@@ -445,7 +445,7 @@ test('initiative telemetry reports exact and partial model-cost coverage without
   };
   await saveInitiative(root, reloaded.portfolio, reloaded.initiative);
   report = await deriveInitiativeReport(root, 'INIT-MULTI');
-  assert.deepEqual(report.telemetry.models, ['claude-enterprise', 'gpt-child']);
+  assert.deepEqual(report.telemetry.models, ['model-enterprise', 'gpt-child']);
   assert.equal(report.telemetry.providerCost, 0.005);
   assert.equal(report.telemetry.costStatus, 'partial');
 });

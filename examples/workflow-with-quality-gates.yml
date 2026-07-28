@@ -87,5 +87,3 @@ governance:
     - singularity/templates
     - singularity/personas
     - plugin/skills
-    - .github/workflows/singularity-flow-approve.yml
-    - .github/workflows/singularity-flow-validation.yml

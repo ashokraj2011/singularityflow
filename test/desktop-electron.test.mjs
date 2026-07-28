@@ -332,8 +332,14 @@ test('Electron Epic start remains usable without an existing portfolio and rende
   assert.match(source, /data\.portfolio\?\.initiativeProfiles \?\? \{/);
   assert.match(source, /Epic planning initialized from the repository defaults/);
   assert.match(source, /Initialize governed Epic planning/);
+  assert.match(source, /Initialize Singularity Flow workspace configuration/);
+  assert.match(source, /configurationReadyToPublish/);
+  assert.match(source, /These are not application-source changes/);
+  assert.match(source, /Publish setup & start Epic/);
   assert.match(source, /No separate portfolio setup is required/);
-  assert.match(source, /Local Epic creation starts from a clean/);
+  assert.match(source, /Epic creation starts from the clean/);
+  assert.match(source, /repositoryStartReady && connected/);
+  assert.match(source, /blockingChanges\.length === 0/);
   assert.doesNotMatch(source, /Object\.entries\(data\.portfolio\.initiativeProfiles\)/);
   assert.match(entrypoint, /class DesktopErrorBoundary extends React\.Component/);
   assert.match(entrypoint, /This screen could not finish loading/);

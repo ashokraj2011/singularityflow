@@ -77,6 +77,15 @@ test('plugin provides governed Jira Story intake with explicit workflow and work
   assert.match(content, /canonical branch is the exact Jira key/);
 });
 
+test('plugin provides a read-only effective prompt inspection skill', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-show-prompt', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-show-prompt/);
+  assert.match(content, /singularity-flow wm show-prompt/);
+  assert.match(content, /GOVERNED PHASE PROMPT/);
+  assert.match(content, /Do not build the world model/);
+  assert.match(content, /Never shorten the skill, world-model sections/);
+});
+
 test('Epic Story drafting stops for UI review before Jira publication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-story-draft', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-epic-story-draft/);

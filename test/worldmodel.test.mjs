@@ -167,6 +167,13 @@ test('wm inject renders matched persona context and records the generation audit
   assert.match(rendered, /Developer persona/);
   assert.match(rendered, /INJECTED DEVELOPMENT VIEW/);
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
+  const inspected = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1'], root);
+  assert.match(inspected, /BEGIN plugin\/skills\/sflow-phase\/SKILL\.md/);
+  assert.match(inspected, /# Generate the active phase/);
+  assert.match(inspected, /BEGIN GOVERNED PHASE PROMPT/);
+  assert.match(inspected, /INJECTED DEVELOPMENT VIEW/);
+  assert.match(inspected, /END GOVERNED PHASE PROMPT/);
+  await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
   const unsafeWorkId = result(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', '../../outside', '--render-only'], root);
   assert.equal(unsafeWorkId.status, 1);
   assert.match(unsafeWorkId.stderr, /valid work ID/);

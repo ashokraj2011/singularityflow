@@ -1,0 +1,4 @@
+interface:
+  display_name: "Show Effective Prompt"
+  short_description: "Inspect complete phase prompt context"
+  default_prompt: "Use $sflow-show-prompt to display the complete skill instructions and governed prompt for the current phase."

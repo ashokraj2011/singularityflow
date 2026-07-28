@@ -242,6 +242,7 @@ Usage:
   singularity-flow wm build [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep]
   singularity-flow wm context <PHASE> [--task TEXT] [--concat] [--evidence] [--no-persona]
   singularity-flow wm compose [--persona ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
+  singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check
   singularity-flow jira status [--json]

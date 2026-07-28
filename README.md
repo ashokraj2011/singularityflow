@@ -749,12 +749,20 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
+singularity-flow wm show-prompt
 singularity-flow wm check
 ```
 
 `wm build` runs the model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. Work-item lifecycle commits and the model commit itself do not make the model stale; repository source/configuration changes do.
 
 `wm compose` is the single phase entry point. It combines the selected working-lens prompt, mandatory phase and lens views, the exact task guide, applicable evidence, rule-selected files, and active prompt-pack Markdown. `wm inject` remains an alias for compatibility. Rules can match the internal `persona` lens ID, phase, immutable work type, committed or pending changed paths, and source labels.
+
+Use `/sflow-show-prompt` at any active Story phase to display the complete
+`/sflow-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
+The inspection uses `--render-only`: it does not create a grounding record,
+prepare an artifact, edit workflow state, commit, or push. Pass
+`--skill sflow-design` (or another installed Flow skill ID) to inspect that
+skill contract with the same current-phase prompt.
 
 Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, persona, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` for legacy behavior; missing configuration and older in-flight work items mean `off`.
 

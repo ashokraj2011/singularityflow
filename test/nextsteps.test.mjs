@@ -87,8 +87,8 @@ test('nextsteps text preserves timing, skill, reason, and CLI command', () => {
 
 test('agent trust and synchronization prerequisites precede generation', () => {
   const prerequisites = [
-    { timing: 'now', skill: null, command: 'singularity-flow agents lock architecture', reason: 'Trust hashes.' },
-    { timing: 'then', skill: null, command: 'singularity-flow agents sync architecture', reason: 'Materialize cache.' }
+    { timing: 'now', skill: null, command: 'singularity-flow prompt-packs lock architecture', reason: 'Trust hashes.' },
+    { timing: 'then', skill: null, command: 'singularity-flow prompt-packs sync architecture', reason: 'Materialize cache.' }
   ];
   const snapshot = nextStepsSnapshot({ workflow: workflow(), prerequisites });
   assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.command), prerequisites.map((item) => item.command));

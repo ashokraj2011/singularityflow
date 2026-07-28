@@ -91,7 +91,7 @@ test('registered child branches publish hash-bound review packets and unknown br
   );
 
   git(root, ['switch', '-c', 'feature/unregistered']);
-  const blocked = flow(root, ['persona', 'MOB-123'], { allowFailure: true, selection: false });
+  const blocked = flow(root, ['lens', 'MOB-123'], { allowFailure: true, selection: false });
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr, /not registered for Story 'MOB-123'/);
   assert.match(blocked.stderr, /story branch attach --parent MOB-123/);

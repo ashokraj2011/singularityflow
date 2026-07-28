@@ -48,17 +48,22 @@ function choiceSets(definition, action, workflow = null) {
       ]
     },
     { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) },
-    { id: 'persona', label: 'Persona', options: options(Object.entries(definition.personas ?? {})) }
+    { id: 'persona', label: 'Working lens', options: options(Object.entries(definition.personas ?? {})) }
   ];
   if (action === 'approve') {
     const context = approvalContext(workflow);
     const phase = workflow.phases[context.phase];
-    const allowed = new Set(phase.approvalPolicy?.personas ?? []);
-    const personas = Object.entries(definition.personas ?? {}).filter(([id, persona]) =>
-      allowed.has(id) && (persona.mayApprove ?? []).includes(phase.id));
-    if (!personas.length) throw new SingularityFlowError(`No configured persona can approve phase '${phase.id}'.`);
+    const personas = Object.entries(definition.personas ?? {});
+    if (!personas.length) throw new SingularityFlowError(`No working lens is configured for phase '${phase.id}'.`);
     return [
-      { id: 'persona', label: 'Approval persona', options: options(personas) },
+      {
+        id: 'persona',
+        label: 'Working lens (audit only)',
+        options: options(personas).map((entry) => ({
+          ...entry,
+          description: `${entry.description || 'Prompt perspective for this session.'} Approval authority comes from your Git identity, not this choice.`
+        }))
+      },
       {
         id: 'phase-confirmation',
         label: 'Exact phase confirmation',

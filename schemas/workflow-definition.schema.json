@@ -82,6 +82,34 @@
       },
       "additionalProperties": false
     },
+    "approvalAuthorities": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "allowAnyGitIdentity": { "type": "boolean" },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "email": { "type": "string" },
+                "githubLogin": { "type": "string" }
+              },
+              "anyOf": [
+                { "required": ["email"] },
+                { "required": ["githubLogin"] }
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "personas": {
       "type": "object",
       "minProperties": 1,
@@ -93,8 +121,7 @@
           "description": { "type": "string" },
           "prompt": { "type": "string", "minLength": 1 },
           "suggestedPhases": { "type": "array", "items": { "type": "string" } },
-          "worldModelViews": { "type": "array", "items": { "type": "string" } },
-          "mayApprove": { "type": "array", "items": { "type": "string" } }
+          "worldModelViews": { "type": "array", "items": { "type": "string" } }
         },
         "additionalProperties": false
       }
@@ -129,7 +156,8 @@
         "type": "object",
         "properties": {
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
-          "inputs": { "$ref": "#/$defs/phaseInputs" }
+          "inputs": { "$ref": "#/$defs/phaseInputs" },
+          "approval": { "$ref": "#/$defs/approvalPolicy" }
         }
       }
     },
@@ -228,6 +256,26 @@
           }
         ]
       }
+    },
+    "approvalPolicy": {
+      "type": "object",
+      "required": ["authorities"],
+      "properties": {
+        "authorities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        },
+        "minimum": { "type": "integer", "minimum": 1 },
+        "rejectTo": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

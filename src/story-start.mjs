@@ -67,7 +67,7 @@ function validateStorySource(source, id) {
 /**
  * Desktop-safe Story start path.
  *
- * The UI supplies explicit workflow/persona choices, so this function never
+ * The UI supplies explicit workflow/working-lens choices, so this function never
  * prompts and never invents defaults. It persists exactly the same workflow,
  * source, document, commit, and publication records as the CLI start command.
  */
@@ -82,7 +82,7 @@ export async function startStory(root, {
   const definition = await loadDefinition(root);
   validateId(definition, id);
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown persona '${persona ?? ''}'.`);
+  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown working lens '${persona ?? ''}'.`);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);
   const remote = definition.git?.remote ?? 'origin';

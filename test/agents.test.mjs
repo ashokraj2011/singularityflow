@@ -124,7 +124,7 @@ test('locked skills route by phase and persona and are copied into generation co
   const itemDirectory = path.join(root, 'singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
   const workflow = { workItem: { id: 'ARCH-1', workType: 'feature' } }; const phase = { id: 'design', generation: 0 };
   const selected = await renderAgentSkills(root, workflow, phase, { agent: 'architecture', persona: 'architect' }, { record: true, itemDirectory, fetchImpl });
-  assert.match(selected.text, /Remote skill: secure-review/);
+  assert.match(selected.text, /Prompt-pack skill: secure-review/);
   const audit = JSON.parse(await readFile(path.join(itemDirectory, 'context/agents-design-gen1.json'), 'utf8'));
   assert.equal(audit.files[0].sha256, selected.skills[0].sha256);
   const excluded = await renderAgentSkills(root, workflow, phase, { agent: 'architecture', persona: 'developer' }, { fetchImpl });
@@ -164,9 +164,9 @@ test('agent sync preserves selected persona in local session', async () => {
 test('CLI first trust fails non-interactively unless exact test confirmation is supplied', async () => {
   const root = await rootWithAgent(`---\nname: local-agent\ndescription: Local only\ntools: ["bash"]\n---\n\nNo dependencies.\n`);
   assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: root }).status, 0);
-  const denied = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  const denied = spawnSync(process.execPath, [bin, 'prompt-packs', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.notEqual(denied.status, 0); assert.match(denied.stderr, /requires an interactive terminal/);
-  const accepted = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' } });
+  const accepted = spawnSync(process.execPath, [bin, 'prompt-packs', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' } });
   assert.equal(accepted.status, 0, accepted.stderr); assert.match(accepted.stdout, /Locked 'local-agent'/);
 });
 

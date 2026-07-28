@@ -122,7 +122,7 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   for (const input of fileInputs) {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
   }
-  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active persona session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
+  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const manifest = await loadManifest(root, config, workflow); const added = [];
   const packageMap = new Map();
   for (const input of fileInputs.filter((item) => item.packageSource)) if (!packageMap.has(input.packageSource)) {
@@ -173,7 +173,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
   const { selectedId, provider } = resolveStorageProvider(config, providerId);
   const session = await loadSession(root);
-  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active persona session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
+  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
   const reference = { objectId: remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
   let headMeta = null;

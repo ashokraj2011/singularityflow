@@ -67,7 +67,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.persona} for ${session.workId}, but that work item is not open.` : 'No persona session is active.'));
   else if (!session) checks.push(check('session', 'warn', 'No persona is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
-  else checks.push(check('session', 'pass', `Persona '${session.persona}' is active for ${session.workId}.`));
+  else checks.push(check('session', 'pass', `Working lens '${session.persona}' is active for ${session.workId}.`));
   checks.push(check('working-tree', changes(root).trim() ? 'warn' : 'pass', changes(root).trim() ? 'Working tree has uncommitted changes.' : 'Working tree is clean.', changes(root).trim() ? 'Review git status before lifecycle publication.' : null));
   const remote = definition.git?.remote ?? 'origin';
   if (!hasRemote(root, remote)) checks.push(check('remote', definition.git?.publish === 'required' ? 'fail' : 'warn', `Git remote '${remote}' is not configured.`, `Add the '${remote}' remote or set git.publish: off.`));

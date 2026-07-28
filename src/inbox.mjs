@@ -69,7 +69,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         approvalsReceived: approvals.length,
         approvalsRequired: required,
         approvalsRemaining: Math.max(0, required - approvals.length),
-        reviewerPersonas: phase.approvalPolicy?.personas ?? [],
+        reviewerAuthorities: phase.approvalPolicy?.authorities ?? [],
         submittedAt: phase.submittedAt ?? null,
         submittedBy: submitted?.actor ?? null,
         submittedPersona: submitted?.persona ?? null,
@@ -101,7 +101,7 @@ export function approvalInboxText(snapshot) {
     generation: item.generation,
     approvals: `${item.approvalsReceived}/${item.approvalsRequired}`,
     waiting: item.waiting,
-    personas: item.reviewerPersonas.join(', ') || 'any',
+    authorities: item.reviewerAuthorities.join(', ') || 'any identified Git contributor',
     commit: item.commit?.slice(0, 8) ?? 'unknown'
   }));
   return `Pending approval inbox — ${snapshot.remote}\n\n${snapshot.count} phase${snapshot.count === 1 ? '' : 's'} awaiting approval, oldest first.\n\n${table(rows, [
@@ -111,7 +111,7 @@ export function approvalInboxText(snapshot) {
     { key: 'generation', label: 'GEN' },
     { key: 'approvals', label: 'APPROVALS' },
     { key: 'waiting', label: 'WAITING' },
-    { key: 'personas', label: 'REVIEW PERSONAS' },
+    { key: 'authorities', label: 'AUTHORITY GROUPS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
   ])}\n\nChoose an item with /sflow-inbox, then attach safely with singularity-flow session attach <WORK/JIRA-ID>.\n`;
 }

@@ -119,7 +119,7 @@ test('Copilot session persona policy is immutable after work-item creation', asy
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);
-  assert.match(validation.stderr, /Session persona policy differs from the immutable configuration snapshot/);
+  assert.match(validation.stderr, /Session working-lens policy differs from the immutable configuration snapshot/);
 });
 
 test('older work-item session snapshots without work-item selection remain backward compatible', async () => {
@@ -149,7 +149,7 @@ test('submitted work blocks generation mutations and rejection requires regenera
   assertSequenceFailure(flow(root, ['prepare', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/, /reject SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['phase', 'publish', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['documents', 'upload', artifact], { allowFailure: true }), /cannot upload documents/, /awaiting_approval/);
-  assertSequenceFailure(flow(root, ['agents', 'refresh-output', 'external-result'], { allowFailure: true }), /cannot refresh remote generated output/);
+  assertSequenceFailure(flow(root, ['prompt-packs', 'refresh-output', 'external-result'], { allowFailure: true }), /cannot refresh remote generated output/);
   assertSequenceFailure(flow(root, ['wm', 'inject', '--phase', 'intake'], { allowFailure: true }), /cannot compose and record a generation prompt/);
   assert.equal(await readFile(workflowFile, 'utf8'), submittedWorkflow);
   assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);

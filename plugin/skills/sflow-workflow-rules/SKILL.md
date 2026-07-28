@@ -5,7 +5,7 @@ user-invocable: false
 ---
 # Singularity Flow workflow contract
 
-When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `singularity/workflow.yml` defines new work types, phases, personas, templates, and approvals.
+When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `singularity/workflow.yml` defines new work types, phases, prompt-only working lenses (stored under `personas`), templates, and human approval authorities.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
 2. Work only on the exact branch stored in `workflow.json`.
@@ -21,5 +21,5 @@ When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutabl
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
 13. Before phase reasoning, run `singularity-flow wm compose --phase <phase> --task "<current objective>"` and use the complete returned prompt. If missing or stale, build with the same phase and exact task text, then compose again. Add `--evidence` for verification, review, or release decisions.
 14. Treat `singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
-15. Never choose a workflow template or persona for the user. Anyone may choose any persona; phase mappings are recommendations, while approval capability comes from persona configuration.
-16. Run `singularity-flow next` only when the user explicitly invokes `/sflow-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain persona selection, confirmation, commit, and push.
+15. Never choose a workflow template or working lens for the user. Anyone may choose any lens; phase mappings are prompt recommendations. Approval capability comes only from the current human Git/GitHub identity matching a configured authority group.
+16. Run `singularity-flow next` only when the user explicitly invokes `/sflow-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, working-lens selection, confirmation, commit, and push.

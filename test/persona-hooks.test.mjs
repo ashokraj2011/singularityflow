@@ -88,7 +88,7 @@ test('new Copilot sessions require work-item selection before persona selection 
   status = await personaSessionStatus(root, definition, current);
   assert.equal(status.workItemSelectionRequired, false);
   assert.equal(status.selectionRequired, true);
-  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow persona HOOK-1' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow lens HOOK-1' } }), {});
 
   await setPersonaSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1');
   status = await personaSessionStatus(root, definition, current);
@@ -107,7 +107,7 @@ test('resume reuses and rebinds a valid persona when promptOnResume is disabled'
   await activateWorkItemSession(root, definition, current);
   await setPersonaSession(root, definition, 'User <user@example.com>', 'developer', 'HOOK-1');
   const result = await sessionStartPersonaHook(root, definition, current, { sessionId: 'copilot-resumed', source: 'resume' });
-  assert.match(result.additionalContext, /Acting as developer/);
+  assert.match(result.additionalContext, /Working lens developer is active/);
   const status = await personaSessionStatus(root, definition, current);
   assert.equal(status.selectionRequired, false);
   assert.equal(status.workItemSelectionRequired, false);

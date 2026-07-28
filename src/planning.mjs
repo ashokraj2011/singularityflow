@@ -217,8 +217,8 @@ function workItemPhaseContract(workflow, phase) {
     `- Current phase: ${workflow.currentPhase}`,
     `- Required artifact: ${phase.requiredArtifact.path}`,
     `- Write scope: ${phase.writeScope}`,
-    `- Suggested personas: ${phase.suggestedPersonas.join(', ') || 'none'}`,
-    `- Required approvals: ${phase.approvalPolicy.minimum} from ${phase.approvalPolicy.personas.join(', ') || 'no persona restriction'}`,
+    `- Suggested working lenses: ${phase.suggestedPersonas.join(', ') || 'none'}`,
+    `- Required approvals: ${phase.approvalPolicy.minimum} distinct human identities from ${phase.approvalPolicy.authorities.join(', ') || 'no authority group'}`,
     `- Quality commands: ${phase.qualityCommands.length ? phase.qualityCommands.join(' · ') : 'none configured'}`,
     `- Phase inputs: ${phase.inputs.length ? phase.inputs.map((input) => `${input.phase}${input.optional ? ' (optional)' : ''}`).join(', ') : 'none'}`
   ].join('\n');
@@ -433,7 +433,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
   const currentInfo = current ? await snapshot(target) : null;
   const governed = [
     `# Governed story context — ${id}/${selectedPhase}`,
-    `## Selected persona\n\n${personaResult.text.trim()}`,
+    `## Selected working lens\n\n${personaResult.text.trim()}`,
     world.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
@@ -442,7 +442,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
     current ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${current.trim()}` : ''
   ].filter((section) => section?.trim()).join('\n\n');
   const personaPath = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, definition.personas[persona].prompt), {
-    label: `Planning persona prompt for '${persona}'`,
+    label: `Planning working-lens prompt for '${persona}'`,
     mustExist: true,
     type: 'file'
   });
@@ -535,7 +535,7 @@ export async function createPlanningContext(root, {
   const definition = await loadDefinition(root);
   const prompt = await planningPrompt(root, definition);
   if (!prompt.config.enabled) throw new SingularityFlowError('Copilot Studio is disabled by workflow.yml.');
-  if (!definition.personas[persona]) throw new SingularityFlowError(`Unknown planning persona '${persona}'.`);
+  if (!definition.personas[persona]) throw new SingularityFlowError(`Unknown planning working lens '${persona}'.`);
   const parts = scope === 'initiative'
     ? await initiativePlanningParts(root, definition, { id, phaseId, persona, targetId })
     : scope === 'work-item'
@@ -702,7 +702,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   const pack = await loadPlanningPack(root, sessionId);
   const actor = identity(root);
   if (persona && persona !== pack.manifest.persona) {
-    throw new SingularityFlowError(`Planning context was composed as '${pack.manifest.persona}', not '${persona}'. Rebuild the context to change persona.`);
+    throw new SingularityFlowError(`Planning context was composed with working lens '${pack.manifest.persona}', not '${persona}'. Rebuild the context to change the lens.`);
   }
   const selectedPersona = pack.manifest.persona;
   const promotedAt = nowIso();

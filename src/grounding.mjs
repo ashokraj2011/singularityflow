@@ -22,7 +22,7 @@ const GOVERNANCE_ROOT = 'singularity';
  *
  * The source-tree hash answers exactly one question: has the code the world model describes
  * changed? Counting governance state meant the answer was always yes. Starting an Epic alone
- * commits initiative state *and* materializes the artifact templates and persona prompts, so a
+ * commits initiative state *and* materializes the artifact templates and working-lens prompts, so a
  * model built minutes earlier was reported stale before a single line of the application had been
  * touched — the signal was permanently on and told you nothing. On the rule-engine repository it
  * was 48 of 70 files for work-item and initiative state, and 22 more for templates.
@@ -245,7 +245,7 @@ export async function resolveWorldModelContext(root, config, phase, { task = nul
   for (const relative of config.context?.always ?? ['core/summary.md']) await add(relative, 0, 'shared repository core');
   if (includePersonaPrompt && config.personaPrompt) {
     const info = await snapshot(path.join(root, config.personaPrompt));
-    if (!info.exists) throw new SingularityFlowError(`Active persona prompt is missing: ${config.personaPrompt}`);
+    if (!info.exists) throw new SingularityFlowError(`Active working-lens prompt is missing: ${config.personaPrompt}`);
   }
   for (const view of phaseConfig.views ?? []) await add(manifest.views?.[view]?.path, 1, `${phase} view: ${view}`);
   if (config.context?.includeDomains !== 'none') {

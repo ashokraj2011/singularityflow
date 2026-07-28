@@ -33,7 +33,7 @@ export async function simulateWorkflow(root, workType = null) {
     const phases = profile.phases.map((phaseId, index) => {
       const base = definition.phases[phaseId]; const override = profile.phaseOverrides?.[phaseId] ?? {};
       const approval = override.approval ?? base.approval ?? {};
-      return { order: index + 1, id: phaseId, label: base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), personas: approval.personas ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [] };
+      return { order: index + 1, id: phaseId, label: base.label, template: profile.templateOverrides?.[phaseId] ?? base.defaultTemplate, inputs: (override.inputs ?? base.inputs ?? []).map((input) => typeof input === 'string' ? input : input.phase), authorities: approval.authorities ?? [], minimumApprovals: approval.minimum ?? 1, qualityCommands: override.qualityCommands ?? base.qualityCommands ?? [], worldModelViews: override.worldModel?.views ?? base.worldModel?.views ?? [] };
     });
     return { id, label: profile.label, inputsMode: definition.inputsMode ?? 'off', documents: profile.documents ?? definition.documents ?? {}, sequenceGates: { ...(definition.sequenceGates ?? {}), ...(profile.sequenceGates ?? {}) }, phases };
   });
@@ -43,7 +43,7 @@ export function simulationText(simulations) {
   const lines = [];
   for (const simulation of simulations) {
     lines.push(`${simulation.label} (${simulation.id})`, `Inputs: ${simulation.inputsMode}`, '');
-    for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.personas.join(', ') || 'none'}) · world-model=${phase.worldModelViews.join(', ') || 'none'}`);
+    for (const phase of simulation.phases) lines.push(`${String(phase.order).padStart(2)}. ${phase.label} [${phase.id}]`, `    template=${phase.template} · inputs=${phase.inputs.join(', ') || 'none'} · approvals=${phase.minimumApprovals} (${phase.authorities.join(', ') || 'none'}) · world-model=${phase.worldModelViews.join(', ') || 'none'}`);
     lines.push('');
   }
   return `${lines.join('\n')}\n`;
@@ -57,8 +57,16 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   const phaseIds = new Set(profile.phases);
   for (const phaseId of phaseIds) next.phases[phaseId] ??= structuredClone(starter.phases[phaseId]);
   const personaIds = new Set();
-  for (const phaseId of phaseIds) for (const persona of [...(starter.phases[phaseId].suggestedPersonas ?? []), ...(starter.phases[phaseId].approval?.personas ?? [])]) personaIds.add(persona);
+  const authorityIds = new Set();
+  for (const phaseId of phaseIds) {
+    for (const persona of starter.phases[phaseId].suggestedPersonas ?? []) personaIds.add(persona);
+    for (const authority of starter.phases[phaseId].approval?.authorities ?? []) authorityIds.add(authority);
+  }
   for (const persona of personaIds) next.personas[persona] ??= structuredClone(starter.personas[persona]);
+  next.approvalAuthorities ??= {};
+  for (const authority of authorityIds) {
+    next.approvalAuthorities[authority] ??= structuredClone(starter.approvalAuthorities[authority]);
+  }
   validateDefinition(next);
   const files = [];
   for (const phaseId of phaseIds) {

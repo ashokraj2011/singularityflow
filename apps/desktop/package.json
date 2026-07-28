@@ -2,7 +2,7 @@
   "name": "singularity-flow-desktop",
   "version": "0.9.0",
   "private": true,
-  "description": "Visual workflow, approval, persona, artifact-template, and evidence studio for Singularity Flow.",
+  "description": "Visual workflow, human approval authority, working-lens, artifact-template, and evidence studio for Singularity Flow.",
   "author": "Ashok Raj",
   "type": "module",
   "main": "electron/main.mjs",

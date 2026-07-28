@@ -203,7 +203,7 @@ function statusMarkdown(initiative) {
     lines.push(`| ${phase.order + 1} | ${phase.label} | **${phase.status}** | ${phase.generation} | ${outputs.filter((item) => item.status !== 'not_generated').length}/${outputs.length} | ${checks.filter((item) => ['satisfied', 'waived', 'not_applicable'].includes(item.status)).length}/${checks.length} |`);
   }
   lines.push('', '## Recent history', '');
-  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.persona ? ` as ${event.persona}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
+  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.persona ? ` · working lens ${event.persona}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
   return `${lines.join('\n')}\n`;
 }
 

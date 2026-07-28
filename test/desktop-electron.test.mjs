@@ -364,9 +364,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Artifact path/);
   assert.match(source, /Inputs from earlier stages/);
   assert.match(source, /Copilot session policy/);
-  assert.match(source, /Block mutating tools until both selections complete/);
+  assert.match(source, /Block mutating tools until work item and lens are selected/);
   assert.match(source, /Create artifact template/);
-  assert.match(source, /Create persona and prompt/);
+  assert.match(source, /Create working lens and prompt/);
   assert.match(source, /Create repository skill/);
   assert.match(source, /Flow skills <span>\{flowSkills\.length\}<\/span>/);
   assert.match(source, /Customize for this repository/);
@@ -380,7 +380,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Repository-owned world model/);
   assert.match(source, /Editable builder prompt/);
   assert.match(source, /World-model views/);
-  assert.match(source, /Once referenced by a stage, persona, rule, or prompt, the view is protected from deletion/i);
+  assert.match(source, /Once referenced by a stage, working lens, rule, or prompt, the view is protected from deletion/i);
   assert.match(styles, /Avenir Next/);
   assert.match(styles, /Iowan Old Style/);
   assert.match(styles, /color-scheme: light/);
@@ -1091,7 +1091,7 @@ test('publication waits on required outputs only, and says which ones', async ()
   // complaint that prompted this.
   assert.match(governance, /pendingRequired/);
   assert.match(governance, /Waiting on \$\{pendingRequired\.length\}/);
-  assert.match(governance, /title=\{!persona \? 'Select a persona first\.'/);
+  assert.match(governance, /title=\{!persona \? 'Select a working lens first\.'/);
 });
 
 test('a blocked approval says which field is missing, and the strip does not mislabel navigation', async () => {
@@ -1101,7 +1101,7 @@ test('a blocked approval says which field is missing, and the strip does not mis
   // A disabled primary button with its reason in help text above reads as "nothing works". Publish
   // already explained itself; approval did not, which is what made intake look broken.
   assert.match(governance, /const approvalBlocker =/);
-  assert.match(governance, /Select your review persona first/);
+  assert.match(governance, /Select a review working lens first/);
   assert.match(governance, /in the confirmation field to approve this exact document set/);
   // A typo and an empty field are different user problems and must not share one message.
   assert.match(governance, /The confirmation phrase does not match/);
@@ -1253,7 +1253,7 @@ test('the governed contract is composed by the Copilot CLI skill, not sent by El
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   const skill = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
   assert.doesNotMatch(main, /planning:start|planning:prompt/);
-  assert.match(app, /persona, world model, pinned sources, approved inputs/);
+  assert.match(app, /working lens, world model, pinned sources, approved inputs/);
   assert.match(skill, /wm compose --phase/);
 });
 

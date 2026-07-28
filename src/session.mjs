@@ -27,7 +27,7 @@ async function choose(label, entries, { selection = null } = {}) {
   }
   if (label === 'persona' && process.env.SINGULARITY_FLOW_GITHUB_PERSONA) {
     const selected = process.env.SINGULARITY_FLOW_GITHUB_PERSONA;
-    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub approval persona '${selected}'.`);
+    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub-selected working lens '${selected}'.`);
     return selected;
   }
   if (!input.isTTY || !output.isTTY) {
@@ -64,13 +64,13 @@ export async function selectIntakeSource(options = {}) {
 export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null, selection = null } = {}) {
   const allowed = allowedPersonas ? new Set(allowedPersonas) : null;
   const entries = Object.entries(definition.personas).filter(([id]) => !allowed || allowed.has(id));
-  if (!entries.length) throw new SingularityFlowError('No configured persona is available for this action.');
-  const persona = await choose('persona', entries, { selection });
+  if (!entries.length) throw new SingularityFlowError('No configured working lens is available for this action.');
+  const persona = await choose('working lens', entries, { selection });
   return setPersonaSession(root, definition, actor, persona, workId);
 }
 
 export async function setPersonaSession(root, definition, actor, persona, workId = null) {
-  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown persona '${persona}'.`);
+  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown working lens '${persona}'.`);
   const existing = await loadSession(root, { required: false });
   const copilot = await loadCopilotSession(root);
   const binding = copilot?.workId === workId && copilot?.sessionId
@@ -96,7 +96,7 @@ export async function setAgentSession(root, agent, actor = null) {
 export async function loadSession(root, { required = true } = {}) {
   const file = sessionPath(root);
   if (!(await exists(file))) {
-    if (required) throw new SingularityFlowError('No active persona session. Run singularity-flow resume <WORK-ID> and choose a persona.');
+    if (required) throw new SingularityFlowError('No active working-lens session. Run singularity-flow resume <WORK-ID> and choose a working lens.');
     return null;
   }
   return JSON.parse(await readFile(file, 'utf8'));

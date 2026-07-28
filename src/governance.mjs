@@ -4,6 +4,7 @@ import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublic
 import { exists, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
+import { matchApprovalAuthority } from './approval-authority.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 
@@ -84,8 +85,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       const agentContextRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {
-        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote agent context was not committed with ${phaseId} generation ${generation}`);
-        else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
+        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote prompt-pack context was not committed with ${phaseId} generation ${generation}`);
+        else if (found) passes.push(`remote prompt-pack audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
         const outputRecord = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
@@ -105,8 +106,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
     if (distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
     for (const decision of decisions) {
-      if (!(phase.approvalPolicy.personas ?? []).includes(decision.persona)) errors.push(`${phaseId} was approved using unauthorized persona '${decision.persona}'`);
-      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'} as ${decision.persona}`);
+      const authority = matchApprovalAuthority(workflow.resolution.approvalAuthorities, phase.approvalPolicy, decision.actor);
+      if (!authority.authorized) errors.push(`${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`);
+      else if (decision.authorityGroup !== authority.authorityGroup) errors.push(`${phaseId} approval authority record does not match the pinned policy`);
+      if (!decision.identityAssurance) errors.push(`${phaseId} approval is missing identity-assurance metadata`);
+      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; working lens '${decision.workingLens ?? decision.persona ?? 'unavailable'}' is audit context, not independent review`);
     }
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));

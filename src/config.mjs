@@ -140,6 +140,16 @@ export function validateDefinition(definition) {
     if (new Set(definition.worldModel.views).size !== definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must not contain duplicates.');
     for (const view of definition.worldModel.views) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be lower-case kebab-case.`);
   }
+  if (definition.worldModel?.generation != null) {
+    const generation = definition.worldModel.generation;
+    if (!generation || typeof generation !== 'object' || Array.isArray(generation)) throw new SingularityFlowError('worldModel.generation must be an object.');
+    for (const key of Object.keys(generation)) if (!['parallel', 'maxWorkers', 'strategy'].includes(key)) throw new SingularityFlowError(`worldModel.generation contains unknown field '${key}'.`);
+    if (generation.parallel != null && typeof generation.parallel !== 'boolean') throw new SingularityFlowError('worldModel.generation.parallel must be boolean.');
+    if (generation.maxWorkers != null && (!Number.isInteger(generation.maxWorkers) || generation.maxWorkers < 1 || generation.maxWorkers > 16)) {
+      throw new SingularityFlowError('worldModel.generation.maxWorkers must be an integer from 1 through 16.');
+    }
+    if (generation.strategy != null && generation.strategy !== 'view') throw new SingularityFlowError("worldModel.generation.strategy must be 'view'.");
+  }
   validateInjectionDefinition(definition);
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {

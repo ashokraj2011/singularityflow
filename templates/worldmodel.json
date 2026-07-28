@@ -3,6 +3,11 @@
   "outputDir": "singularity/world-model",
   "promptSource": "singularity/prompts/worldmodel-builder.md",
   "runner": "copilot -p \"$(cat {prompt_file})\" --allow-all-tools",
+  "generation": {
+    "parallel": true,
+    "maxWorkers": 4,
+    "strategy": "view"
+  },
   "grounding": "off",
   "staleness": "warn",
   "phases": {

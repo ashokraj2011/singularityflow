@@ -138,6 +138,18 @@ test('world-model grounding is configurable and legacy-safe', async () => {
   assert.throws(() => validateDefinition(definition), /worldModel\.grounding must be off, warn, or enforce/);
 });
 
+test('world-model parallel generation policy is bounded and view-scoped', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-world-model-generation-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  assert.deepEqual(definition.worldModel.generation, { parallel: true, maxWorkers: 4, strategy: 'view' });
+  definition.worldModel.generation.maxWorkers = 17;
+  assert.throws(() => validateDefinition(definition), /maxWorkers must be an integer from 1 through 16/);
+  definition.worldModel.generation.maxWorkers = 2;
+  definition.worldModel.generation.strategy = 'component';
+  assert.throws(() => validateDefinition(definition), /strategy must be 'view'/);
+});
+
 test('sequence gates default safely to hard and support work-type overrides', async () => {
   const legacySafe = normalizeSequenceGates();
   assert.equal(legacySafe.default, 'hard');

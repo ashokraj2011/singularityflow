@@ -40,6 +40,10 @@ worldModel:
   views: [business, architecture, development, testing, release, operations, security]
   outputDir: singularity/world-model
   promptSource: singularity/prompts/worldmodel-builder.md
+  generation:
+    parallel: true
+    maxWorkers: 4
+    strategy: view
   grounding: enforce
   staleness: warn
   injection:

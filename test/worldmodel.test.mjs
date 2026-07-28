@@ -18,8 +18,8 @@ function run(command, args, cwd) {
   return result.stdout;
 }
 
-function result(command, args, cwd) {
-  return spawnSync(command, args, { cwd, encoding: 'utf8' });
+function result(command, args, cwd, env = process.env) {
+  return spawnSync(command, args, { cwd, encoding: 'utf8', env });
 }
 
 function flow(args, cwd, { allowFailure = false, persona = 'product-owner', workType = 'feature' } = {}) {
@@ -35,10 +35,21 @@ function flow(args, cwd, { allowFailure = false, persona = 'product-owner', work
 }
 
 const mockBuilderSource = `
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 const prompt = await readFile(process.argv[2], 'utf8');
+const packet = prompt.match(/Packet file:\\s+([^\\n]+)/)?.[1].trim();
+const assignedView = prompt.match(/Assigned view:\\s+([^\\n]+)/)?.[1].trim();
+if (packet) {
+  const startedAt = Date.now();
+  if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'start', view: assignedView, at: startedAt }) + '\\n');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await mkdir(path.dirname(packet), { recursive: true });
+  await writeFile(packet, '# ' + assignedView + ' discovery packet\\n\\nObserved ' + assignedView + ' facts at README.md:1.\\n');
+  if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'end', view: assignedView, at: Date.now() }) + '\\n');
+  process.exit(0);
+}
 const output = prompt.match(/Output directory:\\s+([^\\n]+)/)?.[1].trim();
 const requested = prompt.match(/Requested views:\\s+([^\\n]+)/)?.[1].trim().split(/,\\s*/).filter(Boolean) ?? [];
 const task = prompt.match(/Optional task:\\s+([^\\n]+)/)?.[1].trim();
@@ -236,6 +247,45 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const stale = result(process.execPath, [bin, 'wm', 'check'], root);
   assert.equal(stale.status, 2);
   assert.match(`${stale.stdout}${stale.stderr}`, /World model is stale/);
+});
+
+test('wm build discovers requested views concurrently and synthesizes one validated model', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-parallel-'));
+  const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-parallel-${process.pid}-${Date.now()}.jsonl`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Parallel Model Tester'], root);
+  run('git', ['config', 'user.email', 'parallel-model@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run(process.execPath, [bin, 'wm', 'init'], root);
+  await writeFile(path.join(root, 'README.md'), '# Parallel world-model test\n');
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'verification', '--views', 'business', '--parallel', '--workers', '2',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: activityLog });
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.match(execution.stderr, /4 view workers, up to 2 concurrent/);
+
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.generation, {
+    parallel: true,
+    strategy: 'view',
+    max_workers: 2,
+    discovery_views: ['business', 'development', 'security', 'testing']
+  });
+  const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  const firstEnd = events.findIndex((event) => event.event === 'end');
+  assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);
+  assert.equal(events.filter((event) => event.event === 'start').length, 4);
+  assert.equal(events.filter((event) => event.event === 'end').length, 4);
 });
 
 test('wm build targets an existing branch without a work item or switching the active checkout', async () => {

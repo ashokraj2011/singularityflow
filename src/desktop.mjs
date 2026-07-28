@@ -429,6 +429,7 @@ export async function bootstrapDesktopPortfolio(root, {
   const target = path.join(root, PORTFOLIO_PATH);
   const definition = await loadDefinition(root);
   const targetExists = await exists(target);
+  let repairedEmptyStarter = false;
   let starter;
   if (targetExists) {
     if (!replaceEmptyStarter) {
@@ -436,13 +437,7 @@ export async function bootstrapDesktopPortfolio(root, {
     }
     starter = YAML.parse(await readFile(target, 'utf8'));
     const authorities = Object.values(starter.approvalAuthorities ?? {});
-    const isBlankStarter = authorities.length > 0
-      && authorities.every((authority) => !(authority?.members ?? []).length);
-    if (!isBlankStarter) {
-      throw new SingularityFlowError(
-        `${PORTFOLIO_PATH} contains configured approval authorities and cannot be replaced automatically. Edit it through Portfolio designer instead.`
-      );
-    }
+    repairedEmptyStarter = authorities.some((authority) => !(authority?.members ?? []).length);
   } else {
     starter = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
   }
@@ -451,7 +446,9 @@ export async function bootstrapDesktopPortfolio(root, {
   const name = String(approvalName ?? gitActor.name ?? email).trim();
   if (!/^[^@\s]+@[^@\s]+$/.test(email)) throw new SingularityFlowError('Portfolio setup requires an approval email. Configure Git user.email or enter an approver identity.');
   for (const authority of Object.values(starter.approvalAuthorities)) {
-    authority.members = [{ name: name || email, email }];
+    // Workspace bootstrap is deliberately idempotent. Existing authority membership is
+    // governance data, so preserve it and fill only groups left blank by the starter.
+    if (!(authority.members ?? []).length) authority.members = [{ name: name || email, email }];
   }
   if (repositories) {
     if (typeof repositories !== 'object' || Array.isArray(repositories) || !Object.keys(repositories).length) {
@@ -515,7 +512,8 @@ export async function bootstrapDesktopPortfolio(root, {
     approver: { name: name || email, email },
     repositoryConfigured: Object.keys(portfolio.repositories).length > 0,
     jiraConfigured: portfolio.jira.enabled,
-    repairedEmptyStarter: targetExists,
+    repairedEmptyStarter,
+    updatedExisting: targetExists,
     changed: changedFiles(root).includes(PORTFOLIO_PATH)
   };
 }

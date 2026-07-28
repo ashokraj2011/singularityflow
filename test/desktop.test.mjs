@@ -207,6 +207,7 @@ test('desktop safely repairs an untouched starter portfolio with empty authority
     }
   });
   assert.equal(repaired.repairedEmptyStarter, true);
+  assert.equal(repaired.updatedExisting, true);
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
   assert.ok(Object.values(portfolio.approvalAuthorities)
     .every((authority) => authority.members[0].email === 'desktop@example.com'));
@@ -216,10 +217,19 @@ test('desktop safely repairs an untouched starter portfolio with empty authority
     name: 'Configured Owner',
     email: 'owner@example.com'
   }];
+  portfolio.approvalAuthorities['risk-reviewers'].members = [];
   await writeFile(portfolioPath, YAML.stringify(portfolio));
-  await assert.rejects(
-    () => bootstrapDesktopPortfolio(root, { replaceEmptyStarter: true }),
-    /configured approval authorities/i
+  const merged = await bootstrapDesktopPortfolio(root, { replaceEmptyStarter: true });
+  assert.equal(merged.updatedExisting, true);
+  assert.equal(merged.repairedEmptyStarter, true);
+  const mergedPortfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  assert.deepEqual(mergedPortfolio.approvalAuthorities['product-approvers'].members, [{
+    name: 'Configured Owner',
+    email: 'owner@example.com'
+  }]);
+  assert.equal(
+    mergedPortfolio.approvalAuthorities['risk-reviewers'].members[0].email,
+    'desktop@example.com'
   );
 });
 

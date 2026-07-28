@@ -5,6 +5,8 @@ user-invocable: false
 ---
 # Singularity Flow workflow contract
 
+This background contract does not turn session setup into delivery work. When the contributor invokes `/sflow-session`, apply only the session skill and stop after its report. Do not inspect Story artifacts or application source, infer an implementation request from the Work ID, or begin a phase until the contributor invokes a separate action.
+
 When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `singularity/workflow.yml` defines new work types, phases, prompt-only working lenses (stored under `personas`), templates, and human approval authorities.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.

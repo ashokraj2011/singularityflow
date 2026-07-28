@@ -4,7 +4,10 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { sessionStartPersonaHook, personaGuardHook } from '../src/persona-hooks.mjs';
-import { activateWorkItemSession, personaSessionStatus, setPersonaSession } from '../src/session.mjs';
+import {
+  activateWorkItemSession, clearCopilotTurnIntent, personaSessionStatus, recordCopilotTurnIntent,
+  sessionOnlyPrompt, setPersonaSession
+} from '../src/session.mjs';
 
 const definition = {
   session: { workItemSelection: 'prompt', personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: true },
@@ -87,6 +90,7 @@ test('new Copilot sessions require work-item selection before persona selection 
   for (const readOnlyProbe of [
     'git remote -v',
     'git branch --show-current',
+    'git branch -vv',
     'git status --short --branch',
     'git status --porcelain=v1 --branch',
     'git rev-parse --show-toplevel',
@@ -168,6 +172,46 @@ test('new Copilot sessions require work-item selection before persona selection 
   assert.equal(status.activePersona, 'architect');
   assert.equal(status.ready, true);
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } }), {});
+
+  assert.deepEqual(sessionOnlyPrompt('/sflow-session HOOK-1'), { intent: 'session-only', workId: 'HOOK-1' });
+  assert.deepEqual(sessionOnlyPrompt('/singularity-flow/sflow-session WORK-124'), { intent: 'session-only', workId: 'WORK-124' });
+  assert.equal(sessionOnlyPrompt('/sflow-session WORK-124 and implement it'), null);
+  await recordCopilotTurnIntent(root, {
+    sessionId: 'copilot-new',
+    prompt: '/singularity-flow/sflow-session HOOK-1'
+  });
+  for (const allowed of [
+    `cd ${root} && git status --short --branch && echo '---' && git remote -v && echo '---' && git branch -vv`,
+    'singularity-flow session status --json',
+    'singularity-flow session candidates --json',
+    'singularity-flow session attach HOOK-1 --json',
+    'singularity-flow lens HOOK-1',
+    'singularity-flow nextsteps HOOK-1 --json'
+  ]) {
+    assert.deepEqual(await personaGuardHook(root, definition, current, {
+      sessionId: 'copilot-new', toolName: 'bash', toolArgs: { command: allowed }
+    }), {}, `expected session-only command '${allowed}' to be allowed`);
+  }
+  for (const deniedTool of [
+    { toolName: 'view', toolArgs: { path: 'src/app.js' } },
+    { toolName: 'grep', toolArgs: { pattern: 'TODO' } },
+    { toolName: 'glob', toolArgs: { pattern: '**/*.md' } },
+    { toolName: 'edit', toolArgs: { path: 'src/app.js' } },
+    { toolName: 'task', toolArgs: { prompt: 'Implement the Story' } },
+    { toolName: 'bash', toolArgs: { command: 'cat singularity/work-items/HOOK-1/USER-STORY.md' } },
+    { toolName: 'bash', toolArgs: { command: 'singularity-flow phase publish design' } }
+  ]) {
+    const decision = await personaGuardHook(root, definition, current, {
+      sessionId: 'copilot-new',
+      ...deniedTool
+    });
+    assert.equal(decision.permissionDecision, 'deny', `expected '${deniedTool.toolName}' to be denied during session setup`);
+    assert.match(decision.permissionDecisionReason, /session-setup-only turn/);
+  }
+  await clearCopilotTurnIntent(root, 'copilot-new');
+  assert.deepEqual(await personaGuardHook(root, definition, current, {
+    sessionId: 'copilot-new', toolName: 'edit', toolArgs: { path: 'src/app.js' }
+  }), {});
 });
 
 test('resume reuses and rebinds a valid persona when promptOnResume is disabled', async () => {

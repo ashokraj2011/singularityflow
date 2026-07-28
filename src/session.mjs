@@ -1,6 +1,6 @@
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { exists } from './util.mjs';
 import { SingularityFlowError, nowIso, run } from './util.mjs';
@@ -17,6 +17,11 @@ function sessionPath(root) {
 
 function copilotSessionPath(root) {
   return path.join(localGitDir(root), 'singularity-flow/copilot-session.json');
+}
+
+function copilotTurnIntentPath(root, sessionId) {
+  const key = encodeURIComponent(sessionId || 'unknown');
+  return path.join(localGitDir(root), `singularity-flow/copilot-turn-${key}.json`);
 }
 
 async function writeLocalJson(file, value) {
@@ -114,6 +119,46 @@ export async function loadCopilotSession(root) {
 
 export async function recordCopilotSession(root, record) {
   return writeLocalJson(copilotSessionPath(root), { schemaVersion: 1, ...record });
+}
+
+export function sessionOnlyPrompt(prompt) {
+  if (typeof prompt !== 'string') return null;
+  const match = prompt.trim().match(/^\/(?:(?:singularity-flow)\/)?sflow-session(?:\s+([A-Za-z0-9._-]+))?$/);
+  return match ? { intent: 'session-only', workId: match[1] ?? null } : null;
+}
+
+export async function recordCopilotTurnIntent(root, payload = {}) {
+  const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
+    ? payload.sessionId.trim()
+    : typeof payload.session_id === 'string' && payload.session_id.trim()
+      ? payload.session_id.trim()
+      : null;
+  const selected = sessionOnlyPrompt(payload.prompt);
+  return writeLocalJson(copilotTurnIntentPath(root, sessionId), {
+    schemaVersion: 1,
+    sessionId,
+    intent: selected?.intent ?? null,
+    workId: selected?.workId ?? null,
+    recordedAt: nowIso()
+  });
+}
+
+export async function loadCopilotTurnIntent(root, sessionId = null) {
+  const file = copilotTurnIntentPath(root, sessionId);
+  if (!(await exists(file))) return null;
+  try {
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    if (sessionId && record.sessionId && record.sessionId !== sessionId) return null;
+    return record;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearCopilotTurnIntent(root, sessionId = null) {
+  try { await unlink(copilotTurnIntentPath(root, sessionId)); } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
 }
 
 export function validPersonaSession(definition, session, workId, copilotSessionId = null) {

@@ -8,7 +8,8 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { initiativeRelative } from './initiative-state.mjs';
 import {
-  bindPersonaToCopilotSession, loadCopilotSession, loadSession, personaSessionStatus, recordCopilotSession, validPersonaSession
+  bindPersonaToCopilotSession, loadCopilotSession, loadCopilotTurnIntent, loadSession, personaSessionStatus,
+  recordCopilotSession, validPersonaSession
 } from './session.mjs';
 import {
   activeWorkspaceFile, workspaceContextForRepository, workspacePromptLabel, workspaceRegistryFile
@@ -152,6 +153,7 @@ function isReadOnlyRepositoryProbe(payload) {
     /^cd (?:\/[A-Za-z0-9._+@%/:=-]+|'\/[^']+'|"\/[^"]+")$/,
     /^git remote -v$/,
     /^git branch --show-current$/,
+    /^git branch -vv$/,
     /^git status --short --branch$/,
     /^git status --porcelain(?:=v1)?(?: --branch)?$/,
     /^git rev-parse --show-toplevel$/,
@@ -160,6 +162,18 @@ function isReadOnlyRepositoryProbe(payload) {
     /^pwd$/,
     /^echo (?:---|'---'|"---")$/
   ].some((pattern) => pattern.test(part)));
+}
+
+function isSessionBoundaryToolCall(payload) {
+  const command = setupCommandText(payload.toolArgs);
+  if (isReadOnlyRepositoryProbe(payload)) return true;
+  if (/^(?:singularity-flow|sflow) session (?:status|candidates)(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) session attach [A-Za-z0-9._-]+(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow lens|sflow-lens)(?: [A-Za-z0-9._-]+)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) nextsteps(?: [A-Za-z0-9._-]+)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  const chars = payload.toolArgs?.chars ?? payload.toolArgs?.input ?? payload.toolArgs?.text;
+  const terminal = payload.toolArgs?.sessionId ?? payload.toolArgs?.session_id;
+  return Boolean(terminal && typeof chars === 'string' && /^\d+\r?\n$/.test(chars));
 }
 
 function isPersonaToolCall(payload) {
@@ -209,6 +223,17 @@ export async function personaGuardHook(root, definition, workflow, payload = {})
   const log = repositoryLogger(root, definition, {
     context: { hook: 'persona-guard', toolName: payload.toolName ?? null }
   });
+  const turnIntent = await loadCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
+  if (turnIntent?.intent === 'session-only' && !isSessionBoundaryToolCall(payload)) {
+    log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {
+      reason: 'session-only turn',
+      workId: turnIntent.workId ?? null
+    });
+    return {
+      permissionDecision: 'deny',
+      permissionDecisionReason: 'This is a session-setup-only turn. Synchronize the selected work item, let the contributor choose a working lens, report next steps, and then end the turn. Do not search, read, edit, implement, generate, publish, submit, or approve project work.'
+    };
+  }
   const initiative = workflow ? null : await activeInitiative(root);
   if (initiative) {
     log.info('hook.guard.allow', 'governed initiative branch', { reason: 'initiative', initiativeId: initiative.initiative.id });

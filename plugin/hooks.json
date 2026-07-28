@@ -12,11 +12,25 @@
         "prompt": "/sflow-session"
       }
     ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "command": "singularity-flow hook turn-intent",
+        "timeoutSec": 10
+      }
+    ],
     "preToolUse": [
       {
         "type": "command",
         "command": "singularity-flow hook persona-guard",
-        "matcher": "bash|powershell|edit|create|task",
+        "matcher": "bash|powershell|edit|create|task|view|grep|glob",
+        "timeoutSec": 10
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "command": "singularity-flow hook turn-end",
         "timeoutSec": 10
       }
     ]

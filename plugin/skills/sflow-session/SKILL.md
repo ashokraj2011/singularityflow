@@ -6,6 +6,7 @@ disable-model-invocation: true
 # Attach the Copilot session to durable Git state
 
 Do not scan instruction files, inspect the repository with raw Git commands, or perform generic orientation before step 1. The session commands below perform the required repository and remote validation themselves.
+This is a session-setup-only skill, never an implementation request. Do not load a phase skill, read task artifacts or application source, modify files, generate artifacts, or execute lifecycle work. After step 10, end the turn. The contributor must invoke a separate `/sflow-*` action to begin work.
 
 1. Run `singularity-flow session status --json`.
 2. If `initialized` is false, explain that Copilot must be opened inside the cloned application repository so its configured Git remote is known. Do not guess a repository URL.
@@ -17,3 +18,4 @@ Do not scan instruction files, inspect the repository with raw Git commands, or 
 8. Rerun `singularity-flow session status --json` and confirm `ready` is true, `workId` is the selected ID, `bound` is true when lens selection is active, and `activePersona` matches the contributor's choice.
 9. Report the selected work item, synchronized remote commit, working lens, phase, and the ordered result from `singularity-flow nextsteps <WORK-ID> --json`. A Story/work item always uses `nextsteps`; never run `singularity-flow initiative next` for a Story ID. State that the Git identity shown separately remains the real actor and approval principal. If interactive questions are unavailable, stop and ask the contributor to run `singularity-flow session attach <WORK-ID>` followed by `sflow-lens`; never bypass either selection with environment variables or local-file edits.
 10. If a tool call was refused before you got here, `singularity-flow logs --event hook --level warn` records the exact decision and which selection was missing. On a governed initiative branch the log shows `hook.session.initiative` and no work-item selection applies — do not ask for a work ID there.
+11. End the turn immediately after the session report. Do not continue into the Story, even when the selected work item and lens are ready.

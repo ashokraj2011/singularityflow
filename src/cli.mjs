@@ -1423,6 +1423,15 @@ async function hookCommand(positionals) {
     const root = repoRoot(candidate);
     if (isWorldModelBuildContext(root, payload)) return console.log('{}');
     if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
+    if (event === 'turn-intent') {
+      const { recordCopilotTurnIntent } = await import('./session.mjs');
+      return console.log(JSON.stringify(await recordCopilotTurnIntent(root, payload)));
+    }
+    if (event === 'turn-end') {
+      const { clearCopilotTurnIntent } = await import('./session.mjs');
+      await clearCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
+      return console.log('{}');
+    }
     const config = await loadConfig(root); let workflow = null;
     try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartPersonaHook(root, config, workflow, payload)));

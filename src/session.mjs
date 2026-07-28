@@ -3,15 +3,20 @@ import { stdin as input, stdout as output } from 'node:process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { exists } from './util.mjs';
-import { SingularityFlowError, nowIso } from './util.mjs';
+import { SingularityFlowError, nowIso, run } from './util.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 
+function localGitDir(root) {
+  const resolved = run('git', ['rev-parse', '--absolute-git-dir'], { cwd: root, allowFailure: true });
+  return resolved.status === 0 ? path.resolve(resolved.stdout.trim()) : path.join(root, '.git');
+}
+
 function sessionPath(root) {
-  return path.join(root, '.git/singularity-flow/session.json');
+  return path.join(localGitDir(root), 'singularity-flow/session.json');
 }
 
 function copilotSessionPath(root) {
-  return path.join(root, '.git/singularity-flow/copilot-session.json');
+  return path.join(localGitDir(root), 'singularity-flow/copilot-session.json');
 }
 
 async function writeLocalJson(file, value) {

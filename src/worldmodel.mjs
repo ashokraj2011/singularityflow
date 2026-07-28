@@ -4,7 +4,9 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { add, branch, changedFiles, head, pushBranch } from './git.mjs';
+import {
+  add, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch, refExists, validBranch
+} from './git.mjs';
 import { SingularityFlowError, optionBoolean, optionString, posix, run, snapshot, writeJson } from './util.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
 import { injectPersonaPrompt, recordInjection } from './inject.mjs';
@@ -177,7 +179,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
 }
 
 async function build(root, config, options) {
-  const cacheRoot = path.join(root, '.git/singularity-flow');
+  const cacheRoot = path.join(gitDir(root), 'singularity-flow');
   await mkdir(cacheRoot, { recursive: true });
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));
   const promptFile = path.join(temporary, 'prompt.md');
@@ -263,6 +265,96 @@ async function build(root, config, options) {
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
   } finally {
     run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+function checkedOutWorktree(root, branchName) {
+  const listing = run('git', ['worktree', 'list', '--porcelain'], { cwd: root }).stdout;
+  let worktree = null;
+  for (const line of listing.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) worktree = path.resolve(line.slice('worktree '.length));
+    if (line === `branch refs/heads/${branchName}`) return worktree;
+    if (!line) worktree = null;
+  }
+  return null;
+}
+
+function synchronizeTargetBranch(root, branchName, remote) {
+  if (!hasRemote(root, remote)) return;
+  fetchRemote(root, remote);
+  const localRef = `refs/heads/${branchName}`;
+  const remoteRef = `refs/remotes/${remote}/${branchName}`;
+  if (!refExists(root, remoteRef)) return;
+  if (!refExists(root, localRef)) return;
+
+  const localHead = run('git', ['rev-parse', localRef], { cwd: root }).stdout.trim();
+  const remoteHead = run('git', ['rev-parse', remoteRef], { cwd: root }).stdout.trim();
+  if (localHead === remoteHead) return;
+  const localBehind = run('git', ['merge-base', '--is-ancestor', localRef, remoteRef], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+  const remoteBehind = run('git', ['merge-base', '--is-ancestor', remoteRef, localRef], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+  if (localBehind) {
+    run('git', ['branch', '--force', branchName, remoteRef], { cwd: root });
+    return;
+  }
+  if (!remoteBehind) {
+    throw new SingularityFlowError(
+      `Branch ${branchName} has diverged from ${remote}/${branchName}. Reconcile it before generating the world model.`
+    );
+  }
+}
+
+async function withTargetBranch(root, options, operation) {
+  const branchName = optionString(options, 'branch');
+  if (!branchName || branchName === branch(root)) return operation(root);
+  validBranch(root, branchName);
+  let remote = optionString(options, 'remote');
+  if (!remote && existsSync(path.join(root, WORKFLOW_PATH))) {
+    remote = (await loadDefinition(root)).git?.remote;
+  }
+  remote ??= 'origin';
+  validBranch(root, remote);
+
+  const alreadyCheckedOut = checkedOutWorktree(root, branchName);
+  if (alreadyCheckedOut) {
+    throw new SingularityFlowError(
+      `Branch ${branchName} is already checked out at ${alreadyCheckedOut}. Run the command there or close that worktree first.`
+    );
+  }
+  synchronizeTargetBranch(root, branchName, remote);
+
+  const localRef = `refs/heads/${branchName}`;
+  const remoteRef = `refs/remotes/${remote}/${branchName}`;
+  if (!refExists(root, localRef) && !refExists(root, remoteRef)) {
+    throw new SingularityFlowError(`Branch ${branchName} does not exist locally or on ${remote}.`);
+  }
+
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-branch-'));
+  const targetRoot = path.join(temporary, 'repository');
+  let worktreeAdded = false;
+  try {
+    const args = refExists(root, localRef)
+      ? ['worktree', 'add', '--', targetRoot, branchName]
+      : ['worktree', 'add', '-b', branchName, '--', targetRoot, `${remote}/${branchName}`];
+    const added = run('git', args, { cwd: root, allowFailure: true });
+    if (added.status !== 0) {
+      throw new SingularityFlowError(
+        `Unable to open branch ${branchName} in an isolated worktree: ${(added.stderr || added.stdout).trim()}`
+      );
+    }
+    worktreeAdded = true;
+    console.error(
+      `World-model target: ${branchName} @ ${head(targetRoot).slice(0, 10)} (isolated worktree; active checkout unchanged).`
+    );
+    return await operation(targetRoot);
+  } finally {
+    if (worktreeAdded) {
+      run('git', ['worktree', 'remove', '--force', targetRoot], { cwd: root, allowFailure: true });
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }
@@ -514,20 +606,30 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
-  if (command === 'init') return init(root);
+  if (command === 'init') {
+    if (optionString(options, 'branch')) {
+      throw new SingularityFlowError('Run wm init from the branch where its prompt should be created; --branch is for build and inspection.');
+    }
+    return init(root);
+  }
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
-  const config = await load(root);
-  if (command === 'prompt') return prompt(root, config, options);
-  if (command === 'build') return build(root, config, options);
-  if (command === 'context') return context(root, config, positionals[2] ?? optionString(options, 'phase'), options);
-  if (command === 'check') {
-    const model = await manifest(root, config);
-    await validateWorldModelDirectory(path.join(root, config.outputDir), { requiredViews: model.requested_views ?? [], requireEvidence: true });
-    const state = await worldModelFreshness(root, config, model);
+  if (!['prompt', 'build', 'context', 'check'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|compose|show-prompt|inject|check');
+  }
+  return withTargetBranch(root, options, async (targetRoot) => {
+    const config = await load(targetRoot);
+    if (command === 'prompt') return prompt(targetRoot, config, options);
+    if (command === 'build') return build(targetRoot, config, options);
+    if (command === 'context') {
+      return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
+    }
+    const model = await manifest(targetRoot, config);
+    await validateWorldModelDirectory(path.join(targetRoot, config.outputDir), {
+      requiredViews: model.requested_views ?? [], requireEvidence: true
+    });
+    const state = await worldModelFreshness(targetRoot, config, model);
     console.log(state.fresh ? `fresh: ${state.current}` : `stale: ${state.built} != ${state.current}`);
     if (!state.fresh) throw new SingularityFlowError('World model is stale.', { exitCode: 2 });
-    return;
-  }
-  throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|compose|show-prompt|inject|check');
+  });
 }

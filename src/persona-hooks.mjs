@@ -147,6 +147,11 @@ function isPersonaToolCall(payload) {
   // is exactly when Copilot needs to explain why it is blocked. Values admit no shell
   // metacharacters, so this cannot be used to smuggle a command past the guard.
   if (/^(?:singularity-flow|sflow) logs(?: (?:path|level))?(?:(?: --json| --tail [0-9]{1,6}| --level [a-z]+| --event [A-Za-z0-9._:-]+| --since [0-9A-Za-z:.+-]+)){0,5}(?: 2>&1)?$/.test(command)) return true;
+  // Reporting the SDLC status of a work item is read-only ("Do not change files or lifecycle
+  // state") and is the whole job of /sflow-status. Gating it created a chicken-and-egg: a
+  // contributor could not see a work item's state without first attaching a session to it. The ID
+  // admits no shell metacharacters, so this cannot smuggle a command past the guard.
+  if (/^(?:singularity-flow|sflow) status(?: [A-Za-z0-9._-]+)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
 
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;

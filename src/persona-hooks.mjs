@@ -143,8 +143,31 @@ function isRepositoryWorldModelCall(payload) {
   return new RegExp(`^${prefix} context ${identifier}(?: ${contextOption})*(?: 2>&1)?$`).test(command);
 }
 
+function isReadOnlyRepositoryProbe(payload) {
+  const command = setupCommandText(payload.toolArgs);
+  if (!command || /[;|`$<>\n]/.test(command)) return false;
+  const parts = command.split(/\s*&&\s*/).map((part) => part.trim()).filter(Boolean);
+  if (!parts.length || parts.some((part) => part.includes('&'))) return false;
+  return parts.every((part) => [
+    /^cd (?:\/[A-Za-z0-9._+@%/:=-]+|'\/[^']+'|"\/[^"]+")$/,
+    /^git remote -v$/,
+    /^git branch --show-current$/,
+    /^git status --short --branch$/,
+    /^git status --porcelain(?:=v1)?(?: --branch)?$/,
+    /^git rev-parse --show-toplevel$/,
+    /^git rev-parse --absolute-git-dir$/,
+    /^git config --get remote\.[A-Za-z0-9._-]+\.url$/,
+    /^pwd$/,
+    /^echo (?:---|'---'|"---")$/
+  ].some((pattern) => pattern.test(part)));
+}
+
 function isPersonaToolCall(payload) {
   const command = setupCommandText(payload.toolArgs);
+  // Copilot may orient itself before invoking the first command in /sflow-session. Permit only
+  // exact read-only repository probes; lifecycle mutation and arbitrary shell composition remain
+  // denied until the contributor explicitly selects a work item and working lens.
+  if (isReadOnlyRepositoryProbe(payload)) return true;
   // Building and inspecting the repository model is repository maintenance, not Story work.
   // Keep this exception deliberately narrow: it accepts only the documented world-model
   // subcommands and flags, rejects shell metacharacters, and does not admit --runner or --out.

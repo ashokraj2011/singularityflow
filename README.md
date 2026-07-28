@@ -1003,6 +1003,19 @@ npm run desktop:build
 npm run desktop:package:current
 ```
 
+To close stale Singularity Flow desktop copies—including development builds
+started from another checkout—and then start this checkout, use:
+
+```bash
+./scripts/start-desktop.sh
+# Preview the exact process list without stopping anything
+./scripts/start-desktop.sh --dry-run
+```
+
+The launcher targets only Singularity Flow desktop process trees. It leaves
+Copilot, Event Horizon, IDEs, and active `singularity-flow` CLI generations
+running. `npm run desktop:start` is an equivalent shortcut.
+
 On first launch, a five-step onboarding wizard collects only the local setup needed to begin:
 
 1. Your display name.

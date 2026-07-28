@@ -2,6 +2,8 @@
 
 This guide shows how Singularity Flow turns a Jira story or manual request into approved, Git-transferable artifacts, implementation evidence, and a final specification-to-code comparison.
 
+For the Git-only path with no Jira connection at any point — including local Epics, the selection-receipt flows, and which commands require an interactive terminal — see [LOCAL-RUNBOOK.md](LOCAL-RUNBOOK.md).
+
 ## The system at a glance
 
 ```mermaid

@@ -982,8 +982,6 @@ The Electron app is a visual control plane over the same CLI and Git-backed stat
 ```bash
 npm run desktop:dev
 npm run desktop:build
-npm run event-horizon:build
-npm run event-horizon:check
 npm run desktop:package:current
 ```
 

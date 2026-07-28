@@ -79,7 +79,6 @@ function unique(values) {
 export async function desktopVersionInfo(root) {
   const packageJson = await json(path.join(root, 'package.json'));
   const desktopJson = await json(path.join(root, 'apps/desktop/package.json'));
-  const eventHorizonJson = await json(path.join(root, 'apps/event-horizon/package.json'));
   const pluginJson = await json(path.join(root, 'plugin/plugin.json'));
   const marketplaceJson = await json(path.join(root, '.github/plugin/marketplace.json'));
   const lockJson = await json(path.join(root, 'package-lock.json'));
@@ -87,13 +86,11 @@ export async function desktopVersionInfo(root) {
   const versions = {
     package: packageJson.version,
     desktop: desktopJson.version,
-    eventHorizon: eventHorizonJson.version,
     plugin: pluginJson.version,
     marketplace: marketplaceJson.metadata?.version,
     marketplacePlugin: marketplacePlugin?.version,
     lockPackage: lockJson.packages?.['']?.version,
-    lockDesktop: lockJson.packages?.['apps/desktop']?.version,
-    lockEventHorizon: lockJson.packages?.['apps/event-horizon']?.version
+    lockDesktop: lockJson.packages?.['apps/desktop']?.version
   };
   const distinct = unique(Object.values(versions));
   if (Object.values(versions).some((value) => !value) || distinct.length !== 1) {
@@ -377,10 +374,6 @@ export function requiredDesktopBundlePaths(root) {
     'package.json',
     'apps/desktop/electron/main.mjs',
     'apps/desktop/electron/preload.cjs',
-    'apps/event-horizon/package.json',
-    'apps/event-horizon/src/main/index.ts',
-    'apps/event-horizon/src/preload/index.ts',
-    'apps/event-horizon/src/renderer/index.html',
     'apps/desktop/build/icon.png',
     'apps/desktop/build/icon.icns',
     'apps/desktop/build/icon.ico'

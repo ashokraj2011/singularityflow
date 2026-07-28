@@ -17,11 +17,6 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
-  assert.match(script, /sync_clean_submodules/);
-  assert.match(script, /git submodule sync --recursive/);
-  assert.match(script, /git submodule update --init --recursive/);
-  assert.match(script, /submodules contain uncommitted changes/);
-  assert.ok(script.indexOf('sync_clean_submodules') < script.indexOf('git status --porcelain'));
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
   assert.match(script, /npm run desktop:build/);
   assert.match(script, /npm pack --json/);

@@ -1247,6 +1247,7 @@ singularity-flow wm check
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
+singularity-flow wm show-prompt
 ```
 
 The low-level `wm init`, `wm build`, `wm check`, and `wm context` commands remain
@@ -1284,6 +1285,15 @@ focused `worldModel.injection.rules`, and verified active-agent skills. Rules ma
 match the active persona, phase, immutable work type, committed or pending
 changed-path globs, and Jira/manual source labels. `wm inject` is a compatibility
 alias for the same command.
+
+`/sflow-show-prompt` is the read-only audit view for this composition. It prints
+the complete packaged `/sflow-phase` `SKILL.md`, then the exact current phase
+prompt between explicit markers. That second section contains the phase
+contract/template, working-lens prompt, selected world-model content,
+prompt-pack Markdown, and approved upstream inputs. It renders without writing
+a grounding record or changing workflow/Git state. Use
+`singularity-flow wm show-prompt --skill sflow-design` to inspect another
+packaged Flow skill against the same phase prompt.
 
 The editable builder prompt is now the v2 progressive-disclosure contract. It
 asks the generator for brief and full core/view tiers, domain and task guides,
@@ -1519,6 +1529,7 @@ All public skills use the collision-safe `sflow-` prefix:
 | `/sflow-next` | Execute exactly one next valid lifecycle action |
 | `/sflow-inputs` | Preview or render approved upstream artifact inputs |
 | `/sflow-phase` | Generate the current phase using its contract and world model |
+| `/sflow-show-prompt` | Display the complete phase skill and exact governed prompt without changing state |
 | `/sflow-requirements` | Requirements-focused generation |
 | `/sflow-design` | Architecture/design-focused generation |
 | `/sflow-implement` | Implementation-focused generation |

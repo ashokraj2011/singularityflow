@@ -465,10 +465,58 @@ async function compose(root, options) {
   } else process.stdout.write(composedText);
 }
 
+async function showPrompt(root, options) {
+  const skillId = optionString(options, 'skill', 'sflow-phase');
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(skillId)) {
+    throw new SingularityFlowError('Option --skill must be a valid Copilot skill ID containing lowercase letters, numbers, or hyphens.');
+  }
+  const skillFile = path.join(packageRoot, 'plugin', 'skills', skillId, 'SKILL.md');
+  if (!existsSync(skillFile)) {
+    throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);
+  }
+
+  const config = await load(root, {
+    persona: optionString(options, 'persona'),
+    workId: optionString(options, 'work-id')
+  });
+  const phase = optionString(options, 'phase') ?? config.workflow?.currentPhase;
+  if (!phase) {
+    throw new SingularityFlowError('No active Story phase was found. Resume a work item or provide --phase and --work-id.');
+  }
+
+  const skill = await readFile(skillFile, 'utf8');
+  process.stdout.write([
+    '# Effective Copilot context',
+    '',
+    `- Skill: \`/${skillId}\``,
+    `- Phase: \`${phase}\``,
+    '- Mode: read-only render; no grounding record or workflow state is written',
+    '',
+    `--- BEGIN plugin/skills/${skillId}/SKILL.md ---`,
+    skill.trimEnd(),
+    `--- END plugin/skills/${skillId}/SKILL.md ---`,
+    '',
+    '--- BEGIN GOVERNED PHASE PROMPT ---',
+    ''
+  ].join('\n'));
+
+  const composeOptions = {
+    ...options,
+    phase,
+    'render-only': true
+  };
+  delete composeOptions.skill;
+  delete composeOptions.out;
+  delete composeOptions['dry-run'];
+  await compose(root, composeOptions);
+  process.stdout.write('--- END GOVERNED PHASE PROMPT ---\n');
+}
+
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   if (command === 'init') return init(root);
   if (command === 'inject' || command === 'compose') return compose(root, options);
+  if (command === 'show-prompt') return showPrompt(root, options);
   const config = await load(root);
   if (command === 'prompt') return prompt(root, config, options);
   if (command === 'build') return build(root, config, options);
@@ -481,5 +529,5 @@ export async function worldModelCommand(root, positionals, options) {
     if (!state.fresh) throw new SingularityFlowError('World model is stale.', { exitCode: 2 });
     return;
   }
-  throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|compose|inject|check');
+  throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|compose|show-prompt|inject|check');
 }

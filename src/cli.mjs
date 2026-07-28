@@ -1392,6 +1392,28 @@ async function cockpitCommand() {
   console.log('\nUseful views: singularity-flow progress · review · documents list · report · doctor');
 }
 
+// The world-model builder runs Copilot inside an isolated, throwaway worktree (a temp directory
+// named `singularity-flow-world-model-*`) so it can inspect the repository and write the grounding
+// files. That session is a trusted system operation, not contributor Story work: it has no work/Jira
+// ID and can never acquire one. Without this exemption the session-gate hook denies every file write
+// the builder's Copilot attempts, so the build burns minutes and credits and then fails with an
+// empty model. Detect the builder's own worktree (by path, which is deterministic, or by the env
+// marker the builder sets) and let its tools through. Governance of real contributor work on the
+// actual repository is unaffected.
+export function isWorldModelBuildContext(root, payload) {
+  if (process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD === '1') return true;
+  // The builder's isolated worktree is always `<tmp>/singularity-flow-world-model-<id>/repository`
+  // (or `…-branch-<id>/repository`). Require the `repository` segment to sit under a matching prefix
+  // segment so an unrelated user file that merely starts with that name is never exempted.
+  const isBuilderWorktree = (value) => {
+    const segments = value.split(path.sep);
+    return segments.some((segment, index) =>
+      segment.startsWith('singularity-flow-world-model-') && segments[index + 1] === 'repository');
+  };
+  const paths = [root, typeof payload?.cwd === 'string' ? payload.cwd : null].filter(Boolean);
+  return paths.some(isBuilderWorktree);
+}
+
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
   let payload = {};
@@ -1399,6 +1421,7 @@ async function hookCommand(positionals) {
   try {
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = repoRoot(candidate);
+    if (isWorldModelBuildContext(root, payload)) return console.log('{}');
     if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
     const config = await loadConfig(root); let workflow = null;
     try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }

@@ -436,6 +436,12 @@ async function build(root, config, options) {
     analysis_depth: optionString(options, 'depth', 'standard')
   };
   run('git', ['worktree', 'add', '--detach', analysisRoot, head(root)], { cwd: root, stdio: 'inherit' });
+  // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
+  // world-model builder so the Singularity Flow session-gate hook exempts the isolated build session
+  // instead of denying its file writes. The isolated-worktree path is the primary signal; this env
+  // marker is a belt-and-suspenders backup for it. Restored in the finally so nothing leaks.
+  const priorBuildMarker = process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
+  process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = '1';
   try {
     for (const relative of changedFiles(root)) {
       const sourceFile = path.join(root, relative);
@@ -539,6 +545,8 @@ async function build(root, config, options) {
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
   } finally {
+    if (priorBuildMarker === undefined) delete process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
+    else process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = priorBuildMarker;
     run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
     await rm(temporary, { recursive: true, force: true });
   }

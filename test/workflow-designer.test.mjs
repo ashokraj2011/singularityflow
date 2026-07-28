@@ -47,16 +47,17 @@ test('workflow designer creates stages with artifact, approval, template, and in
     kind: 'security-evidence',
     minimumBytes: 350,
     persona: 'architect',
+    authority: 'architecture-reviewers',
     template: 'common/conformance.md',
     writeScope: 'artifact-only'
   });
   const stage = created.phases['security-review'];
   assert.equal(stage.artifact.path, 'artifacts/security-review/security-review.md');
   assert.equal(stage.artifact.minimumBytes, 350);
-  assert.deepEqual(stage.approval.personas, ['architect']);
+  assert.deepEqual(stage.approval.authorities, ['architecture-reviewers']);
   assert.equal(created.workTypes.chore.phases.at(-1), 'security-review');
   assert.deepEqual(created.workTypes.chore.phaseOverrides['security-review'].inputs, ['conformance']);
-  assert.ok(created.personas.architect.mayApprove.includes('security-review'));
+  assert.ok(created.personas.architect.suggestedPhases.includes('security-review'));
   assert.doesNotThrow(() => validateDefinition(created));
 });
 
@@ -75,7 +76,7 @@ test('workflow designer adds, sequences, removes, and cleans stage definitions s
   const withoutFeature = removePhaseFromWorkType(removed, 'feature', 'design');
   const deleted = deleteUnusedPhase(withoutFeature, 'design');
   assert.equal(deleted.phases.design, undefined);
-  assert.ok(!deleted.personas.architect.mayApprove.includes('design'));
+  assert.ok(!deleted.personas.architect.suggestedPhases.includes('design'));
   assert.doesNotThrow(() => validateDefinition(deleted));
 });
 
@@ -93,11 +94,10 @@ test('workflow designer creates personas and safely rewrites persona references'
   assert.equal(personaPromptRepositoryPath(created, created.personas['security-reviewer'].prompt), 'singularity/personas/security/security-reviewer.md');
   const referenced = structuredClone(created);
   referenced.phases.design.suggestedPersonas.push('security-reviewer');
-  referenced.phases.design.approval.personas = ['security-reviewer'];
   const removed = removePersona(referenced, 'security-reviewer', 'architect');
   assert.equal(removed.personas['security-reviewer'], undefined);
   assert.ok(removed.phases.design.suggestedPersonas.includes('architect'));
-  assert.deepEqual(removed.phases.design.approval.personas, ['architect']);
+  assert.deepEqual(removed.phases.design.approval.authorities, ['architecture-reviewers']);
   assert.doesNotThrow(() => validateDefinition(removed));
   assert.throws(() => createPersona(original, { id: 'Bad ID' }), /kebab-case/);
 });

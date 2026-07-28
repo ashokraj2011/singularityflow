@@ -13,6 +13,7 @@ import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { commitInitiativeChange } from './initiative-state.mjs';
 import { setPersonaSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
+import { matchApprovalAuthority } from './approval-authority.mjs';
 
 function workItemPath(workId) {
   return `singularity/work-items/${workId}/workflow.json`;
@@ -151,18 +152,22 @@ function approvalPreview(selected) {
     .reverse()
     .find((entry) => entry.packetSha256 === selected.packet.packetSha256) ?? null;
   const reviewer = identity(selected.clone);
-  const personas = (phase.approvalPolicy?.personas ?? [])
-    .filter((persona) => selected.config.personas?.[persona]?.mayApprove?.includes(phase.id))
-    .map((persona) => ({
-      id: persona,
-      label: selected.config.personas[persona].label ?? persona
-    }));
+  const workingLenses = Object.entries(selected.config.personas ?? {}).map(([id, lens]) => ({
+    id,
+    label: lens.label ?? id
+  }));
+  const authority = matchApprovalAuthority(
+    selected.workflow.resolution.approvalAuthorities ?? selected.config.approvalAuthorities,
+    phase.approvalPolicy,
+    reviewer
+  );
   return {
     phase: phase.id,
     status: phase.status,
     generation: phase.generation,
     minimum: phase.approvalPolicy?.minimum ?? 1,
-    personas,
+    workingLenses,
+    reviewerAuthority: authority,
     rejectTo: phase.approvalPolicy?.rejectTo ?? [phase.id],
     reviewer,
     submittedBy: selected.packet.submittedBy,
@@ -204,11 +209,12 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   if (preview.status !== 'awaiting_approval') {
     throw new SingularityFlowError(`Story phase '${preview.phase}' is '${preview.status}', not awaiting approval.`);
   }
-  if (!preview.personas.some((entry) => entry.id === persona)) {
+  if (!preview.workingLenses.some((entry) => entry.id === persona)) {
     throw new SingularityFlowError(
-      `Persona '${persona ?? ''}' cannot decide phase '${preview.phase}'. Choose one of: ${preview.personas.map((entry) => entry.id).join(', ')}.`
+      `Unknown working lens '${persona ?? ''}'. Choose one of: ${preview.workingLenses.map((entry) => entry.id).join(', ')}.`
     );
   }
+  if (!preview.reviewerAuthority.authorized) throw new SingularityFlowError(preview.reviewerAuthority.reason);
   if (decision === 'approve' && !preview.evidence?.ready) {
     throw new SingularityFlowError(
       `Exact-SHA checks have not passed for packet '${packetSha256.slice(0, 12)}'. Run and record checks before approval.`

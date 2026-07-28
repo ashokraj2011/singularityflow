@@ -1,12 +1,12 @@
 ---
 name: sflow-epic-start
-description: Start or resume a Jira-keyed Epic planning workspace with an explicitly selected immutable profile and session persona.
+description: Start or resume a Jira-keyed Epic planning workspace with an explicitly selected immutable profile and prompt-only session working lens.
 ---
 
 # Start an Epic workspace
 
 1. Require the Jira Epic key. Run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
-2. Present every profile and persona option with Copilot's selectable question UI. Do not infer an answer.
+2. Present every profile and working-lens option with Copilot's selectable question UI. Do not infer an answer.
 3. Record each answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 4. When the receipt is ready, run `singularity-flow epic start <EPIC-KEY> --selection-receipt <TOKEN>`.
 5. The default profile is `epic-planning`; a user may select a configured full-delivery profile instead.

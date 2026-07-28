@@ -290,11 +290,11 @@ export function renderMarkdown(report) {
   if (report.sequenceOverrides.length) lines.push(`**Governance note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
   if (report.rejections.length) {
     lines.push('## Rework history', '');
-    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (${rejection.persona ?? 'unknown persona'}): ${rejection.detail}`);
+    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (working lens ${rejection.persona ?? 'unavailable'}): ${rejection.detail}`);
     lines.push('');
   }
   if (report.sequenceOverrides.length) {
-    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / persona | Reason |', '|------|------|--------|-------|-----------------|--------|');
+    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / working lens | Reason |', '|------|------|--------|-------|----------------------|--------|');
     for (const override of report.sequenceOverrides) {
       const actor = actorLabel(override.actor);
       lines.push(`| ${override.at} | ${override.gate} | ${override.action} | ${override.requestedPhase ?? override.before?.currentPhase ?? '—'} | ${actor} / ${override.persona ?? 'unknown'} | ${override.reason ?? '—'} |`);
@@ -303,7 +303,7 @@ export function renderMarkdown(report) {
   }
   const personas = Object.entries(report.tokens.byPersona);
   if (personas.length) {
-    lines.push('## Token usage by persona', '', '| Persona | Records | Exact | Tokens |', '|---------|---------|-------|--------|');
+    lines.push('## Token usage by working lens', '', '| Working lens | Records | Exact | Tokens |', '|--------------|---------|-------|--------|');
     for (const [persona, aggregate] of personas) lines.push(`| ${persona} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregate.totalTokens.toLocaleString('en-US')} |`);
     lines.push('');
   }
@@ -351,7 +351,7 @@ export function renderHtml(report) {
     report.sequenceOverrides.length ? `<p><strong>Governance note:</strong> ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}.</p>` : ''
   ].join('');
   const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.persona ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
-  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / persona</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
+  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / working lens</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>

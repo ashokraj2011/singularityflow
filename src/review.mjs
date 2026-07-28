@@ -22,7 +22,15 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
     inputs.push({ phase: declaration.phase, status: producer?.status ?? 'missing', optional: declaration.optional === true, path: producerPath ? path.relative(root, producerPath).replaceAll(path.sep, '/') : null, sha256: producerPath && await exists(producerPath) ? (await snapshot(producerPath)).sha256 : null });
   }
   const diff = run('git', ['diff', '--stat', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
-  const approvals = activeApprovals(phase).map((item) => ({ decision: item.decision, persona: item.persona, actor: item.actor?.login ?? item.actor?.email ?? item.actor?.name, at: item.at, selfApproval: item.selfApproval === true }));
+  const approvals = activeApprovals(phase).map((item) => ({
+    decision: item.decision,
+    workingLens: item.workingLens ?? item.persona,
+    authorityGroup: item.authorityGroup ?? null,
+    identityAssurance: item.identityAssurance ?? null,
+    actor: item.actor?.login ?? item.actor?.email ?? item.actor?.name,
+    at: item.at,
+    selfApproval: item.selfApproval === true
+  }));
   const documents = (await documentCatalog(root, config, workflow)).filter((item) => item.type !== 'system').map(({
     id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation
   }) => ({ id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation }));
@@ -39,7 +47,7 @@ export function reviewMarkdown(bundle) {
   lines.push('## Required artifact', '', bundle.artifact ? `- [${bundle.artifact.path}](../../../../${bundle.artifact.path}) — \`${bundle.artifact.sha256}\`` : '_Not generated._', '');
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
-  lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} as ${item.persona}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
+  lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); working lens ${item.workingLens ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   return `${lines.join('\n')}\n`;
 }

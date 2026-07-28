@@ -334,7 +334,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
     `- Required artifact: \`${phase.requiredArtifact?.path ?? 'not configured'}\``,
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
-    `- Approval personas: ${(phase.approvalPolicy?.personas ?? []).map((id) => `\`${id}\``).join(', ') || 'none'}`,
+    `- Approval authority groups: ${(phase.approvalPolicy?.authorities ?? []).map((id) => `\`${id}\``).join(', ') || 'none'}`,
     `- Minimum distinct approvals: ${phase.approvalPolicy?.minimum ?? 0}`,
     template
       ? `\n## Configured artifact template\n\n${template.trim()}`
@@ -362,7 +362,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
 async function compose(root, options) {
   const session = await loadSession(root, { required: false });
   const persona = optionString(options, 'persona') ?? session?.persona;
-  if (!persona) throw new SingularityFlowError('Provide --persona or start a persona session first.');
+  if (!persona) throw new SingularityFlowError('Provide --persona (working-lens ID) or start a working-lens session first.');
   const workId = optionString(options, 'work-id');
   if (workId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workId)) {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
@@ -437,9 +437,9 @@ async function compose(root, options) {
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  persona: ${persona}  required files: ${mandatory.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  remote skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  working lens: ${persona}  required files: ${mandatory.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  prompt-pack skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
-    remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
+    remote.skills.forEach((skill) => console.log(`  prompt-pack:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
   }
 

@@ -91,6 +91,7 @@ import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, wor
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
+import { requireApprovalAuthority } from './approval-authority.mjs';
 import {
   answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt,
   resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus
@@ -161,12 +162,12 @@ brand and uses the short, collision-safe sflow- command namespace.
 
 What it provides:
   - YAML-defined feature, bugfix, chore, Figma-mobile, and custom workflows
-  - Session personas, phase-aware prompts, and repository world-model grounding
+  - Session working lenses, phase-aware prompts, and repository world-model grounding
   - Configurable artifact templates, phase inputs, approvals, and quality gates
   - Jira or manual intake with supporting documents
   - Requirements-to-code traceability, verification, and conformance reporting
   - Atomic Git commit/push state transfer, including every approval decision
-  - Remote agent Markdown dependencies and an Electron configuration desktop
+  - Remote Markdown prompt packs and an Electron configuration desktop
   - Per-phase token and model usage reporting when the provider exposes it
   - A redacted, machine-local activity log readable from the CLI and Copilot
 
@@ -196,7 +197,7 @@ Usage:
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
   singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
-  singularity-flow persona [WORK-ID]
+  singularity-flow lens [WORK-ID]
   singularity-flow session status|candidates [--json]
   singularity-flow session attach <WORK-ID> [--json]
   singularity-flow inbox [--offline] [--json]
@@ -216,11 +217,11 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
-  singularity-flow agents list
-  singularity-flow agents lock <AGENT> [--update]
-  singularity-flow agents sync <AGENT>
-  singularity-flow agents status [AGENT]
-  singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
+  singularity-flow prompt-packs list
+  singularity-flow prompt-packs lock <PACK> [--update]
+  singularity-flow prompt-packs sync <PACK>
+  singularity-flow prompt-packs status [PACK]
+  singularity-flow prompt-packs refresh-output <RESOURCE-ID> [--replace]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -380,7 +381,7 @@ function summary(workflow) {
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'complete'}`);
   if (active) {
-    console.log(`Owner persona: ${active.owner ?? 'unassigned'}`);
+    console.log(`Suggested working lens: ${active.owner ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }
@@ -407,7 +408,7 @@ async function confirm(phase) {
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
-    throw new SingularityFlowError(`Trusting remote agent '${expected}' requires an interactive terminal and exact agent-name confirmation.`);
+    throw new SingularityFlowError(`Trusting prompt pack '${expected}' requires an interactive terminal and exact pack-name confirmation.`);
   }
   const io = readline.createInterface({ input, output });
   try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
@@ -574,7 +575,7 @@ async function resumeCommand(positionals, options) {
   const workflow = await loadWorkflow(root, config, id);
   const session = await selectPersona(root, config, actionActor(root), id);
   summary(workflow);
-  console.log(`Active persona: ${session.persona}`);
+  console.log(`Active working lens: ${session.persona}`);
   const active = currentPhase(workflow);
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
@@ -590,7 +591,7 @@ async function personaCommand(positionals) {
     throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
-  console.log(`Active persona: ${config.personas[session.persona].label} (${session.persona})`);
+  console.log(`Active working lens: ${config.personas[session.persona].label} (${session.persona})`);
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
 }
@@ -614,7 +615,7 @@ async function statusCommand(positionals, options) {
     { key: 'status', label: 'STATUS' },
     { key: 'artifacts', label: 'ARTIFACTS' }
   ])}`);
-  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'} as ${item.persona}`));
+  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'}; lens ${item.workingLens ?? item.persona ?? 'unavailable'}`));
   if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
 }
 
@@ -678,7 +679,7 @@ async function nextStepsCommand(positionals, options) {
       else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
       if (active?.status === 'in_progress' && !session?.persona) prerequisites.push({
         timing: 'now', skill: '/sflow-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
-        reason: 'Select the persona that will remain active for this terminal session before generation.'
+        reason: 'Select the working lens that will remain active for this terminal session before generation.'
       });
       if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && (workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off') !== 'off') {
         const rebuildReason = await worldModelRebuildReason(root, config);
@@ -696,11 +697,11 @@ async function nextStepsCommand(positionals, options) {
       }
       if (active?.status === 'in_progress' && session?.agent) {
         const status = (await agentStatus(root, session.agent))[0];
-        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available agent.` });
-        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
-        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
-        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
-        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
+        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow prompt-packs list', reason: `Active prompt pack '${session.agent}' is no longer available; choose and sync an available pack.` });
+        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs lock ${session.agent}`, reason: `Review and trust the active prompt pack's remote Markdown before generation.` });
+        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs lock ${session.agent} --update`, reason: 'The active prompt-pack Markdown changed after it was locked; review the new dependency hashes.' });
+        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow prompt-packs sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active prompt-pack cache.' });
+        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
       }
       snapshot = nextStepsSnapshot({
         branch: branch(root),
@@ -854,43 +855,43 @@ async function inputsCommand(positionals, options) {
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
 }
 
-async function agentsCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'agents subcommand');
+async function promptPacksCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'prompt-packs subcommand');
   const root = repoRoot();
   if (subcommand === 'list') {
     const agents = await discoverAgents(root);
-    if (!agents.length) return console.log('No repository or bundled agents found.');
+    if (!agents.length) return console.log('No repository or bundled prompt packs found.');
     return console.log(table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
-      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
+      { key: 'id', label: 'PACK' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
     ]));
   }
   if (subcommand === 'lock') {
-    const agentId = requirePositional(positionals, 2, 'agent');
+    const agentId = requirePositional(positionals, 2, 'prompt pack');
     const update = optionBoolean(options, 'update');
     const preview = await lockAgent(root, agentId, { update });
-    console.log(`Agent: ${agentId}\nSource: ${preview.agent.source}\nAgent SHA-256: ${preview.agent.sha256}`);
+    console.log(`Prompt pack: ${agentId}\nSource: ${preview.agent.source}\nPack SHA-256: ${preview.agent.sha256}`);
     if (preview.resolution.dependencies.length) console.log(table(preview.resolution.dependencies.map((entry) => { const previous = preview.existing?.dependencies?.find((item) => item.id === entry.id && item.type === entry.type); return { id: entry.id, type: entry.type, previous: previous?.sha256?.slice(0, 12) ?? '', sha256: entry.sha256?.slice(0, 16) ?? entry.status ?? 'dynamic', bytes: entry.size ?? '', url: entry.url ?? entry.urlTemplate }; }), [
       { key: 'id', label: 'RESOURCE' }, { key: 'type', label: 'TYPE' }, { key: 'previous', label: 'PREVIOUS' }, { key: 'sha256', label: 'NEW SHA256' }, { key: 'bytes', label: 'BYTES' }, { key: 'url', label: 'URL' }
     ]));
-    if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Agent lock cancelled.');
+    if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Prompt-pack lock cancelled.');
     await lockAgent(root, agentId, { update, accepted: true, resolution: preview.resolution });
     return console.log(`Locked '${agentId}' in singularity/agents.lock.yml.`);
   }
   if (subcommand === 'sync') {
-    const agentId = requirePositional(positionals, 2, 'agent');
+    const agentId = requirePositional(positionals, 2, 'prompt pack');
     const result = await syncAgent(root, agentId);
     await setAgentSession(root, result.agent, actionActor(root));
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-    console.log(`Active agent: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
+    console.log(`Active prompt pack: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
     return;
   }
   if (subcommand === 'status') {
     const requested = positionals[2] ?? null;
     const rows = await agentStatus(root, requested);
-    if (requested && !rows.length) throw new SingularityFlowError(`Unknown agent '${requested}'.`);
-    if (!rows.length) return console.log('No repository or bundled agents found.');
+    if (requested && !rows.length) throw new SingularityFlowError(`Unknown prompt pack '${requested}'.`);
+    if (!rows.length) return console.log('No repository or bundled prompt packs found.');
     console.log(table(rows.map((entry) => ({ id: entry.id, scope: entry.scope, status: entry.status, source: entry.source, resources: entry.dependencies.length })), [
-      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
+      { key: 'id', label: 'PACK' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
     ]));
     for (const entry of rows) for (const dependency of entry.dependencies) console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}\t${dependency.sha256?.slice(0, 12) ?? ''}`);
     return;
@@ -909,7 +910,7 @@ async function agentsCommand(positionals, options) {
     refreshed.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
   }
-  throw new SingularityFlowError(`Unknown agents subcommand: ${subcommand}`);
+  throw new SingularityFlowError(`Unknown prompt-packs subcommand: ${subcommand}`);
 }
 
 async function phaseReview(root, config, workflow, phase) {
@@ -1149,7 +1150,6 @@ async function decisionWorkflow(positionals, options, action) {
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
-    allowedPersonas: phase.approvalPolicy?.personas ?? [],
     selection: receipt?.answers.persona ?? null
   });
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
@@ -1171,11 +1171,18 @@ async function approveCommand(positionals, options) {
   const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
   printPhaseReview(await phaseReview(root, config, workflow, phase));
-  console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id} as ${session.persona}`);
+  const approvalAuthority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    phase.approvalPolicy,
+    session.actor
+  );
+  console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
+  console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
+  console.log(`Working lens: ${session.persona} (prompt/audit context only)`);
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
-  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? 'unknown'} as ${item.persona} (${item.decision})`).join(', ') || 'none'}`);
+  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; lens ${item.workingLens ?? item.persona ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
@@ -1183,11 +1190,11 @@ async function approveCommand(positionals, options) {
     phaseId: optionString(options, 'phase'),
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal'
   });
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.persona}`, phase.artifacts.map((item) => item.path));
+  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`, phase.artifacts.map((item) => item.path));
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy}.`);
+  console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; working lens ${result.approval.workingLens}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
@@ -1196,7 +1203,7 @@ async function approveCommand(positionals, options) {
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Rejecting ${current.id} to ${target} as ${session.persona}; approvals from ${target} onward will be invalidated.`);
+  console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; working lens ${session.persona} is audit context only. Approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
   await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
@@ -1373,7 +1380,7 @@ async function cockpitCommand() {
   const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
   console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
-  console.log(`Persona: ${session?.workId === workflow.workItem.id ? session.persona : 'not selected'} · Branch: ${workflow.workItem.branch}`);
+  console.log(`Working lens: ${session?.workId === workflow.workItem.id ? session.persona : 'not selected'} · Branch: ${workflow.workItem.branch}`);
   console.log(`Current: ${active ? `${active.label} (${active.status})` : 'workflow complete'}`);
   console.log(`Assignment: ${active ? workflow.collaboration?.assignments?.[active.id]?.assignee ?? 'unassigned' : 'none'}`);
   console.log('\nNext actions:');
@@ -1464,7 +1471,7 @@ async function sessionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Attached to ${id} from ${remote}/${id} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
-    console.log(session.selectionRequired ? 'Next: choose a persona with /sflow-persona.' : 'The existing valid persona is bound to this Copilot session.');
+    console.log(session.selectionRequired ? 'Next: choose a working lens with /sflow-lens.' : 'The existing valid working lens is bound to this Copilot session.');
     return;
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
@@ -1473,12 +1480,12 @@ async function sessionCommand(positionals, options) {
   const status = await personaSessionStatus(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
   console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
-  console.log(`Persona: ${status.activePersona ?? 'not selected'}`);
+  console.log(`Working lens: ${status.activePersona ?? 'not selected'}`);
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
-  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · persona: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
-  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · persona ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
+  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · working lens: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
+  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · working lens ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
   if (status.workItemSelectionRequired) console.log('Run /sflow-session or singularity-flow session attach <WORK-ID>.');
-  if (status.selectionRequired) console.log('Run /sflow-persona or singularity-flow persona to choose.');
+  if (status.selectionRequired) console.log('Run /sflow-lens or singularity-flow lens to choose.');
 }
 
 async function inboxCommand(options) {
@@ -1781,7 +1788,7 @@ function initiativePersonaChoices(definition) {
 function initiativeStartChoiceSets(portfolio, definition) {
   return [
     { id: 'initiative-profile', label: 'Initiative profile', options: initiativeProfileChoices(portfolio) },
-    { id: 'persona', label: 'Persona', options: initiativePersonaChoices(definition) }
+    { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(definition) }
   ];
 }
 
@@ -1859,7 +1866,7 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
     const expected = `${phaseId}:${subject}`;
     choiceSets = [
-      { id: 'persona', label: 'Persona', options: initiativePersonaChoices(config) },
+      { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(config) },
       { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
     ];
     context = { phase: phaseId, subject, bundleSha256: bundle.sha256 };
@@ -1947,7 +1954,7 @@ async function initiativeCommand(positionals, options) {
     checkout(root, initiativeId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
     const loaded = await loadInitiative(root, initiativeId);
     const session = await selectPersona(root, config, actionActor(root), initiativeId);
-    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} as ${session.persona}.`);
+    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with working lens ${session.persona}.`);
     console.log(initiativeFlowText(initiativeProgress(loaded.initiative)));
     return;
   }
@@ -2146,7 +2153,7 @@ async function initiativeCommand(positionals, options) {
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
     const expected = `${phaseId}:${subject}`;
     const choiceSets = [
-      { id: 'persona', label: 'Persona', options: initiativePersonaChoices(config) },
+      { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(config) },
       { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
     ];
     const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
@@ -2529,17 +2536,17 @@ function epicReviewChoiceDefinition(review, decision) {
   const storyId = review.story.workId ?? review.story.jiraKey ?? review.story.planId ?? review.story.id;
   const packetSha256 = review.packet.packetSha256;
   const confirmation = `${decision}:${storyId}:${packetSha256}`;
-  if (!review.approval.personas.length) {
-    throw new SingularityFlowError(`No configured persona can decide phase '${review.approval.phase}'.`);
+  if (!review.approval.workingLenses.length) {
+    throw new SingularityFlowError(`No working lens is configured for phase '${review.approval.phase}'.`);
   }
   const choiceSets = [
     {
       id: 'persona',
-      label: 'Review persona',
-      options: review.approval.personas.map((persona) => ({
+      label: 'Working lens (audit only)',
+      options: review.approval.workingLenses.map((persona) => ({
         id: persona.id,
         label: persona.label,
-        description: `Decide phase ${review.approval.phase} as ${persona.label}.`
+        description: `Use the ${persona.label} prompt perspective. Authority comes from the reviewer identity shown separately.`
       }))
     }
   ];
@@ -3424,7 +3431,7 @@ async function epicCommand(positionals, options) {
         ? await resolveCustomSelectionReceipt(root, receiptToken, definition)
         : null;
       const persona = receipt?.answers.persona
-        ?? await chooseFromOptions('Review persona', definition.choiceSets.find((entry) => entry.id === 'persona').options);
+        ?? await chooseFromOptions('Working lens', definition.choiceSets.find((entry) => entry.id === 'persona').options);
       const targetChoices = definition.choiceSets.find((entry) => entry.id === 'reject-target')?.options ?? [];
       const target = decision === 'reject'
         ? (receipt?.answers['reject-target']
@@ -3863,7 +3870,7 @@ async function dispatch(command, positionals, options) {
     case 'choices': return choicesCommand(positionals, options);
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);
-    case 'persona': return personaCommand(positionals);
+    case 'lens': return personaCommand(positionals);
     case 'session': return sessionCommand(positionals, options);
     case 'inbox': return inboxCommand(options);
     case 'finalize': return finalizeCommand(options);
@@ -3886,7 +3893,7 @@ async function dispatch(command, positionals, options) {
     case 'nextsteps':
     case 'next-steps': return nextStepsCommand(positionals, options);
     case 'inputs': return inputsCommand(positionals, options);
-    case 'agents': return agentsCommand(positionals, options);
+    case 'prompt-packs': return promptPacksCommand(positionals, options);
     case 'documents': return documentsCommand(positionals, options);
     case 'prepare': return prepareCommand(positionals, options);
     case 'phase': return phaseCommand(positionals, options);

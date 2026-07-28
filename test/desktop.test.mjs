@@ -96,7 +96,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(startSkill.command, '/sflow-start');
   assert.equal(startSkill.repositoryPath, '.github/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.readOnly, true);
-  assert.match(startSkill.description, /workflow template and persona/i);
+  assert.match(startSkill.description, /workflow template and prompt-only working lens/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
@@ -395,7 +395,7 @@ test('desktop persona selection remains local and requires the active work branc
   const session = await selectDesktopPersona(root, 'DESK-2', 'architect');
   assert.equal(session.persona, 'architect');
   assert.equal(session.workId, 'DESK-2');
-  await assert.rejects(() => selectDesktopPersona(root, 'DESK-2', 'unknown'), /Unknown persona/);
+  await assert.rejects(() => selectDesktopPersona(root, 'DESK-2', 'unknown'), /Unknown working lens/);
 });
 
 test('desktop publish --json emits machine-readable stdout even when git commits and pushes', async () => {

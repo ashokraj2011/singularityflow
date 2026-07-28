@@ -64,7 +64,7 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(prepared.stdout, /Governed Copilot prompt:/);
   const context = execute(root, ['initiative', 'context', 'define']);
   assert.match(context.stdout, /Governed Copilot prompt — INIT-CLI\/define generation 1/);
-  assert.match(context.stdout, /Selected persona: Product owner/i);
+  assert.match(context.stdout, /Selected working lens: Product owner/i);
   assert.match(git(root, ['ls-files']), /prompt-context-define-gen1\.json/);
   const documents = execute(root, ['initiative', 'documents', 'define']);
   assert.match(documents.stdout, /--- BEGIN .*business-case\.md ---/);

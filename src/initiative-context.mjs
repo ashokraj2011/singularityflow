@@ -227,7 +227,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const session = await loadSession(root, { required: false });
   const selectedPersona = persona ?? (session?.workId === initiativeId ? session.persona : null);
   if (!selectedPersona || !definition.personas[selectedPersona]) {
-    throw new SingularityFlowError(`Initiative prompt composition requires a selected session persona for ${initiativeId}. Resume the initiative and choose one.`);
+    throw new SingularityFlowError(`Initiative prompt composition requires a selected session working lens for ${initiativeId}. Resume the initiative and choose one.`);
   }
   const generation = initiative.phases[phaseId].generation + 1;
   const itemDirectory = await secureInitiativePath(root, portfolio, initiativeId, '', {
@@ -260,7 +260,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     }
   }
   const personaPath = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, definition.personas[selectedPersona].prompt), {
-    label: `Persona prompt for '${selectedPersona}'`,
+    label: `Working-lens prompt for '${selectedPersona}'`,
     mustExist: true,
     type: 'file'
   });
@@ -312,7 +312,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     '',
     phaseContract(initiative, phase),
     '',
-    `## Selected persona: ${definition.personas[selectedPersona].label}`,
+    `## Selected working lens: ${definition.personas[selectedPersona].label}`,
     '',
     `<!-- path=${personaPath.relative} sha256=${personaSnapshot.sha256} -->`,
     '',

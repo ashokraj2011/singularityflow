@@ -1,6 +1,6 @@
 ---
 name: sflow-reject
-description: Interactively select a persona and reject a submitted Singularity Flow phase to an allowed current or earlier phase, recording the reason and invalidating downstream approvals.
+description: Reject a submitted Singularity Flow phase as the current Git identity, recording its matched human authority group, optional working lens, reason, commit, push, and downstream invalidation.
 argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation'"
 disable-model-invocation: true
 ---
@@ -10,8 +10,9 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 
 1. Require a specific rejection reason and target phase; do not invent either.
 2. Run `singularity-flow reject <WORK-ID> --fetch --to <phase> --reason "..."` in a persistent interactive shell.
-3. When the CLI prints `Choose persona`, call Copilot's `ask_user` tool with the displayed rejection-capable persona labels, IDs, and descriptions as selectable options. Never infer or preselect one.
-4. Map the selected ID to the displayed number and send that number plus a newline to the same shell process with `write_bash`. Do not pass a persona flag, set a selection environment variable, or edit the session file. If `ask_user` is unavailable or disabled, stop and ask the reviewer to run the command directly in their terminal.
-5. Show which approvals and later phases will be invalidated.
-6. Confirm the rejection, commit, push, reopened target, and recorded reason.
-7. Do not modify artifacts unless the user asks to address the rejection.
+3. Show the reviewer Git identity and matched authority group. An unauthorized identity must stop; switching working lenses cannot grant rejection authority.
+4. When the CLI prints `Choose working lens`, call Copilot's `ask_user` tool with every displayed lens label, ID, and description. Never infer or preselect one.
+5. Map the selected ID to the displayed number and send that number plus a newline to the same shell process with `write_bash`. Do not pass a persona flag, set a selection environment variable, or edit the session file. If `ask_user` is unavailable or disabled, stop and ask the reviewer to run the command directly in their terminal.
+6. Show which approvals and later phases will be invalidated.
+7. Confirm the human identity, authority group, working lens, rejection, commit, push, reopened target, and recorded reason.
+8. Do not modify artifacts unless the user asks to address the rejection.

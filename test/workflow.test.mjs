@@ -49,8 +49,8 @@ test('persona selection changes only the local session and persists for later ac
   const root = await repository(); const workId = 'PERSONA-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
   const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  const result = flow(root, ['persona', workId], { selection: selection('feature', 'architect'), actor: 'Session Architect' });
-  assert.match(result.stdout, /Active persona: Architect \(architect\)/);
+  const result = flow(root, ['lens', workId], { selection: selection('feature', 'architect'), actor: 'Session Architect' });
+  assert.match(result.stdout, /Active working lens: Architect \(architect\)/);
   assert.match(result.stdout, /selection is local to this checkout/);
   const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
   assert.equal(session.persona, 'architect');
@@ -180,7 +180,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
-  assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-owner`);
+  assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
 });
 
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {

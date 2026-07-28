@@ -90,11 +90,11 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
   if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sflow-session to attach to a remote work/Jira ID.` };
   const choices = Object.entries(definition.personas).map(([id, persona]) => `${persona.label} (${id})`).join(', ');
   if (selectionRequired) return {
-    additionalContext: `Singularity Flow persona selection is required for Copilot session ${sessionId ?? '(unknown)'}. Before using implementation or lifecycle tools, invoke /sflow-session and let the contributor choose from: ${choices}. Never infer or select a persona for them. Never approve automatically. Work item: ${workflow.workItem.id}; phase: ${phase.id}.`
+    additionalContext: `Singularity Flow working-lens selection is required for Copilot session ${sessionId ?? '(unknown)'}. Before using implementation or lifecycle tools, invoke /sflow-session and let the contributor choose from: ${choices}. Never infer or select a working lens for them. A lens is prompt context, not human identity or approval authority. Never approve automatically. Work item: ${workflow.workItem.id}; phase: ${phase.id}.`
   };
   const persona = active?.persona;
   const context = phase
-    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${persona ? ` Acting as ${persona} for this Copilot session; change it with /sflow-persona.` : ''} Before changing lifecycle state, run /sflow-nextsteps. Never approve automatically.`
+    ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${persona ? ` Working lens ${persona} is active for this Copilot session; change it with /sflow-lens. This lens is prompt context, not the human identity or approval authority.` : ''} Before changing lifecycle state, run /sflow-nextsteps. Never approve automatically.`
     : `Singularity Flow work item ${workflow.workItem.id} is complete.${workspaceContext} Run the governance gate before handoff.`;
   return { additionalContext: context };
 }
@@ -150,7 +150,7 @@ function isPersonaToolCall(payload) {
   if (/^(?:singularity-flow|sflow) session attach [A-Za-z0-9._-]+(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) workspace (?:list|current)(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) workspace (?:use|switch) [A-Za-z0-9._-]+(?: --repository [A-Za-z0-9._-]+)?(?: --story [A-Za-z0-9._-]+)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
-  if (/^(?:singularity-flow persona|sflow-persona)(?: [A-Za-z0-9._-]+)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow lens|sflow-lens)(?: [A-Za-z0-9._-]+)?(?: 2>&1)?$/.test(command)) return true;
   const chars = payload.toolArgs?.chars ?? payload.toolArgs?.input ?? payload.toolArgs?.text;
   const terminal = payload.toolArgs?.sessionId ?? payload.toolArgs?.session_id;
   return Boolean(terminal && typeof chars === 'string' && /^\d+\r?\n$/.test(chars));
@@ -178,7 +178,7 @@ export async function personaGuardHook(root, definition, workflow, payload = {})
     return {};
   }
   log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {
-    reason: status.workItemSelectionRequired ? 'work-item selection required' : 'persona selection required',
+    reason: status.workItemSelectionRequired ? 'work-item selection required' : 'working-lens selection required',
     workId: status.workId ?? null,
     workItemSelectionRequired: status.workItemSelectionRequired,
     personaSelectionRequired: status.selectionRequired
@@ -189,6 +189,6 @@ export async function personaGuardHook(root, definition, workflow, payload = {})
   };
   return {
     permissionDecision: 'deny',
-    permissionDecisionReason: `Select a Singularity Flow persona for ${status.workId} before using '${payload.toolName ?? 'this tool'}'. Run /sflow-session; the contributor must choose the persona.`
+    permissionDecisionReason: `Select a Singularity Flow working lens for ${status.workId} before using '${payload.toolName ?? 'this tool'}'. Run /sflow-session; the contributor must choose the lens. Approval authority remains tied to the real Git/GitHub identity.`
   };
 }

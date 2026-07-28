@@ -145,7 +145,7 @@ test('promotion refuses an uncommitted change to any governed context source', a
   });
   await assert.rejects(
     () => promotePlanningArtifact(root, { sessionId: context.sessionId, persona: 'architect', content: '# Wrong persona\n' }),
-    /composed as 'product-owner', not 'architect'/
+    /composed with working lens 'product-owner', not 'architect'/
   );
   const sourcePath = path.join(root, 'singularity/work-items/PLAN-DIRTY/USER-STORY.md');
   await writeFile(sourcePath, `${await readFile(sourcePath, 'utf8')}\nNew requirement after context creation.\n`);

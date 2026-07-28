@@ -185,13 +185,13 @@ test('work-type phase overrides merge world model, quality, comparison, and appr
   const design = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'design');
   assert.equal(design.worldModel.depth, 'deep'); assert.deepEqual(design.worldModel.views, ['architecture', 'security']);
   assert.deepEqual(design.qualityCommands, ['npm test']); assert.equal(design.comparison.requireFiles, true);
-  assert.equal(design.approval.minimum, 2); assert.deepEqual(design.approval.personas, ['architect']);
+  assert.equal(design.approval.minimum, 2); assert.deepEqual(design.approval.authorities, ['architecture-reviewers']);
 });
 
-test('invalid persona approval capability is rejected', async () => {
+test('invalid approval authority reference is rejected independently of working lenses', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-')); await initializeDefinition(root);
-  const file = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.personas.architect.mayApprove = [];
-  await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /must list 'design' in mayApprove/);
+  const file = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.phases.design.approval.authorities = ['missing-reviewers'];
+  await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /unknown authority 'missing-reviewers'/);
 });
 
 test('optional token pricing accepts non-negative per-million rates and rejects invalid rates', async () => {

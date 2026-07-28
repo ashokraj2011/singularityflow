@@ -323,7 +323,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   const agents = await discoverAgents(root);
   const telemetry = await copilotTelemetryStatus(root);
   const agentLock = await secureRepositoryPath(root, AGENT_LOCK_PATH, {
-    label: 'Remote-agent lock file',
+    label: 'Remote prompt-pack lock file',
     type: 'file'
   });
   const lockExists = agentLock.exists;
@@ -400,7 +400,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     },
     agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
     agentStatus: await agentStatus(root),
-    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
+    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote prompt packs are trusted yet.\n' },
     workItems: items,
     initiatives,
     selectedInitiativeId,
@@ -538,7 +538,7 @@ export async function saveDesktopFile(root, requestedPath, content) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, persona prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, working-lens prompts, repository skills, world-model builder prompts, and repository prompt-pack Markdown. Generated world-model files, initiative state, and prompt-pack locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try { validateDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
@@ -584,7 +584,7 @@ export async function deleteDesktopFile(root, requestedPath) {
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith('.github/agents/')
     || relative.startsWith('.claude/agents/');
-  if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced persona prompts, repository skills, and repository agents.');
+  if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced working-lens prompts, repository skills, and repository prompt packs.');
   const references = [];
   if (relative.startsWith(`${templatesRoot}/`)) {
     const template = relative.slice(templatesRoot.length + 1);
@@ -691,7 +691,7 @@ export async function selectDesktopPersona(root, workId, persona) {
   const definition = await loadDefinition(root);
   if (workId) {
     const workflow = await loadWorkflow(root, definition, workId);
-    if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before selecting a work-item persona.`);
+    if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before selecting a work-item working lens.`);
   }
   return setPersonaSession(root, definition, identity(root), persona, workId || null);
 }

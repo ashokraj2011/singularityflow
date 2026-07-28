@@ -1,0 +1,3 @@
+interface:
+  display_name: "Prompt packs"
+  short_description: "Manage pinned remote Markdown context"

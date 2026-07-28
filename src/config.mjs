@@ -18,6 +18,9 @@ import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODE
 import { normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
+import {
+  DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalPolicy
+} from './approval-authority.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -128,6 +131,7 @@ export function validateDefinition(definition) {
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
   normalizeLogging(definition.logging ?? {});
+  definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
@@ -162,7 +166,7 @@ export function validateDefinition(definition) {
     assertId(id, 'Persona');
     if (!persona.label || !persona.prompt) throw new SingularityFlowError(`Persona '${id}' requires label and prompt.`);
     assertRelative(persona.prompt, `Persona '${id}' prompt`);
-    for (const phaseId of [...(persona.suggestedPhases ?? []), ...(persona.mayApprove ?? [])]) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Persona '${id}' references unknown phase '${phaseId}'.`);
+    for (const phaseId of persona.suggestedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Persona '${id}' references unknown phase '${phaseId}'.`);
   }
   for (const [id, workType] of Object.entries(definition.workTypes)) {
     assertId(id, 'Work type');
@@ -181,10 +185,7 @@ export function validateDefinition(definition) {
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
-    for (const persona of phase.approval?.personas ?? []) {
-      if (!definition.personas[persona]) throw new SingularityFlowError(`Phase '${id}' approval references unknown persona '${persona}'.`);
-      if (!(definition.personas[persona].mayApprove ?? []).includes(id)) throw new SingularityFlowError(`Persona '${persona}' must list '${id}' in mayApprove.`);
-    }
+    normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
@@ -274,9 +275,8 @@ function legacyDefinition(config, worldModel = {}) {
   const phases = {};
   for (const phase of config.phases ?? []) {
     const personaId = String(phase.owner ?? 'developer').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'developer';
-    personas[personaId] ??= { label: phase.owner ?? 'Developer', description: `Legacy ${phase.owner ?? 'developer'} persona`, prompt: `${personaId}.md`, suggestedPhases: [], worldModelViews: [], mayApprove: [] };
+    personas[personaId] ??= { label: phase.owner ?? 'Developer', description: `Legacy ${phase.owner ?? 'developer'} working lens`, prompt: `${personaId}.md`, suggestedPhases: [], worldModelViews: [] };
     personas[personaId].suggestedPhases.push(phase.id);
-    personas[personaId].mayApprove.push(phase.id);
     phases[phase.id] = {
       label: phase.label ?? phase.id,
       suggestedPersonas: [personaId],
@@ -284,7 +284,7 @@ function legacyDefinition(config, worldModel = {}) {
       artifact: { ...(phase.requiredArtifact ?? {}), path: phase.requiredArtifact?.path ?? `artifacts/${phase.id}/${phase.id}.md` },
       worldModel: worldModel.phases?.[phase.id] ?? { views: [], depth: 'standard' },
       writeScope: 'source-and-artifact',
-      approval: { personas: [personaId], minimum: 1, rejectTo: [phase.id] },
+      approval: { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [phase.id] },
       qualityCommands: phase.qualityCommands ?? []
     };
   }
@@ -299,6 +299,7 @@ function legacyDefinition(config, worldModel = {}) {
     personaPromptsRoot: 'singularity/personas',
     tokens: { mode: 'exact-or-unavailable' },
     documents: { allowedPhases: Object.keys(phases), maxFileBytes: 26214400, maxPreviewBytes: 1048576 },
+    approvalAuthorities: normalizeApprovalAuthorities(),
     personas,
     workTypes: { legacy: { label: 'Legacy workflow', phases: Object.keys(phases), templateOverrides: {} } },
     phases,
@@ -319,10 +320,10 @@ export async function loadDefinition(root) {
     const definition = validateDefinition(YAML.parse(await readFile(workflow.absolute, 'utf8')));
     for (const [id, persona] of Object.entries(definition.personas)) {
       const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-        label: `Persona prompt for '${id}'`,
+        label: `Working-lens prompt for '${id}'`,
         type: 'file'
       });
-      if (!prompt.exists) throw new SingularityFlowError(`Persona prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
+      if (!prompt.exists) throw new SingularityFlowError(`Working-lens prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
     }
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
       if (isAgentTemplateReference(phase.template)) continue;
@@ -461,7 +462,8 @@ export function resolveWorkType(definition, workTypeId) {
     };
     const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
-    return { id, order, ...merged, inputs, template };
+    const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
+    return { id, order, ...merged, approval, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({
@@ -472,7 +474,16 @@ export function resolveWorkType(definition, workTypeId) {
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
   const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
   const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
-  return { id: workTypeId, label: workType.label, inputsMode: configuredInputsMode(definition), sequenceGates, contextPolicy, documents, phases };
+  return {
+    id: workTypeId,
+    label: workType.label,
+    inputsMode: configuredInputsMode(definition),
+    approvalAuthorities: structuredClone(definition.approvalAuthorities),
+    sequenceGates,
+    contextPolicy,
+    documents,
+    phases
+  };
 }
 
 export async function snapshotResolution(root, definition, resolved) {
@@ -499,6 +510,7 @@ export async function snapshotResolution(root, definition, resolved) {
     configSha256: definitionSnapshot.sha256,
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: groundingMode(definition),
+    approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     templates
@@ -689,9 +701,9 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
 
 export async function personaPrompt(root, definition, personaId) {
   const persona = definition.personas[personaId];
-  if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
+  if (!persona) throw new SingularityFlowError(`Unknown working lens '${personaId}'.`);
   const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-    label: `Persona prompt for '${personaId}'`,
+    label: `Working-lens prompt for '${personaId}'`,
     mustExist: true,
     type: 'file'
   });

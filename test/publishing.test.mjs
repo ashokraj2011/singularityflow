@@ -54,5 +54,5 @@ test('every approval creates and pushes its own atomic decision commit', async (
   const published = run('git', ['ls-remote', 'origin', 'refs/heads/APPROVAL-1'], root).stdout.split(/\s+/)[0];
   assert.equal(published, local);
   const subject = run('git', ['--git-dir', remote, 'log', '-1', '--format=%s', 'refs/heads/APPROVAL-1'], base).stdout.trim();
-  assert.equal(subject, '[APPROVAL-1][phase:intake][approve] product-owner');
+  assert.equal(subject, '[APPROVAL-1][phase:intake][approve] product-approvers');
 });

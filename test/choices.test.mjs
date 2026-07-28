@@ -95,7 +95,7 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   let receipt = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-201', '--json']).stdout);
   const invalid = flow(root, ['choices', 'answer', receipt.token, 'persona', 'not-configured', '--json'], { allowFailure: true });
   assert.equal(invalid.status, 1);
-  assert.match(invalid.stderr, /Unknown persona/);
+  assert.match(invalid.stderr, /Unknown working lens/);
   const incomplete = flow(root, ['start', 'CHOICE-201', '--title', 'Incomplete', '--selection-receipt', receipt.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);
   assert.match(incomplete.stderr, /incomplete: Intake source/);
@@ -139,7 +139,10 @@ test('approval receipt keeps persona selection and exact phase confirmation insi
   assert.equal(begun.approvalContext.generation, 1);
   assert.ok(begun.approvalContext.artifacts[0].sha256);
   assert.deepEqual(begun.choiceSets.map((item) => item.id), ['persona', 'phase-confirmation']);
-  assert.deepEqual(begun.choiceSets[0].options.map((item) => item.id), ['product-owner']);
+  assert.deepEqual(
+    begun.choiceSets[0].options.map((item) => item.id),
+    ['developer', 'architect', 'product-owner', 'qa', 'product-designer', 'mobile-architect']
+  );
 
   const wrongConfirmation = flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'requirements'], { allowFailure: true });
   assert.equal(wrongConfirmation.status, 1);

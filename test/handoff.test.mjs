@@ -82,7 +82,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   let session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.workItemSelectionRequired, false);
   assert.equal(session.selectionRequired, true);
-  flow(second, ['persona', 'HAND-101'], 'architect');
+  flow(second, ['lens', 'HAND-101'], 'architect');
   session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.ready, true);
   assert.equal(session.activePersona, 'architect');

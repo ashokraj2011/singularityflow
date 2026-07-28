@@ -158,9 +158,9 @@ export async function renderInjection(root, definition, signals = {}) {
 
 export async function injectPersonaPrompt(root, definition, personaId, signals = {}) {
   const persona = definition.personas?.[personaId];
-  if (!persona) throw new SingularityFlowError(`Unknown persona '${personaId}'.`);
+  if (!persona) throw new SingularityFlowError(`Unknown working lens '${personaId}'.`);
   const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-    label: `Persona prompt for '${personaId}'`,
+    label: `Working-lens prompt for '${personaId}'`,
     mustExist: true,
     type: 'file'
   });

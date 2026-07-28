@@ -21,6 +21,9 @@ import {
 import { verifyGroundingRecord } from './grounding.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
+import {
+  DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, requireApprovalAuthority
+} from './approval-authority.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -114,7 +117,7 @@ function phaseState(definition, index) {
     writeScope: definition.writeScope ?? 'artifact-only',
     comparison: structuredClone(definition.comparison ?? {}),
     inputs: structuredClone(definition.inputs ?? []),
-    approvalPolicy: structuredClone(definition.approval ?? { personas: [], minimum: 0, rejectTo: [definition.id] }),
+    approvalPolicy: structuredClone(definition.approval ?? { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id] }),
     qualityCommands: [...(definition.qualityCommands ?? [])],
     startedAt: index === 0 ? nowIso() : null,
     submittedAt: null,
@@ -190,7 +193,7 @@ function statusMarkdown(workflow) {
     `- Work type: **${workflow.workItem.workType}**`,
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? 'complete'}**`, '',
-    '| # | Phase | Suggested personas | Status | Generation | Approvals | Tokens |',
+    '| # | Phase | Suggested working lenses | Status | Generation | Approvals | Tokens |',
     '|---:|---|---|---|---:|---:|---:|'
   ];
   for (const id of workflow.phaseOrder) {
@@ -198,10 +201,10 @@ function statusMarkdown(workflow) {
     const approvals = phase.approvals.filter((item) => !item.invalidatedAt).length;
     const tokens = phase.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
     lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.suggestedPersonas.join(', ')} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
-    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.persona} / ${approval.actor.name} | **warning** |  |  |  |`);
+    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.actor.name ?? approval.actor.email ?? 'unknown'} via ${approval.authorityGroup ?? 'unrecorded authority'}; lens ${approval.workingLens ?? approval.persona ?? 'unavailable'} | **warning** |  |  |  |`);
   }
   lines.push('', '## Recent history', '');
-  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.persona ? ` as ${item.persona}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
+  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.persona ? ` · working lens ${item.persona}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
   if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
   return `${lines.join('\n')}\n`;
 }
@@ -241,6 +244,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       ...snapshotState,
       workType: selectedType,
       workTypeLabel: resolution.label,
+      approvalAuthorities: structuredClone(snapshotState.approvalAuthorities ?? resolution.approvalAuthorities ?? normalizeApprovalAuthorities(config.approvalAuthorities)),
       sequenceGates: snapshotState.sequenceGates ?? resolution.sequenceGates ?? { default: 'hard' },
       documents: structuredClone(resolution.documents ?? config.documents ?? {}),
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
@@ -300,6 +304,7 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
+  workflow.resolution.approvalAuthorities ??= normalizeApprovalAuthorities();
   workflow.lineage ??= {
     schemaVersion: 1,
     canonicalBranch: workflow.workItem.branch,
@@ -324,7 +329,9 @@ function upgradeWorkflow(workflow) {
   for (const id of workflow.phaseOrder) {
     const phase = workflow.phases[id];
     phase.suggestedPersonas ??= phase.owner ? [phase.owner] : [];
-    phase.approvalPolicy ??= { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [id] };
+    phase.approvalPolicy ??= { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [id] };
+    phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
+    delete phase.approvalPolicy.personas;
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
     phase.remoteOutputs ??= [];
@@ -701,9 +708,14 @@ async function writeDecision(root, config, workflow, phase, decision) {
 export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal' } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
-  const session = await loadSession(root); const allowed = phase.approvalPolicy.personas ?? [];
-  if (!allowed.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot approve phase '${phase.id}'. Choose one of: ${allowed.join(', ')}.`);
-  const actor = session.actor; const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const session = await loadSession(root);
+  const actor = session.actor;
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    phase.approvalPolicy,
+    actor
+  );
+  const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
   if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
   const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
@@ -715,7 +727,9 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
     phase: phase.id,
     at: nowIso(),
     actor,
-    persona: session.persona,
+    workingLens: session.persona,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
     channel,
     generation: phase.generation,
     reviewPacketSha256: packet?.packetSha256 ?? null,
@@ -757,8 +771,12 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (!reason?.trim()) throw new SingularityFlowError('A rejection reason is required.');
-  const session = await loadSession(root); const allowedPersonas = phase.approvalPolicy.personas ?? [];
-  if (!allowedPersonas.includes(session.persona) || !(config.personas[session.persona]?.mayApprove ?? []).includes(phase.id)) throw new SingularityFlowError(`Persona '${session.persona}' cannot reject phase '${phase.id}'.`);
+  const session = await loadSession(root);
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    phase.approvalPolicy,
+    session.actor
+  );
   const targetId = target ?? phase.id; if (!(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
   const timestamp = nowIso(); const key = actorKey(session.actor);
@@ -782,7 +800,9 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reason: reason.trim(),
     at: timestamp,
     actor: session.actor,
-    persona: session.persona,
+    workingLens: session.persona,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
     channel,
     generation: phase.generation,
     reviewPacketSha256: packet?.packetSha256 ?? null
@@ -833,7 +853,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
     if (!workflow.resolution?.sessionLegacy) {
       const expectedSession = normalizeSessionPolicy(config.session ?? {});
       const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
-      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session persona policy differs from the immutable configuration snapshot.');
+      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session working-lens policy differs from the immutable configuration snapshot.');
     }
     if (!workflow.resolution?.contextPolicyLegacy) {
       const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });

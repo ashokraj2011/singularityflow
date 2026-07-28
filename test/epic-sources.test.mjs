@@ -13,7 +13,7 @@ import {
   updateEpicStory, verifyEpicPlanningPackage
 } from '../src/epic-lifecycle.mjs';
 import { verifyEpicTraceability } from '../src/epic-traceability.mjs';
-import { initiativeNextActions } from '../src/initiative-report.mjs';
+import { deriveInitiativeReport, initiativeNextActions } from '../src/initiative-report.mjs';
 import { createInitiative, loadInitiative, saveInitiative } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
 
@@ -160,6 +160,19 @@ test('Jira Epic snapshot is available as a pinned source without uploaded docume
   assert.match(source.content, /"key": "MOB-100"/);
   const actions = await initiativeNextActions(root, 'MOB-100');
   assert.equal(actions[0].action, 'prepare');
+});
+
+test('an unstarted Planning phase does not make the Epic desktop report fail', async () => {
+  const root = await repository();
+  const { portfolio, initiative } = await loadInitiative(root, 'MOB-100');
+  const verification = await verifyEpicPlanningPackage(root, portfolio, initiative);
+  assert.equal(verification.valid, false);
+  assert.match(verification.errors.join('\n'), /Story specification index does not exist/);
+
+  const report = await deriveInitiativeReport(root, 'MOB-100');
+  const planning = report.phases.find((phase) => phase.id === 'epic-planning');
+  assert.equal(planning.status, 'not_started');
+  assert.equal(planning.publishedOutputs, 0);
 });
 
 test('Epic intake advances without a repository world model and defers grounding to Story intake', async () => {

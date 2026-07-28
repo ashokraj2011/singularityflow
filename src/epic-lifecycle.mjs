@@ -113,11 +113,21 @@ export async function verifyEpicPlanningPackage(root, portfolio, initiative) {
     return { valid: false, errors: [error.message], passes, storySpecifications: [] };
   }
   const indexOutput = planningOutput(initiative, 'story-specification-index');
-  const indexTarget = await secureInitiativePath(root, portfolio, initiative.initiative.id, indexOutput.path, {
-    label: 'Epic Story specification index',
-    mustExist: true,
-    type: 'file'
-  });
+  let indexTarget;
+  try {
+    indexTarget = await secureInitiativePath(root, portfolio, initiative.initiative.id, indexOutput.path, {
+      label: 'Epic Story specification index',
+      mustExist: true,
+      type: 'file'
+    });
+  } catch (error) {
+    return {
+      valid: false,
+      errors: [error.message],
+      passes,
+      storySpecifications: []
+    };
+  }
   let index;
   try { index = YAML.parse(await readFile(indexTarget.absolute, 'utf8')); }
   catch (error) { return { valid: false, errors: [`Story specification index is invalid YAML: ${error.message}`], passes, storySpecifications: [] }; }

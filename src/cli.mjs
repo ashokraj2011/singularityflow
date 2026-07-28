@@ -188,7 +188,7 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 Usage:
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
-  singularity-flow init
+  singularity-flow init [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--selection-receipt TOKEN]
@@ -423,11 +423,26 @@ async function confirmYesNo(prompt) {
   finally { io.close(); }
 }
 
-async function initCommand() {
+async function initCommand(options) {
   const root = repoRoot();
+  const workId = optionString(options, 'work-id');
+  if (workId) {
+    validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
+    assertClean(root);
+    checkout(root, workId, {
+      base: optionString(options, 'base', 'main'),
+      fetch: optionBoolean(options, 'fetch')
+    });
+  }
   const wrote = await initializeDefinition(root);
+  const config = await loadConfig(root);
+  if (workId) validateId(config, workId);
   await worldModelCommand(root, ['wm', 'init'], {});
   console.log(wrote.length ? `Created ${wrote.join(', ')}` : `Verified ${WORKFLOW_PATH} and repository templates.`);
+  if (workId) {
+    console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
+    console.log(`Next: review and commit singularity/, push ${workId}, then run singularity-flow start ${workId}.`);
+  }
 }
 
 async function helpCommand(positionals, options) {
@@ -3918,7 +3933,7 @@ async function dispatch(command, positionals, options) {
   switch (command) {
     case 'about': return console.log(ABOUT);
     case 'help': return helpCommand(positionals, options);
-    case 'init': return initCommand();
+    case 'init': return initCommand(options);
     case 'choices': return choicesCommand(positionals, options);
     case 'start': return startCommand(positionals, options);
     case 'resume': return resumeCommand(positionals, options);

@@ -1247,6 +1247,8 @@ singularity-flow wm check
 singularity-flow wm build --phase design --task "Design invoice export"
 # Or target an existing branch without switching this checkout
 singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
+# Limit concurrent view discovery on a smaller laptop
+singularity-flow wm build --phase verification --workers 2
 singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
@@ -1271,6 +1273,15 @@ its isolated output is accepted. Singularity Flow validates the manifest and
 every declared regular file, rejects escaping paths/symlinks and unexpected
 repository writes, records a source-tree hash, atomically installs the output,
 commits it, and publishes it according to `git.publish`.
+
+For two or more explicit phase/views, parallel generation starts one read-only
+discovery worker per view, up to `worldModel.generation.maxWorkers`. Each worker
+writes only its own bounded intermediate packet. The packets are ordered by
+view and passed to one final synthesizer, so evidence IDs, the manifest,
+validation, installation, commit, and push retain a single owner. Use
+`--workers N` to reduce concurrency, `--no-parallel` to diagnose a worker/model
+problem, or `--parallel` to opt in when testing a custom runner. Do not launch
+several independent builds against the same branch.
 
 `--local` remains available for diagnostics, but the normal Story lifecycle does
 not use it. Desktop and `/sflow-story-start` build after Story intake and publish
@@ -1319,6 +1330,10 @@ worldModel:
   # Governed view IDs. A view cannot be removed while a phase, persona,
   # workflow override, injection rule, or Markdown prompt still references it.
   views: [business, architecture, development, testing, release, operations, security]
+  generation:
+    parallel: true
+    maxWorkers: 4           # 1..16
+    strategy: view
   grounding: enforce        # off | warn | enforce; absent means off
   staleness: warn           # warn | fail | ignore
   injection:
@@ -1764,7 +1779,7 @@ singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT]
+singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow jira assigned|list|pull|fields

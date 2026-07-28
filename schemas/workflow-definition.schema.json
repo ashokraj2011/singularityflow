@@ -169,6 +169,15 @@
         "outputDir": { "type": "string", "minLength": 1 },
         "promptSource": { "type": "string", "minLength": 1 },
         "runner": { "type": "string", "minLength": 1 },
+        "generation": {
+          "type": "object",
+          "properties": {
+            "parallel": { "type": "boolean", "default": true },
+            "maxWorkers": { "type": "integer", "minimum": 1, "maximum": 16, "default": 4 },
+            "strategy": { "enum": ["view"], "default": "view" }
+          },
+          "additionalProperties": false
+        },
         "grounding": { "enum": ["off", "warn", "enforce"], "default": "off" },
         "staleness": { "enum": ["warn", "fail", "ignore"] },
         "injection": {

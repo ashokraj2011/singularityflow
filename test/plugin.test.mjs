@@ -392,20 +392,42 @@ test('initiative Copilot skills expose orchestration without persona authority s
   assert.match(phase, /Do not approve automatically/);
 });
 
-test('plugin install replaces direct and marketplace copies before installing one marketplace copy', () => {
+test('plugin install replaces old copies before installing the bundled local plugin', () => {
   const calls = [];
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
-    const isMarketplaceAdd = args.join(' ') === 'plugin marketplace add ashokraj2011/singularityflow';
-    return { status: isMarketplaceAdd ? 1 : 0, stdout: '', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
   };
 
-  installPlugin({ execute, exists: () => true, developmentSource: undefined });
+  installPlugin({ execute, exists: () => true, developmentSource: undefined, marketplaceSource: undefined });
 
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
     ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
-    ['plugin', 'marketplace', 'add', 'ashokraj2011/singularityflow'],
+    ['plugin', 'install', pluginRoot]
+  ]);
+  assert.equal(calls.at(-1).options.stdio, 'inherit');
+});
+
+test('plugin install uses an explicitly configured organization marketplace', () => {
+  const calls = [];
+  const execute = (command, args, options) => {
+    calls.push({ command, args, options });
+    const isMarketplaceAdd = args.join(' ') === 'plugin marketplace add company/singularity-flow';
+    return { status: isMarketplaceAdd ? 1 : 0, stdout: '', stderr: '' };
+  };
+
+  installPlugin({
+    execute,
+    exists: () => true,
+    developmentSource: undefined,
+    marketplaceSource: 'company/singularity-flow'
+  });
+
+  assert.deepEqual(calls.map((call) => call.args), [
+    ['plugin', 'uninstall', 'singularity-flow'],
+    ['plugin', 'uninstall', 'singularity-flow@singularity-flow'],
+    ['plugin', 'marketplace', 'add', 'company/singularity-flow'],
     ['plugin', 'marketplace', 'update', 'singularity-flow'],
     ['plugin', 'install', 'singularity-flow@singularity-flow']
   ]);

@@ -119,10 +119,14 @@ No workflow database is required. The branch contains the transferable state; `.
 The single supported local installer pulls, builds, tests, packages, globally installs, removes old Copilot plugin copies, and installs the current marketplace plugin:
 
 ```bash
-git clone https://github.com/ashokraj2011/singularityflow.git
+git clone <company-git-url>
 cd singularityflow
 ./install.sh
 ```
+
+The Copilot plugin is installed from the bundled package by default. Set
+`SINGULARITY_FLOW_MARKETPLACE_SOURCE=company/singularity-flow` only when your
+organization publishes an approved Copilot marketplace.
 
 For a company registry or Artifactory:
 

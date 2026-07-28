@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 
@@ -449,7 +450,13 @@ function materializationOperation(root, repository) {
 async function cloneIntoWorkspace(root, operation) {
   await assertInside(root, operation.target);
   const existing = await lstat(operation.target).catch(() => null);
-  if (existing) return { status: 1, error: `Clone target became occupied before materialization: ${operation.target}` };
+  if (existing) {
+    if (existing.isSymbolicLink() || !existing.isDirectory()) {
+      return { status: 1, error: `Clone target became occupied before materialization: ${operation.target}` };
+    }
+    const entries = await readdir(operation.target);
+    if (entries.length) return { status: 1, error: `Clone target became occupied before materialization: ${operation.target}` };
+  }
   const parent = path.dirname(operation.target);
   await mkdir(parent, { recursive: true });
   const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
@@ -466,6 +473,10 @@ async function cloneIntoWorkspace(root, operation) {
     return { status: result.status, error: (result.stderr || result.stdout).trim() };
   }
   try {
+    // A user may pre-create the repository folder while setting up a workspace. Claim it only
+    // when it is still empty after the clone completes; rmdir fails if a concurrent process
+    // added anything, so no user content is overwritten.
+    if (existing) await rmdir(operation.target);
     await rename(staging, operation.target);
     await rm(stagingRoot, { recursive: true, force: true });
     return { status: 0, error: null };
@@ -583,6 +594,96 @@ export async function createWorkspace(options, {
   return { created: true, resumed: false, workspace: finalStatus.workspace, status: finalStatus };
 }
 
+async function repositoryWorldModelStatus(root) {
+  const defaultOutputDirectory = 'singularity/world-model';
+  const canonicalRoot = await realpath(root);
+  async function regularRepositoryFile(relative) {
+    const absolute = path.resolve(root, relative);
+    if (!absolute.startsWith(`${path.resolve(root)}${path.sep}`)) return { state: 'outside', absolute };
+    const info = await lstat(absolute).catch(() => null);
+    if (!info) return { state: 'missing', absolute };
+    if (!info.isFile() || info.isSymbolicLink()) return { state: 'invalid', absolute };
+    const canonical = await realpath(absolute);
+    if (!canonical.startsWith(`${canonicalRoot}${path.sep}`)) return { state: 'outside', absolute };
+    return { state: 'file', absolute };
+  }
+
+  let outputDirectory = defaultOutputDirectory;
+  const workflow = await regularRepositoryFile('singularity/workflow.yml');
+  if (workflow.state === 'file') {
+    try {
+      const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
+      outputDirectory = String(definition?.worldModel?.outputDir ?? defaultOutputDirectory).trim() || defaultOutputDirectory;
+    } catch {
+      // Workspace creation must not turn workflow parsing into a world-model gate. The normal
+      // repository validator will report malformed configuration after the clone is opened.
+      outputDirectory = defaultOutputDirectory;
+    }
+  }
+
+  const normalizedOutput = outputDirectory.replaceAll('\\', '/').replace(/\/+$/, '');
+  if (!normalizedOutput || path.isAbsolute(normalizedOutput) || normalizedOutput.split('/').includes('..')) {
+    return {
+      state: 'invalid',
+      exists: false,
+      outputDirectory: normalizedOutput || outputDirectory,
+      manifestPath: null,
+      warning: `The configured world-model directory '${outputDirectory}' is not repository-relative.`
+    };
+  }
+  const manifestPath = `${normalizedOutput}/manifest.json`;
+  const manifest = await regularRepositoryFile(manifestPath);
+  if (manifest.state === 'outside') {
+    return {
+      state: 'invalid',
+      exists: false,
+      outputDirectory: normalizedOutput,
+      manifestPath,
+      warning: `The configured world-model manifest escapes the repository: ${manifestPath}.`
+    };
+  }
+  if (manifest.state === 'missing') {
+    return {
+      state: 'missing',
+      exists: false,
+      outputDirectory: normalizedOutput,
+      manifestPath,
+      generatedAt: null,
+      warning: `No repository world model was found at ${manifestPath}.`
+    };
+  }
+  if (manifest.state !== 'file') {
+    return {
+      state: 'invalid',
+      exists: false,
+      outputDirectory: normalizedOutput,
+      manifestPath,
+      generatedAt: null,
+      warning: `The repository world-model manifest is not a regular file: ${manifestPath}.`
+    };
+  }
+  try {
+    const definition = JSON.parse(await readFile(manifest.absolute, 'utf8'));
+    return {
+      state: 'available',
+      exists: true,
+      outputDirectory: normalizedOutput,
+      manifestPath,
+      generatedAt: definition.generated_at ?? definition.generatedAt ?? null,
+      warning: null
+    };
+  } catch {
+    return {
+      state: 'invalid',
+      exists: true,
+      outputDirectory: normalizedOutput,
+      manifestPath,
+      generatedAt: null,
+      warning: `The repository world-model manifest is not valid JSON: ${manifestPath}.`
+    };
+  }
+}
+
 async function repositoryStatus(root, repository) {
   const absolute = path.join(root, repository.path);
   try {
@@ -604,7 +705,18 @@ async function repositoryStatus(root, repository) {
   if (directory?.isSymbolicLink()) return { ...repository, absolutePath: absolute, state: 'invalid-symlink', dirty: null, branch: null, remote: null };
   if (!directory.isDirectory()) return { ...repository, absolutePath: absolute, state: 'invalid', dirty: null, branch: null, remote: null };
   const git = await stat(path.join(absolute, '.git')).catch(() => null);
-  if (!git) return { ...repository, absolutePath: absolute, state: 'invalid', dirty: null, branch: null, remote: null };
+  if (!git) {
+    const entries = await readdir(absolute);
+    return {
+      ...repository,
+      absolutePath: absolute,
+      state: entries.length ? 'invalid' : 'empty',
+      dirty: null,
+      branch: null,
+      remote: null,
+      worldModel: null
+    };
+  }
   const dirty = Boolean(gitValue(absolute, ['status', '--porcelain=v1', '--untracked-files=all']));
   const branch = gitValue(absolute, ['branch', '--show-current']);
   const remote = gitValue(absolute, ['remote', 'get-url', 'origin']);
@@ -615,7 +727,8 @@ async function repositoryStatus(root, repository) {
     dirty,
     branch,
     remote,
-    head: gitValue(absolute, ['rev-parse', 'HEAD'])
+    head: gitValue(absolute, ['rev-parse', 'HEAD']),
+    worldModel: await repositoryWorldModelStatus(absolute)
   };
 }
 
@@ -623,17 +736,26 @@ export async function workspaceStatus(workspacePath) {
   const workspace = await readWorkspace(workspacePath);
   const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) => repositoryStatus(workspace.path, repository)));
   const staged = await listWorkspaceDocuments(workspace.path);
+  const warnings = repositories
+    .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)
+    .map((repository) => ({
+      code: repository.worldModel.state === 'missing' ? 'world-model-missing' : 'world-model-invalid',
+      repository: repository.id,
+      message: `${repository.metadata?.name ?? repository.id}: ${repository.worldModel.warning}`
+    }));
   return {
     workspace,
     healthy: repositories.every((repository) => repository.state === 'ready'),
     leadRepositoryPath: path.join(workspace.path, workspace.repositories[workspace.leadRepository].path),
     repositories,
     stagedDocuments: staged,
+    warnings,
     counts: {
       repositories: repositories.length,
       ready: repositories.filter((repository) => repository.state === 'ready').length,
       dirty: repositories.filter((repository) => repository.dirty).length,
-      stagedDocuments: staged.length
+      stagedDocuments: staged.length,
+      worldModels: repositories.filter((repository) => repository.worldModel?.state === 'available').length
     }
   };
 }
@@ -832,7 +954,7 @@ export async function repairWorkspace(workspacePath) {
     const repository = status.repositories[index];
     const operation = journal.operations[index];
     if (repository.state === 'ready') continue;
-    if (repository.state !== 'missing') {
+    if (!['missing', 'empty'].includes(repository.state)) {
       operation.status = 'failed';
       operation.error = `Existing repository directory is ${repository.state}.`;
       operation.completedAt = nowIso();

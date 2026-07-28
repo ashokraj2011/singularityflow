@@ -782,7 +782,13 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /workspace:configuration-create/);
   assert.match(main, /saveWorkspaceConfiguration/);
   assert.match(main, /Workspace configuration saved/);
+  assert.match(main, /all repositories were cloned at their configured branches/);
+  assert.match(main, /saved-with-warning/);
+  assert.match(main, /This does not block workspace use/);
   assert.match(main, /openWorkspaceStatus/);
+  assert.match(source, /Workspace ready with warnings/);
+  assert.match(source, /World models/);
+  assert.match(styles, /\.workspace-health-warnings/);
   assert.match(main, /workspace:repository-choose/);
   assert.match(main, /inspectWorkspaceSelection/);
   assert.match(main, /openWorkspaceSetup/);

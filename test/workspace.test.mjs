@@ -153,6 +153,79 @@ test('workspace Jira project routing is optional and can be added later', async 
   assert.equal(updated.workspace.repositories.platform.jira.board, 'KAN');
 });
 
+test('workspace creation claims an empty repository folder and clones the configured branch', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-empty-clone-'));
+  const remote = await remoteRepository(root, 'platform');
+  const source = path.join(root, 'platform-source');
+  run('git', ['switch', '-c', 'release/2026.07'], { cwd: source });
+  await writeFile(path.join(source, 'BRANCH.txt'), 'configured branch\n');
+  run('git', ['add', 'BRANCH.txt'], { cwd: source });
+  run('git', ['commit', '-m', 'add release branch marker'], { cwd: source });
+  run('git', ['push', remote, 'release/2026.07'], { cwd: source });
+
+  const options = {
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'branch-workspace',
+    name: 'Branch workspace',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: remote,
+        defaultBranch: 'release/2026.07',
+        required: true,
+        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
+      }
+    }
+  };
+  const reserved = await createWorkspaceConfiguration(options, {
+    confirmation: 'branch-workspace',
+    clone: false
+  });
+  const target = path.join(reserved.workspace.path, 'repos/platform');
+  await mkdir(target);
+
+  const saved = await saveWorkspaceConfiguration(options, { confirmation: 'branch-workspace' });
+  assert.equal(saved.status.healthy, true);
+  assert.equal(saved.status.repositories[0].branch, 'release/2026.07');
+  assert.equal(await readFile(path.join(target, 'BRANCH.txt'), 'utf8'), 'configured branch\n');
+  assert.equal(saved.status.repositories[0].worldModel.state, 'missing');
+  assert.equal(saved.status.warnings[0].code, 'world-model-missing');
+  assert.match(saved.status.warnings[0].message, /No repository world model was found/);
+});
+
+test('workspace health recognizes an existing repository world model without warning', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-world-model-'));
+  const remote = await remoteRepository(root, 'platform');
+  const source = path.join(root, 'platform-source');
+  await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
+  await writeFile(path.join(source, 'singularity/world-model/manifest.json'), JSON.stringify({
+    generated_at: '2026-07-28T04:30:00.000Z'
+  }));
+  run('git', ['add', 'singularity/world-model/manifest.json'], { cwd: source });
+  run('git', ['commit', '-m', 'add repository world model'], { cwd: source });
+  run('git', ['push', remote, 'main'], { cwd: source });
+
+  const saved = await saveWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'grounded-workspace',
+    name: 'Grounded workspace',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: remote,
+        defaultBranch: 'main',
+        required: true,
+        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
+      }
+    }
+  }, { confirmation: 'grounded-workspace' });
+
+  assert.equal(saved.status.repositories[0].worldModel.state, 'available');
+  assert.equal(saved.status.repositories[0].worldModel.generatedAt, '2026-07-28T04:30:00.000Z');
+  assert.equal(saved.status.counts.worldModels, 1);
+  assert.deepEqual(saved.status.warnings, []);
+});
+
 test('workspace manifest keeps repositories isolated below repos and requires a lead', () => {
   const base = {
     version: 1,

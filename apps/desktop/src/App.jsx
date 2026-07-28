@@ -1615,10 +1615,12 @@ function WorkspaceStudio({
   const materializedRepositoryIds = new Set(
     editorMode === 'edit' ? Object.keys(health?.workspace?.repositories ?? {}) : []
   );
-  const setupNeedsAttention = data.workspaceSetup?.mode?.startsWith('saved-needs') === true;
+  const setupNeedsRepair = data.workspaceSetup?.mode?.startsWith('saved-needs') === true;
+  const hasWorkspaceWarnings = Boolean(data.workspaceSetup?.warnings?.length);
+  const setupNeedsAttention = setupNeedsRepair || hasWorkspaceWarnings;
 
   return <div className="page workspace-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy && !setupNeedsAttention ? 'good' : 'warn'}>{health.healthy && !setupNeedsAttention ? 'Workspace healthy' : 'Needs attention'}</Pill>}</header>
+    <header className="page-heading row-between"><div><span className="eyebrow">One place for project setup</span><h1>Workspace configuration</h1><p>Create as many isolated workspaces as you need. Each workspace has one lead Git repository for Epic-level artifacts and any number of participating repositories.</p></div>{health && <Pill tone={health.healthy && !hasWorkspaceWarnings ? 'good' : 'warn'}>{!health.healthy || setupNeedsRepair ? 'Needs attention' : hasWorkspaceWarnings ? 'Ready with warning' : 'Workspace healthy'}</Pill>}</header>
 
     {data.workspaceSetup?.mode?.startsWith('saved') && <div className={`workspace-save-result ${setupNeedsAttention ? 'warning' : 'success'}`} role="status"><span>{setupNeedsAttention ? '!' : '✓'}</span><div><strong>Workspace configuration saved</strong><small>{data.workspaceSetup.message}</small></div></div>}
 
@@ -1628,9 +1630,11 @@ function WorkspaceStudio({
       <div className="workspace-health-grid">
         <div><span>Repositories</span><strong>{health.counts.ready}/{health.counts.repositories}</strong><small>ready</small></div>
         <div><span>Dirty clones</span><strong>{health.counts.dirty}</strong><small>never auto-updated</small></div>
+        <div><span>World models</span><strong>{health.counts.worldModels ?? 0}/{health.counts.repositories}</strong><small>available</small></div>
         <div><span>Staged documents</span><strong>{health.counts.stagedDocuments}</strong><small>not governed</small></div>
         <div><span>Epic artifact home</span><strong>{health.workspace.leadRepository}</strong><small>{health.leadRepositoryPath}</small></div>
       </div>
+      {!!health.warnings?.length && <div className="workspace-health-warnings" role="status"><strong>Workspace ready with warnings</strong>{health.warnings.map((warning) => <span key={`${warning.code}-${warning.repository}`}>{warning.message} This does not block workspace use.</span>)}</div>}
       <div className="workspace-repository-list">{health.repositories.map((repository) => <div key={repository.id}><span className={`workspace-state ${repository.state}`} /><div><strong>{repository.metadata?.name ?? repository.id}</strong><small>{repository.metadata?.appId} · Jira {repository.jira?.board ?? 'not set'} · {repository.absolutePath}</small></div><Pill tone={repository.role === 'lead' ? 'accent' : 'neutral'}>{repository.role === 'lead' ? 'Epic lead' : 'participant'}</Pill><span>{repository.branch ?? 'not cloned'}</span><span className={repository.dirty ? 'warning-copy' : ''}>{repository.dirty == null ? '—' : repository.dirty ? 'dirty' : 'clean'}</span><Pill tone={repository.state === 'ready' ? 'good' : 'warn'}>{repository.state}</Pill></div>)}</div>
       {!!health.stagedDocuments.length && <div className="workspace-staged"><header><div><span className="eyebrow">Local document inbox</span><h3>Staged — not governed</h3><p>{canPromoteDocuments ? `Import into checked-out work item ${data.workflow.workItem.id} to commit and push a governed copy.` : 'Resume a work item and select a working lens before importing these files.'}</p></div><Pill tone="warn">{health.stagedDocuments.length} local</Pill></header>{health.stagedDocuments.map((document) => <div key={document.path}><strong>{document.name}</strong><code>{document.sha256.slice(0, 12)}</code><span>{document.bytes.toLocaleString()} bytes</span><button className="secondary compact" disabled={!canPromoteDocuments} onClick={() => promoteDocument(document)}>Import to work item</button></div>)}</div>}
     </section>}
@@ -6314,7 +6318,10 @@ export default function App() {
     if (!result) return;
     acceptOpened(result, workspaceLandingPage(result));
     await refreshRecentWorkspaces();
-    if (result.workspaceSetup?.message) setToast({ tone: 'good', text: result.workspaceSetup.message });
+    if (result.workspaceSetup?.message) setToast({
+      tone: result.workspaceSetup.warnings?.length ? 'warning' : 'good',
+      text: result.workspaceSetup.message
+    });
   }
   function openRequirementWorkspace(document = null) {
     if (!data?.workflow) {

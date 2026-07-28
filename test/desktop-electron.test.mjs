@@ -336,6 +336,9 @@ test('Electron Epic start remains usable without an existing portfolio and rende
   assert.match(source, /configurationReadyToPublish/);
   assert.match(source, /These are not application-source changes/);
   assert.match(source, /Publish setup & start Epic/);
+  assert.match(source, /replaceEmptyStarter: true/);
+  assert.match(source, /Reserved Epic .* is ready to resume/);
+  assert.match(source, /recoveringReservation/);
   assert.match(source, /No separate portfolio setup is required/);
   assert.match(source, /Epic creation starts from the clean/);
   assert.match(source, /repositoryStartReady && connected/);
@@ -518,6 +521,12 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /epic:complete/);
   assert.match(main, /epic:start/);
   assert.match(main, /epic:start-local/);
+  assert.match(main, /initiativeStartPreflight/);
+  assert.match(main, /currentLocalEpicReservation/);
+  assert.ok(
+    main.indexOf('await initiativeStartPreflight(root') < main.indexOf('await reserveLocalEpicBranch(root'),
+    'desktop local Epic start must validate governance before reserving a branch'
+  );
   assert.match(main, /story:choose-documents/);
   assert.match(main, /story:start-manual/);
   assert.doesNotMatch(main, /onboarding:experience/);

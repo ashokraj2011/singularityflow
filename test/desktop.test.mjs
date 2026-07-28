@@ -188,6 +188,41 @@ test('desktop bootstraps governed portfolio and Jira policy without storing cred
   await assert.rejects(() => bootstrapDesktopPortfolio(root), /already exists/i);
 });
 
+test('desktop safely repairs an untouched starter portfolio with empty authority groups', async () => {
+  const root = await repository();
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const starter = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  for (const authority of Object.values(starter.approvalAuthorities)) authority.members = [];
+  await writeFile(portfolioPath, YAML.stringify(starter));
+
+  const repaired = await bootstrapDesktopPortfolio(root, {
+    replaceEmptyStarter: true,
+    repositories: {
+      lead: {
+        url: 'https://github.com/company/lead.git',
+        defaultBranch: 'main',
+        required: true,
+        metadata: { appId: 'APP-1', name: 'Lead' }
+      }
+    }
+  });
+  assert.equal(repaired.repairedEmptyStarter, true);
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  assert.ok(Object.values(portfolio.approvalAuthorities)
+    .every((authority) => authority.members[0].email === 'desktop@example.com'));
+  assert.equal(portfolio.repositories.lead.metadata.appId, 'APP-1');
+
+  portfolio.approvalAuthorities['product-approvers'].members = [{
+    name: 'Configured Owner',
+    email: 'owner@example.com'
+  }];
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  await assert.rejects(
+    () => bootstrapDesktopPortfolio(root, { replaceEmptyStarter: true }),
+    /configured approval authorities/i
+  );
+});
+
 test('desktop bootstraps all workspace repositories and Jira project routes together', async () => {
   const root = await repository();
   await unlink(path.join(root, 'singularity/portfolio.yml'));

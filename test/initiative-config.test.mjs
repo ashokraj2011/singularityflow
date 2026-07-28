@@ -10,7 +10,7 @@ import {
   validatePortfolioWorldModelViews
 } from '../src/initiative-config.mjs';
 import {
-  createInitiative, initiativeProgress, loadInitiative, prepareInitiativePhase
+  createInitiative, initiativeProgress, initiativeStartPreflight, loadInitiative, prepareInitiativePhase
 } from '../src/initiative-state.mjs';
 import { publishInitiativePhase } from '../src/initiative-evidence.mjs';
 import { run } from '../src/util.mjs';
@@ -356,6 +356,11 @@ test('initiative start requires configured local authority membership', async ()
   await writeFile(file, YAML.stringify(portfolio));
   run('git', ['add', file], { cwd: root });
   run('git', ['commit', '-m', 'Remove authority'], { cwd: root });
+  await assert.rejects(
+    () => initiativeStartPreflight(root, { profile: 'initiative-lite', idAuthority: 'local' }),
+    /require at least one local Git identity/
+  );
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main');
   run('git', ['switch', '-c', 'INIT-EMPTY'], { cwd: root });
   await assert.rejects(() => createInitiative(root, { id: 'INIT-EMPTY', profile: 'initiative-lite' }), /require at least one local Git identity/);
 });

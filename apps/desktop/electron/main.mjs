@@ -719,7 +719,10 @@ function registerHandlers() {
     const manifest = await readWorkspace(workspaceRoot);
     const credentials = await jiraCredentialStore().safeStatus();
     await invokeCli(root, ['desktop', 'portfolio-bootstrap', '--json'], {
-      input: JSON.stringify(workspacePortfolioConfiguration(manifest, credentials)),
+      input: JSON.stringify({
+        ...workspacePortfolioConfiguration(manifest, credentials),
+        replaceEmptyStarter: true
+      }),
       timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
     });
     return snapshot(root);
@@ -2101,11 +2104,13 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
   trustedHandle('epic:local-id-preview', async (event, { repository }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
-    const [{ loadPortfolio }, { nextLocalEpicId }] = await Promise.all([
+    const [{ loadPortfolio }, { currentLocalEpicReservation, nextLocalEpicId }] = await Promise.all([
       importCliModule('initiative-config.mjs'),
       importCliModule('local-identity.mjs')
     ]);
     const portfolio = await loadPortfolio(root);
+    const current = await currentLocalEpicReservation(root, portfolio, { fetch: true });
+    if (current) return current;
     return nextLocalEpicId(root, portfolio, { fetch: true });
   });
   trustedHandle('epic:start-local', async (event, {
@@ -2118,8 +2123,8 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       { loadDefinition },
       { loadPortfolio },
       { assertClean, identity },
-      { reserveLocalEpicBranch },
-      { commitInitiativeChange, createInitiative, loadInitiative },
+      { currentLocalEpicReservation, reserveLocalEpicBranch },
+      { commitInitiativeChange, createInitiative, initiativeStartPreflight, loadInitiative },
       { registerInitiativeEvidence },
       { setPersonaSession }
     ] = await Promise.all([
@@ -2134,12 +2139,14 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     const [definition, portfolio] = await Promise.all([loadDefinition(root), loadPortfolio(root)]);
     if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
     if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    await initiativeStartPreflight(root, { profile, idAuthority: 'local' });
     assertClean(root);
     const actor = identity(root);
-    const reservation = await reserveLocalEpicBranch(root, portfolio, {
-      base: definition.defaultBaseBranch,
-      actor
-    });
+    const existingReservation = await currentLocalEpicReservation(root, portfolio, { fetch: true });
+    const reservation = existingReservation ?? await reserveLocalEpicBranch(root, portfolio, {
+        base: definition.defaultBaseBranch,
+        actor
+      });
     const source = {
       type: 'manual',
       id: reservation.id,

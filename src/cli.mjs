@@ -98,7 +98,7 @@ import {
 } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import {
-  commitInitiativeChange, createInitiative, initiativeProgress, listInitiatives,
+  commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
   availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
   selectInitiativePhaseOutputs, syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
@@ -141,7 +141,7 @@ import { createStoryPullRequest, storyPullRequestPlan } from './pull-request.mjs
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
-import { reserveLocalEpicBranch } from './local-identity.mjs';
+import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
 import {
   createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
@@ -2872,11 +2872,13 @@ async function epicCommand(positionals, options) {
       }
       const profile = optionString(options, 'profile', 'epic-planning');
       if (!portfolio.initiativeProfiles?.[profile]) throw new SingularityFlowError(`Unknown initiative profile '${profile}'.`);
+      await initiativeStartPreflight(root, { profile, idAuthority: 'local' });
       const actor = identity(root);
-      const reservation = await reserveLocalEpicBranch(root, portfolio, {
-        base: optionString(options, 'base', config.defaultBaseBranch),
-        actor
-      });
+      const existingReservation = await currentLocalEpicReservation(root, portfolio, { fetch: true });
+      const reservation = existingReservation ?? await reserveLocalEpicBranch(root, portfolio, {
+          base: optionString(options, 'base', config.defaultBaseBranch),
+          actor
+        });
       const selectedPersona = await selectPersona(root, config, actor, reservation.id);
       const source = {
         type: 'manual',

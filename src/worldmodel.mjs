@@ -234,7 +234,13 @@ Repository commit: ${metadata.repository_commit}
 Repository branch: ${metadata.repository_branch}
 Packet file: ${packetFile}
 
-Inspect only the repository facts needed for the assigned view. Run independent read-only searches in parallel when useful. Do not modify source files, Git state, the existing world model, or governed work-item/initiative state. Write exactly one UTF-8 Markdown analysis packet at the Packet file path above and nothing else.
+Treat the repository as read-only: do not modify source files, Git state, the existing world model, or governed work-item/initiative state. "Read-only" describes the repository under analysis — it does NOT describe your deliverable.
+
+Your single required deliverable is to CREATE ONE FILE using your file-writing tool: a UTF-8 Markdown analysis packet at exactly this path:
+
+  ${packetFile}
+
+This file is the only thing the parent process reads. Do not print the packet to the console, do not return it as your final message, and do not merely describe it — output that is not written to that exact path is discarded and this worker is treated as failed. Write the packet to the path with your file-creation tool, confirm the file exists, then stop.
 
 The packet is private intermediate evidence for a final synthesizer. It must:
 
@@ -248,15 +254,51 @@ The packet is private intermediate evidence for a final synthesizer. It must:
 Do not create a manifest, core model, final world-model view, commit, or summary. The parent process performs deterministic packet ordering, final synthesis, validation, and one Git publication.`;
 }
 
-function runShellAsync(command, cwd) {
+// A captured worker's stdout is kept so a packet the agent printed instead of writing can still be
+// recovered. Bound it: the agent may stream far more than a packet, and only the tail carries the
+// final answer. 4 MiB is generous next to the 24 KiB packet limit and cannot exhaust memory.
+const CAPTURED_OUTPUT_LIMIT = 4 * 1024 * 1024;
+
+function runShellAsync(command, cwd, { capture = false } = {}) {
   return new Promise((resolve, reject) => {
     // Preserve the caller's PATH and environment without loading interactive/login-shell
     // startup files. Corporate Conda, SDK, or shell hooks must not be able to break an
     // otherwise valid world-model runner before it starts.
-    const child = spawn('bash', ['-c', command], { cwd, env: process.env, stdio: 'inherit' });
+    //
+    // When capturing, stdout is piped so it can be inspected for a printed packet, but every chunk
+    // is still written through to the parent so the live desktop run log is unchanged. stderr stays
+    // inherited so agent progress keeps streaming.
+    const child = spawn('bash', ['-c', command], {
+      cwd, env: process.env,
+      stdio: capture ? ['inherit', 'pipe', 'inherit'] : 'inherit'
+    });
+    let stdout = '';
+    if (capture && child.stdout) {
+      child.stdout.on('data', (chunk) => {
+        process.stdout.write(chunk);
+        stdout += chunk.toString('utf8');
+        if (stdout.length > CAPTURED_OUTPUT_LIMIT) stdout = stdout.slice(-CAPTURED_OUTPUT_LIMIT);
+      });
+    }
     child.once('error', (error) => reject(new SingularityFlowError(`Unable to start world-model worker: ${error.message}`)));
-    child.once('close', (status, signal) => resolve({ status: status ?? 1, signal }));
+    child.once('close', (status, signal) => resolve({ status: status ?? 1, signal, stdout }));
   });
+}
+
+// Recover a discovery packet an agent printed to stdout instead of writing to disk. Packets begin
+// with a known header ("# <view> discovery packet"); extract from that header to the end, unwrapping
+// a surrounding Markdown code fence if the agent wrapped its answer. Returns '' when nothing usable
+// is present so the caller can fall back to degrading the view.
+export function recoverPacketFromOutput(output, view) {
+  if (!output) return '';
+  const header = new RegExp(`^#\\s+${view}\\s+discovery packet\\b`, 'im');
+  const match = header.exec(output);
+  if (!match) return '';
+  let candidate = output.slice(match.index).trim();
+  // If the header sat inside a fenced block, cut the packet off at the closing fence.
+  const fenceEnd = candidate.search(/\n```/);
+  if (fenceEnd !== -1) candidate = candidate.slice(0, fenceEnd).trim();
+  return candidate;
 }
 
 async function runParallelDiscovery(analysisRoot, temporary, config, options, views, metadata) {
@@ -274,6 +316,33 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
   const runner = optionString(options, 'runner') ?? config.runner;
   console.error(`World-model discovery: ${views.length} view workers, up to ${generation.maxWorkers} concurrent.`);
 
+  // One worker attempt: run the agent, then obtain the packet from disk, or recover it from stdout
+  // when the agent printed it instead of writing. Returns { content, bytes } on success, or
+  // { reason, retryable } to describe why this view has no usable packet yet.
+  const attemptView = async (view, packetFile, promptFile) => {
+    await rm(packetFile, { force: true }); // never accept a stale packet from an earlier attempt
+    const command = runner.replaceAll('{prompt_file}', promptFile);
+    const result = await runShellAsync(command, analysisRoot, { capture: true });
+    if (result.status !== 0) {
+      return { reason: `exited with status ${result.status}${result.signal ? ` (${result.signal})` : ''}`, retryable: true };
+    }
+    let packet = existsSync(packetFile) ? await readFile(packetFile, 'utf8') : '';
+    if (!packet.trim()) {
+      const recovered = recoverPacketFromOutput(result.stdout, view);
+      if (recovered) {
+        packet = recovered;
+        await writeFile(packetFile, packet);
+        console.warn(`Warning: world-model ${view} discovery worker printed its packet instead of writing it; recovered ${Buffer.byteLength(packet)} bytes from output.`);
+      }
+    }
+    const bytes = Buffer.byteLength(packet);
+    if (!packet.trim()) return { reason: 'did not create its analysis packet', retryable: true };
+    // An oversized packet will not shrink on a re-run, so degrade it without spending another attempt.
+    if (bytes > 24576) return { reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false };
+    return { content: packet.trim(), bytes };
+  };
+
+  const maxAttempts = 2; // one retry: a transient no-write is common and cheap to recover from
   let cursor = 0;
   const packets = new Array(views.length);
   const degradedViews = new Array(views.length);
@@ -287,30 +356,19 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
       await writeFile(promptFile, parallelWorkerPrompt({
         repository: analysisRoot, packetFile, view, task, focus, depth, metadata
       }));
-      const command = runner.replaceAll('{prompt_file}', promptFile);
-      const result = await runShellAsync(command, analysisRoot);
-      if (result.status !== 0) {
-        const reason = `exited with status ${result.status}${result.signal ? ` (${result.signal})` : ''}`;
-        degradedViews[index] = { view, reason };
-        console.warn(`Warning: world-model ${view} discovery worker ${reason}; final synthesis will inspect this view directly.`);
+      let outcome;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        outcome = await attemptView(view, packetFile, promptFile);
+        if (outcome.content || !outcome.retryable || attempt === maxAttempts) break;
+        console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; retrying once.`);
+      }
+      if (!outcome.content) {
+        degradedViews[index] = { view, reason: outcome.reason };
+        console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; final synthesis will inspect this view directly.`);
         continue;
       }
-      const packet = existsSync(packetFile) ? await readFile(packetFile, 'utf8') : '';
-      const bytes = Buffer.byteLength(packet);
-      if (!packet.trim()) {
-        const reason = 'did not create its analysis packet';
-        degradedViews[index] = { view, reason };
-        console.warn(`Warning: world-model ${view} discovery worker ${reason}; final synthesis will inspect this view directly.`);
-        continue;
-      }
-      if (bytes > 24576) {
-        const reason = `created an analysis packet above the 24 KiB limit (${bytes} bytes)`;
-        degradedViews[index] = { view, reason };
-        console.warn(`Warning: world-model ${view} discovery worker ${reason}; final synthesis will inspect this view directly.`);
-        continue;
-      }
-      packets[index] = { view, content: packet.trim(), bytes };
-      console.error(`World-model discovery complete: ${view} (${bytes} bytes).`);
+      packets[index] = { view, content: outcome.content, bytes: outcome.bytes };
+      console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
     }
   };
 

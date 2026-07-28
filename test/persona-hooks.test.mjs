@@ -57,6 +57,23 @@ test('new Copilot sessions require work-item selection before persona selection 
   assert.equal(unsafeStatus.permissionDecision, 'deny');
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session candidates --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow session attach HOOK-1' } }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, {
+    toolName: 'bash',
+    toolArgs: JSON.stringify({ command: 'cd /tmp/repository && singularity-flow session status --json' })
+  }), {});
+  assert.deepEqual(await personaGuardHook(root, definition, current, {
+    tool_name: 'Bash',
+    tool_input: { command: 'singularity-flow session candidates --json' }
+  }), {});
+  const malformedToolArgs = await personaGuardHook(root, definition, current, {
+    toolName: 'bash', toolArgs: '{"command":'
+  });
+  assert.equal(malformedToolArgs.permissionDecision, 'deny');
+  const unsafeStringArgs = await personaGuardHook(root, definition, current, {
+    toolName: 'bash',
+    toolArgs: JSON.stringify({ command: 'singularity-flow session status --json; rm -rf output' })
+  });
+  assert.equal(unsafeStringArgs.permissionDecision, 'deny');
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace list --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace current --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace use payments --repository api --story PAY-12 --json' } }), {});

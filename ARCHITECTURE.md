@@ -85,7 +85,9 @@ Normal phase skills use one `wm compose` operation. It joins the selected person
 
 Repository world models never move to remote delivery. Agent Markdown is an additional scoped layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent beside the persona without changing the lock. Skills are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
-Suggested personas improve discoverability but do not authorize phase access. Any contributor may assume any configured persona. A persona's `mayApprove` list provides decision authority.
+Suggested personas improve discoverability but do not authorize phase access. Any contributor may assume any configured persona. A persona is a working lens: prompt perspective and world-model view selection, recorded beside each decision as audit context. It never carries decision authority.
+
+Approval authority comes only from the real Git/GitHub identity matching a configured `approvalAuthorities` group. Each phase's `approval.authorities` names the groups that may approve it and `approval.minimum` how many distinct identities are required; the same identity cannot satisfy a threshold twice. The authority registry is pinned into the work item when it starts, so later configuration edits cannot retroactively grant authority over in-flight work. Matching records an `identityAssurance` of `configured-local` or `github-authenticated` — an honest label for how the identity was established, not a claim of cryptographic authentication. Self-approval is permitted but always recorded and warned, and is never presented as independent review.
 
 ## Work-item layout
 

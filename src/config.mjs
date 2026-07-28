@@ -150,6 +150,13 @@ export function validateDefinition(definition) {
     }
     if (generation.strategy != null && generation.strategy !== 'view') throw new SingularityFlowError("worldModel.generation.strategy must be 'view'.");
   }
+  // `grounding` throws on an unknown mode when it is read, but `staleness` was only ever compared
+  // against the two strings that do something. A typo like `Fail` or `strict` therefore matched
+  // neither branch and silently degraded to "ignore" — the freshness guard was off and nothing said
+  // so. Validate it here so a misspelled mode fails loudly at load instead of quietly disarming.
+  if (definition.worldModel?.staleness != null && !['warn', 'fail', 'ignore'].includes(definition.worldModel.staleness)) {
+    throw new SingularityFlowError("worldModel.staleness must be 'warn', 'fail', or 'ignore'.");
+  }
   validateInjectionDefinition(definition);
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {

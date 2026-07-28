@@ -136,6 +136,17 @@ test('world-model grounding is configurable and legacy-safe', async () => {
   assert.doesNotThrow(() => validateDefinition(definition));
   definition.worldModel.grounding = 'sometimes';
   assert.throws(() => validateDefinition(definition), /worldModel\.grounding must be off, warn, or enforce/);
+  delete definition.worldModel.grounding;
+  // staleness only ever matched 'fail' and 'warn' at the call sites, so a typo used to disarm the
+  // freshness guard in silence. The accepted set must match schemas/workflow-definition.schema.json.
+  for (const mode of ['warn', 'fail', 'ignore']) {
+    definition.worldModel.staleness = mode;
+    assert.doesNotThrow(() => validateDefinition(definition), `expected staleness '${mode}' to be accepted`);
+  }
+  delete definition.worldModel.staleness;
+  assert.doesNotThrow(() => validateDefinition(definition));
+  definition.worldModel.staleness = 'Fail';
+  assert.throws(() => validateDefinition(definition), /worldModel\.staleness must be 'warn', 'fail', or 'ignore'/);
 });
 
 test('world-model parallel generation policy is bounded and view-scoped', async () => {

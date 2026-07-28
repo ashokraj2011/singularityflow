@@ -18,6 +18,182 @@ import {
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableJson(value[key])]));
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(stableJson(left)) === JSON.stringify(stableJson(right));
+}
+
+function appendOnlyStateShape(value) {
+  const copy = structuredClone(value);
+  delete copy.history;
+  if (copy.sources) {
+    delete copy.sources.records;
+    if (Object.values(copy.sources).every((entry) => entry == null)) delete copy.sources;
+  }
+  return copy;
+}
+
+function mergeAppendOnlyState(base, left, right) {
+  const baseline = appendOnlyStateShape(base);
+  if (!sameValue(appendOnlyStateShape(left), baseline) || !sameValue(appendOnlyStateShape(right), baseline)) {
+    throw new SingularityFlowError(
+      'Concurrent append-only retry also contains a lifecycle-state change; automatic replay was refused.'
+    );
+  }
+  const merged = structuredClone(left);
+  const events = [...(base.history ?? []), ...(left.history ?? []), ...(right.history ?? [])];
+  const unique = new Map(events.map((event) => [JSON.stringify(stableJson(event)), event]));
+  merged.history = [...unique.values()].sort((a, b) => {
+    const byTime = String(a.at ?? '').localeCompare(String(b.at ?? ''));
+    return byTime || JSON.stringify(stableJson(a)).localeCompare(JSON.stringify(stableJson(b)));
+  });
+  if (left.sources || right.sources) {
+    merged.sources = structuredClone(left.sources ?? right.sources);
+    merged.sources.records = Math.max(
+      Number(base.sources?.records ?? 0),
+      Number(left.sources?.records ?? 0),
+      Number(right.sources?.records ?? 0)
+    );
+  }
+  return merged;
+}
+
+function manifestWithoutSources(value) {
+  const copy = structuredClone(value);
+  delete copy.sources;
+  return copy;
+}
+
+function mergeAppendOnlySourceManifest(base, left, right) {
+  const baseline = manifestWithoutSources(base);
+  if (!sameValue(manifestWithoutSources(left), baseline) || !sameValue(manifestWithoutSources(right), baseline)) {
+    throw new SingularityFlowError(
+      'Concurrent source retry changed non-source manifest fields; automatic replay was refused.'
+    );
+  }
+  const sources = new Map();
+  for (const source of [...(base.sources ?? []), ...(left.sources ?? []), ...(right.sources ?? [])]) {
+    const previous = sources.get(source.sourceId);
+    if (previous && !sameValue(previous, source)) {
+      throw new SingularityFlowError(
+        `Concurrent source '${source.sourceId}' has different immutable records; automatic replay was refused.`
+      );
+    }
+    sources.set(source.sourceId, source);
+  }
+  return {
+    ...structuredClone(left),
+    sources: [...sources.values()].sort((a, b) => String(a.sourceId).localeCompare(String(b.sourceId)))
+  };
+}
+
+function rebaseStage(root, stage, relative, parser, fallback = undefined) {
+  const result = run('git', ['show', `:${stage}:${relative}`], { cwd: root, allowFailure: true });
+  if (result.status !== 0) {
+    if (fallback !== undefined) return structuredClone(fallback);
+    throw new SingularityFlowError(`Unable to read concurrent Git stage ${stage} for ${relative}.`);
+  }
+  try {
+    return parser(result.stdout);
+  } catch (error) {
+    throw new SingularityFlowError(`Concurrent ${relative} is invalid: ${error.message}`);
+  }
+}
+
+async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) {
+  const remoteRef = `refs/remotes/${remote}/${initiative.initiative.branch}`;
+  const fetched = run('git', [
+    'fetch', remote,
+    `+refs/heads/${initiative.initiative.branch}:${remoteRef}`
+  ], { cwd: root, allowFailure: true });
+  if (fetched.status !== 0) return { status: fetched.status, stdout: fetched.stdout, stderr: fetched.stderr };
+
+  const unpublished = run('git', ['rev-list', '--count', `${remoteRef}..HEAD`], {
+    cwd: root,
+    allowFailure: true
+  });
+  if (unpublished.status !== 0 || Number(unpublished.stdout.trim()) !== 1 || head(root) !== sha) {
+    return {
+      status: 1,
+      stdout: '',
+      stderr: 'Automatic append-only replay requires exactly one unpublished local commit.'
+    };
+  }
+
+  const rebased = run('git', ['rebase', remoteRef], { cwd: root, allowFailure: true });
+  if (rebased.status === 0) return { status: 0, stdout: rebased.stdout, stderr: rebased.stderr };
+
+  const conflicted = run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], {
+    cwd: root,
+    allowFailure: true
+  }).stdout.split('\0').filter(Boolean).map(posix);
+  const prefix = `${posix(initiativeRelative(portfolio, initiative.initiative.id))}/`;
+  const statePath = `${prefix}state.json`;
+  const statusPath = `${prefix}STATUS.md`;
+  const sourceManifestPath = `${prefix}sources/manifest.yml`;
+  const supported = new Set([statePath, statusPath, sourceManifestPath]);
+  const abort = (error) => {
+    const aborted = run('git', ['rebase', '--abort'], { cwd: root, allowFailure: true });
+    const detail = error?.message ?? String(error);
+    return {
+      status: 1,
+      stdout: '',
+      stderr: `${detail}${aborted.status === 0 ? '' : `; rebase abort failed: ${(aborted.stderr || aborted.stdout).trim()}`}`
+    };
+  };
+  if (!conflicted.length || conflicted.some((file) => !supported.has(file))) {
+    return abort(new SingularityFlowError(
+      `Automatic append-only replay found unsupported conflicts: ${conflicted.join(', ') || 'unknown conflict'}.`
+    ));
+  }
+
+  try {
+    let mergedManifest = null;
+    if (conflicted.includes(sourceManifestPath)) {
+      mergedManifest = mergeAppendOnlySourceManifest(
+        rebaseStage(root, 1, sourceManifestPath, YAML.parse, {
+          version: 1,
+          initiativeId: initiative.initiative.id,
+          sources: []
+        }),
+        rebaseStage(root, 2, sourceManifestPath, YAML.parse),
+        rebaseStage(root, 3, sourceManifestPath, YAML.parse)
+      );
+      await writeText(path.join(root, sourceManifestPath), YAML.stringify(mergedManifest));
+    }
+    const mergedState = conflicted.includes(statePath)
+      ? mergeAppendOnlyState(
+        rebaseStage(root, 1, statePath, JSON.parse),
+        rebaseStage(root, 2, statePath, JSON.parse),
+        rebaseStage(root, 3, statePath, JSON.parse)
+      )
+      : JSON.parse(await readFile(path.join(root, statePath), 'utf8'));
+    if (mergedManifest) {
+      mergedState.sources ??= { records: 0, verifiedAt: null };
+      mergedState.sources.records = mergedManifest.sources.length;
+    }
+    await saveInitiative(root, portfolio, mergedState);
+    add(root, [initiativeRelative(portfolio, initiative.initiative.id)]);
+    const staged = run('git', ['diff', '--cached', '--quiet'], { cwd: root, allowFailure: true }).status !== 0;
+    const continued = run(
+      'git',
+      staged ? ['rebase', '--continue'] : ['rebase', '--skip'],
+      { cwd: root, env: { ...process.env, GIT_EDITOR: 'true' }, allowFailure: true }
+    );
+    if (continued.status !== 0) return abort(new SingularityFlowError(
+      `Automatic append-only replay could not continue: ${(continued.stderr || continued.stdout).trim()}`
+    ));
+    return { status: 0, stdout: continued.stdout, stderr: continued.stderr };
+  } catch (error) {
+    return abort(error);
+  }
+}
+
 // Restore any packaged initiative template the repository is missing, into the portfolio's own
 // templatesRoot — the root the resolver and the recorded snapshot paths both read, and which the
 // workflow definition may configure differently. Repositories initialized before the initiatives/
@@ -834,10 +1010,12 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
   let pushed = pushBranch(root, remote, initiative.initiative.branch);
   let replayed = false;
   if (pushed.status !== 0 && appendOnly) {
-    const rebased = run('git', ['pull', '--rebase', remote, initiative.initiative.branch], { cwd: root, allowFailure: true });
+    const rebased = await replayAppendOnlyCommit(root, portfolio, initiative, remote, sha);
     if (rebased.status === 0) {
       replayed = true;
       pushed = pushBranch(root, remote, initiative.initiative.branch);
+    } else {
+      pushed = rebased;
     }
   }
   if (pushed.status !== 0) {

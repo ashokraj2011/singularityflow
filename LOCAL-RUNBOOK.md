@@ -66,21 +66,56 @@ Repositories are declared only at create time (`--repository ID=URL`, repeatable
 
 ## 2. Initialize the repository
 
-```bash
-cd ~/flow/app && git switch main
-singularity-flow init
-git add singularity && git commit -m "Initialize Singularity Flow" && git push
+Run initialization from the **target application repository**, not from the
+workspace parent directory and not from the cloned Singularity Flow product
+source. The correct directory is the Git repository whose source code and
+Work-ID branch will be governed:
+
+```text
+Plain repository:   ~/flow/app
+Managed workspace:  <workspace>/repos/<repository-id>
+Example:             ~/flow/workspaces/LOCAL-1/repos/app
 ```
 
-`init` writes `singularity/workflow.yml`, `singularity/portfolio.yml`, `singularity/templates/`, `singularity/personas/`, and `singularity/prompts/`, copying only files that are missing. It does not commit.
+Confirm the boundary before initializing:
 
-Make any policy changes now, on the base branch, committed before `start`: `workflow.yml` and every artifact template are hash-pinned into the work item at `start`, and `governance.protectedPaths` blocks changing them on a work branch afterwards.
+```bash
+cd ~/flow/app
+git rev-parse --show-toplevel   # must print ~/flow/app
+git status --porcelain         # must be empty
+```
+
+When `main` is protected, create or reuse the Work-ID branch first and initialize
+there:
+
+```bash
+singularity-flow init --work-id WORK-123 --base main --fetch
+git branch --show-current      # WORK-123
+git add singularity
+git commit -m "[WORK-123][bootstrap] Initialize Singularity Flow"
+git push -u origin WORK-123
+```
+
+`init --work-id` creates or reuses `WORK-123` from `main` before it writes any
+files. It does not modify or push `main`. If `origin/WORK-123` already exists,
+`--fetch` checks out that branch instead of creating a conflicting branch.
+
+`init` writes `singularity/workflow.yml`, `singularity/portfolio.yml`,
+`singularity/templates/`, `singularity/personas/`, and
+`singularity/prompts/`, copying only files that are missing. It does not commit
+or push; the explicit Git commands above keep that review boundary visible.
+
+Make any policy changes now on `WORK-123` and commit them before `start`:
+`workflow.yml` and every artifact template are hash-pinned into the work item
+at `start`, and `governance.protectedPaths` blocks changing them afterwards.
+An approved pull request to `main` is optional and is needed only when the team
+wants future Work IDs to inherit this process configuration.
 
 ---
 
 ## 3. Build the repository world model
 
-Run on the base branch, before starting work.
+Run on the initialized `WORK-123` branch, before starting its workflow.
 
 ```bash
 singularity-flow wm init
@@ -88,7 +123,9 @@ singularity-flow wm build --depth quick --local
 singularity-flow wm check
 ```
 
-`--local` commits `singularity/world-model/` without pushing; the commit rides the first work-item branch forked from this branch.
+`--local` commits `singularity/world-model/` without pushing. The later
+`singularity-flow start WORK-123` publication pushes that commit together with
+the first workflow-state commit.
 
 Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`.
 
@@ -152,7 +189,12 @@ singularity-flow start WORK-123 --story-file /tmp/story.yml --selection-receipt 
 
 A receipt is a UUIDv4, single use, valid for 15 minutes, and bound to the repository HEAD — any commit between `choices begin` and the consuming command invalidates it.
 
-`start` creates a branch named exactly the work ID, writes `singularity/work-items/WORK-123/` (`workflow.json`, `STATUS.md`, `source.json`, `USER-STORY.md`), commits `[WORK-123][init] start feature workflow`, pushes, and copies any supporting documents into `inputs/DOC-nnn/`.
+`start` requires the current branch to be named exactly after the Work ID. With
+the protected-`main` bootstrap above it reuses `WORK-123`, writes
+`singularity/work-items/WORK-123/` (`workflow.json`, `STATUS.md`,
+`source.json`, `USER-STORY.md`), commits
+`[WORK-123][init] start feature workflow`, pushes, and copies any supporting
+documents into `inputs/DOC-nnn/`.
 
 ### Local Epic
 
@@ -268,7 +310,7 @@ singularity-flow gate --terminal
 ## Checklist
 
 1. Configure a remote, or set `git.publish: off` before `start`.
-2. Commit `singularity/` on the base branch before `start`; it is hash-pinned and protected afterwards.
+2. Run `init --work-id <ID>` from the target application repository, then commit `singularity/` on that Work-ID branch before `start`; it is hash-pinned and protected afterwards.
 3. Ensure a clean tree before `start`, `resume`, `session attach`, `choices begin approve`, `approve --selection-receipt`, `epic start --local`, and `finalize`.
 4. Reserve a terminal for `start`, `lens`, `resume`, `approve`, `reject`, and `epic start --local`.
 5. Consume selection receipts without committing in between; they expire in 15 minutes and are single use.

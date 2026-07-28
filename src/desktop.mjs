@@ -423,12 +423,29 @@ export async function bootstrapDesktopPortfolio(root, {
   approvalEmail = null,
   repository = null,
   repositories = null,
-  jira = {}
+  jira = {},
+  replaceEmptyStarter = false
 } = {}) {
   const target = path.join(root, PORTFOLIO_PATH);
-  if (await exists(target)) throw new SingularityFlowError(`${PORTFOLIO_PATH} already exists. Edit it through Portfolio designer instead of replacing it.`);
   const definition = await loadDefinition(root);
-  const starter = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
+  const targetExists = await exists(target);
+  let starter;
+  if (targetExists) {
+    if (!replaceEmptyStarter) {
+      throw new SingularityFlowError(`${PORTFOLIO_PATH} already exists. Edit it through Portfolio designer instead of replacing it.`);
+    }
+    starter = YAML.parse(await readFile(target, 'utf8'));
+    const authorities = Object.values(starter.approvalAuthorities ?? {});
+    const isBlankStarter = authorities.length > 0
+      && authorities.every((authority) => !(authority?.members ?? []).length);
+    if (!isBlankStarter) {
+      throw new SingularityFlowError(
+        `${PORTFOLIO_PATH} contains configured approval authorities and cannot be replaced automatically. Edit it through Portfolio designer instead.`
+      );
+    }
+  } else {
+    starter = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
+  }
   const gitActor = identity(root);
   const email = String(approvalEmail ?? gitActor.email ?? '').trim().toLowerCase();
   const name = String(approvalName ?? gitActor.name ?? email).trim();
@@ -498,6 +515,7 @@ export async function bootstrapDesktopPortfolio(root, {
     approver: { name: name || email, email },
     repositoryConfigured: Object.keys(portfolio.repositories).length > 0,
     jiraConfigured: portfolio.jira.enabled,
+    repairedEmptyStarter: targetExists,
     changed: changedFiles(root).includes(PORTFOLIO_PATH)
   };
 }

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { assignLocalStoryIds, nextLocalEpicId, reserveLocalEpicBranch } from '../src/local-identity.mjs';
+import {
+  assignLocalStoryIds, currentLocalEpicReservation, nextLocalEpicId, reserveLocalEpicBranch
+} from '../src/local-identity.mjs';
 import { checkout, fetchRemote, hasUpstream, refExists } from '../src/git.mjs';
 import { listInitiatives } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
@@ -74,6 +76,14 @@ test('local Epic reservation is a committed branch allocation', async () => {
   assert.equal(result.pushed, false);
   assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'SF-E-001');
   assert.match(run('git', ['show', '--format=', '--name-only', 'HEAD'], { cwd: root }).stdout, /identity-reservations\/SF-E-001\.json/);
+  const recoverable = await currentLocalEpicReservation(root, policy());
+  assert.equal(recoverable.id, 'SF-E-001');
+  assert.equal(recoverable.reservationCommit, result.reservationCommit);
+  assert.equal(recoverable.recoverable, true);
+
+  await mkdir(path.join(root, 'singularity/initiatives/SF-E-001'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/initiatives/SF-E-001/state.json'), '{}');
+  assert.equal(await currentLocalEpicReservation(root, policy()), null);
 });
 
 test('Epic home discovers committed initiative state from remote branches', async () => {

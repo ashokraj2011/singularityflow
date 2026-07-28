@@ -122,6 +122,46 @@ export async function nextLocalEpicId(root, portfolio, options = {}) {
   };
 }
 
+export async function currentLocalEpicReservation(root, portfolio, {
+  remote = portfolio.git?.remote ?? 'origin',
+  fetch = false
+} = {}) {
+  const policy = localPolicy(portfolio);
+  const id = branch(root);
+  if (!identityPattern(policy.epicPrefix, policy.pad).test(id)) return null;
+  const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
+  const absolute = path.join(root, relative);
+  if (!await exists(absolute)) return null;
+  const state = path.join(root, portfolio.initiativeRoot, id, 'state.json');
+  if (await exists(state)) return null;
+  let record;
+  try {
+    record = JSON.parse(await readFile(absolute, 'utf8'));
+  } catch {
+    throw new SingularityFlowError(`Local Epic reservation ${relative} is not valid JSON.`);
+  }
+  if (record?.id !== id || record?.kind !== 'epic' || record?.authority !== 'local') {
+    throw new SingularityFlowError(`Local Epic reservation ${relative} does not match branch '${id}'.`);
+  }
+  if (fetch && hasRemote(root, remote)) fetchRemote(root, remote);
+  const reservationCommit = run(
+    'git',
+    ['log', '-1', '--format=%H', '--', relative],
+    { cwd: root, allowFailure: true }
+  ).stdout.trim();
+  if (!reservationCommit) {
+    throw new SingularityFlowError(`Local Epic reservation ${relative} has not been committed.`);
+  }
+  return {
+    id,
+    reservationCommit,
+    pushed: refExists(root, `refs/remotes/${remote}/${id}`),
+    recoverable: true,
+    reservedAt: record.reservedAt ?? null,
+    reservedBy: record.reservedBy ?? null
+  };
+}
+
 export function assignLocalStoryIds(breakdown, initiative, portfolio) {
   const authority = initiative?.resolution?.identity?.authority;
   if (authority !== 'local') return breakdown;

@@ -326,6 +326,22 @@ function assertAuthorityMembership(resolved) {
   if (missing.length) throw new SingularityFlowError(`Initiative approval authorities require at least one local Git identity before start: ${missing.join(', ')}. Configure approvalAuthorities in singularity/portfolio.yml.`);
 }
 
+export async function initiativeStartPreflight(root, {
+  profile,
+  idAuthority = null
+} = {}) {
+  const portfolio = await loadPortfolio(root);
+  const definition = await loadDefinition(root);
+  validatePortfolioWorldModelViews(portfolio, definition);
+  const resolved = resolveInitiativeProfile(portfolio, profile, { idAuthority });
+  assertAuthorityMembership(resolved);
+  const actor = identity(root);
+  if (!actor.email) {
+    throw new SingularityFlowError('Initiative governance requires a local Git email. Configure user.email before starting.');
+  }
+  return { portfolio, definition, resolved, actor };
+}
+
 function phaseState(phase, index, createdAt) {
   return {
     id: phase.id,
@@ -410,9 +426,10 @@ export async function createInitiative(root, {
   idAuthority = null
 } = {}) {
   validateInitiativeId(id);
-  const portfolio = await loadPortfolio(root);
-  const definition = await loadDefinition(root);
-  validatePortfolioWorldModelViews(portfolio, definition);
+  const { portfolio, definition, resolved, actor } = await initiativeStartPreflight(root, {
+    profile,
+    idAuthority
+  });
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match initiative ID ${id}.`);
   const stateFile = await secureInitiativePath(root, portfolio, id, 'state.json', {
     label: `Initiative '${id}' state`
@@ -425,8 +442,6 @@ export async function createInitiative(root, {
   if (directory.exists && (await readdir(directory.absolute)).length) {
     throw new SingularityFlowError(`Initiative directory ${directory.relative} already contains files but has no valid state. Inspect or recover it before starting ${id}; existing data will not be overwritten.`);
   }
-  const resolved = resolveInitiativeProfile(portfolio, profile, { idAuthority });
-  assertAuthorityMembership(resolved);
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.worldModelTiming = profile === 'epic-planning' ? 'story-intake' : 'initiative';
@@ -440,8 +455,6 @@ export async function createInitiative(root, {
     worldModelGrounding: resolution.worldModelGrounding,
     worldModelOutputDir: resolution.worldModelOutputDir
   })).digest('hex');
-  const actor = identity(root);
-  if (!actor.email) throw new SingularityFlowError('Initiative governance requires a local Git email. Configure user.email before starting.');
   const createdAt = nowIso();
   const phases = resolved.phases.map((phase, index) => phaseState(phase, index, createdAt));
   const initiative = {

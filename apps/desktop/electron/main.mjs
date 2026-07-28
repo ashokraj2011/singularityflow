@@ -263,6 +263,38 @@ async function openWorkspaceStatus(status, { message = null } = {}) {
     }
     return result;
   } catch (error) {
+    if (error?.code === 'SINGULARITY_FLOW_UNINITIALIZED_REPOSITORY') {
+      try {
+        await invokeCli(repository, ['init'], {
+          json: false,
+          timeoutMs: REPOSITORY_SNAPSHOT_TIMEOUT_MS
+        });
+        const result = await openRepository(repository, { workspace: status });
+        result.workspaceSetup = {
+          mode: 'saved-initialized',
+          warnings,
+          message: [
+            workspaceMessage,
+            `Initialized Singularity Flow in the lead repository '${path.basename(repository)}'. `
+              + 'The starter workflow, templates, prompts, and personas are local configuration changes ready for review and publication. '
+              + 'The repository world model remains optional until you build it.'
+          ].filter(Boolean).join(' ')
+        };
+        return result;
+      } catch (initializationError) {
+        return {
+          repository: null,
+          workspace: status,
+          workspaceSetup: {
+            baseDirectory: path.dirname(status.workspace.path),
+            mode: 'saved-needs-repository',
+            warnings,
+            message: `${workspaceMessage ? `${workspaceMessage} ` : ''}`
+              + `The lead repository could not be initialized automatically: ${initializationError.message}`
+          }
+        };
+      }
+    }
     return {
       repository: null,
       workspace: status,

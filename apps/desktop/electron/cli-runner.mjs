@@ -17,6 +17,15 @@ export class LegacyControlRootError extends Error {
   }
 }
 
+export class UninitializedRepositoryError extends Error {
+  constructor(repository) {
+    super(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
+    this.name = 'UninitializedRepositoryError';
+    this.code = 'SINGULARITY_FLOW_UNINITIALIZED_REPOSITORY';
+    this.repository = repository;
+  }
+}
+
 export async function validateRepositoryDirectory(repository) {
   const resolved = path.resolve(repository || '');
   const canonical = await realpath(resolved).catch(() => null);
@@ -53,7 +62,7 @@ export async function validateRepositoryDirectory(repository) {
       }
       if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(canonical, legacyRoot);
     }
-    throw new Error(`The selected Git repository is not initialized with Singularity Flow. Select the folder containing singularity/workflow.yml or run 'singularity-flow init' there first.`);
+    throw new UninitializedRepositoryError(canonical);
   }
   return canonical;
 }

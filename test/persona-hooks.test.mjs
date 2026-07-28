@@ -74,6 +74,34 @@ test('new Copilot sessions require work-item selection before persona selection 
     toolArgs: JSON.stringify({ command: 'singularity-flow session status --json; rm -rf output' })
   });
   assert.equal(unsafeStringArgs.permissionDecision, 'deny');
+  for (const readOnlyProbe of [
+    'git remote -v',
+    'git branch --show-current',
+    'git status --short --branch',
+    'git status --porcelain=v1 --branch',
+    'git rev-parse --show-toplevel',
+    'git rev-parse --absolute-git-dir',
+    'git config --get remote.origin.url',
+    'pwd',
+    `cd /tmp/repository && git remote -v && echo '---' && git branch --show-current && echo '---' && git status --short --branch`
+  ]) {
+    assert.deepEqual(await personaGuardHook(root, definition, current, {
+      toolName: 'bash', toolArgs: JSON.stringify({ command: readOnlyProbe })
+    }), {}, `expected read-only probe '${readOnlyProbe}' to be allowed`);
+  }
+  for (const unsafeProbe of [
+    'git status --short --branch && touch bypassed',
+    'git remote set-url origin https://example.com/repository.git',
+    'git branch -D main',
+    'git status --short --branch; rm -rf output',
+    'git status --short --branch $(touch bypassed)',
+    'git status --short --branch & touch bypassed'
+  ]) {
+    const decision = await personaGuardHook(root, definition, current, {
+      toolName: 'bash', toolArgs: JSON.stringify({ command: unsafeProbe })
+    });
+    assert.equal(decision.permissionDecision, 'deny', `expected unsafe probe '${unsafeProbe}' to be denied`);
+  }
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace list --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace current --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow workspace use payments --repository api --story PAY-12 --json' } }), {});

@@ -5,6 +5,8 @@ disable-model-invocation: true
 ---
 # Attach the Copilot session to durable Git state
 
+Do not scan instruction files, inspect the repository with raw Git commands, or perform generic orientation before step 1. The session commands below perform the required repository and remote validation themselves.
+
 1. Run `singularity-flow session status --json`.
 2. If `initialized` is false, explain that Copilot must be opened inside the cloned application repository so its configured Git remote is known. Do not guess a repository URL.
 3. If `workItemSelectionRequired` is true, run `singularity-flow session candidates --json`. Show the remote work-item IDs, titles, current phases, statuses, and commits. When the contributor already supplied an exact candidate in the current request, use that explicit answer after confirming it appears in the candidates; do not ask them to repeat it. Otherwise use Copilot's `ask_user` facility to ask for the exact work ID or Jira ID. Include `candidateWorkId` when present, but never infer or silently select it.

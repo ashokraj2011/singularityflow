@@ -38,6 +38,16 @@ test('new Copilot sessions require work-item selection before persona selection 
   const denied = await personaGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } });
   assert.equal(denied.permissionDecision, 'deny');
   assert.match(denied.permissionDecisionReason, /work\/Jira ID/);
+  // A refusal must name a remedy its reader can perform. /sflow-session is human-invoked only, so
+  // the reason has to carry the permitted CLI remedy (with the candidate ID resolved) and forbid the
+  // detour of invoking the blocked skill; otherwise the gate deadlocks instead of gating.
+  assert.match(denied.permissionDecisionReason, /singularity-flow session attach HOOK-1/);
+  assert.match(denied.permissionDecisionReason, /Do not invoke the sflow-session skill yourself/);
+  assert.match(denied.permissionDecisionReason, /Never infer the ID/);
+  // The remedy the refusal advertises must itself survive the gate, or the advice is a dead end.
+  assert.deepEqual(await personaGuardHook(root, definition, current, {
+    toolName: 'bash', toolArgs: { command: 'singularity-flow session attach HOOK-1' }
+  }), {});
   const receipt = '00000000-0000-4000-8000-000000000000';
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow choices begin start HOOK-2 --json' } }), {});
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: `singularity-flow choices answer ${receipt} persona architect --json` } }), {});
@@ -141,6 +151,15 @@ test('new Copilot sessions require work-item selection before persona selection 
   assert.equal(status.workItemSelectionRequired, false);
   assert.equal(status.selectionRequired, true);
   assert.deepEqual(await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'singularity-flow lens HOOK-1' } }), {});
+
+  // Lens refusals name the terminal remedy and forbid the two detours seen in practice: invoking the
+  // human-only skill, and allocating a pty to fake the interactive terminal the picker requires.
+  const lensDenied = await personaGuardHook(root, definition, current, { toolName: 'bash', toolArgs: { command: 'npm test' } });
+  assert.equal(lensDenied.permissionDecision, 'deny');
+  assert.match(lensDenied.permissionDecisionReason, /working lens for HOOK-1/);
+  assert.match(lensDenied.permissionDecisionReason, /singularity-flow lens HOOK-1/);
+  assert.match(lensDenied.permissionDecisionReason, /do not allocate a pty/);
+  assert.match(lensDenied.permissionDecisionReason, /Approval authority remains tied to the real Git\/GitHub identity/);
 
   await setPersonaSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1');
   status = await personaSessionStatus(root, definition, current);

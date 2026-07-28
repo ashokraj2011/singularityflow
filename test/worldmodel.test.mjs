@@ -73,8 +73,9 @@ if (task && task !== 'none') {
   guides.push({ id: 'task', path: 'task-guides/task.md', task });
 }
 const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+const manifestCommit = process.env.SFLOW_MOCK_SHORT_SHA === '1' ? commit.slice(0, 7) : commit;
 await writeFile(path.join(output, 'manifest.json'), JSON.stringify({
-  schema_version: '1.0', repository_commit: commit,
+  schema_version: '1.0', repository_commit: manifestCommit,
   core: { summary: 'core/summary.md', model: 'core/model.json' },
   views, domains: [], task_guides: guides, evidence: { path: 'evidence/evidence.jsonl' }
 }));
@@ -286,6 +287,35 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);
   assert.equal(events.filter((event) => event.event === 'start').length, 4);
   assert.equal(events.filter((event) => event.event === 'end').length, 4);
+});
+
+test('wm build replaces a model-supplied short commit with CLI-owned full provenance before validation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-short-sha-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Manifest Provenance Tester'], root);
+  run('git', ['config', 'user.email', 'manifest-provenance@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run(process.execPath, [bin, 'wm', 'init'], root);
+  await writeFile(path.join(root, 'README.md'), '# Manifest provenance test\n');
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  const sourceCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'requirements', '--no-parallel',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root, { ...process.env, SFLOW_MOCK_SHORT_SHA: '1' });
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.equal(manifest.repository_commit, sourceCommit);
+  assert.match(manifest.repository_commit, /^[0-9a-f]{40}$/);
 });
 
 test('wm build targets an existing branch without a work item or switching the active checkout', async () => {

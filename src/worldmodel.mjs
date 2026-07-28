@@ -250,7 +250,10 @@ Do not create a manifest, core model, final world-model view, commit, or summary
 
 function runShellAsync(command, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-lc', command], { cwd, env: process.env, stdio: 'inherit' });
+    // Preserve the caller's PATH and environment without loading interactive/login-shell
+    // startup files. Corporate Conda, SDK, or shell hooks must not be able to break an
+    // otherwise valid world-model runner before it starts.
+    const child = spawn('bash', ['-c', command], { cwd, env: process.env, stdio: 'inherit' });
     child.once('error', (error) => reject(new SingularityFlowError(`Unable to start world-model worker: ${error.message}`)));
     child.once('close', (status, signal) => resolve({ status: status ?? 1, signal }));
   });
@@ -375,7 +378,7 @@ async function build(root, config, options) {
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
     await writeFile(promptFile, appendDiscoveryPackets(renderedPrompt, discovery));
     const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
-    const result = run('bash', ['-lc', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
+    const result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
     if (result.status !== 0) throw new SingularityFlowError(`World-model builder exited with status ${result.status}.`);
     const after = await repositoryContentSnapshot(analysisRoot);
     const unexpected = changedSnapshotPaths(before, after);
@@ -383,13 +386,30 @@ async function build(root, config, options) {
     if (unexpected.length) throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
     const phase = optionString(options, 'phase');
     const requiredViews = views;
+    const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    // Copilot owns the model content, but it does not own provenance. Canonicalize the
+    // fields known by the CLI before the first structural validation. This deliberately
+    // accepts a draft that contains a short SHA (or omits metadata) while ensuring the
+    // validated and committed manifest always carries the exact full source commit.
+    const draftManifestPath = path.join(staging, 'manifest.json');
+    if (existsSync(draftManifestPath)) {
+      let draftManifest;
+      try { draftManifest = JSON.parse(await readFile(draftManifestPath, 'utf8')); }
+      catch {
+        // Leave malformed JSON untouched so validateWorldModelDirectory emits its
+        // precise validation error below.
+      }
+      if (draftManifest && typeof draftManifest === 'object' && !Array.isArray(draftManifest)) {
+        Object.assign(draftManifest, metadata, {
+          repository_commit: metadata.repository_commit,
+          source_tree_sha256: sourceState.sha256
+        });
+        await writeJson(draftManifestPath, draftManifest);
+      }
+    }
     const validated = await validateWorldModelDirectory(staging, {
       expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
     });
-    // The builder is asked to include this field too, but the CLI is the source of truth for
-    // provenance. Overwrite it after validation so Copilot cannot invent or omit the generation
-    // instant. This timestamp is committed with manifest.json and remains hash-bound to the model.
-    const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
     const generatedViews = Object.entries(validated.manifest.views ?? {})
       .filter(([, entry]) => entry?.generated !== false)
       .map(([id]) => id)

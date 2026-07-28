@@ -341,7 +341,8 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
         stale: story.stale ?? false
       })).sort((left, right) => left.id.localeCompare(right.id))
     : [];
-  const planningPackage = phaseId === 'epic-planning'
+  const planningIndex = phase.outputs?.['story-specification-index'];
+  const planningPackage = phaseId === 'epic-planning' && planningIndex?.sha256
     ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
     : null;
   const value = {

@@ -355,6 +355,7 @@ test('Electron onboarding fails closed with a recoverable retry screen', async (
   assert.match(source, /function OnboardingLoadFailure/);
   assert.match(source, /We stopped before opening your workspace/);
   assert.match(source, /No repository, Jira, or Git state was changed/);
+  assert.match(main, /The lead repository could not be opened/);
   assert.match(source, /The secure desktop bridge is unavailable/);
   assert.match(source, /setOnboardingAttempt\(\(current\) => current \+ 1\)/);
   assert.match(source, /Advanced setup remains available later/);

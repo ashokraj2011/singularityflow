@@ -303,8 +303,8 @@ async function openWorkspaceStatus(status, { message = null } = {}) {
         mode: 'saved-needs-repository',
         warnings,
         message: workspaceMessage
-          ? `${workspaceMessage} The lead clone is not initialized for Singularity Flow: ${error.message}`
-          : `Workspace '${status.workspace.name}' is saved, but its lead clone is not initialized for Singularity Flow: ${error.message}`
+          ? `${workspaceMessage} The lead repository could not be opened: ${error.message}`
+          : `Workspace '${status.workspace.name}' is saved, but its lead repository could not be opened: ${error.message}`
       }
     };
   }

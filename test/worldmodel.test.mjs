@@ -45,6 +45,7 @@ if (packet) {
   const startedAt = Date.now();
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'start', view: assignedView, at: startedAt }) + '\\n');
   await new Promise((resolve) => setTimeout(resolve, 200));
+  if (process.env.SFLOW_MOCK_SKIP_PACKET_VIEW === assignedView) process.exit(0);
   await mkdir(path.dirname(packet), { recursive: true });
   await writeFile(packet, '# ' + assignedView + ' discovery packet\\n\\nObserved ' + assignedView + ' facts at README.md:1.\\n');
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'end', view: assignedView, at: Date.now() }) + '\\n');
@@ -55,6 +56,14 @@ const requested = prompt.match(/Requested views:\\s+([^\\n]+)/)?.[1].trim().spli
 const task = prompt.match(/Optional task:\\s+([^\\n]+)/)?.[1].trim();
 if (!output) throw new Error('output directory was not rendered');
 if (process.argv.includes('--mutate')) await writeFile(path.join(process.cwd(), 'MUTATED.txt'), 'unexpected');
+if (process.env.SFLOW_MOCK_MANIFEST_RETRY_MARKER) {
+  try {
+    await readFile(process.env.SFLOW_MOCK_MANIFEST_RETRY_MARKER, 'utf8');
+  } catch {
+    await writeFile(process.env.SFLOW_MOCK_MANIFEST_RETRY_MARKER, 'first synthesis omitted manifest\\n');
+    process.exit(0);
+  }
+}
 await mkdir(path.join(output, 'core'), { recursive: true });
 await mkdir(path.join(output, 'views'), { recursive: true });
 await mkdir(path.join(output, 'evidence'), { recursive: true });
@@ -280,13 +289,69 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     parallel: true,
     strategy: 'view',
     max_workers: 2,
-    discovery_views: ['business', 'development', 'security', 'testing']
+    discovery_views: ['business', 'development', 'security', 'testing'],
+    degraded_views: []
   });
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   const firstEnd = events.findIndex((event) => event.event === 'end');
   assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);
   assert.equal(events.filter((event) => event.event === 'start').length, 4);
   assert.equal(events.filter((event) => event.event === 'end').length, 4);
+});
+
+test('wm build falls back to final synthesis when an optional discovery worker omits its packet', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-discovery-fallback-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Discovery Fallback Tester'], root);
+  run('git', ['config', 'user.email', 'discovery-fallback@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Discovery fallback test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root, { ...process.env, SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture' });
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.match(execution.stderr, /architecture discovery worker did not create its analysis packet/);
+  assert.match(execution.stderr, /final synthesis will inspect this view directly/);
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.generation.discovery_views, ['security']);
+  assert.deepEqual(manifest.generation.degraded_views, ['architecture']);
+  assert.ok(manifest.views.architecture);
+});
+
+test('wm build retries final synthesis once when the builder omits manifest.json', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-synthesis-retry-'));
+  const marker = path.join(os.tmpdir(), `sflow-worldmodel-synthesis-retry-${process.pid}-${Date.now()}.txt`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Synthesis Retry Tester'], root);
+  run('git', ['config', 'user.email', 'synthesis-retry@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Synthesis retry test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root, { ...process.env, SFLOW_MOCK_MANIFEST_RETRY_MARKER: marker });
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.match(execution.stderr, /did not create manifest\.json; retrying final synthesis once/);
+  assert.ok(JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8')));
 });
 
 test('wm build replaces a model-supplied short commit with CLI-owned full provenance before validation', async () => {

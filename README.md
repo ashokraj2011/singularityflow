@@ -747,6 +747,8 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
+singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
+singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
@@ -754,6 +756,13 @@ singularity-flow wm check
 ```
 
 `wm build` runs the model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. Work-item lifecycle commits and the model commit itself do not make the model stale; repository source/configuration changes do.
+
+`wm build`, `wm check`, and `wm context` are repository operations and never
+require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
+local or remote branch. Singularity Flow fetches the selected remote, opens the
+branch in an isolated worktree, and leaves the active checkout unchanged. It
+refuses divergent branches or branches already checked out elsewhere rather
+than overwriting work. Use `--remote <name>` when the branch is not on `origin`.
 
 `wm compose` is the single phase entry point. It combines the selected working-lens prompt, mandatory phase and lens views, the exact task guide, applicable evidence, rule-selected files, and active prompt-pack Markdown. `wm inject` remains an alias for compatibility. Rules can match the internal `persona` lens ID, phase, immutable work type, committed or pending changed paths, and source labels.
 
@@ -942,7 +951,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |
-| `singularity-flow wm build [--local]` | Build the repository world model; `--local` commits it to the current branch without pushing. |
+| `singularity-flow wm build [--branch BRANCH] [--local]` | Build the repository world model on the current or selected branch; `--local` commits without pushing. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |

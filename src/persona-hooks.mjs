@@ -115,14 +115,17 @@ function isRepositoryWorldModelCall(payload) {
   const command = setupCommandText(payload.toolArgs);
   if (/[;&|`$<>\n]/.test(command)) return false;
   const prefix = '(?:singularity-flow|sflow) wm';
-  if (new RegExp(`^${prefix} (?:init|check)(?: 2>&1)?$`).test(command)) return true;
+  if (new RegExp(`^${prefix} init(?: 2>&1)?$`).test(command)) return true;
 
   const quoted = `(?:"[^"]*"|'[^']*')`;
   const identifier = '[A-Za-z0-9._:/,+@=-]+';
-  const buildOption = `(?:--local|--depth (?:quick|standard|deep)|--(?:phase|views) ${identifier}|--(?:task|focus) (?:${quoted}|${identifier}))`;
+  const branchOption = `--(?:branch|remote) ${identifier}`;
+  if (new RegExp(`^${prefix} check(?: ${branchOption})*(?: 2>&1)?$`).test(command)) return true;
+
+  const buildOption = `(?:--local|--depth (?:quick|standard|deep)|--(?:phase|views) ${identifier}|${branchOption}|--(?:task|focus) (?:${quoted}|${identifier}))`;
   if (new RegExp(`^${prefix} build(?: ${buildOption})*(?: 2>&1)?$`).test(command)) return true;
 
-  const contextOption = `(?:--concat|--evidence|--no-persona|--task (?:${quoted}|${identifier}))`;
+  const contextOption = `(?:--concat|--evidence|--no-persona|${branchOption}|--task (?:${quoted}|${identifier}))`;
   return new RegExp(`^${prefix} context ${identifier}(?: ${contextOption})*(?: 2>&1)?$`).test(command);
 }
 

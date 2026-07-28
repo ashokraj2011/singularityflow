@@ -61,9 +61,11 @@ test('new Copilot sessions require work-item selection before persona selection 
   for (const allowed of [
     'singularity-flow wm init',
     'singularity-flow wm build',
+    'singularity-flow wm build --branch release/2026.07 --local',
     'singularity-flow wm build --depth deep --phase requirements --task "Formalize checkout requirements" --focus "payment boundaries" --local',
     'sflow wm build --views architecture,security --focus repository',
     'singularity-flow wm check',
+    'singularity-flow wm check --branch release/2026.07 --remote origin',
     'singularity-flow wm context requirements --concat --evidence --no-persona'
   ]) {
     assert.deepEqual(

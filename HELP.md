@@ -1245,6 +1245,9 @@ singularity-flow wm check
 
 # Optional phase/task-focused build
 singularity-flow wm build --phase design --task "Design invoice export"
+# Or target an existing branch without switching this checkout
+singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
+singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
@@ -1255,6 +1258,13 @@ repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sflow-story-start` lifecycle, however, generation is deliberately deferred
 until Story intake has created and checked out the canonical Story branch. A
 governed work ID and persona apply when `wm compose` creates a phase prompt.
+
+Use `--branch <name>` on `wm build`, `wm check`, or `wm context` to operate on
+any existing local or remote branch. The CLI fetches the remote (default
+`origin`), fast-forwards only when safe, and opens an isolated worktree; your
+active checkout is never switched. `--remote <name>` selects another remote.
+The command stops on divergence or when the target branch is already checked
+out elsewhere.
 
 `wm build` runs the configured generator in a detached analysis worktree. Only
 its isolated output is accepted. Singularity Flow validates the manifest and
@@ -1754,8 +1764,9 @@ singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build [--local] [--views LIST] [--focus TEXT]
-singularity-flow wm context|inject|check
+singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT]
+singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
+singularity-flow wm inject
 singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment

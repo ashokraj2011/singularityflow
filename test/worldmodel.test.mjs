@@ -238,6 +238,89 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   assert.match(`${stale.stdout}${stale.stderr}`, /World model is stale/);
 });
 
+test('wm build targets an existing branch without a work item or switching the active checkout', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-branch-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Branch Model Tester'], root);
+  run('git', ['config', 'user.email', 'branch-model@example.com'], root);
+  await initializeDefinition(root);
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Main branch\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['switch', '-c', 'release/2026.07'], root);
+  await writeFile(path.join(root, 'README.md'), '# Release branch\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-m', 'release source'], root);
+  run('git', ['switch', 'main'], root);
+
+  const mainBefore = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const releaseBefore = run('git', ['rev-parse', 'release/2026.07'], root).trim();
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--branch', 'release/2026.07', '--local',
+    '--phase', 'design', '--task', 'Ground the release',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root);
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.match(execution.stderr, /World-model target: release\/2026\.07 .*active checkout unchanged/);
+  assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), mainBefore);
+  assert.notEqual(run('git', ['rev-parse', 'release/2026.07'], root).trim(), releaseBefore);
+  assert.equal(result('git', ['cat-file', '-e', 'main:singularity/world-model/manifest.json'], root).status, 128);
+
+  const manifest = JSON.parse(run('git', ['show', 'release/2026.07:singularity/world-model/manifest.json'], root));
+  assert.equal(manifest.repository_branch, 'release/2026.07');
+  assert.equal(manifest.generated_for_phase, 'design');
+  assert.match(run('git', ['log', '-1', '--format=%s', 'release/2026.07'], root), /^\[world-model\]/);
+
+  const checked = result(process.execPath, [bin, 'wm', 'check', '--branch', 'release/2026.07'], root);
+  assert.equal(checked.status, 0, `${checked.stdout}\n${checked.stderr}`);
+  assert.match(checked.stdout, /fresh:/);
+  assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
+
+  const missing = result(process.execPath, [bin, 'wm', 'check', '--branch', 'missing/model'], root);
+  assert.notEqual(missing.status, 0);
+  assert.match(`${missing.stdout}${missing.stderr}`, /does not exist locally or on origin/);
+});
+
+test('wm build discovers and models a remote-only branch without creating governed work state', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-remote-branch-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'repository');
+  run('git', ['init', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Remote Branch Tester'], root);
+  run('git', ['config', 'user.email', 'remote-branch@example.com'], root);
+  await initializeDefinition(root);
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Main\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  run('git', ['switch', '-c', 'remote/model'], root);
+  await writeFile(path.join(root, 'README.md'), '# Remote model branch\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-m', 'remote source'], root);
+  run('git', ['push', '-u', 'origin', 'remote/model'], root);
+  run('git', ['switch', 'main'], root);
+  run('git', ['branch', '--delete', '--force', 'remote/model'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--branch', 'remote/model', '--local',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root);
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
+  assert.equal(result('git', ['show-ref', '--verify', '--quiet', 'refs/heads/remote/model'], root).status, 0);
+  const manifest = JSON.parse(run('git', ['show', 'remote/model:singularity/world-model/manifest.json'], root));
+  assert.equal(manifest.repository_branch, 'remote/model');
+  assert.equal(result('git', ['show-ref', '--verify', '--quiet', 'refs/heads/remote/model'], root).status, 0);
+  assert.equal(result('git', ['ls-tree', '-r', '--name-only', 'remote/model', '--', 'singularity/work-items'], root).stdout.trim(), '');
+});
+
 test('world-model v2 manifests accept brief tiers and the path index', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-v2-'));
   await mkdir(path.join(directory, 'core'), { recursive: true });

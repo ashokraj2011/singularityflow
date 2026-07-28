@@ -85,12 +85,12 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
   let active = existing;
   if (!workItemSelectionRequired && !selectionRequired && valid && sessionId) active = await bindPersonaToCopilotSession(root, definition, selectedWorkId, record);
   if (workItemSelectionRequired) return {
-    additionalContext: `Singularity Flow work-item selection is required for implementation and lifecycle work in Copilot session ${sessionId ?? '(unknown)'}. Invoke /sflow-session before using those tools. Repository-scoped /sflow-worldmodel initialization, build, freshness checks, and context inspection are allowed without a work or Jira ID. Ask the contributor for a work ID or Jira ID only when attaching to governed Story work; fetch the configured Git remote and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
+    additionalContext: `Singularity Flow work-item selection is required for implementation and lifecycle work in Copilot session ${sessionId ?? '(unknown)'}. The contributor must type /sflow-session; that skill is human-invoked only, so do not invoke it yourself and do not treat the host reporting it as unavailable as a broken installation. Once the contributor confirms the ID you may run 'singularity-flow session attach <WORK-ID>', which stays permitted while this gate is active. Repository-scoped /sflow-worldmodel initialization, build, freshness checks, and context inspection are allowed without a work or Jira ID. Ask the contributor for a work ID or Jira ID only when attaching to governed Story work; fetch the configured Git remote and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
   };
   if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sflow-session to attach to a remote work/Jira ID.` };
   const choices = Object.entries(definition.personas).map(([id, persona]) => `${persona.label} (${id})`).join(', ');
   if (selectionRequired) return {
-    additionalContext: `Singularity Flow working-lens selection is required for Copilot session ${sessionId ?? '(unknown)'}. Before using implementation or lifecycle tools, invoke /sflow-session and let the contributor choose from: ${choices}. Never infer or select a working lens for them. A lens is prompt context, not human identity or approval authority. Never approve automatically. Work item: ${workflow.workItem.id}; phase: ${phase.id}.`
+    additionalContext: `Singularity Flow working-lens selection is required for Copilot session ${sessionId ?? '(unknown)'}. Before using implementation or lifecycle tools, ask the contributor to type /sflow-lens and choose from: ${choices}. That skill is human-invoked only, so do not invoke it yourself. The picker requires an interactive terminal: if this session cannot provide one, ask them to run 'singularity-flow lens ${workflow.workItem.id}' in their own terminal rather than allocating a pty. Never infer or select a working lens for them. A lens is prompt context, not human identity or approval authority. Never approve automatically. Work item: ${workflow.workItem.id}; phase: ${phase.id}.`
   };
   const persona = active?.persona;
   const context = phase
@@ -229,12 +229,25 @@ export async function personaGuardHook(root, definition, workflow, payload = {})
     workItemSelectionRequired: status.workItemSelectionRequired,
     personaSelectionRequired: status.selectionRequired
   });
-  if (status.workItemSelectionRequired) return {
-    permissionDecision: 'deny',
-    permissionDecisionReason: `Select and synchronize a Singularity Flow work/Jira ID before using '${payload.toolName ?? 'this tool'}'. Run /sflow-session; the contributor must choose the ID.`
-  };
+  // A refusal has to name a remedy the reader can actually perform, or it is a deadlock rather than
+  // a gate. `/sflow-session` and `/sflow-lens` are `disable-model-invocation: true`, so an assistant
+  // told only to "run /sflow-session" cannot comply: the host reports the blocked skill as "Skill
+  // not found", the assistant falls back to composing raw shell orientation commands, those are not
+  // on the allowlist, and the loop repeats until the human gives up. So each refusal now states the
+  // exact CLI remedy for the missing selection, says who can run it, and forbids the two detours
+  // that were observed in practice — invoking the human-only skill, and allocating a pty to fake the
+  // interactive terminal that the lens picker deliberately requires.
+  const tool = payload.toolName ?? 'this tool';
+  if (status.workItemSelectionRequired) {
+    const candidate = status.workId ?? status.candidateWorkId ?? null;
+    const attach = `singularity-flow session attach ${candidate ?? '<WORK-ID>'}`;
+    return {
+      permissionDecision: 'deny',
+      permissionDecisionReason: `Select and synchronize a Singularity Flow work/Jira ID before using '${tool}'. The contributor must choose the ID: ask them to type /sflow-session, or to confirm the ID and then run '${attach}'. That command is permitted while this gate is active. Do not invoke the sflow-session skill yourself; it is human-invoked only. Never infer the ID.`
+    };
+  }
   return {
     permissionDecision: 'deny',
-    permissionDecisionReason: `Select a Singularity Flow working lens for ${status.workId} before using '${payload.toolName ?? 'this tool'}'. Run /sflow-session; the contributor must choose the lens. Approval authority remains tied to the real Git/GitHub identity.`
+    permissionDecisionReason: `Select a Singularity Flow working lens for ${status.workId} before using '${tool}'. The picker needs an interactive terminal: ask the contributor to type /sflow-lens, or to run 'singularity-flow lens ${status.workId}' in their own terminal. Do not invoke the skill yourself, do not allocate a pty, and never choose the lens for them. Approval authority remains tied to the real Git/GitHub identity.`
   };
 }

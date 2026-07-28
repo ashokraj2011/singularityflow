@@ -196,6 +196,7 @@ test('an empty workspace directory opens the standalone configuration editor', a
 test('desktop workspace surfaces own their viewport and remain vertically scrollable', async () => {
   const styles = await readFile(path.join(packageRoot, 'apps/desktop/src/styles.css'), 'utf8');
   assert.match(styles, /html, body, #root \{[^}]*height: 100%;[^}]*min-height: 0;/);
+  assert.match(styles, /\.welcome \{[^}]*height: 100dvh;[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
   assert.match(styles, /\.shell \{[^}]*height: 100dvh;[^}]*min-height: 0;[^}]*overflow: hidden;/);
   assert.match(styles, /\.content \{[^}]*min-height: 0;[^}]*overflow: hidden;/);
   assert.match(styles, /\.view \{[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);

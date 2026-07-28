@@ -1255,7 +1255,18 @@ button.ghost { color: #096b43; }
 .finding strong { font-size: 10px; }
 .finding span { color: var(--muted); font-size: 9px; line-height: 1.5; }
 
-.welcome { min-height: 100vh; display: block; overflow: auto; position: relative; background: #f8f9fa; }
+.welcome {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  display: block;
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  background: #f8f9fa;
+}
 .welcome::after { height: 0; }
 .welcome-nav { min-height: 78px; display: flex; align-items: center; justify-content: space-between; padding: 0 5vw; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.9); }
 .welcome .brand.large { position: static; min-height: auto; border: 0; padding: 0; background: transparent; box-shadow: none; }

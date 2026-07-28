@@ -27,7 +27,12 @@ test('Electron repository validation explains invalid and uninitialized selectio
   await assert.rejects(() => validateRepositoryDirectory(root), /not a Git repository/);
   const initialized = spawnSync('git', ['init', '-b', 'main'], { cwd: root, encoding: 'utf8' });
   assert.equal(initialized.status, 0, initialized.stderr);
-  await assert.rejects(() => validateRepositoryDirectory(root), /not initialized with Singularity Flow/);
+  const canonicalRoot = await realpath(root);
+  await assert.rejects(
+    () => validateRepositoryDirectory(root),
+    (error) => error.code === 'SINGULARITY_FLOW_UNINITIALIZED_REPOSITORY'
+      && error.repository === canonicalRoot
+  );
   await mkdir(path.join(root, '.singularity'));
   await writeFile(path.join(root, '.singularity', 'workflow.yml'), 'version: 1\n');
   await assert.rejects(
@@ -178,6 +183,7 @@ test('How it works is a visual lifecycle and Documentation remains the searchabl
 test('Electron routes new workspace selections to configuration before Epic intake', () => {
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'create' } }), 'workspaces');
   assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-needs-repair' } }), 'workspaces');
+  assert.equal(workspaceLandingPage({ workspaceSetup: { mode: 'saved-initialized' } }), 'epics');
   // One experience: an established workspace always lands on Epics, whatever the role.
   assert.equal(workspaceLandingPage({ workspace: { workspace: { id: 'existing' } } }), 'epics');
 });
@@ -784,6 +790,10 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(main, /Workspace configuration saved/);
   assert.match(main, /all repositories were cloned at their configured branches/);
   assert.match(main, /saved-with-warning/);
+  assert.match(main, /SINGULARITY_FLOW_UNINITIALIZED_REPOSITORY/);
+  assert.match(main, /await invokeCli\(repository, \['init'\]/);
+  assert.match(main, /mode: 'saved-initialized'/);
+  assert.match(main, /The repository world model remains optional until you build it/);
   assert.match(main, /This does not block workspace use/);
   assert.match(main, /openWorkspaceStatus/);
   assert.match(source, /Workspace ready with warnings/);

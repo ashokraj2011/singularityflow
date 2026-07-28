@@ -58,11 +58,17 @@ Install the package, initialize a repository, and commit its editable process de
 ```bash
 npm install --global ./singularity-flow-0.9.0.tgz
 cd your-repository
-singularity-flow init
+singularity-flow init --work-id WORK-123 --base main --fetch
 git add singularity
-git commit -m "Initialize Singularity Flow"
-git push
+git commit -m "[WORK-123][bootstrap] Initialize Singularity Flow"
+git push -u origin WORK-123
+singularity-flow start WORK-123
 ```
+
+For a protected base branch, `--work-id` creates or reuses that exact Work-ID
+branch before writing any files. Initialization therefore does not modify or push
+`main`. Merge the configuration through an approved pull request only when the
+team wants later Work IDs to inherit it as their shared baseline.
 
 Install or refresh the GitHub Copilot plugin:
 

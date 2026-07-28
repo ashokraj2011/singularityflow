@@ -99,8 +99,22 @@ export async function sessionStartPersonaHook(root, definition, workflow, payloa
   return { additionalContext: context };
 }
 
+function parsedToolArgs(value) {
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return {}; }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizedToolPayload(payload = {}) {
+  return {
+    ...payload,
+    toolName: payload.toolName ?? payload.tool_name ?? null,
+    toolArgs: parsedToolArgs(payload.toolArgs ?? payload.tool_input)
+  };
+}
+
 function commandText(toolArgs) {
-  if (!toolArgs || typeof toolArgs !== 'object') return '';
   for (const key of ['command', 'cmd', 'script']) if (typeof toolArgs[key] === 'string') return toolArgs[key].trim();
   return '';
 }
@@ -165,6 +179,7 @@ function isPersonaToolCall(payload) {
 }
 
 export async function personaGuardHook(root, definition, workflow, payload = {}) {
+  payload = normalizedToolPayload(payload);
   // Work-item selection cannot be satisfied on an initiative branch, so denying tools there blocks
   // governed initiative work permanently rather than protecting anything. Lifecycle mutation stays
   // gated by the initiative's own phase, approval, and evidence checks.

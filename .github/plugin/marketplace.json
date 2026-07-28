@@ -16,7 +16,6 @@
       "author": {
         "name": "Singularity Flow"
       },
-      "repository": "https://github.com/ashokraj2011/singularityflow",
       "license": "MIT",
       "keywords": ["sdlc", "workflow", "artifacts", "approvals", "copilot"],
       "category": "Development"

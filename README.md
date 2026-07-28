@@ -327,6 +327,15 @@ export NPM_TOKEN="your-artifactory-token"
 
 The selected registry is used for both `npm ci` and the global tarball installation. The script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
 
+By default, the installer loads the Copilot plugin bundled inside the installed
+package. To use a company-managed Copilot marketplace instead, provide its
+approved source:
+
+```bash
+SINGULARITY_FLOW_MARKETPLACE_SOURCE="company/singularity-flow" \
+  ./install.sh --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
+```
+
 The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper explicitly selects the file exporter, selects the active repository dynamically, and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
 
 The single self-contained `install.sh` performs:
@@ -1040,7 +1049,7 @@ or silently dropping another repository, workspace, or named Jira connection.
 Unknown Jira credential-store versions fail closed into the existing reset and
 reconnect flow.
 
-Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are built by the tag-driven GitHub workflow and published first as a supervised draft release; verified output can also be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
+Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are produced through the local release scripts; verified output can be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
 
 Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. Older hidden control folders are detected and can be migrated to visible `singularity/` after an explicit confirmation. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. The initiative page explicitly shows that default branches are starting baselines and that Singularity never merges initiative or story branches automatically. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, working-lens selection, human approval-authority inspection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
 
@@ -1061,12 +1070,21 @@ singularity-flow plugin install
 copilot skill list
 ```
 
-The installer removes both the legacy direct installation (`singularity-flow`) and any existing marketplace installation (`singularity-flow@singularity-flow`), refreshes the official `ashokraj2011/singularityflow` marketplace, and installs exactly one current marketplace copy. Running the command again is a safe replacement operation; `--force` is not required. The equivalent manual commands are:
+The installer removes both the direct installation (`singularity-flow`) and any
+existing marketplace installation (`singularity-flow@singularity-flow`), then
+installs the plugin bundled with the CLI package. Running the command again is a
+safe replacement operation; `--force` is not required.
+
+An organization can publish the same plugin through its own Copilot marketplace:
 
 ```bash
-copilot plugin marketplace add ashokraj2011/singularityflow
-copilot plugin install singularity-flow@singularity-flow
+SINGULARITY_FLOW_MARKETPLACE_SOURCE="company/singularity-flow" \
+  singularity-flow plugin install
 ```
+
+`SINGULARITY_FLOW_MARKETPLACE_SOURCE` accepts the repository or marketplace
+source approved by the organization. When it is absent, installation remains
+local and does not contact a personal source repository.
 
 The plugin package remains named `singularity-flow`, while every public skill has a globally unique command name:
 

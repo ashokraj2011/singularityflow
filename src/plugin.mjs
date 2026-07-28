@@ -4,7 +4,6 @@ import { commandExists, SingularityFlowError, run } from './util.mjs';
 
 const PLUGIN_NAME = 'singularity-flow';
 const MARKETPLACE_NAME = 'singularity-flow';
-const MARKETPLACE_SOURCE = 'ashokraj2011/singularityflow';
 const MARKETPLACE_PLUGIN = `${PLUGIN_NAME}@${MARKETPLACE_NAME}`;
 
 export function pluginPath() {
@@ -13,7 +12,7 @@ export function pluginPath() {
 
 function requireCopilot(exists = commandExists) {
   if (!exists('copilot')) {
-    throw new SingularityFlowError(`GitHub Copilot CLI was not found on PATH. After installing it, run:\n  copilot plugin marketplace add ${MARKETPLACE_SOURCE}\n  copilot plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME}`);
+    throw new SingularityFlowError(`GitHub Copilot CLI was not found on PATH. After installing it, run:\n  singularity-flow plugin install`);
   }
 }
 
@@ -27,12 +26,15 @@ function removeInstalledCopies(execute) {
 export function installPlugin({
   execute = run,
   exists = commandExists,
-  developmentSource = process.env.SINGULARITY_FLOW_PLUGIN_SOURCE
+  developmentSource = process.env.SINGULARITY_FLOW_PLUGIN_SOURCE,
+  marketplaceSource = process.env.SINGULARITY_FLOW_MARKETPLACE_SOURCE
 } = {}) {
   requireCopilot(exists);
   removeInstalledCopies(execute);
   if (developmentSource) return execute('copilot', ['plugin', 'install', developmentSource], { stdio: 'inherit' });
-  const added = execute('copilot', ['plugin', 'marketplace', 'add', MARKETPLACE_SOURCE], { allowFailure: true, stdio: 'pipe' });
+  const configuredMarketplaceSource = String(marketplaceSource ?? '').trim();
+  if (!configuredMarketplaceSource) return execute('copilot', ['plugin', 'install', pluginPath()], { stdio: 'inherit' });
+  const added = execute('copilot', ['plugin', 'marketplace', 'add', configuredMarketplaceSource], { allowFailure: true, stdio: 'pipe' });
   if (added.status !== 0) execute('copilot', ['plugin', 'marketplace', 'update', MARKETPLACE_NAME], { stdio: 'inherit' });
   return execute('copilot', ['plugin', 'install', MARKETPLACE_PLUGIN], { stdio: 'inherit' });
 }

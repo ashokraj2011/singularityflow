@@ -91,6 +91,13 @@ const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyM
 });
 if (legacyReferenceCheck.status === 0) fail(`Legacy model/vendor references remain:\n${legacyReferenceCheck.stdout.trim()}`);
 else if (legacyReferenceCheck.status !== 1) fail(`Unable to scan legacy model/vendor references: ${legacyReferenceCheck.stderr.trim() || `git exited ${legacyReferenceCheck.status}`}`);
+const personalSourceReference = ['ashok', 'raj2011'].join('');
+const personalSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-F', personalSourceReference, '--', '.'], {
+  cwd: root,
+  encoding: 'utf8'
+});
+if (personalSourceCheck.status === 0) fail(`Personal source repository references remain:\n${personalSourceCheck.stdout.trim()}`);
+else if (personalSourceCheck.status !== 1) fail(`Unable to scan personal source repository references: ${personalSourceCheck.stderr.trim() || `git exited ${personalSourceCheck.status}`}`);
 const hostedAutomationRoot = ['.github', 'workflows'].join('/');
 if (allFiles.some((file) => path.relative(root, file).startsWith(`${hostedAutomationRoot}/`))) {
   fail(`${hostedAutomationRoot}/ must remain absent; use the local release and verification scripts.`);

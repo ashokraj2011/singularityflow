@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(packageRoot, 'scripts/worldmodel-minimal.sh');
@@ -59,4 +60,20 @@ test('minimum world-model script can use phase policy, checkpoints, a target bra
   assert.match(result.stdout, /--branch WORK-123/);
   assert.match(result.stdout, /--parallel --workers 3/);
   assert.doesNotMatch(result.stdout, /--local/);
+});
+
+test('local runbook documents the minimum command for every starter workflow phase', async () => {
+  const workflow = YAML.parse(await readFile(path.join(packageRoot, 'templates/workflow.yml'), 'utf8'));
+  const runbook = await readFile(path.join(packageRoot, 'LOCAL-RUNBOOK.md'), 'utf8');
+  const profilePhases = new Set(
+    Object.values(workflow.workTypes).flatMap((workType) => workType.phases)
+  );
+
+  for (const phase of profilePhases) {
+    assert.match(
+      runbook,
+      new RegExp(`sflow-wm-minimal --phase ${phase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+      `LOCAL-RUNBOOK.md must include a minimum world-model command for phase ${phase}`
+    );
+  }
 });

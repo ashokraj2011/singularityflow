@@ -129,6 +129,79 @@ pushing. Use `sflow-wm-minimal --phase design` to take the minimum required
 views from phase configuration, or add `--publish` when the current branch is
 ready for normal publication.
 
+### Phase-by-phase minimum commands
+
+Run these commands from the application repository on the Work-ID branch. Use
+the section for the workflow profile selected when the work item was started;
+do not run phases from a different profile. Each command reads that phase's
+configured `worldModel.views`, makes a resumable quick build, validates it, and
+commits it locally:
+
+#### Feature
+
+```bash
+sflow-wm-minimal --phase intake
+sflow-wm-minimal --phase requirements
+sflow-wm-minimal --phase design
+sflow-wm-minimal --phase implementation-spec
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase verification
+sflow-wm-minimal --phase conformance
+```
+
+#### Bug fix
+
+```bash
+sflow-wm-minimal --phase intake
+sflow-wm-minimal --phase reproduction
+sflow-wm-minimal --phase fix-design
+sflow-wm-minimal --phase fix-spec
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase verification
+sflow-wm-minimal --phase conformance
+```
+
+#### Chore
+
+```bash
+sflow-wm-minimal --phase intake
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase verification
+sflow-wm-minimal --phase conformance
+```
+
+#### Figma export to mobile app
+
+```bash
+sflow-wm-minimal --phase design-intake
+sflow-wm-minimal --phase design-inventory
+sflow-wm-minimal --phase component-mapping
+sflow-wm-minimal --phase mobile-spec
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase visual-verification
+sflow-wm-minimal --phase conformance
+```
+
+You normally run only the current phase's command when Singularity Flow reports
+that grounding is missing or stale; running every command in advance is not
+required. To operate on a branch without checking it out first, add
+`--branch WORK-123`. To commit and push the validated model immediately, add
+`--publish`; otherwise the default `--local` commit is pushed with the next
+normal workflow publication.
+
+The phase ID must exist in the repository's `singularity/workflow.yml`.
+Customized workflows use the same pattern:
+
+```bash
+sflow-wm-minimal --phase <configured-phase-id>
+singularity-flow wm check
+```
+
+If you need a single broader model instead of the minimum phase-specific
+views, use `sflow-wm-minimal --views all`.
+
+### Equivalent low-level commands
+
 ```bash
 singularity-flow wm init
 singularity-flow wm build --depth quick --local

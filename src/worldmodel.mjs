@@ -399,16 +399,24 @@ ${degraded.length ? `## Discovery fallback\n\nThe following optional discovery w
 `;
 }
 
-function synthesisRecoveryPrompt(promptText) {
+function synthesisRecoveryPrompt(promptText, failure = 'did not create manifest.json') {
   return `${promptText}
 
 # Required recovery
 
-A previous final-synthesis attempt exited successfully without creating
-\`manifest.json\`. Perform the repository inspection and write the complete,
-validated world-model file set inside the exact Output directory now. Do not
-only describe the files in the response. Do not finish until \`manifest.json\`,
-the shared core, every requested view, and the evidence ledger exist on disk.
+A previous final-synthesis attempt exited successfully but its output failed
+validation:
+
+\`\`\`text
+${failure}
+\`\`\`
+
+The Output directory has been cleared. Perform the repository inspection and
+write the complete, validated world-model file set inside that exact directory
+now. Every path declared by \`manifest.json\` must be a non-empty regular file,
+never a directory or symbolic link. Do not only describe the files in the
+response. Do not finish until \`manifest.json\`, the shared core, every requested
+view, and the evidence ledger exist on disk.
 `;
 }
 
@@ -474,19 +482,12 @@ async function build(root, config, options) {
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
     }
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
-    await writeFile(promptFile, appendDiscoveryPackets(renderedPrompt, discovery));
+    const synthesisPrompt = appendDiscoveryPackets(renderedPrompt, discovery);
+    await writeFile(promptFile, synthesisPrompt);
     const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
     let result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
     if (result.status !== 0) throw new SingularityFlowError(`World-model builder exited with status ${result.status}.`);
     const draftManifestPath = path.join(staging, 'manifest.json');
-    if (!existsSync(draftManifestPath)) {
-      console.warn('Warning: world-model final synthesis did not create manifest.json; retrying final synthesis once.');
-      await rm(staging, { recursive: true, force: true });
-      await mkdir(staging, { recursive: true });
-      await writeFile(promptFile, synthesisRecoveryPrompt(appendDiscoveryPackets(renderedPrompt, discovery)));
-      result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
-      if (result.status !== 0) throw new SingularityFlowError(`World-model builder recovery exited with status ${result.status}.`);
-    }
     const after = await repositoryContentSnapshot(analysisRoot);
     const unexpected = changedSnapshotPaths(before, after);
     if (head(analysisRoot) !== head(root)) unexpected.push('Git history (builder created a commit)');
@@ -498,24 +499,47 @@ async function build(root, config, options) {
     // fields known by the CLI before the first structural validation. This deliberately
     // accepts a draft that contains a short SHA (or omits metadata) while ensuring the
     // validated and committed manifest always carries the exact full source commit.
-    if (existsSync(draftManifestPath)) {
-      let draftManifest;
-      try { draftManifest = JSON.parse(await readFile(draftManifestPath, 'utf8')); }
-      catch {
-        // Leave malformed JSON untouched so validateWorldModelDirectory emits its
-        // precise validation error below.
+    const canonicalizeDraftManifest = async () => {
+      if (existsSync(draftManifestPath)) {
+        let draftManifest;
+        try { draftManifest = JSON.parse(await readFile(draftManifestPath, 'utf8')); }
+        catch {
+          // Leave malformed JSON untouched so validateWorldModelDirectory emits its
+          // precise validation error below.
+        }
+        if (draftManifest && typeof draftManifest === 'object' && !Array.isArray(draftManifest)) {
+          Object.assign(draftManifest, metadata, {
+            repository_commit: metadata.repository_commit,
+            source_tree_sha256: sourceState.sha256
+          });
+          await writeJson(draftManifestPath, draftManifest);
+        }
       }
-      if (draftManifest && typeof draftManifest === 'object' && !Array.isArray(draftManifest)) {
-        Object.assign(draftManifest, metadata, {
-          repository_commit: metadata.repository_commit,
-          source_tree_sha256: sourceState.sha256
-        });
-        await writeJson(draftManifestPath, draftManifest);
+    };
+    const validateDraft = async () => {
+      await canonicalizeDraftManifest();
+      return validateWorldModelDirectory(staging, {
+        expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
+      });
+    };
+    let validated;
+    try {
+      validated = await validateDraft();
+    } catch (error) {
+      const missingManifest = error.message === 'World-model builder did not create manifest.json.';
+      const reason = missingManifest ? 'did not create manifest.json' : `created invalid output: ${error.message}`;
+      console.warn(`Warning: world-model final synthesis ${reason}; retrying final synthesis once without repeating discovery.`);
+      await rm(staging, { recursive: true, force: true });
+      await mkdir(staging, { recursive: true });
+      await writeFile(promptFile, synthesisRecoveryPrompt(synthesisPrompt, error.message));
+      result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
+      if (result.status !== 0) throw new SingularityFlowError(`World-model builder recovery exited with status ${result.status}.`);
+      try {
+        validated = await validateDraft();
+      } catch (recoveryError) {
+        throw new SingularityFlowError(`World-model final synthesis remained invalid after one recovery attempt: ${recoveryError.message}`);
       }
     }
-    const validated = await validateWorldModelDirectory(staging, {
-      expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
-    });
     const generatedViews = Object.entries(validated.manifest.views ?? {})
       .filter(([, entry]) => entry?.generated !== false)
       .map(([id]) => id)

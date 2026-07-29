@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -63,4 +63,34 @@ test('branch-local init refuses to carry uncommitted changes to the Work-ID bran
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Working tree is not clean/);
   assert.equal(git(root, 'branch', '--show-current'), 'main');
+});
+
+test('init check finds missing assets and repair restores them without overwriting custom files', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-init-repair-'));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Branch Repair Tester');
+  git(root, 'config', 'user.email', 'branch-repair@example.com');
+  await writeFile(path.join(root, 'README.md'), '# Fixture\n');
+  git(root, 'add', 'README.md');
+  git(root, 'commit', '-m', 'initial');
+  run(process.execPath, [cli, 'init', '--work-id', 'WORK-REPAIR', '--base', 'main'], root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const customizedWorkflow = `${await readFile(workflowPath, 'utf8')}\n# company customization remains\n`;
+  await writeFile(workflowPath, customizedWorkflow);
+  await rm(path.join(root, 'singularity/personas/qa.md'));
+  await rm(path.join(root, 'singularity/prompts/copilot-planning.md'));
+
+  const before = JSON.parse(run(process.execPath, [cli, 'init', '--check', '--json'], root).stdout);
+  assert.equal(before.complete, false);
+  assert.ok(before.missingFiles.includes('singularity/personas/qa.md'));
+  assert.ok(before.missingFiles.includes('singularity/prompts/copilot-planning.md'));
+
+  const repaired = run(process.execPath, [cli, 'init', '--repair'], root);
+  assert.match(repaired.stdout, /Repaired/);
+  const after = JSON.parse(run(process.execPath, [cli, 'init', '--check', '--json'], root).stdout);
+  assert.equal(after.complete, true);
+  assert.equal(after.missingFiles.length, 0);
+  assert.equal(await readFile(workflowPath, 'utf8'), customizedWorkflow);
+  assert.match(await readFile(path.join(root, 'singularity/personas/qa.md'), 'utf8'), /\S/);
+  assert.match(await readFile(path.join(root, 'singularity/prompts/copilot-planning.md'), 'utf8'), /\S/);
 });

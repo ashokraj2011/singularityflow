@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
-import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadSession } from './session.mjs';
 import { loadWorkflow, pendingPublicationPath, validateWorkflow, workflowPath } from './state.mjs';
 import { run } from './util.mjs';
@@ -17,6 +17,15 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const gitName = run('git', ['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const gitEmail = run('git', ['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   checks.push(check('git-identity', gitName && gitEmail ? 'pass' : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));
+  const initialization = await initializationStatus(root);
+  checks.push(check(
+    'initialization-assets',
+    initialization.complete ? 'pass' : initialization.configurationError ? 'fail' : 'warn',
+    initialization.complete
+      ? `All ${initialization.expectedFiles.length} packaged initialization assets are present and valid.`
+      : `${initialization.missingFiles.length} packaged initialization asset(s) are missing.${initialization.configurationError ? ` ${initialization.configurationError}` : ''}`,
+    initialization.complete ? null : 'Run singularity-flow init --repair on the current branch, then rerun singularity-flow doctor.'
+  ));
   const workflowConfig = path.join(root, WORKFLOW_PATH);
   if (!existsSync(workflowConfig)) {
     checks.push(check('configuration', 'fail', `${WORKFLOW_PATH} is missing.`, 'Run singularity-flow init.'));

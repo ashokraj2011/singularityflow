@@ -72,6 +72,17 @@ singularity/
 ```
 
 These files are ordinary reviewed repository files and remain fully editable.
+Initialization can be audited or safely repeated on any branch:
+
+```bash
+singularity-flow init --check
+singularity-flow init --repair
+```
+
+Repair copies only missing packaged files and never overwrites repository
+customizations. In Copilot CLI, use `/sflow-init [WORK-ID]`; `/sflow-doctor`
+also runs the read-only initialization inventory before its wider repository
+diagnostics.
 
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 

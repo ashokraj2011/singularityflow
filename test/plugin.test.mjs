@@ -18,6 +18,18 @@ test('plugin manifest publishes collision-safe skills, a workflow agent, and the
   assert.equal(manifest.hooks, 'hooks.json');
 });
 
+test('plugin can audit and safely repair branch initialization before a work session exists', async () => {
+  const initialize = await readFile(path.join(pluginRoot, 'skills', 'sflow-init', 'SKILL.md'), 'utf8');
+  const doctor = await readFile(path.join(pluginRoot, 'skills', 'sflow-doctor', 'SKILL.md'), 'utf8');
+  assert.match(initialize, /singularity-flow init --check --json/);
+  assert.match(initialize, /singularity-flow init --repair/);
+  assert.match(initialize, /never replace|never overwrit/i);
+  assert.match(initialize, /Do not commit\s+or push/i);
+  assert.match(initialize, /disable-model-invocation:\s*true/);
+  assert.match(doctor, /singularity-flow init --check --json/);
+  assert.match(doctor, /Recommend `\/sflow-init`/);
+});
+
 test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-upload', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-upload/);

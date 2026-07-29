@@ -761,6 +761,25 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 
 ## World model
 
+For the smallest and lowest-token validated model, run this from the
+application repository:
+
+```bash
+sflow-wm-minimal
+# Use only the views required by one phase
+sflow-wm-minimal --phase design
+# Build another existing branch and publish normally
+sflow-wm-minimal --branch WORK-123 --publish
+```
+
+The minimum wrapper uses `--depth quick`, one `development` view when no phase
+is supplied, no parallel discovery, and `--local` by default. The result is
+still validated and committed; `--local` only prevents an unexpected push. Add
+`--publish` for the configured publication policy, or `--parallel --workers 2`
+when multiple configured views should be checkpointed independently and
+resumed after interruption. From a source checkout the equivalent command is
+`./scripts/worldmodel-minimal.sh`.
+
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
@@ -971,6 +990,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |
 | `singularity-flow wm build [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; parallel view discovery is enabled by default, interrupted builds reuse exact-match checkpoints, and `--local` commits without pushing. |
+| `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest quick validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |

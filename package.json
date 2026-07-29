@@ -9,7 +9,8 @@
     "sflow-about": "bin/sflow-about.mjs",
     "sflow-inbox": "bin/sflow-inbox.mjs",
     "sflow-next": "bin/sflow-next.mjs",
-    "sflow-lens": "bin/sflow-lens.mjs"
+    "sflow-lens": "bin/sflow-lens.mjs",
+    "sflow-wm-minimal": "scripts/worldmodel-minimal.sh"
   },
   "files": [
     "bin/",
@@ -32,6 +33,7 @@
     "COPILOT-STUDIO.md",
     "WORKSPACES.md",
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
+    "scripts/worldmodel-minimal.sh",
     "LICENSE"
   ],
   "workspaces": [
@@ -41,6 +43,7 @@
     "test": "node --test",
     "check": "node scripts/check.mjs",
     "gate": "node scripts/gate.mjs",
+    "wm:minimal": "./scripts/worldmodel-minimal.sh",
     "pack:dry": "npm pack --dry-run",
     "install:local": "bash ./install.sh",
     "desktop:dev": "npm run dev --workspace singularity-flow-desktop",

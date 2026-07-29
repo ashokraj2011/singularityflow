@@ -117,6 +117,18 @@ wants future Work IDs to inherit this process configuration.
 
 Run on the initialized `WORK-123` branch, before starting its workflow.
 
+For the smallest validated model:
+
+```bash
+cd /absolute/path/to/the/application-repository
+sflow-wm-minimal
+```
+
+This creates a quick development-focused model and commits it locally without
+pushing. Use `sflow-wm-minimal --phase design` to take the minimum required
+views from phase configuration, or add `--publish` when the current branch is
+ready for normal publication.
+
 ```bash
 singularity-flow wm init
 singularity-flow wm build --depth quick --local

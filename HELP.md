@@ -1243,6 +1243,21 @@ Sync retries the existing history without rebasing, resetting, or force-pushing.
 
 The world model grounds phase generation in repository facts:
 
+For a quick, minimum-token baseline, run this inside the application
+repository:
+
+```bash
+sflow-wm-minimal
+sflow-wm-minimal --phase design
+sflow-wm-minimal --branch WORK-123 --publish
+```
+
+This wrapper performs a validated `quick` build, uses only the `development`
+view unless a phase supplies its required views, disables extra discovery
+workers, and commits locally without pushing. `--publish` restores the normal
+publication policy. Use `--parallel --workers N` when independently resumable
+view checkpoints matter more than the minimum number of model calls.
+
 ```bash
 cd /path/to/the/repository
 singularity-flow wm init
@@ -1810,6 +1825,7 @@ singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
 singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
+sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [--workers N] [--publish]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow jira assigned|list|pull|fields

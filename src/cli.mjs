@@ -59,7 +59,7 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
-import { initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { activateWorkItemSession, loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
@@ -188,7 +188,8 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 Usage:
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
-  singularity-flow init [--work-id WORK-ID] [--base BRANCH] [--fetch]
+  singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
+  singularity-flow init --check [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--selection-receipt TOKEN]
@@ -426,6 +427,34 @@ async function confirmYesNo(prompt) {
 async function initCommand(options) {
   const root = repoRoot();
   const workId = optionString(options, 'work-id');
+  const checkOnly = optionBoolean(options, 'check');
+  const repair = optionBoolean(options, 'repair');
+  if (checkOnly && repair) throw new SingularityFlowError('Choose either init --check or init --repair.');
+  if (checkOnly && (workId || optionBoolean(options, 'fetch') || options.base != null)) {
+    throw new SingularityFlowError('init --check inspects the current branch and cannot switch or fetch. Check out the target branch first.');
+  }
+  if (checkOnly) {
+    const status = await initializationStatus(root);
+    const report = {
+      ...status,
+      repository: root,
+      branch: branch(root)
+    };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`Singularity Flow initialization — ${status.complete ? 'complete' : 'repair needed'}`);
+      console.log(`Repository: ${root}`);
+      console.log(`Branch: ${report.branch}`);
+      console.log(`Assets: ${status.presentFiles.length}/${status.expectedFiles.length} present`);
+      if (status.missingFiles.length) {
+        console.log('Missing:');
+        for (const file of status.missingFiles) console.log(`- ${file}`);
+      }
+      if (status.configurationError) console.log(`Configuration: ${status.configurationError}`);
+      if (!status.complete) console.log('Fix: singularity-flow init --repair');
+    }
+    return report;
+  }
   if (workId) {
     validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
     assertClean(root);
@@ -438,7 +467,9 @@ async function initCommand(options) {
   const config = await loadConfig(root);
   if (workId) validateId(config, workId);
   await worldModelCommand(root, ['wm', 'init'], {});
-  console.log(wrote.length ? `Created ${wrote.join(', ')}` : `Verified ${WORKFLOW_PATH} and repository templates.`);
+  console.log(wrote.length
+    ? `${repair ? 'Repaired' : 'Created'} ${wrote.join(', ')}`
+    : `Verified ${WORKFLOW_PATH}, templates, prompts, and working lenses; nothing needed repair.`);
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`Next: review and commit singularity/, push ${workId}, then run singularity-flow start ${workId}.`);

@@ -27,6 +27,14 @@ export const CONTROL_ROOT = 'singularity';
 export const LEGACY_CONTROL_ROOT = '.singularity';
 export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const INITIALIZATION_MAPPINGS = [
+  ['workflow.yml', WORKFLOW_PATH],
+  ['portfolio.yml', 'singularity/portfolio.yml'],
+  ['artifacts', 'singularity/templates'],
+  ['personas', 'singularity/personas'],
+  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
+  ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
+];
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
   'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',
@@ -439,15 +447,7 @@ export async function initializeDefinition(root) {
     throw new SingularityFlowError(`This repository still uses ${LEGACY_CONTROL_ROOT}/. Run singularity-flow migrate-config before initialization.`);
   }
   const wrote = [];
-  const mappings = [
-    ['workflow.yml', WORKFLOW_PATH],
-    ['portfolio.yml', 'singularity/portfolio.yml'],
-    ['artifacts', 'singularity/templates'],
-    ['personas', 'singularity/personas'],
-    ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
-    ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
-  ];
-  for (const [source, destination] of mappings) {
+  for (const [source, destination] of INITIALIZATION_MAPPINGS) {
     if (await copyIfMissing(path.join(packageRoot, 'templates', source), path.join(root, destination))) wrote.push(destination);
   }
   // Directory mappings above are skipped once the destination exists, so re-running init on a
@@ -460,6 +460,47 @@ export async function initializeDefinition(root) {
     }
   }
   return wrote;
+}
+
+async function initializationFiles(source, destination, output = []) {
+  if (!existsSync(source)) return output;
+  const entries = await readdir(source, { withFileTypes: true });
+  if (!entries.length) {
+    output.push(destination);
+    return output;
+  }
+  for (const entry of entries) {
+    const from = path.join(source, entry.name);
+    const to = path.posix.join(destination, entry.name);
+    if (entry.isDirectory()) await initializationFiles(from, to, output);
+    else if (entry.isFile()) output.push(to);
+  }
+  return output;
+}
+
+export async function initializationStatus(root) {
+  const expectedFiles = [];
+  for (const [source, destination] of INITIALIZATION_MAPPINGS) {
+    const absolute = path.join(packageRoot, 'templates', source);
+    if ((await readdir(path.dirname(absolute), { withFileTypes: true })).some((entry) => entry.name === path.basename(absolute) && entry.isDirectory())) {
+      await initializationFiles(absolute, destination, expectedFiles);
+    } else expectedFiles.push(destination);
+  }
+  expectedFiles.sort();
+  const missingFiles = expectedFiles.filter((file) => !existsSync(path.join(root, file)));
+  let configurationError = null;
+  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+    try { await loadDefinition(root); }
+    catch (error) { configurationError = error.message; }
+  } else configurationError = `${WORKFLOW_PATH} is missing.`;
+  return {
+    schemaVersion: 1,
+    complete: missingFiles.length === 0 && configurationError == null,
+    expectedFiles,
+    presentFiles: expectedFiles.filter((file) => !missingFiles.includes(file)),
+    missingFiles,
+    configurationError
+  };
 }
 
 export function resolveWorkType(definition, workTypeId) {

@@ -203,6 +203,11 @@ function isPersonaToolCall(payload) {
   // contributor could not see a work item's state without first attaching a session to it. The ID
   // admits no shell metacharacters, so this cannot smuggle a command past the guard.
   if (/^(?:singularity-flow|sflow) status(?: [A-Za-z0-9._-]+)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  // Initialization and its audit must be available before a work item or working lens exists.
+  // Keep the exception narrow: no shell composition, arbitrary paths, or unbounded arguments.
+  if (/^(?:singularity-flow|sflow) init --check(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) init --repair(?: --work-id [A-Za-z0-9._-]+)?(?: --base [A-Za-z0-9._/-]+)?(?: --fetch)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) doctor(?: [A-Za-z0-9._-]+)?(?: --offline)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
 
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;

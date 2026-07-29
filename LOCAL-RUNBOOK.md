@@ -105,6 +105,26 @@ files. It does not modify or push `main`. If `origin/WORK-123` already exists,
 `singularity/prompts/`, copying only files that are missing. It does not commit
 or push; the explicit Git commands above keep that review boundary visible.
 
+Initialization is safely repeatable on the current branch. It never overwrites
+an existing customized file:
+
+```bash
+singularity-flow init --check
+singularity-flow init --repair
+singularity-flow doctor --offline
+```
+
+In Copilot CLI, `/sflow-init` performs the same check-and-repair sequence and
+shows every added file for review. To recover or initialize an existing Work
+ID from another terminal, use:
+
+```bash
+singularity-flow init --repair --work-id WORK-123 --base main --fetch
+```
+
+This creates, reuses, or fast-forwards `WORK-123`; it does not modify `main`.
+Review and commit any restored files on the Work-ID branch before continuing.
+
 Make any policy changes now on `WORK-123` and commit them before `start`:
 `workflow.yml` and every artifact template are hash-pinned into the work item
 at `start`, and `governance.protectedPaths` blocks changing them afterwards.

@@ -765,6 +765,8 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
 singularity-flow wm build --phase verification --workers 4
+# After an interruption, rerun the identical command; completed views are reused
+singularity-flow wm build --phase verification --workers 4 --resume
 singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
@@ -772,7 +774,7 @@ singularity-flow wm show-prompt
 singularity-flow wm check
 ```
 
-`wm build` runs the model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune it. Work-item lifecycle commits and the model commit itself do not make the model stale; repository source/configuration changes do.
+`wm build` runs the model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune it. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
 
 `wm build`, `wm check`, and `wm context` are repository operations and never
 require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
@@ -968,7 +970,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |
-| `singularity-flow wm build [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N]` | Build the repository world model on the current or selected branch; parallel view discovery is enabled by default and `--local` commits without pushing. |
+| `singularity-flow wm build [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; parallel view discovery is enabled by default, interrupted builds reuse exact-match checkpoints, and `--local` commits without pushing. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |

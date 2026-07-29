@@ -1255,6 +1255,8 @@ singularity-flow wm build --phase design --task "Design invoice export"
 singularity-flow wm build --branch release/2026.07 --phase design --task "Ground the release branch"
 # Limit concurrent view discovery on a smaller laptop
 singularity-flow wm build --phase verification --workers 2
+# Resume an interrupted build; completed exact-match view packets are skipped
+singularity-flow wm build --phase verification --workers 2 --resume
 singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
@@ -1288,6 +1290,16 @@ validation, installation, commit, and push retain a single owner. Use
 `--workers N` to reduce concurrency, `--no-parallel` to diagnose a worker/model
 problem, or `--parallel` to opt in when testing a custom runner. Do not launch
 several independent builds against the same branch.
+
+Completed packets are written immediately to
+`singularity/world-model/.checkpoints/<build-key>/`. The key binds the
+repository commit and source-tree hash, branch, builder-prompt hash, requested
+views, task, focus, and depth. Rerunning the identical build resumes by default:
+valid completed packets are reused and only pending, missing, or tampered views
+run. Use `--resume` to make that intent explicit or `--no-resume` to discard the
+matching checkpoint and rerun all views. A validated successful build replaces
+the checkpoint with the final model. Checkpoints are governance state and do
+not make the source model stale.
 
 `--local` remains available for diagnostics, but the normal Story lifecycle does
 not use it. Desktop and `/sflow-story-start` build after Story intake and publish
@@ -1797,7 +1809,7 @@ singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N]
+singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow jira assigned|list|pull|fields

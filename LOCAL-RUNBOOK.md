@@ -127,7 +127,15 @@ singularity-flow wm check
 `singularity-flow start WORK-123` publication pushes that commit together with
 the first workflow-state commit.
 
-Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`.
+If the builder is interrupted or final synthesis fails, rerun the same `wm
+build` command. Completed view packets are retained under
+`singularity/world-model/.checkpoints/`, verified against the exact source,
+prompt, and options, and skipped; only pending views restart. Resume is the
+default, `--resume` is the explicit spelling, and `--no-resume` deliberately
+reruns all views. The checkpoint disappears after a validated model is
+installed.
+
+Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--resume`/`--no-resume` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`.
 
 ---
 

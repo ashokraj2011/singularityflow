@@ -1,4 +1,4 @@
-import { cp, mkdtemp, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -25,6 +25,8 @@ import {
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
+const CHECKPOINT_SCHEMA_VERSION = 1;
+const MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
 
 function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
@@ -254,6 +256,132 @@ The packet is private intermediate evidence for a final synthesizer. It must:
 Do not create a manifest, core model, final world-model view, commit, or summary. The parent process performs deterministic packet ordering, final synthesis, validation, and one Git publication.`;
 }
 
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function checkpointPacketName(view) {
+  return `${sha256(view).slice(0, 20)}.md`;
+}
+
+async function regularFile(file) {
+  const info = await lstat(file).catch(() => null);
+  return Boolean(info?.isFile() && !info.isSymbolicLink());
+}
+
+async function ensureCheckpointDirectory(directory, label) {
+  const before = await lstat(directory).catch(() => null);
+  if (before && (!before.isDirectory() || before.isSymbolicLink())) {
+    throw new SingularityFlowError(`${label} must be a regular directory: ${directory}`);
+  }
+  await mkdir(directory, { recursive: true });
+  const after = await lstat(directory);
+  if (!after.isDirectory() || after.isSymbolicLink()) {
+    throw new SingularityFlowError(`${label} must be a regular directory: ${directory}`);
+  }
+}
+
+async function prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState) {
+  const identity = {
+    schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+    sourceTreeSha256: sourceState.sha256,
+    repositoryCommit: metadata.repository_commit,
+    repositoryBranch: metadata.repository_branch,
+    builderPromptSha256: metadata.builder_prompt_sha256,
+    requestedViews: [...views].sort(),
+    task: optionString(options, 'task') ?? null,
+    focus: optionString(options, 'focus') ?? null,
+    depth: optionString(options, 'depth', 'standard')
+  };
+  const key = sha256(JSON.stringify(identity));
+  const outputDirectory = path.join(root, config.outputDir);
+  const checkpointRoot = path.join(outputDirectory, '.checkpoints');
+  const directory = path.join(checkpointRoot, key);
+  const packetDirectory = path.join(directory, 'packets');
+  const stateFile = path.join(directory, 'state.json');
+  const resume = optionBoolean(options, 'resume', true);
+
+  if (!resume) await rm(directory, { recursive: true, force: true });
+  await ensureCheckpointDirectory(outputDirectory, 'World-model output');
+  await ensureCheckpointDirectory(checkpointRoot, 'World-model checkpoint root');
+  await ensureCheckpointDirectory(directory, 'World-model checkpoint');
+  await ensureCheckpointDirectory(packetDirectory, 'World-model checkpoint packet directory');
+
+  const stateEntry = await lstat(stateFile).catch(() => null);
+  if (stateEntry && (!stateEntry.isFile() || stateEntry.isSymbolicLink())) {
+    throw new SingularityFlowError(`World-model checkpoint state must be a regular file: ${stateFile}`);
+  }
+
+  let state = null;
+  if (resume && await regularFile(stateFile)) {
+    try {
+      const candidate = JSON.parse(await readFile(stateFile, 'utf8'));
+      if (candidate?.schemaVersion === CHECKPOINT_SCHEMA_VERSION
+        && candidate?.key === key
+        && JSON.stringify(candidate.identity) === JSON.stringify(identity)) state = candidate;
+    } catch {
+      // A malformed internal checkpoint is never trusted.
+    }
+  }
+  state = {
+    schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+    key,
+    identity,
+    createdAt: state?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'in_progress',
+    views: state?.views && typeof state.views === 'object' ? state.views : {}
+  };
+
+  const packets = [];
+  const invalidViews = [];
+  for (const view of views) {
+    const record = state.views[view];
+    const packetName = checkpointPacketName(view);
+    const packetFile = path.join(packetDirectory, packetName);
+    if (!resume || record?.status !== 'completed' || record.packet !== `packets/${packetName}`
+      || !await regularFile(packetFile)) {
+      delete state.views[view];
+      continue;
+    }
+    const content = await readFile(packetFile, 'utf8');
+    const bytes = Buffer.byteLength(content);
+    const valid = content.trim().startsWith(`# ${view} discovery packet`)
+      && bytes > 0 && bytes <= MAX_DISCOVERY_PACKET_BYTES
+      && record.sha256 === `sha256:${sha256(content)}`;
+    if (!valid) {
+      delete state.views[view];
+      invalidViews.push(view);
+      continue;
+    }
+    packets.push({ view, content: content.trim(), bytes, resumed: true });
+  }
+  state.updatedAt = new Date().toISOString();
+  await writeJson(stateFile, state);
+  if (invalidViews.length) {
+    console.warn(`Warning: ignored invalid world-model checkpoints for: ${invalidViews.join(', ')}.`);
+  }
+  return { key, directory, packetDirectory, stateFile, state, packets };
+}
+
+async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
+  const packet = checkpointPacketName(view);
+  const content = await readFile(packetFile, 'utf8');
+  const bytes = Buffer.byteLength(content);
+  checkpoint.state.views[view] = {
+    status: 'completed',
+    packet: `packets/${packet}`,
+    sha256: `sha256:${sha256(content)}`,
+    bytes,
+    completedAt: new Date().toISOString()
+  };
+  checkpoint.state.updatedAt = new Date().toISOString();
+  const pending = checkpoint.state.identity.requestedViews
+    .filter((candidate) => checkpoint.state.views[candidate]?.status !== 'completed');
+  checkpoint.state.status = pending.length ? 'in_progress' : 'discovery_complete';
+  await writeJson(checkpoint.stateFile, checkpoint.state);
+}
+
 // A captured worker's stdout is kept so a packet the agent printed instead of writing can still be
 // recovered. Bound it: the agent may stream far more than a packet, and only the tail carries the
 // final answer. 4 MiB is generous next to the 24 KiB packet limit and cannot exhaust memory.
@@ -301,20 +429,26 @@ export function recoverPacketFromOutput(output, view) {
   return candidate;
 }
 
-async function runParallelDiscovery(analysisRoot, temporary, config, options, views, metadata) {
+async function runParallelDiscovery(analysisRoot, temporary, config, options, views, metadata, checkpoint) {
   const generation = parallelGeneration(config, options, views);
-  if (!generation.enabled) return { ...generation, packets: [], degradedViews: [] };
+  if (!generation.enabled) {
+    return { ...generation, packets: [], degradedViews: [], resumedViews: [], pendingViews: [] };
+  }
   if (generation.strategy !== 'view') throw new SingularityFlowError(`Unsupported world-model parallel strategy '${generation.strategy}'.`);
 
-  const packetRoot = path.join(analysisRoot, '.singularity-flow-parallel');
   const promptRoot = path.join(temporary, 'worker-prompts');
-  await mkdir(packetRoot, { recursive: true });
   await mkdir(promptRoot, { recursive: true });
   const task = optionString(options, 'task');
   const focus = optionString(options, 'focus');
   const depth = optionString(options, 'depth', 'standard');
   const runner = optionString(options, 'runner') ?? config.runner;
-  console.error(`World-model discovery: ${views.length} view workers, up to ${generation.maxWorkers} concurrent.`);
+  const resumedPackets = checkpoint?.packets ?? [];
+  const resumedByView = new Map(resumedPackets.map((packet) => [packet.view, packet]));
+  const pendingViews = views.filter((view) => !resumedByView.has(view));
+  if (resumedPackets.length) {
+    console.error(`World-model resume: ${resumedPackets.length} completed view packet${resumedPackets.length === 1 ? '' : 's'} reused; ${pendingViews.length} pending.`);
+  }
+  console.error(`World-model discovery: ${pendingViews.length} pending view worker${pendingViews.length === 1 ? '' : 's'}, up to ${Math.min(generation.maxWorkers, pendingViews.length)} concurrent.`);
 
   // One worker attempt: run the agent, then obtain the packet from disk, or recover it from stdout
   // when the agent printed it instead of writing. Returns { content, bytes } on success, or
@@ -338,20 +472,21 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
     const bytes = Buffer.byteLength(packet);
     if (!packet.trim()) return { reason: 'did not create its analysis packet', retryable: true };
     // An oversized packet will not shrink on a re-run, so degrade it without spending another attempt.
-    if (bytes > 24576) return { reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false };
+    if (bytes > MAX_DISCOVERY_PACKET_BYTES) return { reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false };
     return { content: packet.trim(), bytes };
   };
 
   const maxAttempts = 2; // one retry: a transient no-write is common and cheap to recover from
   let cursor = 0;
-  const packets = new Array(views.length);
-  const degradedViews = new Array(views.length);
+  const packets = new Map(resumedPackets.map((packet) => [packet.view, packet]));
+  const degradedViews = [];
+  let checkpointWrite = Promise.resolve();
   const worker = async () => {
-    while (cursor < views.length) {
+    while (cursor < pendingViews.length) {
       const index = cursor;
       cursor += 1;
-      const view = views[index];
-      const packetFile = path.join(packetRoot, `${view}.md`);
+      const view = pendingViews[index];
+      const packetFile = path.join(checkpoint.packetDirectory, checkpointPacketName(view));
       const promptFile = path.join(promptRoot, `${view}.md`);
       await writeFile(promptFile, parallelWorkerPrompt({
         repository: analysisRoot, packetFile, view, task, focus, depth, metadata
@@ -363,23 +498,28 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
         console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; retrying once.`);
       }
       if (!outcome.content) {
-        degradedViews[index] = { view, reason: outcome.reason };
+        degradedViews.push({ view, reason: outcome.reason });
         console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; final synthesis will inspect this view directly.`);
         continue;
       }
-      packets[index] = { view, content: outcome.content, bytes: outcome.bytes };
+      packets.set(view, { view, content: outcome.content, bytes: outcome.bytes });
+      checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(checkpoint, view, packetFile));
+      await checkpointWrite;
       console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
     }
   };
 
-  const settled = await Promise.allSettled(Array.from({ length: generation.maxWorkers }, () => worker()));
+  const workerCount = Math.min(generation.maxWorkers, pendingViews.length);
+  const settled = await Promise.allSettled(Array.from({ length: workerCount }, () => worker()));
   const failure = settled.find((entry) => entry.status === 'rejected');
   if (failure) throw failure.reason;
-  await rm(packetRoot, { recursive: true, force: true });
+  await checkpointWrite;
   return {
     ...generation,
-    packets: packets.filter(Boolean),
-    degradedViews: degradedViews.filter(Boolean)
+    packets: [...packets.values()].sort((left, right) => left.view.localeCompare(right.view)),
+    degradedViews,
+    resumedViews: resumedPackets.map((packet) => packet.view).sort(),
+    pendingViews
   };
 }
 
@@ -433,23 +573,27 @@ async function build(root, config, options) {
   const generatedAt = new Date().toISOString();
   const generatedDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(generatedAt));
   const promptSha256 = existsSync(source) ? createHash('sha256').update(await readFile(source)).digest('hex') : 'unknown';
+  const sourceCommit = head(root);
+  const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
   const metadata = {
     generated_at: generatedAt,
     generated_date: generatedDate,
     builder_version: '2.0',
     builder_prompt_sha256: promptSha256,
-    repository_commit: head(root),
+    repository_commit: sourceCommit,
     repository_branch: branch(root),
     working_tree_clean: changedFiles(root).length === 0,
     analysis_depth: optionString(options, 'depth', 'standard')
   };
-  run('git', ['worktree', 'add', '--detach', analysisRoot, head(root)], { cwd: root, stdio: 'inherit' });
+  run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
   // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
   // world-model builder so the Singularity Flow session-gate hook exempts the isolated build session
   // instead of denying its file writes. The isolated-worktree path is the primary signal; this env
   // marker is a belt-and-suspenders backup for it. Restored in the finally so nothing leaks.
   const priorBuildMarker = process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
   process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = '1';
+  let checkpoint = null;
+  let views = [];
   try {
     for (const relative of changedFiles(root)) {
       const sourceFile = path.join(root, relative);
@@ -461,7 +605,7 @@ async function build(root, config, options) {
     }
     await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
     await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), { recursive: true, force: true });
-    const views = requestedViews(config, options);
+    views = requestedViews(config, options);
     const renderOptions = {
       ...options,
       ...(views.length ? { views: views.join(', ') } : {}),
@@ -474,10 +618,15 @@ async function build(root, config, options) {
       'builder-prompt-sha256': promptSha256
     };
     const before = await repositoryContentSnapshot(analysisRoot);
-    const discovery = await runParallelDiscovery(analysisRoot, temporary, config, options, views, metadata);
+    checkpoint = parallelGeneration(config, options, views).enabled
+      ? await prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState)
+      : null;
+    const discovery = await runParallelDiscovery(
+      analysisRoot, temporary, config, options, views, metadata, checkpoint
+    );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
     const discoveryChanges = changedSnapshotPaths(before, afterDiscovery);
-    if (head(analysisRoot) !== head(root)) discoveryChanges.push('Git history (discovery worker created a commit)');
+    if (head(analysisRoot) !== sourceCommit) discoveryChanges.push('Git history (discovery worker created a commit)');
     if (discoveryChanges.length) {
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
     }
@@ -490,11 +639,10 @@ async function build(root, config, options) {
     const draftManifestPath = path.join(staging, 'manifest.json');
     const after = await repositoryContentSnapshot(analysisRoot);
     const unexpected = changedSnapshotPaths(before, after);
-    if (head(analysisRoot) !== head(root)) unexpected.push('Git history (builder created a commit)');
+    if (head(analysisRoot) !== sourceCommit) unexpected.push('Git history (builder created a commit)');
     if (unexpected.length) throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
     const phase = optionString(options, 'phase');
     const requiredViews = views;
-    const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
     // Copilot owns the model content, but it does not own provenance. Canonicalize the
     // fields known by the CLI before the first structural validation. This deliberately
     // accepts a draft that contains a short SHA (or omits metadata) while ensuring the
@@ -519,7 +667,7 @@ async function build(root, config, options) {
     const validateDraft = async () => {
       await canonicalizeDraftManifest();
       return validateWorldModelDirectory(staging, {
-        expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
+        expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
       });
     };
     let validated;
@@ -545,14 +693,16 @@ async function build(root, config, options) {
       .map(([id]) => id)
       .sort();
     Object.assign(validated.manifest, metadata, {
-      repository_commit: head(root),
+      repository_commit: sourceCommit,
       views_generated: generatedViews,
       generation: {
         parallel: discovery.enabled,
         strategy: discovery.strategy,
         max_workers: discovery.enabled ? discovery.maxWorkers : 1,
         discovery_views: discovery.enabled ? discovery.packets.map((packet) => packet.view).sort() : [],
-        degraded_views: discovery.enabled ? discovery.degradedViews.map((entry) => entry.view).sort() : []
+        degraded_views: discovery.enabled ? discovery.degradedViews.map((entry) => entry.view).sort() : [],
+        resumed_views: discovery.enabled ? discovery.resumedViews : [],
+        pending_views_at_start: discovery.enabled ? discovery.pendingViews : []
       }
     });
     validated.manifest.generated_at = generatedAt;
@@ -562,12 +712,22 @@ async function build(root, config, options) {
     validated.manifest.analysis_depth = optionString(options, 'depth', phase ? config.phases[phase].depth : 'standard');
     await writeJson(path.join(staging, 'manifest.json'), validated.manifest);
     await validateWorldModelDirectory(staging, {
-      expectedCommit: head(root), expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
+      expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
     });
     await installWorldModel(staging, path.join(root, config.outputDir));
     const local = optionBoolean(options, 'local');
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
+  } catch (error) {
+    if (checkpoint) {
+      const completed = views.filter((view) => checkpoint.state.views[view]?.status === 'completed');
+      const pending = views.filter((view) => checkpoint.state.views[view]?.status !== 'completed');
+      console.error(
+        `World-model checkpoint retained in the repository: ${completed.length} completed, ${pending.length} pending. `
+        + 'Rerun the same wm build command to resume only pending views.'
+      );
+    }
+    throw error;
   } finally {
     if (priorBuildMarker === undefined) delete process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
     else process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = priorBuildMarker;

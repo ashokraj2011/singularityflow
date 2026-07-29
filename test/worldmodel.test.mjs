@@ -64,6 +64,15 @@ if (process.env.SFLOW_MOCK_MANIFEST_RETRY_MARKER) {
     process.exit(0);
   }
 }
+let directoryView = null;
+if (process.env.SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER) {
+  try {
+    await readFile(process.env.SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER, 'utf8');
+  } catch {
+    await writeFile(process.env.SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER, 'first synthesis created a directory view\\n');
+    directoryView = requested.find((value) => value !== 'core' && value !== 'auto') ?? null;
+  }
+}
 await mkdir(path.join(output, 'core'), { recursive: true });
 await mkdir(path.join(output, 'views'), { recursive: true });
 await mkdir(path.join(output, 'evidence'), { recursive: true });
@@ -71,7 +80,8 @@ await writeFile(path.join(output, 'core/summary.md'), '# Repository core\\n');
 await writeFile(path.join(output, 'core/model.json'), JSON.stringify({ schema_version: '1.0' }));
 const views = {};
 for (const view of requested.filter((value) => value !== 'core' && value !== 'auto')) {
-  await writeFile(path.join(output, 'views', view + '.md'), '# ' + view + '\\n');
+  if (view === directoryView) await mkdir(path.join(output, 'views', view + '.md'), { recursive: true });
+  else await writeFile(path.join(output, 'views', view + '.md'), '# ' + view + '\\n');
   views[view] = { path: 'views/' + view + '.md', generated: true };
 }
 await writeFile(path.join(output, 'evidence/evidence.jsonl'), JSON.stringify({ id: 'E-1', claim: 'mock evidence' }) + '\\n');
@@ -352,6 +362,33 @@ test('wm build retries final synthesis once when the builder omits manifest.json
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /did not create manifest\.json; retrying final synthesis once/);
   assert.ok(JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8')));
+});
+
+test('wm build retries final synthesis when a declared view is a directory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-view-retry-'));
+  const marker = path.join(os.tmpdir(), `sflow-worldmodel-view-retry-${process.pid}-${Date.now()}.txt`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'View Recovery Tester'], root);
+  run('git', ['config', 'user.email', 'view-recovery@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# View recovery test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root, { ...process.env, SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER: marker });
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  assert.match(execution.stderr, /view 'business' must be a regular file.*retrying final synthesis once without repeating discovery/s);
+  const view = await readFile(path.join(root, 'singularity/world-model/views/business.md'), 'utf8');
+  assert.match(view, /^# business/m);
 });
 
 test('wm build replaces a model-supplied short commit with CLI-owned full provenance before validation', async () => {

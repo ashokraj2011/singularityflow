@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,7 @@ if (packet) {
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'end', view: assignedView, at: Date.now() }) + '\\n');
   process.exit(0);
 }
+if (process.env.SFLOW_MOCK_FAIL_SYNTHESIS === '1') process.exit(9);
 const output = prompt.match(/Output directory:\\s+([^\\n]+)/)?.[1].trim();
 const requested = prompt.match(/Requested views:\\s+([^\\n]+)/)?.[1].trim().split(/,\\s*/).filter(Boolean) ?? [];
 const task = prompt.match(/Optional task:\\s+([^\\n]+)/)?.[1].trim();
@@ -292,7 +293,7 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     '--runner', `${process.execPath} ${builder} "{prompt_file}"`
   ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: activityLog });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
-  assert.match(execution.stderr, /4 view workers, up to 2 concurrent/);
+  assert.match(execution.stderr, /4 pending view workers, up to 2 concurrent/);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
   assert.deepEqual(manifest.generation, {
@@ -300,13 +301,66 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     strategy: 'view',
     max_workers: 2,
     discovery_views: ['business', 'development', 'security', 'testing'],
-    degraded_views: []
+    degraded_views: [],
+    resumed_views: [],
+    pending_views_at_start: ['business', 'development', 'security', 'testing']
   });
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   const firstEnd = events.findIndex((event) => event.event === 'end');
   assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);
   assert.equal(events.filter((event) => event.event === 'start').length, 4);
   assert.equal(events.filter((event) => event.event === 'end').length, 4);
+});
+
+test('wm build checkpoints completed discovery and resumes only pending views after a failed process', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-resume-'));
+  const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-resume-${process.pid}-${Date.now()}.jsonl`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Resume Model Tester'], root);
+  run('git', ['config', 'user.email', 'resume-model@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Resumable world-model test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const args = [
+    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2',
+    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ];
+  const first = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog,
+    SFLOW_MOCK_FAIL_SYNTHESIS: '1',
+    SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture'
+  });
+  assert.notEqual(first.status, 0);
+  assert.match(`${first.stdout}${first.stderr}`, /World-model builder exited with status 9/);
+  assert.match(first.stderr, /checkpoint retained in the repository: 1 completed, 1 pending/);
+  assert.equal((await lstat(path.join(root, 'singularity/world-model/.checkpoints'))).isDirectory(), true);
+  const firstEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(firstEvents.filter((event) => event.event === 'start').length, 3);
+  assert.equal(firstEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
+
+  const second = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog
+  });
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+  assert.match(second.stderr, /World-model resume: 1 completed view packet reused; 1 pending/);
+  const allEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(allEvents.filter((event) => event.event === 'start').length, 4);
+  assert.equal(allEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
+
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.generation.resumed_views, ['security']);
+  assert.deepEqual(manifest.generation.pending_views_at_start, ['architecture']);
+  await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
 });
 
 test('wm build falls back to final synthesis when an optional discovery worker omits its packet', async () => {

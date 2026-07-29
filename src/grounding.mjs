@@ -110,6 +110,9 @@ async function modelFiles(directory, prefix = '') {
   const output = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    // CLI-owned discovery checkpoints live beside the model so an interrupted build can resume.
+    // They are intermediate state, not manifest-declared world-model content.
+    if (!prefix && entry.name === '.checkpoints') continue;
     if (entry.isDirectory()) output.push(...await modelFiles(path.join(directory, entry.name), relative));
     else if (entry.isFile()) output.push(posix(relative));
     else throw new SingularityFlowError(`World-model output contains an unsupported filesystem entry: ${relative}`);

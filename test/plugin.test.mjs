@@ -152,21 +152,16 @@ test('plugin provides workspace discovery and switching skills', async () => {
   assert.match(select, /Do not launch a nested Copilot process/);
 });
 
-test('plugin hooks initialize a session persona and guard mutating tools', async () => {
+test('plugin hooks provide nonblocking session guidance without command or tool guards', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
   assert.equal(hooks.version, 1);
-  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart', 'userPromptSubmitted', 'preToolUse', 'agentStop']);
-  assert.equal(hooks.hooks.sessionStart[0].type, 'command');
-  assert.equal(hooks.hooks.sessionStart[0].command, 'singularity-flow hook session-start');
-  assert.equal(hooks.hooks.sessionStart[0].timeoutSec, 10);
-  assert.equal(hooks.hooks.sessionStart[1].type, 'prompt');
-  assert.equal(hooks.hooks.sessionStart[1].prompt, '/sflow-session');
-  assert.equal(hooks.hooks.userPromptSubmitted[0].command, 'singularity-flow hook turn-intent');
-  assert.equal(hooks.hooks.preToolUse[0].command, 'singularity-flow hook persona-guard');
-  assert.match(hooks.hooks.preToolUse[0].matcher, /bash/);
-  assert.match(hooks.hooks.preToolUse[0].matcher, /view/);
-  assert.equal(hooks.hooks.agentStop[0].command, 'singularity-flow hook turn-end');
+  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart']);
+  assert.equal(hooks.hooks.sessionStart.length, 1);
+  assert.equal(hooks.hooks.sessionStart[0].type, 'prompt');
+  assert.match(hooks.hooks.sessionStart[0].prompt, /remind them to invoke \/sflow-session/);
+  assert.match(hooks.hooks.sessionStart[0].prompt, /Do not invoke either skill automatically/);
+  assert.doesNotMatch(JSON.stringify(hooks), /preToolUse|persona-guard|turn-intent|turn-end|"type":"command"/);
 });
 
 test('session skill selects synchronized work-item state before working-lens binding', async () => {

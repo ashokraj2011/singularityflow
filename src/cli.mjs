@@ -1441,11 +1441,11 @@ async function cockpitCommand() {
 // The world-model builder runs Copilot inside an isolated, throwaway worktree (a temp directory
 // named `singularity-flow-world-model-*`) so it can inspect the repository and write the grounding
 // files. That session is a trusted system operation, not contributor Story work: it has no work/Jira
-// ID and can never acquire one. Without this exemption the session-gate hook denies every file write
-// the builder's Copilot attempts, so the build burns minutes and credits and then fails with an
-// empty model. Detect the builder's own worktree (by path, which is deterministic, or by the env
-// marker the builder sets) and let its tools through. Governance of real contributor work on the
-// actual repository is unaffected.
+// ID and can never acquire one. A repository may opt into the retained custom session-gate hook;
+// without this exemption that hook would deny every file write the builder's Copilot attempts.
+// Detect the builder's own worktree (by path, which is deterministic, or by the env marker the
+// builder sets) and let its tools through. The bundled plugin itself is advisory and registers no
+// preToolUse guard.
 export function isWorldModelBuildContext(root, payload) {
   if (process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD === '1') return true;
   // The builder's isolated worktree is always `<tmp>/singularity-flow-world-model-<id>/repository`

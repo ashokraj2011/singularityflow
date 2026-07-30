@@ -61,7 +61,8 @@ for (const forbidden of ['mcpServers']) {
 if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hooks.json');
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
 if (hooksJson.version !== 1 || !Array.isArray(hooksJson.hooks?.sessionStart)) fail('plugin/hooks.json must define version 1 sessionStart hooks');
-if (!Array.isArray(hooksJson.hooks?.preToolUse) || hooksJson.hooks.preToolUse[0]?.command !== 'singularity-flow hook persona-guard') fail('plugin/hooks.json must define the session persona preToolUse guard');
+if (hooksJson.hooks?.preToolUse != null) fail('plugin/hooks.json must not define a blocking preToolUse guard');
+if (JSON.stringify(hooksJson).includes('"type":"command"')) fail('plugin/hooks.json must keep bundled hooks advisory and command-free');
 checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
 if (pluginJson.agents !== 'agents/') fail('plugin.json agents path must be agents/');

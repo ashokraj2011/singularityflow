@@ -587,9 +587,10 @@ async function build(root, config, options) {
   };
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
   // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
-  // world-model builder so the Singularity Flow session-gate hook exempts the isolated build session
-  // instead of denying its file writes. The isolated-worktree path is the primary signal; this env
-  // marker is a belt-and-suspenders backup for it. Restored in the finally so nothing leaks.
+  // world-model builder so an optional custom session-gate hook can exempt the isolated build
+  // session instead of denying its file writes. The bundled plugin registers no preToolUse guard.
+  // The isolated-worktree path is the primary signal; this env marker is a belt-and-suspenders
+  // backup for it. Restored in the finally so nothing leaks.
   const priorBuildMarker = process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
   process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = '1';
   let checkpoint = null;

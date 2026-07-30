@@ -269,6 +269,9 @@ test('an initiative branch is a governed session, so the hooks do not demand a w
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const definitionYaml = YAML.parse(await readFile(workflowFile, 'utf8'));
   definitionYaml.worldModel.grounding = 'off';
+  // The bundled plugin is advisory, but repositories may still install a
+  // custom command hook that calls the retained guard implementation.
+  definitionYaml.session.requireBeforeTools = true;
   await writeFile(workflowFile, YAML.stringify(definitionYaml));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'init'], { cwd: root });
@@ -278,9 +281,8 @@ test('an initiative branch is a governed session, so the hooks do not demand a w
   run('git', ['checkout', '-b', 'SF-E900'], { cwd: root });
   await createInitiative(root, { id: 'SF-E900', title: 'Governed epic', profile: 'initiative-lite', persona: 'product-owner' });
 
-  // The shipped policy is workItemSelection: prompt + requireBeforeTools: true. An initiative
-  // branch has no work item and never will, so demanding one there starved every governed
-  // initiative session — including Copilot Studio, whose whole purpose is composing these phases.
+  // A repository using the optional custom guard must still recognize an
+  // initiative branch as governed even though it has no Story work item.
   const started = await sessionStartPersonaHook(root, repositoryDefinition, null, { sessionId: 'sess-1', source: 'startup' });
   assert.match(started.additionalContext, /initiative SF-E900 is active on this branch/);
   assert.match(started.additionalContext, /not a work item/);
@@ -295,8 +297,9 @@ test('an initiative branch is a governed session, so the hooks do not demand a w
 test('reading the activity log survives the gate, but nothing can be smuggled past it', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-hook-logs-'));
   const { run } = await import('../src/util.mjs');
-  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { mkdir, readFile, writeFile } = await import('node:fs/promises');
   const { initializeDefinition, loadDefinition } = await import('../src/config.mjs');
+  const YAML = (await import('yaml')).default;
   const root = path.join(base, 'app');
   await mkdir(root);
   run('git', ['init', '-b', 'main'], { cwd: root });
@@ -304,6 +307,10 @@ test('reading the activity log survives the gate, but nothing can be smuggled pa
   run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
   await writeFile(path.join(root, 'README.md'), '# App\n');
   await initializeDefinition(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const configured = YAML.parse(await readFile(workflowFile, 'utf8'));
+  configured.session.requireBeforeTools = true;
+  await writeFile(workflowFile, YAML.stringify(configured));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'init'], { cwd: root });
   const repositoryDefinition = await loadDefinition(root);

@@ -35,7 +35,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
   assert.equal(definition.worldModel.grounding, 'enforce');
-  assert.deepEqual(definition.session, { workItemSelection: 'prompt', personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: true });
+  assert.deepEqual(definition.session, { workItemSelection: 'prompt', personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: false });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
   assert.equal(feature.sequenceGates.publicationPending, 'hard');

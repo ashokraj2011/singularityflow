@@ -115,7 +115,7 @@ test('Copilot session persona policy is immutable after work-item creation', asy
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-  workflow.resolution.session.requireBeforeTools = false;
+  workflow.resolution.session.requireBeforeTools = true;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);

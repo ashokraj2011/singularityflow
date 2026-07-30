@@ -940,7 +940,7 @@ Normal execution updates the marker-delimited managed input block and writes `co
 
 Working lenses add prompt perspective and world-model views. Starter lenses include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.
 
-### Copilot multi-user session hook
+### Copilot multi-user session guidance
 
 Repositories may make Git-backed work-item and working-lens selection part of Copilot session startup:
 
@@ -950,7 +950,7 @@ session:
   personaSelection: prompt # off | reuse | prompt
   promptOnNewSession: true
   promptOnResume: false
-  requireBeforeTools: true
+  requireBeforeTools: false
 ```
 
 Phase-boundary context behavior is separately configurable:
@@ -976,7 +976,14 @@ singularity-flow session attach WORK-123
 
 Ahead, diverged, missing, or malformed state stops without history rewriting or data loss. A dirty tree also stops when attachment would require a checkout or fast-forward. When the requested Story branch is already current and its HEAD exactly matches the freshly fetched remote HEAD, Singularity Flow may bind the Copilot session in place while preserving unpublished phase edits. If a pre-existing local work branch is ahead or diverged, it may remain checked out so the contributor can preserve or publish it. Singularity Flow never merges, rebases, resets, stashes, force-checks out, or deletes work during session attachment. Copilot must start inside a clone of the application repository so the configured remote is available.
 
-Working-lens `off`, `reuse`, and `prompt` retain the existing session-policy meanings. `requireBeforeTools` denies mutating Copilot tools until both work-item and lens selection are complete; session status, candidate discovery, attachment, and lens selection remain available so the guard cannot deadlock initialization.
+Working-lens `off`, `reuse`, and `prompt` retain the existing session-policy
+meanings. The bundled plugin's startup hook is advisory: it reminds the
+contributor about `/sflow-session` or `/sflow-start`, never invokes a skill
+automatically, and never denies Bash, edit, search, view, or other tools.
+`requireBeforeTools` therefore defaults to `false`. The setting and the
+`persona-guard` CLI handler remain available only for repositories that
+deliberately install a custom command hook. Deterministic lifecycle validation
+continues to run inside every CLI mutation regardless of hook configuration.
 
 The binding is stored only under `.git/singularity-flow/` and creates no commit. It records the Copilot session ID and selected work item separately from the authenticated Git identity. Anyone may choose any configured working lens, and `/sflow-lens` can change it during the session without changing approval authority. Run `singularity-flow session status` to inspect `workItemSelectionRequired`, `selectionRequired`, and `ready`. The policy is snapshotted into the work item at creation. If `session` is absent, both selections resolve to `off` for backward compatibility.
 
@@ -1696,7 +1703,13 @@ singularity-flow recover WORK-123 --fetch
 singularity-flow recover WORK-123 --fetch --apply
 ```
 
-Recovery is plan-first. Apply only retries retained publication or performs a clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards work. The bundled Copilot `sessionStart` command hook records local session context and applies the immutable work-item/working-lens policy; it does not change committed workflow state and never approves. A prompt hook opens `/sflow-session` in new interactive sessions, and the optional `preToolUse` guard holds mutating tools until the chosen remote branch is synchronized and required working-lens selection is complete.
+Recovery is plan-first. Apply only retries retained publication or performs a
+clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards
+work. The bundled Copilot plugin uses one nonblocking `sessionStart` prompt. It
+offers session guidance but does not execute commands, automatically open a
+skill, or register a `preToolUse` guard. Work-item synchronization and
+working-lens selection happen only when the contributor explicitly invokes
+`/sflow-session`, `/sflow-start`, or the equivalent CLI command.
 
 ## Troubleshooting
 

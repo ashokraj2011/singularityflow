@@ -254,6 +254,12 @@ That file instructs Copilot to:
 The skill does not implement the lifecycle itself. It calls the Node.js CLI,
 which reads files, runs validation, and performs Git operations.
 
+The bundled plugin's only hook is a nonblocking startup prompt. It can remind
+the contributor to invoke `/sflow-session` or `/sflow-start`, but it does not
+invoke skills automatically or deny Copilot tools. Lifecycle enforcement remains
+inside the deterministic CLI. The source retains optional command-hook handlers
+for organizations that deliberately add a stricter custom policy.
+
 ## 8. Repository world model
 
 The world model is a repository-owned, generated description of the codebase:

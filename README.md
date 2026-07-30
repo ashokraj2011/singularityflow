@@ -425,7 +425,8 @@ HEAD shape, and bounded expiry timestamps before accepting it. Shared CLI JSON
 and text replacement also uses collision-resistant temporary files and cleans
 them after either success or failure.
 
-New repositories enable the session hook policy in `singularity/workflow.yml`:
+New repositories keep session selection explicit but nonblocking in
+`singularity/workflow.yml`:
 
 ```yaml
 session:
@@ -433,8 +434,16 @@ session:
   personaSelection: prompt # off | reuse | prompt
   promptOnNewSession: true
   promptOnResume: false
-  requireBeforeTools: true
+  requireBeforeTools: false
 ```
+
+The bundled Copilot plugin registers only an advisory `sessionStart` prompt. It
+may remind the contributor to use `/sflow-session` for existing work or
+`/sflow-start` for new work, but it does not invoke either skill, run a command,
+or deny Bash, edit, search, or view tools. Deterministic CLI lifecycle checks
+remain the enforcement boundary. The retained `session-start` and
+`persona-guard` CLI hook handlers are available only for teams that deliberately
+install a custom command-hook policy.
 
 New repositories also rotate Copilot context after an approved phase:
 

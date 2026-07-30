@@ -3,35 +3,8 @@
   "hooks": {
     "sessionStart": [
       {
-        "type": "command",
-        "command": "singularity-flow hook session-start",
-        "timeoutSec": 10
-      },
-      {
         "type": "prompt",
-        "prompt": "/sflow-session"
-      }
-    ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "command": "singularity-flow hook turn-intent",
-        "timeoutSec": 10
-      }
-    ],
-    "preToolUse": [
-      {
-        "type": "command",
-        "command": "singularity-flow hook persona-guard",
-        "matcher": "bash|powershell|edit|create|task|view|grep|glob",
-        "timeoutSec": 10
-      }
-    ],
-    "agentStop": [
-      {
-        "type": "command",
-        "command": "singularity-flow hook turn-end",
-        "timeoutSec": 10
+        "prompt": "Singularity Flow is available. When the contributor wants governed Story work, remind them to invoke /sflow-session for existing work or /sflow-start for new work. Do not invoke either skill automatically, and never block unrelated tools."
       }
     ]
   }

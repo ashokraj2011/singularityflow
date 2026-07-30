@@ -25,6 +25,11 @@ The package contains:
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
+For a complete explanation of the runtime, prompt composition, world model,
+phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
+desktop, telemetry, and security boundaries, read
+[How Singularity Flow works](FRAMEWORK-GUIDE.md).
+
 ## Requirements
 
 - Node.js 20 or newer for the CLI. Desktop development and packaging use

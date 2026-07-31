@@ -1,5 +1,10 @@
 # Singularity Flow Lite 0.9.0
 
+The optional [Capability Ledger](./CAPABILITY-LEDGER.md) records high-value Story
+and Initiative lifecycle events on an unrelated `singularity/ledger` orphan branch.
+Durable work-branch intents let another machine reconcile a missing ledger append
+after partial publication.
+
 Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, prompt-only working lenses, human approval authority groups, world-model views, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
 
 **Singularity Flow** is the product under the **Singularity** brand. Public
@@ -974,9 +979,9 @@ token downloads are not supported in this delivery. See
 |---|---|
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, persona prompts, and world-model builder prompt. |
-| `singularity-flow start <ID> [--jira \| --story-file FILE]` | Import Jira or manual story details, attach optional documents, choose a workflow and working lens, and create/push the work branch. |
+| `singularity-flow start <ID> [--jira \| --story-file FILE] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow and working lens, and create/push the canonical branch. The branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
-| `singularity-flow resume <ID> --fetch` | Fast-forward the branch and select a persona for this terminal. |
+| `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and select a working lens for this terminal. |
 | `sflow-lens [ID]` | Select or change the prompt-only working lens for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head before working-lens selection. |

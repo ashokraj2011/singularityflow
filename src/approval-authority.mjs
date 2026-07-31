@@ -31,10 +31,15 @@ export function normalizeApprovalAuthorities(value = null) {
     }
     const members = authority.members ?? [];
     if (!Array.isArray(members)) throw new SingularityFlowError(`Approval authority '${id}'.members must be an array.`);
+    const githubTeams = authority.githubTeams ?? [];
+    if (!Array.isArray(githubTeams) || githubTeams.some((team) => typeof team !== 'string' || !/^@[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(team))) {
+      throw new SingularityFlowError(`Approval authority '${id}'.githubTeams must contain @organization/team values.`);
+    }
     const seen = new Set();
     result[id] = {
       label: authority.label?.trim() || id,
       allowAnyGitIdentity: authority.allowAnyGitIdentity === true,
+      githubTeams: [...new Set(githubTeams)],
       members: members.map((member, index) => {
         if (!member || typeof member !== 'object' || Array.isArray(member)) {
           throw new SingularityFlowError(`Approval authority '${id}' member ${index + 1} must be an object.`);

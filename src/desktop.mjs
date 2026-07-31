@@ -54,6 +54,7 @@ import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative
 import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
+import { ledgerStatus } from './ledger.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -322,6 +323,16 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   }
   const agents = await discoverAgents(root);
   const telemetry = await copilotTelemetryStatus(root);
+  let ledger;
+  try {
+    ledger = await ledgerStatus(root, workflow?.resolution?.ledger ?? definition.ledger ?? {});
+  } catch (error) {
+    ledger = {
+      enabled: Boolean(workflow?.resolution?.ledger?.enabled ?? definition.ledger?.enabled),
+      available: false,
+      error: error?.message ?? String(error)
+    };
+  }
   const agentLock = await secureRepositoryPath(root, AGENT_LOCK_PATH, {
     label: 'Remote prompt-pack lock file',
     type: 'file'
@@ -361,6 +372,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
       }
     },
     telemetry,
+    ledger,
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
@@ -526,6 +538,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
   );
   return relative === WORKFLOW_PATH
     || relative === PORTFOLIO_PATH
+    || relative === 'singularity/capabilities.yml'
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
     || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`)

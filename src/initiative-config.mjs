@@ -392,6 +392,11 @@ export function validatePortfolio(value) {
 
   for (const [id, authority] of Object.entries(portfolio.approvalAuthorities)) {
     safeId(id, 'Approval authority ID'); object(authority, `Approval authority '${id}'`);
+    authority.githubTeams = array(authority.githubTeams ?? [], `Approval authority '${id}' GitHub teams`);
+    if (authority.githubTeams.some((team) => typeof team !== 'string' || !/^@[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(team))) {
+      throw new SingularityFlowError(`Approval authority '${id}' GitHub teams must use @organization/team.`);
+    }
+    unique(authority.githubTeams, `Approval authority '${id}' GitHub teams`);
     authority.members = array(authority.members ?? [], `Approval authority '${id}' members`).map((member, index) => {
       object(member, `Approval authority '${id}' member ${index + 1}`);
       if (typeof member.email !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(member.email)) throw new SingularityFlowError(`Approval authority '${id}' member ${index + 1} requires a valid email.`);

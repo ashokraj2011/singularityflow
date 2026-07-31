@@ -85,6 +85,9 @@ if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
 
 const allFiles = repositoryFiles();
+const codeowners = spawnSync(process.execPath, ['scripts/generate-codeowners.mjs'], { cwd: root, encoding: 'utf8' });
+if (codeowners.status !== 0) fail(codeowners.stderr.trim() || 'Generated CODEOWNERS check failed');
+checked.push('.github/CODEOWNERS', 'scripts/generate-codeowners.mjs');
 const legacyModelReferences = [['clau', 'de'].join(''), ['anthro', 'pic'].join(''), ['calu', 'de'].join('')].join('|');
 const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyModelReferences, '--', '.'], {
   cwd: root,
@@ -143,7 +146,7 @@ for (const entry of extensionDirs) {
   else checked.push(path.relative(root, file));
 }
 
-for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json', 'schemas/portfolio.schema.json']) {
+for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json', 'schemas/portfolio.schema.json', 'schemas/capabilities.schema.json']) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);
 }
@@ -157,6 +160,7 @@ if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix)
 if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.architect) fail('workflow template must include configurable personas');
 if (workflowTemplate.workItemRoot !== 'singularity/work-items') fail('workflow template must use the visible singularity/work-items root');
 if (workflowTemplate.templatesRoot !== 'singularity/templates' || workflowTemplate.personaPromptsRoot !== 'singularity/personas') fail('workflow template must keep editable resources in the visible singularity folder');
+if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'singularity/ledger') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));

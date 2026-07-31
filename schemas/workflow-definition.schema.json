@@ -21,6 +21,22 @@
       },
       "additionalProperties": false
     },
+    "ledger": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "branch": { "type": "string", "minLength": 1, "default": "singularity/ledger" },
+        "remote": { "type": "string", "minLength": 1, "default": "origin" },
+        "behind": { "enum": ["warn", "block"], "default": "warn" },
+        "enforcement": { "enum": ["shadow", "required"], "default": "shadow" },
+        "signing": { "enum": ["off", "commit"], "default": "off" },
+        "trustTier": { "enum": ["T0", "T1", "T2", "T3"], "default": "T0" },
+        "maxRetries": { "type": "integer", "minimum": 1, "maximum": 20, "default": 4 },
+        "pinTransport": { "enum": ["refs", "branches", "none"], "default": "refs" },
+        "retentionDays": { "type": "integer", "minimum": 0, "maximum": 36500, "default": 2555 }
+      },
+      "additionalProperties": false
+    },
     "templatesRoot": { "type": "string", "minLength": 1 },
     "personaPromptsRoot": { "type": "string", "minLength": 1 },
     "planning": {
@@ -90,6 +106,11 @@
         "properties": {
           "label": { "type": "string", "minLength": 1 },
           "allowAnyGitIdentity": { "type": "boolean" },
+          "githubTeams": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^@[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
+          },
           "members": {
             "type": "array",
             "items": {
@@ -230,7 +251,8 @@
         "generationCommit": { "enum": ["hard", "soft"] },
         "remoteGeneration": { "enum": ["hard", "soft"] },
         "publicationPending": { "enum": ["hard", "soft"] },
-        "documentPhase": { "enum": ["hard", "soft"] }
+        "documentPhase": { "enum": ["hard", "soft"] },
+        "binding": { "enum": ["hard", "soft"] }
       },
       "additionalProperties": false
     },

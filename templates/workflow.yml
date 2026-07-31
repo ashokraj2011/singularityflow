@@ -28,6 +28,21 @@ git:
   remote: origin
   publish: required
 
+# Optional capability ledger. When enabled, every lifecycle commit carries a
+# durable intent on the work branch and is then appended to the unrelated
+# singularity/ledger orphan branch. A fresh clone can replay missing appends.
+ledger:
+  enabled: false
+  branch: singularity/ledger
+  remote: origin
+  behind: warn
+  enforcement: shadow
+  signing: off
+  trustTier: T0
+  maxRetries: 4
+  pinTransport: refs
+  retentionDays: 2555
+
 templatesRoot: singularity/templates
 personaPromptsRoot: singularity/personas
 

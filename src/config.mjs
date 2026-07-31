@@ -21,6 +21,7 @@ import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalPolicy
 } from './approval-authority.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -30,6 +31,7 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const INITIALIZATION_MAPPINGS = [
   ['workflow.yml', WORKFLOW_PATH],
   ['portfolio.yml', 'singularity/portfolio.yml'],
+  ['capabilities.yml', 'singularity/capabilities.yml'],
   ['artifacts', 'singularity/templates'],
   ['personas', 'singularity/personas'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
@@ -38,7 +40,7 @@ const INITIALIZATION_MAPPINGS = [
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
   'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',
-  'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase'
+  'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase', 'binding'
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
 const PERSONA_SELECTION_MODES = new Set(['off', 'reuse', 'prompt']);
@@ -139,6 +141,7 @@ export function validateDefinition(definition) {
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
   normalizeLogging(definition.logging ?? {});
+  definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
@@ -322,6 +325,7 @@ function legacyDefinition(config, worldModel = {}) {
     templatesRoot: 'singularity/templates',
     personaPromptsRoot: 'singularity/personas',
     tokens: { mode: 'exact-or-unavailable' },
+    ledger: normalizeLedgerConfig(),
     documents: { allowedPhases: Object.keys(phases), maxFileBytes: 26214400, maxPreviewBytes: 1048576 },
     approvalAuthorities: normalizeApprovalAuthorities(),
     personas,
@@ -538,6 +542,7 @@ export function resolveWorkType(definition, workTypeId) {
     approvalAuthorities: structuredClone(definition.approvalAuthorities),
     sequenceGates,
     contextPolicy,
+    ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     documents,
     phases
   };
@@ -570,6 +575,7 @@ export async function snapshotResolution(root, definition, resolved) {
     approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
+    ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     templates
   };
 }

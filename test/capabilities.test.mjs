@@ -1,0 +1,131 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  activeCapabilityLeases, capabilityPath, foldCapabilityPolicy, resolveCapabilityPolicy,
+  resolveEffectiveCapabilityPolicy, validateCapabilities
+} from '../src/capabilities.mjs';
+
+test('capability policy fold only permits equal or stricter child constraints', () => {
+  const folded = foldCapabilityPolicy({
+    gateSeverity: 'warn',
+    approvalMinimum: 1,
+    allowSelfApproval: true,
+    maxDocumentBytes: 1000,
+    allowedPhases: ['intake', 'design'],
+    requiredChecks: ['unit'],
+    requiredAuthorityGroups: ['product-approvers'],
+    jiraProjects: ['PAY', 'MOB'],
+    jiraFields: ['summary', 'description', 'labels'],
+    protectedPaths: ['singularity/workflow.yml'],
+    worldModelGrounding: 'warn',
+    tokenBudget: 100000,
+    gitPublication: 'warn',
+    contextBoundary: 'keep',
+    contextMaxBytes: 100000
+  }, {
+    gateSeverity: 'block',
+    approvalMinimum: 2,
+    allowSelfApproval: false,
+    maxDocumentBytes: 500,
+    allowedPhases: ['design'],
+    requiredChecks: ['security'],
+    requiredAuthorityGroups: ['architecture-reviewers'],
+    jiraProjects: ['PAY'],
+    jiraFields: ['summary', 'description'],
+    protectedPaths: ['singularity/capabilities.yml'],
+    worldModelGrounding: 'enforce',
+    tokenBudget: 50000,
+    gitPublication: 'required',
+    contextBoundary: 'new',
+    contextMaxBytes: 50000
+  });
+  assert.equal(folded.gateSeverity, 'block');
+  assert.equal(folded.approvalMinimum, 2);
+  assert.equal(folded.allowSelfApproval, false);
+  assert.equal(folded.maxDocumentBytes, 500);
+  assert.deepEqual(folded.allowedPhases, ['design']);
+  assert.deepEqual(folded.requiredChecks, ['unit', 'security']);
+  assert.deepEqual(folded.requiredAuthorityGroups, ['product-approvers', 'architecture-reviewers']);
+  assert.deepEqual(folded.jiraProjects, ['PAY']);
+  assert.deepEqual(folded.jiraFields, ['summary', 'description']);
+  assert.deepEqual(folded.protectedPaths, ['singularity/workflow.yml', 'singularity/capabilities.yml']);
+  assert.equal(folded.worldModelGrounding, 'enforce');
+  assert.equal(folded.tokenBudget, 50000);
+  assert.equal(folded.gitPublication, 'required');
+  assert.equal(folded.contextBoundary, 'new');
+  assert.equal(folded.contextMaxBytes, 50000);
+  assert.deepEqual(foldCapabilityPolicy({ jiraProjects: ['PAY'] }, { jiraProjects: [] }).jiraProjects, []);
+  assert.throws(() => foldCapabilityPolicy({}, { approvalMinimum: 0 }), /positive integer/);
+});
+
+test('capability tree validates a single root and resolves inherited policy', () => {
+  const definition = validateCapabilities({
+    version: 1,
+    capabilities: {
+      enterprise: { kind: 'portfolio', parent: null, policy: { approvalMinimum: 1, requiredChecks: ['unit'] } },
+      payments: { kind: 'product', parent: 'enterprise', policy: { approvalMinimum: 2, requiredChecks: ['security'] } },
+      checkout: { kind: 'service', parent: 'payments', policy: { gateSeverity: 'block' } }
+    }
+  });
+  assert.deepEqual(capabilityPath(definition, 'checkout'), ['enterprise', 'payments', 'checkout']);
+  const resolved = resolveCapabilityPolicy(definition, 'checkout');
+  assert.equal(resolved.policy.approvalMinimum, 2);
+  assert.deepEqual(resolved.policy.requiredChecks, ['unit', 'security']);
+  assert.equal(resolved.policy.gateSeverity, 'block');
+});
+
+test('capability validation rejects multiple roots and cycles', () => {
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: {
+      one: { kind: 'portfolio' },
+      two: { kind: 'portfolio' }
+    }
+  }), /exactly one root/);
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: {
+      one: { kind: 'portfolio', parent: 'two' },
+      two: { kind: 'portfolio', parent: 'one' }
+    }
+  }), /exactly one root|cycle/);
+});
+
+test('break-glass leases relax policy outside the monotone fold and expire or revoke explicitly', () => {
+  const definition = validateCapabilities({
+    version: 1,
+    capabilities: {
+      enterprise: { kind: 'portfolio', policy: { approvalMinimum: 2, gateSeverity: 'block' } },
+      checkout: { kind: 'service', parent: 'enterprise', policy: {} }
+    }
+  });
+  const grant = {
+    eventType: 'capability-lease-granted',
+    capabilityId: 'enterprise',
+    authorityGroup: 'risk-reviewers',
+    actor: { email: 'reviewer@example.com' },
+    payload: {
+      leaseId: 'lease-1',
+      expiresAt: '2030-01-01T00:00:00.000Z',
+      reason: 'Controlled recovery',
+      relaxation: { approvalMinimum: 1, gateSeverity: 'warn' }
+    }
+  };
+  const effective = resolveEffectiveCapabilityPolicy(definition, 'checkout', [grant], {
+    at: new Date('2029-01-01T00:00:00.000Z')
+  });
+  assert.equal(effective.basePolicy.approvalMinimum, 2);
+  assert.equal(effective.policy.approvalMinimum, 1);
+  assert.equal(effective.policy.gateSeverity, 'warn');
+  assert.equal(effective.leases.length, 1);
+  assert.equal(activeCapabilityLeases(definition, 'checkout', [grant], {
+    at: new Date('2031-01-01T00:00:00.000Z')
+  }).length, 0);
+  assert.equal(activeCapabilityLeases(definition, 'checkout', [{
+    eventType: 'capability-lease-revoked',
+    capabilityId: 'enterprise',
+    payload: { leaseId: 'lease-1' }
+  }, grant], {
+    at: new Date('2029-01-01T00:00:00.000Z')
+  }).length, 0);
+});

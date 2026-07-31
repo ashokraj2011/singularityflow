@@ -5,10 +5,11 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
 REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-}"
 ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
+CLI_ONLY="off"
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only]' \
     '' \
     'Pull, build, test, package, and globally install Singularity Flow,' \
     'replace all previous Copilot plugin copies, and enable metadata-only' \
@@ -30,6 +31,11 @@ while (($#)); do
       ENABLE_COPILOT_TELEMETRY="off"
       shift
       ;;
+    --cli-only)
+      CLI_ONLY="on"
+      ENABLE_COPILOT_TELEMETRY="off"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -47,7 +53,9 @@ case "$ENABLE_COPILOT_TELEMETRY" in
   *) printf '%s\n' 'Error: SINGULARITY_FLOW_COPILOT_TELEMETRY must be on or off.' >&2; exit 1 ;;
 esac
 
-for command in git node npm copilot; do
+REQUIRED_COMMANDS=(git node npm)
+if [[ "$CLI_ONLY" != "on" ]]; then REQUIRED_COMMANDS+=(copilot); fi
+for command in "${REQUIRED_COMMANDS[@]}"; do
   command -v "$command" >/dev/null 2>&1 || { printf 'Error: required command not found: %s\n' "$command" >&2; exit 1; }
 done
 
@@ -174,11 +182,19 @@ REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"
 
 printf '%s\n' 'Installing locked dependencies...'
-npm ci --registry="$REGISTRY"
+if [[ "$CLI_ONLY" == "on" ]]; then
+  npm ci --workspaces=false --registry="$REGISTRY"
+else
+  npm ci --registry="$REGISTRY"
+fi
 
 printf '%s\n' 'Compiling and validating the project...'
-npm run desktop:build
-npm test
+if [[ "$CLI_ONLY" == "on" ]]; then
+  npm run test:cli
+else
+  npm run desktop:build
+  npm test
+fi
 npm run check
 
 printf '%s\n' 'Creating the distribution tarball...'
@@ -194,13 +210,17 @@ npm uninstall --global singularity-flow >/dev/null 2>&1 || true
 npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
 
 printf '%s\n' 'Replacing previous Copilot plugin copies...'
-singularity-flow plugin install
+if [[ "$CLI_ONLY" != "on" ]]; then singularity-flow plugin install; fi
 
 printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
-install_copilot_telemetry
+if [[ "$CLI_ONLY" != "on" ]]; then install_copilot_telemetry; fi
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 printf 'Distribution tarball: %s/%s\n' "$PROJECT_DIR" "$TARBALL"
 printf 'Registry: %s\n' "$REGISTRY"
-copilot plugin list
-printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'
+if [[ "$CLI_ONLY" != "on" ]]; then
+  copilot plugin list
+  printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'
+else
+  printf '%s\n' 'CLI-only installation complete; desktop, Copilot plugin, and telemetry setup were skipped.'
+fi

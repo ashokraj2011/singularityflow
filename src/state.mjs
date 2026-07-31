@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, unlink } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -24,6 +24,10 @@ import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy
 import {
   DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
+import {
+  appendLedgerIntent, clearLedgerOutbox, createLedgerIntent, ledgerLog, ledgerStatus, persistLedgerIntent, reconcileLedger, recordLedgerOutbox
+} from './ledger.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -214,9 +218,11 @@ export async function saveWorkflow(root, config, workflow) {
   await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
 }
 
-export async function createWorkflow(root, config, { id, title, source, baseBranch, workType, persona, resolved } = {}) {
+export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, persona, resolved } = {}) {
   validateId(config, id);
-  if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match work ID ${id}.`);
+  if (branch(root) !== canonicalBranch) {
+    throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
+  }
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
   const selectedType = workType ?? Object.keys(config.workTypes)[0];
   const resolution = resolved ?? resolveWorkType(config, selectedType);
@@ -250,6 +256,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
       session: normalizeSessionPolicy(config.session ?? {}),
       contextPolicy: snapshotState.contextPolicy ?? normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) }),
+      ledger: structuredClone(snapshotState.ledger ?? normalizeLedgerConfig(config.ledger ?? {})),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
     },
@@ -304,6 +311,7 @@ function upgradeWorkflow(workflow) {
   workflow.resolution.inputsMode ??= 'off';
   workflow.resolution.worldModelGrounding ??= 'off';
   workflow.resolution.sequenceGates ??= { default: 'hard' };
+  workflow.resolution.ledger ??= normalizeLedgerConfig();
   workflow.resolution.approvalAuthorities ??= normalizeApprovalAuthorities();
   workflow.lineage ??= {
     schemaVersion: 1,
@@ -360,6 +368,53 @@ export async function loadWorkflow(root, config, id = undefined) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   return workflow;
+}
+
+export async function resolveWorkItem(root, config, idOrRef = branch(root), { mutation = false } = {}) {
+  const requested = String(idOrRef ?? '').trim();
+  if (!requested) throw new SingularityFlowError('Enter a Work ID or canonical/child branch reference.');
+  const direct = workflowPath(root, config, requested);
+  if (await exists(direct)) {
+    const workflow = upgradeWorkflow(await readJson(direct));
+    return { workId: workflow.workItem.id, branch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch, workflow, source: 'working-tree' };
+  }
+
+  const workRoot = path.join(root, config.workItemRoot ?? 'singularity/work-items');
+  if (await exists(workRoot)) {
+    for (const entry of await readdir(workRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const file = workflowPath(root, config, entry.name);
+      if (!(await exists(file))) continue;
+      const workflow = upgradeWorkflow(await readJson(file));
+      if (workflowBranchNames(workflow).includes(requested)) {
+        return { workId: workflow.workItem.id, branch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch, workflow, source: 'working-tree' };
+      }
+    }
+  }
+
+  const ledgerConfig = normalizeLedgerConfig(config.ledger ?? {});
+  if (ledgerConfig.enabled) {
+    try {
+      const entries = await ledgerLog(root, ledgerConfig, { limit: 1000000 });
+      const binding = entries.find((entry) =>
+        entry.eventType === 'binding'
+        && (entry.subject?.workId === requested || entry.subject?.branch === requested));
+      if (binding) {
+        return {
+          workId: binding.subject.workId,
+          branch: binding.subject.branch ?? binding.subject.workId,
+          workflow: null,
+          source: 'ledger',
+          entryHash: binding.hash
+        };
+      }
+    } catch (error) {
+      if (mutation || ledgerConfig.enforcement === 'required') {
+        throw new SingularityFlowError(`Work-item binding cannot be verified from the capability ledger: ${error.message}`);
+      }
+    }
+  }
+  return { workId: requested, branch: requested, workflow: null, source: 'fallback' };
 }
 
 export function currentPhase(workflow) {
@@ -822,9 +877,66 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
 export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
   const pending = pendingPublicationPath(root, config, workflow.workItem.id);
   if (await exists(pending)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
-  add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths])]);
+  const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
+  let ledgerIntent = null;
+  let ledgerIntentPath = null;
+  if (ledgerConfig.enabled) {
+    const phaseMatch = message.match(/\[phase:([^\]]+)\]/);
+    const eventType = message.includes('[approve]')
+      ? 'phase-approved'
+      : message.includes('[reject]')
+        ? 'phase-rejected'
+        : message.includes('[override]')
+          ? 'sequence-override'
+        : message.includes('[finalize]') || workflow.status === 'complete'
+          ? 'work-completed'
+          : message.includes('[init]')
+            ? 'binding'
+            : 'config-snapshot';
+    const phaseId = phaseMatch?.[1] ?? workflow.currentPhase ?? null;
+    const phase = phaseId ? workflow.phases?.[phaseId] : null;
+    const decision = [...(phase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
+    ledgerIntent = createLedgerIntent({
+      eventType,
+      capabilityId: `story-${workflow.workItem.id}`,
+      subject: {
+        workId: workflow.workItem.id,
+        workType: workflow.workItem.workType,
+        phase: phaseId,
+        generation: phase?.generation ?? null,
+        branch: workflowPublicationBranch(root, workflow)
+      },
+      actor: decision?.actor ?? identity(root),
+      workingLens: decision?.workingLens ?? decision?.persona ?? phase?.generatedPersona ?? null,
+      authorityGroup: decision?.authorityGroup ?? null,
+      identityAssurance: decision?.identityAssurance ?? null,
+      payload: {
+        lifecycleMessage: message,
+        configPath: WORKFLOW_PATH,
+        configSha256: workflow.resolution?.configSha256 ?? null,
+        templateSha256: phaseId ? workflow.resolution?.templates?.[phaseId]?.sha256 ?? null : null,
+        decision: decision?.decision ?? null,
+        reviewPacketSha256: decision?.reviewPacketSha256 ?? null
+      }
+    });
+    ledgerIntentPath = await persistLedgerIntent(root, workDirRelative(config, workflow.workItem.id), ledgerIntent);
+  }
+  add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths, ledgerIntentPath].filter(Boolean))]);
   const sha = commit(root, message); const mode = config.git?.publish ?? 'required';
-  if (mode === 'off') return { sha, pushed: false };
+  if (mode === 'off') {
+    let ledger = null;
+    if (ledgerIntent) {
+      try {
+        ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, sha);
+        await clearLedgerOutbox(root, ledgerIntent.eventId);
+      } catch (error) {
+        await recordLedgerOutbox(root, ledgerIntentPath, sha, error);
+        ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
+        if (ledgerConfig.behind === 'block') throw new SingularityFlowError(`Code commit ${sha.slice(0, 8)} was retained locally, but the required ledger append failed: ${error.message}`);
+      }
+    }
+    return { sha, pushed: false, ledger };
+  }
   const targetBranch = workflowPublicationBranch(root, workflow);
   const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, targetBranch);
   if (result.status !== 0) {
@@ -832,13 +944,28 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
     throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
   }
   if (await exists(pending)) await unlink(pending);
-  return { sha, pushed: true };
+  let ledger = null;
+  if (ledgerIntent) {
+    try {
+      ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, sha);
+      await clearLedgerOutbox(root, ledgerIntent.eventId);
+    } catch (error) {
+      await recordLedgerOutbox(root, ledgerIntentPath, sha, error);
+      ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
+      if (ledgerConfig.behind === 'block') {
+        throw new SingularityFlowError(`Code commit ${sha.slice(0, 8)} was pushed, but the required ledger append failed. Run singularity-flow ledger reconcile ${workflow.workItem.id}. ${error.message}`);
+      }
+    }
+  }
+  return { sha, pushed: true, ledger };
 }
 
 export async function syncPublication(root, config, workflow) {
   const pending = pendingPublicationPath(root, config, workflow.workItem.id); const record = (await exists(pending)) ? await readJson(pending) : { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
-  if (await exists(pending)) await unlink(pending); return { pushed: head(root), remote: record.remote, branch: record.branch };
+  if (await exists(pending)) await unlink(pending);
+  const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
+  return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
 }
 
 export async function validateWorkflow(root, config, workflow, { strict = false } = {}) {
@@ -871,5 +998,21 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
   if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) errors.push('Publication is pending; run singularity-flow sync.');
+  const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
+  if (ledgerConfig.enabled) {
+    try {
+      const ledger = await ledgerStatus(root, ledgerConfig);
+      const messages = [];
+      if (!ledger.initialized) messages.push(`Capability ledger branch '${ledgerConfig.branch}' is not initialized.`);
+      if (ledger.verification && !ledger.verification.valid) messages.push(...ledger.verification.errors.map((message) => `Capability ledger: ${message}`));
+      if (ledger.pending?.length) messages.push(`${ledger.pending.length} durable ledger intent(s) are pending reconciliation.`);
+      if (ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block') errors.push(...messages);
+      else warnings.push(...messages);
+    } catch (error) {
+      const message = `Capability ledger could not be verified: ${error.message}`;
+      if (ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block') errors.push(message);
+      else warnings.push(message);
+    }
+  }
   return { valid: errors.length === 0, errors, warnings };
 }

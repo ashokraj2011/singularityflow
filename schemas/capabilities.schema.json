@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capabilities.schema.json",
+  "title": "Singularity Flow capability tree",
+  "type": "object",
+  "required": ["version", "capabilities"],
+  "properties": {
+    "version": { "const": 1 },
+    "capabilities": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "parent": { "type": ["string", "null"] },
+          "owns": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "gateSeverity": { "enum": ["off", "warn", "block"] },
+              "approvalMinimum": { "type": "integer", "minimum": 1 },
+              "allowSelfApproval": { "type": "boolean" },
+              "maxDocumentBytes": { "type": "integer", "minimum": 1 },
+              "allowedPhases": { "$ref": "#/$defs/stringSet" },
+              "requiredChecks": { "$ref": "#/$defs/stringSet" },
+              "requiredAuthorityGroups": { "$ref": "#/$defs/stringSet" },
+              "jiraProjects": { "$ref": "#/$defs/stringSet" },
+              "jiraHosts": { "$ref": "#/$defs/stringSet" },
+              "jiraOperations": { "$ref": "#/$defs/stringSet" },
+              "jiraFields": { "$ref": "#/$defs/stringSet" },
+              "protectedPaths": { "$ref": "#/$defs/stringSet" },
+              "worldModelGrounding": { "enum": ["off", "warn", "enforce"] },
+              "worldModelStaleness": { "enum": ["ignore", "warn", "fail"] },
+              "requiredWorldModelViews": { "$ref": "#/$defs/stringSet" },
+              "writeScopes": { "$ref": "#/$defs/stringSet" },
+              "qualityCommands": { "$ref": "#/$defs/stringSet" },
+              "storageProviders": { "$ref": "#/$defs/stringSet" },
+              "allowedMimeTypes": { "$ref": "#/$defs/stringSet" },
+              "tokenBudget": { "type": "integer", "minimum": 1 },
+              "gitPublication": { "enum": ["off", "warn", "required"] },
+              "contextBoundary": { "enum": ["keep", "compact", "new"] },
+              "contextMaxBytes": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

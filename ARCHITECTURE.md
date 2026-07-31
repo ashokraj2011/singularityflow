@@ -1,5 +1,12 @@
 # Singularity Flow Lite 0.9.0 architecture
 
+## Capability ledger plane
+
+The opt-in capability ledger is a separate orphan Git history. Story and Initiative
+state remain their operational source while durable ledger intents feed a shared
+append-only sink after normal publication. The local outbox is a cache, never the
+recovery authority. See [CAPABILITY-LEDGER.md](./CAPABILITY-LEDGER.md).
+
 ## Initiative layer
 
 The optional initiative layer uses `singularity/portfolio.yml` and a lead branch named exactly after the initiative ID. It does not alter the existing `singularity/work-items` runtime.

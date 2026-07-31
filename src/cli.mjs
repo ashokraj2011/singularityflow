@@ -37,6 +37,7 @@ import {
   reconcilePhaseTelemetry,
   registerArtifact,
   rejectPhase,
+  resolveWorkItem,
   saveWorkflow,
   scanArtifacts,
   submitPhase,
@@ -151,6 +152,11 @@ import {
   activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
   workspaceRegistryFile
 } from './workspace-context.mjs';
+import {
+  appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
+} from './ledger.mjs';
+import { loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
+import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 
 const VERSION = '0.9.0';
 
@@ -192,12 +198,12 @@ Usage:
   singularity-flow init --check [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
-    [--selection-receipt TOKEN]
+    [--ref CANONICAL-BRANCH] [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
   singularity-flow choices status <TOKEN> [--json]
-  singularity-flow resume <WORK-ID> [--fetch] [--allow-dirty]
+  singularity-flow resume <WORK-ID|BRANCH> [--fetch] [--allow-dirty]
   singularity-flow lens [WORK-ID]
   singularity-flow session status|candidates [--json]
   singularity-flow session attach <WORK-ID> [--json]
@@ -207,6 +213,18 @@ Usage:
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow telemetry status [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
+  singularity-flow ledger init [--json]
+  singularity-flow ledger doctor [--json]
+  singularity-flow ledger status [--json]
+  singularity-flow ledger log [--limit N] [--json]
+  singularity-flow ledger show <HASH|EVENT-ID> [--json]
+  singularity-flow ledger verify [--offline] [--json]
+  singularity-flow ledger reconcile [WORK-ID] [--json]
+  singularity-flow ledger archive [--out FILE] [--sign] [--json]
+  singularity-flow capabilities list [--json]
+  singularity-flow capabilities show <ID> [--json]
+  singularity-flow capabilities lease grant <ID> --expires ISO --reason TEXT --policy FILE_OR_JSON --confirm <ID>
+  singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
@@ -519,8 +537,9 @@ async function startCommand(positionals, options) {
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
   const explicitBase = optionString(options, 'base');
+  const canonicalBranch = optionString(options, 'ref', id);
   let base = explicitBase ?? config.defaultBaseBranch;
-  checkout(root, id, { base, fetch: optionBoolean(options, 'fetch') });
+  checkout(root, canonicalBranch, { base, fetch: optionBoolean(options, 'fetch') });
   const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
   if (existsSync(seedFile)) {
     const seed = YAML.parse(await readFile(seedFile, 'utf8'));
@@ -549,6 +568,7 @@ async function startCommand(positionals, options) {
     title: optionString(options, 'title', source.title || id),
     source,
     baseBranch: base,
+    canonicalBranch,
     workType,
     persona: selectedPersona.persona,
     resolved: resolveWorkType(config, workType)
@@ -612,15 +632,16 @@ async function choicesCommand(positionals, options) {
 }
 
 async function resumeCommand(positionals, options) {
-  const id = requirePositional(positionals, 1, 'work ID');
+  const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
   const initialConfig = await loadConfig(root);
-  validateId(initialConfig, id);
-  if (branch(root) !== id && !optionBoolean(options, 'allow-dirty')) assertClean(root);
-  checkout(root, id, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  const resolved = await resolveWorkItem(root, initialConfig, reference, { mutation: true });
+  validateId(initialConfig, resolved.workId);
+  if (branch(root) !== resolved.branch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
+  checkout(root, resolved.branch, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, id);
-  const session = await selectPersona(root, config, actionActor(root), id);
+  const workflow = await loadWorkflow(root, config, resolved.workId);
+  const session = await selectPersona(root, config, actionActor(root), resolved.workId);
   summary(workflow);
   console.log(`Active working lens: ${session.persona}`);
   const active = currentPhase(workflow);
@@ -664,6 +685,11 @@ async function statusCommand(positionals, options) {
   ])}`);
   const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'}; lens ${item.workingLens ?? item.persona ?? 'unavailable'}`));
   if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
+  const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? config.ledger ?? {});
+  if (ledger.enabled) {
+    console.log(`\nCapability ledger: ${ledger.initialized ? ledger.verification.valid ? 'verified' : 'invalid' : 'not initialized'} · pending ${ledger.pending?.length ?? 0} · local outbox ${ledger.outbox}`);
+    if (ledger.pending?.length) console.warn(`Run singularity-flow ledger reconcile ${workflow.workItem.id}.`);
+  }
 }
 
 async function progressCommand(positionals, options) {
@@ -1262,6 +1288,188 @@ async function syncCommand() {
   const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
 }
 
+async function ledgerCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const ledger = config.ledger ?? {};
+  const subcommand = positionals[1] ?? 'status';
+  let result;
+  if (subcommand === 'init') result = await initializeLedger(root, ledger);
+  else if (subcommand === 'doctor') result = await ledgerDoctor(root, ledger);
+  else if (subcommand === 'status') result = await ledgerStatus(root, ledger);
+  else if (subcommand === 'verify') result = await verifyLedger(root, ledger, { offline: optionBoolean(options, 'offline') });
+  else if (subcommand === 'reconcile') result = await reconcileLedger(root, ledger, { workId: positionals[2] ?? null });
+  else if (subcommand === 'log') result = await ledgerLog(root, ledger, { limit: optionNumber(options, 'limit', 20) });
+  else if (subcommand === 'show') result = await ledgerShow(root, ledger, requirePositional(positionals, 2, 'ledger hash or event ID'));
+  else if (subcommand === 'archive') result = await archiveLedger(
+    root,
+    ledger,
+    optionString(options, 'out', `singularity-ledger-${new Date().toISOString().slice(0, 10)}.bundle`),
+    { sign: optionBoolean(options, 'sign') }
+  );
+  else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, reconcile, or archive.`);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  if (subcommand === 'init') {
+    console.log(result.created
+      ? `Created orphan ledger branch ${result.branch} at ${result.commit.slice(0, 8)}.`
+      : `Ledger branch ${result.branch} already exists at ${result.ref}.`);
+    return;
+  }
+  if (subcommand === 'doctor') {
+    result.checks.forEach((check) => console.log(`  ${check.status === 'pass' ? '✓' : check.status === 'warn' ? '~' : '✗'} ${check.id}: ${check.detail}`));
+    if (!result.valid) throw new SingularityFlowError('Capability ledger doctor found blocking problems.', { exitCode: 2 });
+    return;
+  }
+  if (subcommand === 'verify') {
+    result.errors.forEach((message) => console.error(`  ✗ ${message}`));
+    result.warnings.forEach((message) => console.warn(`  ~ ${message}`));
+    if (!result.valid) throw new SingularityFlowError('Capability ledger verification failed.', { exitCode: 2 });
+    console.log(`Capability ledger verified: ${result.entries} entries, sequence ${result.sequence}, trust tier ${result.trustTier}.`);
+    return;
+  }
+  if (subcommand === 'status') {
+    if (!result.enabled) return console.log('Capability ledger is disabled for this repository.');
+    if (!result.initialized) return console.log(`Capability ledger is enabled but ${result.config.branch} has not been initialized.`);
+    console.log(`Capability ledger: ${result.verification.valid ? 'verified' : 'invalid'} · sequence ${result.verification.sequence} · ${result.pending.length} pending durable intent(s) · ${result.outbox} local replay record(s).`);
+    result.pending.forEach((item) => console.log(`  pending ${item.eventId} · ${item.workId} · ${item.path}`));
+    return;
+  }
+  if (subcommand === 'reconcile') {
+    console.log(`Ledger reconciliation: ${result.appended.length} appended, ${result.existing.length} already recorded, ${result.failed.length} failed.`);
+    result.failed.forEach((item) => console.warn(`  pending ${item.eventId}: ${item.error}`));
+    if (result.failed.length && (config.ledger?.behind ?? 'warn') === 'block') throw new SingularityFlowError('Required ledger reconciliation remains incomplete.');
+    return;
+  }
+  if (subcommand === 'archive') {
+    console.log(`Ledger archive: ${result.path}`);
+    console.log(`Manifest: ${result.manifestPath}`);
+    console.log(`SHA-256: ${result.sha256}`);
+    if (result.signaturePath) console.log(`Detached signature: ${result.signaturePath}`);
+    return;
+  }
+  if (subcommand === 'log') {
+    if (!result.length) return console.log('Capability ledger is empty.');
+    console.log(table(result.map((entry) => ({
+      sequence: entry.transport?.recordedAt ?? '',
+      hash: entry.hash.slice(0, 12),
+      event: entry.eventType,
+      workId: entry.subject?.workId ?? '',
+      phase: entry.subject?.phase ?? '',
+      actor: entry.actor?.email ?? entry.actor?.githubLogin ?? entry.actor?.name ?? ''
+    })), [
+      { key: 'hash', label: 'HASH' },
+      { key: 'event', label: 'EVENT' },
+      { key: 'workId', label: 'WORK' },
+      { key: 'phase', label: 'PHASE' },
+      { key: 'actor', label: 'ACTOR' }
+    ]));
+    return;
+  }
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function capabilitiesCommand(positionals, options) {
+  const root = repoRoot();
+  const definition = await loadCapabilities(root, { required: true });
+  const workflowConfig = await loadConfig(root);
+  const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'list') {
+    const rows = Object.entries(definition.capabilities).map(([id, capability]) => ({
+      id,
+      kind: capability.kind,
+      parent: capability.parent ?? '—',
+      owns: (capability.owns ?? []).join(', ')
+    }));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(rows, null, 2));
+    return console.log(table(rows, [
+      { key: 'id', label: 'CAPABILITY' },
+      { key: 'kind', label: 'KIND' },
+      { key: 'parent', label: 'PARENT' },
+      { key: 'owns', label: 'OWNS' }
+    ]));
+  }
+  if (subcommand === 'show' || subcommand === 'resolve') {
+    const capabilityId = requirePositional(positionals, 2, 'capability ID');
+    const ledgerConfig = workflowConfig.ledger ?? {};
+    const entries = ledgerConfig.enabled ? await ledgerLog(root, ledgerConfig, { limit: 1000000 }) : [];
+    const result = resolveEffectiveCapabilityPolicy(definition, capabilityId, entries);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Capability: ${result.capabilityId}`);
+    console.log(`Path: ${result.path.join(' → ')}`);
+    console.log(JSON.stringify(result.policy, null, 2));
+    if (result.leases.length) {
+      console.warn(`Active break-glass leases: ${result.leases.length}`);
+      result.leases.forEach((lease) => console.warn(`  ${lease.leaseId} expires ${lease.expiresAt} · ${lease.reason}`));
+    }
+    return;
+  }
+  if (subcommand === 'lease') {
+    const action = requirePositional(positionals, 2, 'lease action');
+    const capabilityId = requirePositional(positionals, 3, 'capability ID');
+    const resolved = resolveCapabilityPolicy(definition, capabilityId);
+    if (optionString(options, 'confirm') !== capabilityId) {
+      throw new SingularityFlowError(`Break-glass changes require exact confirmation. Re-run with --confirm ${capabilityId}.`);
+    }
+    const requiredGroups = resolved.policy.requiredAuthorityGroups ?? [];
+    const authority = optionString(options, 'authority', requiredGroups[0] ?? Object.keys(workflowConfig.approvalAuthorities ?? {})[0]);
+    const matched = requireApprovalAuthority(workflowConfig.approvalAuthorities, { authorities: [authority] }, identity(root));
+    const ledgerConfig = workflowConfig.ledger ?? {};
+    if (!ledgerConfig.enabled) throw new SingularityFlowError('Capability leases require the capability ledger to be enabled.');
+    let intent;
+    if (action === 'grant') {
+      const expiresAt = optionString(options, 'expires');
+      if (!expiresAt || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) {
+        throw new SingularityFlowError('Lease grant requires --expires with a future ISO timestamp.');
+      }
+      const reason = optionString(options, 'reason');
+      if (!reason) throw new SingularityFlowError('Lease grant requires --reason.');
+      const policyInput = optionString(options, 'policy');
+      if (!policyInput) throw new SingularityFlowError('Lease grant requires --policy with inline JSON/YAML or a file path.');
+      let relaxation;
+      if (policyInput.trim().startsWith('{')) relaxation = JSON.parse(policyInput);
+      else {
+        const candidate = path.resolve(root, policyInput);
+        relaxation = YAML.parse(await readFile(candidate, 'utf8'));
+      }
+      // Validate keys and values without folding the relaxation into the monotone base.
+      resolveEffectiveCapabilityPolicy({
+        version: 1,
+        capabilities: { temporary: { kind: 'lease', policy: relaxation } }
+      }, 'temporary');
+      intent = createLedgerIntent({
+        eventType: 'capability-lease-granted',
+        capabilityId,
+        subject: { workId: `capability:${capabilityId}`, phase: null, generation: null, branch: branch(root) },
+        actor: identity(root),
+        authorityGroup: matched.authorityGroup,
+        identityAssurance: matched.identityAssurance,
+        payload: { expiresAt: new Date(expiresAt).toISOString(), reason, relaxation }
+      });
+      intent.payload.leaseId = intent.eventId;
+      intent.subject.generation = intent.eventId;
+    } else if (action === 'revoke') {
+      const leaseId = requirePositional(positionals, 4, 'lease ID');
+      const reason = optionString(options, 'reason');
+      if (!reason) throw new SingularityFlowError('Lease revocation requires --reason.');
+      intent = createLedgerIntent({
+        eventType: 'capability-lease-revoked',
+        capabilityId,
+        subject: { workId: `capability:${capabilityId}`, phase: null, generation: null, branch: branch(root) },
+        actor: identity(root),
+        authorityGroup: matched.authorityGroup,
+        identityAssurance: matched.identityAssurance,
+        payload: { leaseId, reason }
+      });
+      intent.subject.generation = intent.eventId;
+    } else throw new SingularityFlowError(`Unknown lease action '${action}'. Use grant or revoke.`);
+    const result = await appendLedgerIntent(root, ledgerConfig, intent, head(root));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ intent, result }, null, 2));
+    console.log(`${action === 'grant' ? 'Granted' : 'Revoked'} capability lease ${intent.payload.leaseId} at ledger sequence ${result.sequence}.`);
+    return;
+  }
+  throw new SingularityFlowError(`Unknown capabilities subcommand '${subcommand}'. Use list, show, or lease.`);
+}
+
 // Read the machine-local activity log. The log lives under .git/ so it is never committed, which
 // also means nobody finds it by browsing the repository — this is how it is meant to be read.
 async function logsCommand(positionals, options) {
@@ -1435,6 +1643,19 @@ async function cockpitCommand() {
     ? [{ timing: workflow.resolution.collaboration.assignmentMode === 'required' ? 'now' : 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who coordinates '${active.id}' for cross-terminal handoff.` }]
     : [];
   process.stdout.write(nextStepsText(nextStepsSnapshot({ branch: branch(root), workflow, publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id)), prerequisites })));
+  try {
+    const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? config.ledger ?? {});
+    if (ledger.enabled) {
+      const health = !ledger.initialized
+        ? 'not initialized'
+        : ledger.verification?.valid
+          ? 'verified'
+          : 'invalid';
+      console.log(`\nCapability ledger: ${health} · pending ${ledger.pending?.length ?? 0} · local outbox ${ledger.outbox ?? 0}`);
+    }
+  } catch (error) {
+    console.warn(`\nCapability ledger: unavailable (${error?.message ?? String(error)})`);
+  }
   console.log('\nUseful views: singularity-flow progress · review · documents list · report · doctor');
 }
 
@@ -3961,58 +4182,65 @@ export async function main(argv) {
 }
 
 async function dispatch(command, positionals, options) {
-  switch (command) {
-    case 'about': return console.log(ABOUT);
-    case 'help': return helpCommand(positionals, options);
-    case 'init': return initCommand(options);
-    case 'choices': return choicesCommand(positionals, options);
-    case 'start': return startCommand(positionals, options);
-    case 'resume': return resumeCommand(positionals, options);
-    case 'lens': return personaCommand(positionals);
-    case 'session': return sessionCommand(positionals, options);
-    case 'inbox': return inboxCommand(options);
-    case 'finalize': return finalizeCommand(options);
-    case 'status': return statusCommand(positionals, options);
-    case 'progress': return progressCommand(positionals, options);
-    case 'report': return reportCommand(positionals, options);
-    case 'telemetry': return telemetryCommand(positionals, options);
-    case 'guide': return guideCommand(positionals, options);
-    case 'next': return nextCommand(options);
-    case 'run': return runCommand(options);
-    case 'cockpit':
-    case 'home': return cockpitCommand();
-    case 'logs': return logsCommand(positionals, options);
-    case 'doctor': return doctorCommand(positionals, options);
-    case 'review': return reviewCommand(positionals, options);
-    case 'workflow': return workflowCommand(positionals, options);
-    case 'assign': return assignCommand(positionals);
-    case 'watch': return watchCommand(positionals, options);
-    case 'recover': return recoverCommand(positionals, options);
-    case 'nextsteps':
-    case 'next-steps': return nextStepsCommand(positionals, options);
-    case 'inputs': return inputsCommand(positionals, options);
-    case 'prompt-packs': return promptPacksCommand(positionals, options);
-    case 'documents': return documentsCommand(positionals, options);
-    case 'prepare': return prepareCommand(positionals, options);
-    case 'phase': return phaseCommand(positionals, options);
-    case 'artifact': return artifactCommand(positionals, options);
-    case 'pr': return pullRequestCommand(positionals, options);
-    case 'submit': return submitCommand(options);
-    case 'approve': return approveCommand(positionals, options);
-    case 'reject': return rejectCommand(positionals, options);
-    case 'sync': return syncCommand();
-    case 'migrate-config': return migrateConfigCommand();
-    case 'validate': return validateCommand(options);
-    case 'gate': return gateCommand(options);
-    case 'wm': return worldModelCommand(repoRoot(), positionals, options);
-    case 'jira': return jiraCommand(positionals, options);
-    case 'plugin': return pluginCommand(positionals, options);
-    case 'desktop': return desktopCommand(positionals, options);
-    case 'initiative': return initiativeCommand(positionals, options);
-    case 'epic': return epicCommand(positionals, options);
-    case 'story': return storyCommand(positionals, options);
-    case 'workspace': return workspaceCommand(positionals, options);
-    case 'hook': return hookCommand(positionals);
-    default: throw new SingularityFlowError(`Unknown command: ${command}\n\n${HELP}`);
+  const handlers = validateCommandHandlers({
+    about: () => console.log(ABOUT),
+    help: () => helpCommand(positionals, options),
+    init: () => initCommand(options),
+    choices: () => choicesCommand(positionals, options),
+    start: () => startCommand(positionals, options),
+    resume: () => resumeCommand(positionals, options),
+    lens: () => personaCommand(positionals),
+    session: () => sessionCommand(positionals, options),
+    inbox: () => inboxCommand(options),
+    finalize: () => finalizeCommand(options),
+    status: () => statusCommand(positionals, options),
+    progress: () => progressCommand(positionals, options),
+    report: () => reportCommand(positionals, options),
+    telemetry: () => telemetryCommand(positionals, options),
+    guide: () => guideCommand(positionals, options),
+    next: () => nextCommand(options),
+    run: () => runCommand(options),
+    cockpit: () => cockpitCommand(),
+    logs: () => logsCommand(positionals, options),
+    doctor: () => doctorCommand(positionals, options),
+    review: () => reviewCommand(positionals, options),
+    workflow: () => workflowCommand(positionals, options),
+    assign: () => assignCommand(positionals),
+    watch: () => watchCommand(positionals, options),
+    recover: () => recoverCommand(positionals, options),
+    nextsteps: () => nextStepsCommand(positionals, options),
+    inputs: () => inputsCommand(positionals, options),
+    'prompt-packs': () => promptPacksCommand(positionals, options),
+    documents: () => documentsCommand(positionals, options),
+    prepare: () => prepareCommand(positionals, options),
+    phase: () => phaseCommand(positionals, options),
+    artifact: () => artifactCommand(positionals, options),
+    pr: () => pullRequestCommand(positionals, options),
+    submit: () => submitCommand(options),
+    approve: () => approveCommand(positionals, options),
+    reject: () => rejectCommand(positionals, options),
+    sync: () => syncCommand(),
+    ledger: () => ledgerCommand(positionals, options),
+    capabilities: () => capabilitiesCommand(positionals, options),
+    'migrate-config': () => migrateConfigCommand(),
+    validate: () => validateCommand(options),
+    gate: () => gateCommand(options),
+    wm: () => worldModelCommand(repoRoot(), positionals, options),
+    jira: () => jiraCommand(positionals, options),
+    plugin: () => pluginCommand(positionals, options),
+    desktop: () => desktopCommand(positionals, options),
+    initiative: () => initiativeCommand(positionals, options),
+    epic: () => epicCommand(positionals, options),
+    story: () => storyCommand(positionals, options),
+    workspace: () => workspaceCommand(positionals, options),
+    hook: () => hookCommand(positionals)
+  });
+  try {
+    return handlers[canonicalCommand(command)]();
+  } catch (error) {
+    if (error instanceof SingularityFlowError && error.message === `Unknown command: ${command}`) {
+      throw new SingularityFlowError(`${error.message}\n\n${HELP}`);
+    }
+    throw error;
   }
 }

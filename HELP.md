@@ -1793,8 +1793,8 @@ singularity-flow about
 sflow-about
 singularity-flow help [TOPIC] [--json]
 singularity-flow init
-singularity-flow start <WORK-ID> [--jira | --story-file FILE]
-singularity-flow resume <WORK-ID> [--fetch]
+singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
+singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow lens [WORK-ID]
 sflow-lens [WORK-ID]
 singularity-flow guide [WORK-ID] [--json]

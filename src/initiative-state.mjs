@@ -15,6 +15,10 @@ import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
 } from './util.mjs';
+import {
+  appendLedgerIntent, clearLedgerOutbox, createLedgerIntent, persistLedgerIntent, reconcileLedger, recordLedgerOutbox
+} from './ledger.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
 
@@ -449,11 +453,13 @@ export async function createInitiative(root, {
     ? 'off'
     : groundingMode(definition);
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+  resolution.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
     worldModelTiming: resolution.worldModelTiming,
     worldModelGrounding: resolution.worldModelGrounding,
-    worldModelOutputDir: resolution.worldModelOutputDir
+    worldModelOutputDir: resolution.worldModelOutputDir,
+    ledger: resolution.ledger
   })).digest('hex');
   const createdAt = nowIso();
   const phases = resolved.phases.map((phase, index) => phaseState(phase, index, createdAt));
@@ -740,11 +746,13 @@ export async function restartInitiative(root, id = branch(root), { reason = null
     ? 'off'
     : groundingMode(definition);
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+  resolution.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
     worldModelTiming: resolution.worldModelTiming,
     worldModelGrounding: resolution.worldModelGrounding,
-    worldModelOutputDir: resolution.worldModelOutputDir
+    worldModelOutputDir: resolution.worldModelOutputDir,
+    ledger: resolution.ledger
   })).digest('hex');
 
   // Artifacts belong to the attempt being abandoned. Sources do not: they are pinned evidence
@@ -1015,10 +1023,60 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
     label: `Initiative '${initiative.initiative.id}' pending publication`
   });
   if (pending.exists) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
-  add(root, [...new Set([initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths])]);
+  const ledgerConfig = normalizeLedgerConfig(initiative.resolution?.ledger ?? {});
+  let ledgerIntent = null;
+  let ledgerIntentPath = null;
+  if (ledgerConfig.enabled) {
+    const phaseMatch = message.match(/\[phase:([^\]]+)\]/);
+    const eventType = message.includes('[approve]')
+      ? 'phase-approved'
+      : message.includes('[reject]')
+        ? 'phase-rejected'
+        : message.includes('[override]')
+          ? 'sequence-override'
+        : initiative.status === 'complete'
+          ? 'work-completed'
+          : message.includes('[init]')
+            ? 'binding'
+            : 'config-snapshot';
+    const phaseId = phaseMatch?.[1] ?? initiative.currentPhase ?? null;
+    ledgerIntent = createLedgerIntent({
+      eventType,
+      capabilityId: `initiative-${initiative.initiative.id}`,
+      subject: {
+        workId: initiative.initiative.id,
+        profile: initiative.initiative.profile,
+        phase: phaseId,
+        generation: phaseId ? initiative.phases?.[phaseId]?.generation ?? null : null,
+        branch: initiative.initiative.branch
+      },
+      actor: identity(root),
+      payload: {
+        lifecycleMessage: message,
+        configPath: 'singularity/portfolio.yml',
+        configSha256: initiative.resolution?.portfolioSha256 ?? null,
+        resolutionSha256: initiative.resolution?.resolutionSha256 ?? null
+      }
+    });
+    ledgerIntentPath = await persistLedgerIntent(root, initiativeRelative(portfolio, initiative.initiative.id), ledgerIntent);
+  }
+  add(root, [...new Set([initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths, ledgerIntentPath].filter(Boolean))]);
   const sha = commit(root, message);
   const mode = portfolio.git?.publish ?? 'required';
-  if (mode === 'off') return { sha, pushed: false, replayed: false };
+  if (mode === 'off') {
+    let ledger = null;
+    if (ledgerIntent) {
+      try {
+        ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, sha);
+        await clearLedgerOutbox(root, ledgerIntent.eventId);
+      } catch (error) {
+        await recordLedgerOutbox(root, ledgerIntentPath, sha, error);
+        ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
+        if (ledgerConfig.behind === 'block') throw new SingularityFlowError(`Initiative commit ${sha.slice(0, 8)} was retained locally, but the required ledger append failed: ${error.message}`);
+      }
+    }
+    return { sha, pushed: false, replayed: false, ledger };
+  }
   const remote = portfolio.git?.remote ?? 'origin';
   let pushed = pushBranch(root, remote, initiative.initiative.branch);
   let replayed = false;
@@ -1049,18 +1107,38 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
       + 'Run singularity-flow initiative sync after fixing remote access.'
     );
   }
-  return { sha: branch(root) === initiative.initiative.branch ? head(root) : sha, pushed: true, replayed };
+  const publishedSha = branch(root) === initiative.initiative.branch ? head(root) : sha;
+  let ledger = null;
+  if (ledgerIntent) {
+    try {
+      ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, publishedSha);
+      await clearLedgerOutbox(root, ledgerIntent.eventId);
+    } catch (error) {
+      await recordLedgerOutbox(root, ledgerIntentPath, publishedSha, error);
+      ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
+      if (ledgerConfig.behind === 'block') throw new SingularityFlowError(`Initiative commit ${publishedSha.slice(0, 8)} was pushed, but the required ledger append failed. Run singularity-flow ledger reconcile ${initiative.initiative.id}. ${error.message}`);
+    }
+  }
+  return { sha: publishedSha, pushed: true, replayed, ledger };
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative) {
   const pending = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'publication-pending.json', {
     label: `Initiative '${initiative.initiative.id}' pending publication`
   });
-  if (!pending.exists) return { pending: false, pushed: null };
+  if (!pending.exists) {
+    return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
+  }
   if (!pending.entry.isFile()) throw new SingularityFlowError(`Initiative publication record must be a regular file: ${pending.relative}`);
   const record = await readJson(pending.absolute);
   const result = pushBranch(root, record.remote, record.branch);
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
   await unlink(pending.absolute);
-  return { pending: false, pushed: head(root), remote: record.remote, branch: record.branch };
+  return {
+    pending: false,
+    pushed: head(root),
+    remote: record.remote,
+    branch: record.branch,
+    ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
+  };
 }

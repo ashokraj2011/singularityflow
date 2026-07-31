@@ -33,7 +33,10 @@ The package contains:
 For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 desktop, telemetry, and security boundaries, read
-[How Singularity Flow works](FRAMEWORK-GUIDE.md).
+[How Singularity Flow works](FRAMEWORK-GUIDE.md). For the implementation-level
+path from `/sflow-*` through the Node.js launcher, command dispatcher, prompt
+composer, question bridge, and Git publication, read
+[Singularity Flow under the hood](docs/UNDER-THE-HOOD.md).
 
 ## Requirements
 

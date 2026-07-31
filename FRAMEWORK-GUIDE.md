@@ -840,6 +840,9 @@ Git-backed, configurable SDLC participant:
 - Electron provides a business-friendly visual surface.
 - World-model and input hashes make every generation reproducible and auditable.
 
-For deeper implementation details, see [ARCHITECTURE.md](ARCHITECTURE.md). For a
-visual tutorial, see [HOW-TO.md](HOW-TO.md). For the complete command reference,
-see [HELP.md](HELP.md).
+For the executable call chain, prompt vocabulary, Copilot question/receipt
+bridge, and module map, see
+[Singularity Flow under the hood](docs/UNDER-THE-HOOD.md). For architectural
+invariants, see [ARCHITECTURE.md](ARCHITECTURE.md). For a visual tutorial, see
+[HOW-TO.md](HOW-TO.md). For the complete command reference, see
+[HELP.md](HELP.md).

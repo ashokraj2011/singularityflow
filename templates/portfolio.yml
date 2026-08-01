@@ -58,6 +58,24 @@ jira:
 # Initiative approvals are authorized by normalized local Git email. Populate
 # these groups before starting an initiative. Personas remain prompt behavior
 # and never grant initiative approval authority.
+# Conditional checklist items ask one of these questions of the initiative. Until an initiative
+# answers, the item is reported `unanswered` and its gate still applies, so a control that might be
+# required is never silently skipped. Answer with:
+#   singularity-flow initiative applicability set <policy> yes|no --reason "..."
+applicabilityPolicies:
+  ux-required:
+    label: UX design required
+    question: Does this initiative change a user-facing experience that needs UX design?
+  ai-use-case:
+    label: AI use case
+    question: Does this initiative introduce or change an AI/ML capability?
+  security-review-required:
+    label: Security review required
+    question: Does this initiative change authentication, authorization, secret handling, or regulated data?
+  domain-review-required:
+    label: Domain architecture review required
+    question: Does this initiative change a shared domain model or cross-domain contract?
+
 approvalAuthorities:
   initiative-owners: { members: [] }
   executive-approvers: { members: [] }

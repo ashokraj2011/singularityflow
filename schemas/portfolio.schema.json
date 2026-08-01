@@ -193,6 +193,16 @@
         }
       }
     },
+    "applicabilityPolicies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "initiativeProfiles": {
       "type": "object",
       "additionalProperties": {

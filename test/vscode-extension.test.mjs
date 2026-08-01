@@ -1044,3 +1044,85 @@ test('an Epic with nothing outstanding says so rather than showing an empty page
   assert.match(buildApprovals(quiet).empty ?? '', /Nothing is waiting/);
   assert.match(buildApprovals(null).empty, /Reading the repository/);
 });
+
+const { buildStories } = await import(source('views/stories-model.ts'));
+
+test('Stories group by the repository they land in, and keep both ends of each dependency', () => {
+  // The plan records what a Story waits for; who waits on it is just as useful and has to be
+  // derived, because nothing stores the reverse edge.
+  const stories = buildStories(snapshot);
+  assert.deepEqual(stories.groups.map((group) => group.repository), ['api', 'mobile']);
+
+  const api = stories.groups[0].stories[0];
+  assert.equal(api.planId, 'API-1');
+  assert.deepEqual(api.dependsOn, []);
+  assert.deepEqual(api.blocks, ['MOB-1'], 'the reverse edge is derived');
+
+  const mobile = stories.groups[1].stories.find((story) => story.planId === 'MOB-1');
+  assert.deepEqual(mobile.dependsOn, ['API-1']);
+  assert.deepEqual(mobile.blocks, []);
+});
+
+test('a planned Story is not shown as though it had a branch', () => {
+  // Before materialization a Story is an intention: an identifier, a repository, an allocation.
+  // Showing an intention as though it had a branch is the more expensive of the two mistakes.
+  const planned = buildStories(snapshot);
+  assert.equal(planned.materialized, false);
+  for (const story of planned.groups.flatMap((group) => group.stories)) {
+    assert.equal(story.state, 'planned');
+    assert.equal(story.branch, null);
+    assert.equal(story.head, null);
+  }
+});
+
+test('a materialized Story carries its branch, head and phase', () => {
+  const materialized = structuredClone(snapshot);
+  materialized.initiative.state.childStories = {
+    'API-1': {
+      workId: 'API-1', repository: 'api', branch: 'API-1', status: 'in-progress',
+      currentPhase: 'implementation-spec', seedCommit: 'aaaa1111', observedCommit: 'bbbb2222',
+      stale: false, conformance: { status: 'approved', treeSha256: 'cc'.repeat(32) }
+    },
+    'MOB-1': {
+      workId: 'MOB-1', repository: 'mobile', branch: 'MOB-1', status: 'seeded',
+      seedCommit: 'dddd3333', observedCommit: 'dddd3333', stale: false
+    }
+  };
+  const stories = buildStories(materialized);
+  assert.equal(stories.materialized, true);
+
+  const api = stories.groups[0].stories.find((story) => story.planId === 'API-1');
+  assert.equal(api.state, 'in-progress');
+  assert.equal(api.head, 'bbbb2222');
+  assert.equal(api.atSeed, false, 'it has moved on from its seed, which is the work');
+  assert.equal(api.phase, 'implementation-spec');
+  assert.equal(api.conformance.status, 'approved');
+
+  const mobile = stories.groups[1].stories.find((story) => story.planId === 'MOB-1');
+  assert.equal(mobile.state, 'seeded');
+  assert.equal(mobile.atSeed, true);
+  assert.equal(mobile.conformance, null, 'no conformance phase reached yet');
+});
+
+test('a blocked child Story is reported as blocked whatever its phase says', () => {
+  const blocked = structuredClone(snapshot);
+  blocked.initiative.state.childStories = {
+    'API-1': { workId: 'API-1', repository: 'api', status: 'in-progress', currentPhase: 'build', blocked: true }
+  };
+  const story = buildStories(blocked).groups[0].stories.find((entry) => entry.planId === 'API-1');
+  assert.equal(story.state, 'blocked');
+});
+
+test('the merge order respects dependencies and is stable', () => {
+  const order = buildStories(snapshot).order;
+  assert.ok(order.indexOf('API-1') < order.indexOf('MOB-1'), 'a Story lands after what it waits for');
+  assert.deepEqual(buildStories(snapshot).order, order, 'the same plan reads the same way twice');
+});
+
+test('an Epic with no Story plan says what planning would produce', () => {
+  const unplanned = structuredClone(snapshot);
+  unplanned.initiative.breakdown = null;
+  const stories = buildStories(unplanned);
+  assert.match(stories.empty, /decomposes it into Stories, one per repository/);
+  assert.equal(stories.initiativeId, 'INIT-MULTI', 'and still says which Epic it is talking about');
+});

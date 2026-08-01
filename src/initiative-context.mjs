@@ -90,8 +90,14 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
   return sections;
 }
 
-// Written beside the cached bytes by the desktop layer; see apps/desktop/electron/source-text.mjs.
-export { TEXT_RENDITION_SUFFIX } from './source-text.mjs';
+// Written beside the cached bytes when a binary source is materialized; see src/source-text.mjs.
+//
+// Imported as well as re-exported on purpose: `export { X } from` re-exports without creating a
+// local binding, so the use below threw a ReferenceError for every composition that had a pinned
+// source. Both lines are needed — the import for this module, the re-export for its callers.
+import { TEXT_RENDITION_SUFFIX } from './source-text.mjs';
+
+export { TEXT_RENDITION_SUFFIX };
 
 function isTextualMime(mimeType) {
   return String(mimeType).startsWith('text/')

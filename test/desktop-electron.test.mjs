@@ -1462,7 +1462,15 @@ test('the contract says what Copilot can actually read', async () => {
   assert.match(context, /Readable text/);
   assert.match(context, /\*\*not readable as text\*\*/);
   assert.match(context, /Record what you need from it as an open question rather than inventing a requirement/);
-  assert.match(context, /export \{ TEXT_RENDITION_SUFFIX \} from '\.\/source-text\.mjs'/);
+  // Asserted by loading it rather than by matching the source. The textual form this used to pin —
+  // a bare `export { X } from` — re-exports without creating a local binding, so the module both
+  // satisfied the old assertion and threw a ReferenceError on every composition that had a pinned
+  // source. A test that cannot tell those two apart is not testing anything.
+  const contextModule = await import('../src/initiative-context.mjs');
+  assert.equal(typeof contextModule.TEXT_RENDITION_SUFFIX, 'string', 're-exported for callers');
+  assert.ok(contextModule.TEXT_RENDITION_SUFFIX.length, 'and it carries the real suffix');
+  assert.match(context, /import \{ TEXT_RENDITION_SUFFIX \} from '\.\/source-text\.mjs'/,
+    'imported locally too, since this module uses it');
 
   // The engine must not grow a document parser: it has one dependency and the gate asserts so.
   const enginePackage = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));

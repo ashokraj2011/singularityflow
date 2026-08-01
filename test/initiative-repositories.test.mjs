@@ -481,3 +481,86 @@ test('computed impact reads a real Epic from disk, including its cross-repositor
   // initiative-lite declares no impact-analysis output, so there is no cone to report.
   assert.equal(impact.invalidates, undefined);
 });
+
+/**
+ * An epic-planning Epic far enough along to materialize, with the approved artifacts that become
+ * governed Story context. The existing materialization test uses initiative-lite, whose profile has
+ * no epic-requirements or epic-planning phase — so the Story-context branch of materializeStory has
+ * never run in any test, and shipped with two faults that made it fail for every Epic.
+ */
+async function planningRepository() {
+  const { root, mobile, api } = await repository();
+  // Materialization requires the Epic's own branch to be checked out, as every governed mutation does.
+  run('git', ['switch', '-c', 'EPIC-CTX'], { cwd: root });
+  const created = await createInitiative(root, { id: 'EPIC-CTX', profile: 'epic-planning' });
+  const initiative = created.initiative;
+  const dir = initiativeDir(root, created.portfolio, 'EPIC-CTX');
+
+  const write = async (relative, body) => {
+    const target = path.join(dir, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, body);
+    const { createHash } = await import('node:crypto');
+    return { sha256: createHash('sha256').update(await readFile(target)).digest('hex'), bytes: Buffer.byteLength(body) };
+  };
+
+  // The four approved outputs that travel to each Story, plus the Story specification package.
+  for (const [phaseId, outputId, body] of [
+    ['epic-requirements', 'requirements-specification', '# Requirements\n\n- REQ-001\n'],
+    ['epic-requirements', 'requirements-traceability', 'version: 1\n'],
+    ['epic-requirements', 'impact-analysis', 'version: 1\nrepositories: {}\n'],
+    ['epic-planning', 'parent-specification', '# Parent specification\n']
+  ]) {
+    const output = initiative.phases[phaseId].outputs[outputId];
+    const info = await write(output.path, body);
+    Object.assign(output, { ...info, status: 'approved', generation: 1 });
+  }
+
+  const specBody = '# STORY-001\n\nSpecification.\n';
+  const spec = await write('artifacts/epic-planning/stories/STORY-001/story-spec.md', specBody);
+  const index = initiative.phases['epic-planning'].outputs['story-specification-index'];
+  const indexBody = `version: 1\nepicId: "EPIC-CTX"\nstories:\n  - planId: STORY-001\n    path: stories/STORY-001/story-spec.md\n    sha256: "${spec.sha256}"\n    bytes: ${spec.bytes}\n`;
+  Object.assign(index, { ...(await write(index.path, indexBody)), status: 'approved', generation: 1 });
+
+  initiative.phases['epic-intake'].status = 'approved';
+  initiative.phases['epic-requirements'].status = 'approved';
+  initiative.phases['epic-planning'].status = 'approved';
+  initiative.currentPhase = 'epic-publish';
+  await saveInitiative(root, created.portfolio, initiative);
+
+  await writeFile(path.join(dir, 'breakdown.yml'), YAML.stringify({
+    version: 2,
+    initiativeId: 'EPIC-CTX',
+    epics: [{
+      planId: 'EPIC-1', title: 'Context', stories: [{
+        planId: 'STORY-001', workId: 'STORY-001', title: 'Seeded story', repository: 'api',
+        requirements: ['REQ-001'], acceptanceCriteria: ['AC-001'], blocking: true
+      }]
+    }]
+  }));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Approve planning'], { cwd: root });
+  return { root, api, mobile };
+}
+
+test('materialization copies the approved artifacts into each Story as governed context', async () => {
+  // Both faults here were invisible to every other test: the four phase outputs were resolved from
+  // the repository root although their paths are relative to the initiative directory, and `snapshot`
+  // was never imported into the module that hashes them. Each made materialization fail for every
+  // Epic that reached this branch, which is every epic-planning Epic.
+  const { root, api } = await planningRepository();
+  const result = await materializeInitiative(root, 'EPIC-CTX', { confirmation: 'EPIC-CTX' });
+  assert.deepEqual(result.failures, [], 'no Story failed to materialize');
+  assert.equal(result.attempt.status, 'complete');
+
+  const check = path.join(root, 'check-context');
+  run('git', ['clone', '--branch', 'STORY-001', api, check], { cwd: root });
+  const contextRoot = path.join(check, 'singularity/story-context/STORY-001');
+  const present = await readdir(contextRoot);
+  assert.deepEqual(present.sort(),
+    ['impact-analysis.yml', 'parent-specification.md', 'requirements.md', 'story-specification.md', 'traceability.yml']);
+
+  // The bytes travel, not just the names: this is what the Story is allowed to cite.
+  assert.match(await readFile(path.join(contextRoot, 'requirements.md'), 'utf8'), /REQ-001/);
+  assert.match(await readFile(path.join(contextRoot, 'story-specification.md'), 'utf8'), /STORY-001/);
+});

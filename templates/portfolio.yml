@@ -103,12 +103,20 @@ repositoryMetadata:
     appId: "^[A-Z0-9-]{3,32}$"
 
 storage:
-  # Source bytes stay in shared corporate storage. Git records immutable
-  # provider/version identifiers and SHA-256 provenance only.
-  defaultProvider: jira
+  # Where pinned source bytes live. Git always records the immutable provider identifier and the
+  # SHA-256 provenance; what differs is who holds the bytes.
+  #
+  # The default is `local` because jira.enabled is false in this starter file, and a default that
+  # points at a disabled provider means a fresh repository cannot pin a single source — which is
+  # the one thing intake cannot proceed without. Teams that enable Jira should switch
+  # defaultProvider to `jira` so source bytes stay in shared corporate storage rather than in Git.
+  defaultProvider: local
   maxBytes: 104857600
   allowedMimeTypes: []
   providers:
+    # Bytes committed alongside the Epic, addressed by their own hash. Self-contained and offline,
+    # at the cost of the repository carrying them.
+    local: { type: local }
     jira: { type: jira-attachment }
 
 initiativeProfiles:

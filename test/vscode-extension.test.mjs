@@ -322,7 +322,7 @@ test('the tree is built from the real snapshot: lifecycle, phases, artifacts, St
   const tree = buildTree(snapshot);
   // The Epic, plus the two things that belong to the repository rather than to any Epic.
   assert.deepEqual(tree.map((node) => node.id),
-    ['initiative:INIT-MULTI', 'world-model', 'configuration']);
+    ['initiative:INIT-MULTI', 'capabilities', 'world-model', 'configuration']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -1177,4 +1177,47 @@ test('a locally pinned source can be opened; a remote one has no path to open', 
   const sources = find(buildTree(pinned), 'sources');
   assert.equal(sources.children[0].path, 'singularity/initiatives/INIT-MULTI/sources/blobs/aa/brief.md');
   assert.equal(sources.children[1].path, undefined, 'its bytes live in corporate storage');
+});
+
+test('the capability map is shown as the tree it is, to any depth', () => {
+  // What the organisation builds is a different shape from where its code is stored: one business
+  // capability is often several repositories.
+  const withMap = structuredClone(snapshot);
+  withMap.capabilityMap = {
+    repositories: ['api', 'web'],
+    capabilities: [{
+      id: 'commerce', name: 'Commerce', kind: 'business', children: [{
+        id: 'storefront', name: 'Storefront', kind: 'business', children: [
+          { id: 'checkout', name: 'Checkout', kind: 'delivery', repository: 'web', children: [] }
+        ]
+      }, { id: 'payments-api', name: 'Payments', kind: 'delivery', repository: 'api', children: [] }]
+    }]
+  };
+  const capabilities = find(buildTree(withMap), 'capabilities');
+  assert.equal(capabilities.description, '2 delivering');
+
+  // Three levels deep, and the leaf names the repository it ships from.
+  const checkout = find(buildTree(withMap), 'capability:checkout');
+  assert.equal(checkout.description, 'web');
+  assert.equal(checkout.contextValue, 'sflow.capability.delivery');
+  assert.match(checkout.tooltip, /Ships from web/);
+
+  const storefront = find(buildTree(withMap), 'capability:storefront');
+  assert.equal(storefront.description, undefined, 'a grouping ships nothing of its own');
+  assert.equal(storefront.contextValue, 'sflow.capability');
+});
+
+test('a repository that has not described what it builds says so', () => {
+  const undescribed = find(buildTree(snapshot), 'capabilities');
+  assert.equal(undescribed.description, 'not described');
+  assert.match(undescribed.tooltip, /capability-map\.yml in the lead repository/);
+  assert.match(undescribed.children[0].label, /has not described what it builds/);
+});
+
+test('a capability map that does not validate reports the engine reason', () => {
+  const broken = structuredClone(snapshot);
+  broken.capabilityMap = { error: "Delivery capability 'ghost' names repository 'nope', which the portfolio does not declare." };
+  const node = find(buildTree(broken), 'capabilities');
+  assert.equal(node.description, 'not valid');
+  assert.match(node.children[0].label, /which the portfolio does not declare/);
 });

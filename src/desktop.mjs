@@ -15,6 +15,7 @@ import {
   WORKFLOW_PATH
 } from './config.mjs';
 import { documentCatalog } from './documents.mjs';
+import { CAPABILITY_MAP_PATH, loadCapabilityMap } from './capability-map.mjs';
 import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setPersonaSession } from './session.mjs';
@@ -395,6 +396,10 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
+    // What this organisation builds, as opposed to how its code is stored. Absent until the lead
+    // repository describes itself, which is a normal state rather than a fault.
+    capabilityMap: await loadCapabilityMap(root, portfolio).catch((error) => ({ error: error.message })),
+    capabilityMapPath: CAPABILITY_MAP_PATH,
     portfolioText,
     templates: await textFiles(root, definition.templatesRoot),
     personaPrompts: await textFiles(root, definition.personaPromptsRoot),

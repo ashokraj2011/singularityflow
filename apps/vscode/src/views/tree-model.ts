@@ -14,6 +14,7 @@
  */
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
+  type CapabilityNode,
   type BreakdownStory, type InitiativeOutput, type InitiativeSnapshot,
   type DesktopSnapshot, type PhaseStatus
 } from '../cli/snapshot.ts';
@@ -224,10 +225,68 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }, worldModelNode(snapshot), configuration];
+    }, capabilityNode(snapshot), worldModelNode(snapshot), configuration];
   }
 
-  return [initiativeNode(initiative), worldModelNode(snapshot), configuration];
+  return [initiativeNode(initiative), capabilityNode(snapshot), worldModelNode(snapshot), configuration];
+}
+
+/**
+ * The capability map: what this organisation builds, as opposed to where its code is stored.
+ *
+ * Shown as the tree it is, to any depth. A delivery capability names the repository it ships from,
+ * which is the join between this and everything else in the view — a Story lands in a repository,
+ * and this is what says which part of the business that repository serves.
+ */
+function capabilityNode(snapshot: DesktopSnapshot): TreeNode {
+  const map = snapshot.capabilityMap;
+  const path = snapshot.capabilityMapPath ?? 'singularity/capability-map.yml';
+
+  if (map?.error) {
+    return {
+      kind: 'group', id: 'capabilities', label: 'Capabilities',
+      description: 'not valid', icon: 'warning', tooltip: map.error,
+      children: [{ kind: 'message', id: 'capabilities:error', label: map.error, icon: 'error' }]
+    };
+  }
+
+  const roots = map?.capabilities ?? [];
+  if (!roots.length) {
+    return {
+      kind: 'group', id: 'capabilities', label: 'Capabilities',
+      description: 'not described', icon: 'type-hierarchy',
+      tooltip: `Nothing describes what this organisation builds. Create ${path} in the lead repository.`,
+      children: [{
+        kind: 'message', id: 'capabilities:empty',
+        label: 'The lead repository has not described what it builds',
+        icon: 'info'
+      }]
+    };
+  }
+
+  const toNode = (capability: CapabilityNode): TreeNode => ({
+    kind: capability.kind === 'delivery' ? 'artifact' : 'group',
+    id: `capability:${capability.id}`,
+    label: capability.name,
+    description: capability.kind === 'delivery' ? capability.repository : undefined,
+    tooltip: capability.description || (capability.kind === 'delivery'
+      ? `Ships from ${capability.repository}.`
+      : 'Groups the capabilities beneath it.'),
+    icon: capability.kind === 'delivery' ? 'repo' : 'type-hierarchy',
+    contextValue: capability.kind === 'delivery' ? 'sflow.capability.delivery' : 'sflow.capability',
+    ...(capability.children.length ? { children: capability.children.map(toNode) } : {})
+  });
+
+  const deliveries = map?.repositories?.length ?? 0;
+  return {
+    kind: 'group',
+    id: 'capabilities',
+    label: 'Capabilities',
+    description: `${deliveries} delivering`,
+    icon: 'type-hierarchy',
+    tooltip: 'What this organisation builds. Delivery capabilities name the repository they ship from.',
+    children: roots.map(toNode)
+  };
 }
 
 /**

@@ -8,7 +8,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['prompt-packs'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['submit'],
   ['approve'], ['reject'], ['sync'], ['ledger'], ['capabilities'], ['migrate-config'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['desktop'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['knowledge'], ['hook']
+  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook']
 ].map(([name, aliases = []]) => Object.freeze({ name, aliases: Object.freeze(aliases) })));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [

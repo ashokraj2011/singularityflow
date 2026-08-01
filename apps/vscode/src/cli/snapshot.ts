@@ -21,6 +21,17 @@
  * `undefined`, which is what a closed Record silently did — later phases showed no icon at all
  * because the real value is `not_started` and this file had guessed `pending`.
  */
+export interface CapabilityNode {
+  id: string;
+  name: string;
+  kind: 'business' | 'delivery';
+  description?: string;
+  owner?: string | null;
+  /** Present on delivery capabilities only: the repository this ships from. */
+  repository?: string;
+  children: CapabilityNode[];
+}
+
 export type PhaseStatus =
   | 'not_started' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale'
   | (string & {});
@@ -204,6 +215,17 @@ export interface DesktopSnapshot {
     [key: string]: unknown;
   } | null;
   portfolioPath?: string;
+  /**
+   * What this organisation builds, as a tree, held by the lead repository. Distinct from the
+   * repositories: one business capability is often several repositories, and the shape of what is
+   * built is not the shape of where it is stored.
+   */
+  capabilityMap?: {
+    capabilities?: CapabilityNode[];
+    repositories?: string[];
+    error?: string;
+  } | null;
+  capabilityMapPath?: string;
   /**
    * The workflow definition, of which only the working lenses are read: starting an Epic has to
    * offer the lenses this repository declares, not a list this extension keeps.

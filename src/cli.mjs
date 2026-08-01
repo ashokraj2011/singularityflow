@@ -113,6 +113,9 @@ import {
   readInitiativeRecords, registerInitiativeEvidence
 } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
+import {
+  CAPABILITY_MAP_PATH, capabilityForRepository, deliveriesUnder, flattenCapabilities, loadCapabilityMap
+} from './capability-map.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import {
   initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, sameRepositoryRemote,
@@ -382,6 +385,9 @@ Usage:
   singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
     --repository ID=URL [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
+  singularity-flow capability [tree] [--json]
+  singularity-flow capability show <CAPABILITY-ID> [--json]
+  singularity-flow capability of <REPOSITORY-ID> [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
@@ -2255,6 +2261,53 @@ function commitKnowledge(root, message) {
   add(root, [KNOWLEDGE_ROOT]);
   if (!changes(root).length) return null;
   return commit(root, message);
+}
+
+/**
+ * The capability map, read.
+ *
+ * Editing it is editing the file: it is a small tree that a person reads and changes directly, and a
+ * command per node would be a worse editor than the editor. What is worth having is the derived
+ * answers — what a capability ships, and who owns a repository — which a reader cannot get by
+ * looking at one place in the file.
+ */
+async function capabilityCommand(positionals, options) {
+  const root = repoRoot();
+  const portfolio = await loadPortfolio(root, { required: false });
+  const map = await loadCapabilityMap(root, portfolio);
+  if (!map) {
+    throw new SingularityFlowError(`No capability map exists. Describe what this organisation builds in ${CAPABILITY_MAP_PATH}.`);
+  }
+  const subcommand = positionals[1] ?? 'tree';
+
+  if (subcommand === 'show') {
+    const id = requirePositional(positionals, 2, 'capability ID');
+    const deliveries = deliveriesUnder(map, id);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ id, deliveries }, null, 2));
+    console.log(`${id} ships from ${deliveries.length} ${deliveries.length === 1 ? 'repository' : 'repositories'}`);
+    for (const delivery of deliveries) console.log(`  ${delivery.id.padEnd(28)} ${delivery.repository}`);
+    return;
+  }
+
+  if (subcommand === 'of') {
+    const repository = requirePositional(positionals, 2, 'repository ID');
+    const owner = capabilityForRepository(map, repository);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(owner, null, 2));
+    if (!owner) return console.log(`No capability claims repository '${repository}'.`);
+    console.log(`${repository} delivers ${owner.id}`);
+    if (owner.ancestors.length) console.log(`  within ${owner.ancestors.join(' / ')}`);
+    return;
+  }
+
+  const rows = flattenCapabilities(map);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(map, null, 2));
+  for (const row of rows) {
+    const indent = '  '.repeat(row.depth);
+    const suffix = row.kind === 'delivery' ? `  → ${row.repository}` : '';
+    console.log(`${indent}${row.name}${suffix}`);
+  }
+  const deliveries = rows.filter((row) => row.kind === 'delivery').length;
+  console.log(`\n${rows.length} capabilities, ${deliveries} delivering from ${map.repositories.length} ${map.repositories.length === 1 ? 'repository' : 'repositories'}.`);
 }
 
 async function knowledgeCommand(positionals, options) {
@@ -4547,6 +4600,7 @@ async function dispatch(command, positionals, options) {
     desktop: () => desktopCommand(positionals, options),
     initiative: () => initiativeCommand(positionals, options),
     knowledge: () => knowledgeCommand(positionals, options),
+    capability: () => capabilityCommand(positionals, options),
     epic: () => epicCommand(positionals, options),
     story: () => storyCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),

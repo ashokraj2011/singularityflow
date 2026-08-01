@@ -310,7 +310,7 @@ test('the built extension activates against a real repository and populates the 
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
   assert.deepEqual(roots.map((node) => node.id),
-    ['initiative:INIT-CHECKOUT', 'world-model', 'configuration'],
+    ['initiative:INIT-CHECKOUT', 'capabilities', 'world-model', 'configuration'],
     'the Epic, plus the things that belong to the repository rather than to any Epic');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 

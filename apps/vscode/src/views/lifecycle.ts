@@ -7,15 +7,24 @@ import { buildTree, type TreeNode } from './tree-model.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
-  private readonly store: WorkspaceStore;
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();
   private readonly subscription: { dispose(): void };
   private roots: TreeNode[] = [];
 
   readonly onDidChangeTreeData = this.emitter.event;
 
-  constructor(store: WorkspaceStore) {
-    this.store = store;
+  /**
+   * @param store the workspace, or null when the extension cannot serve it — in which case `roots`
+   *   is a fixed explanation. A provider is registered either way: leaving the contributed view
+   *   unprovided is what makes VS Code report that no data provider exists, which says nothing
+   *   about the repository the reader actually has open.
+   */
+  constructor(store: WorkspaceStore | null, roots: TreeNode[] = []) {
+    this.roots = roots;
+    if (!store) {
+      this.subscription = { dispose() {} };
+      return;
+    }
     this.subscription = store.onDidChange((state) => {
       this.roots = buildTree(state.snapshot, state.error);
       this.emitter.fire(undefined);

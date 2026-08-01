@@ -14,23 +14,66 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './ac
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
-import type { TreeNode } from './views/tree-model.ts';
+import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) return;
-
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
+
+  /**
+   * Register the view with a fixed explanation and stop.
+   *
+   * Every path out of activation goes through here rather than returning bare. A contributed view
+   * with no provider makes VS Code report that no data provider is registered, which describes the
+   * extension's internals and nothing about the repository the reader has open.
+   */
+  const unavailable = (label: string, detail: string, contextValue?: string): void => {
+    output.appendLine(`${label} — ${detail}`);
+    const provider = new LifecycleTreeProvider(null, unavailableTree(label, detail, contextValue));
+    context.subscriptions.push(provider);
+    context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
+      treeDataProvider: provider
+    }));
+  };
+
+  // Offered from the uninitialized state, so a folder that is not yet a Flow repository can become
+  // one without leaving the editor. Registered before any early return, since that is exactly when
+  // it is the only useful thing to do.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.init', async () => {
+    const target = vscode.workspace.workspaceFolders?.[0];
+    if (!target) return;
+    const confirmed = await vscode.window.showWarningMessage(
+      'Initialize Singularity Flow in this repository?',
+      { modal: true, detail: `This writes singularity/ into ${target.uri.fsPath} and commits it.` },
+      'Initialize');
+    if (confirmed !== 'Initialize') return;
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      await new SingularityFlowClient({ location, repository: target.uri.fsPath, onOutput: (text) => output.append(text) })
+        .runText(['init']);
+      // The extension host has to reload: activation already decided this was not a Flow repository.
+      const reload = await vscode.window.showInformationMessage(
+        'Singularity Flow initialized. Reload the window to open it?', 'Reload');
+      if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      void vscode.window.showErrorMessage((error as Error).message);
+    }
+  }));
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    return unavailable('No folder is open',
+      'Open the repository that contains singularity/workflow.yml.');
+  }
 
   let repository: string;
   try {
     repository = await validateRepositoryDirectory(folder.uri.fsPath);
   } catch (error) {
-    // Not a Singularity Flow repository is an ordinary state for a folder to be in, not a failure to
-    // report loudly; the reason goes to the channel for anyone who expected otherwise.
-    output.appendLine(`Not activating: ${(error as Error).message}`);
-    return;
+    // Not a Singularity Flow repository is an ordinary state for a folder to be in. It is said in
+    // the view, where the person is looking, and the view offers to initialize one.
+    return unavailable('Not a Singularity Flow repository',
+      (error as Error).message, 'sflow.uninitialized');
   }
 
   const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -47,7 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   } catch (error) {
     void vscode.window.showErrorMessage((error as Error).message);
-    return;
+    return unavailable('No Singularity Flow CLI was found', (error as Error).message);
   }
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
 

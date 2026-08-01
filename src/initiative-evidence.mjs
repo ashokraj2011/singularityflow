@@ -314,6 +314,82 @@ function distinctApprovals(records) {
   return new Set(records.map(({ record }) => actorEmail(record.actor))).size;
 }
 
+function packDefinitions(initiative) {
+  return initiative.resolution.packs ?? [];
+}
+
+function packDefinition(initiative, packId) {
+  const pack = packDefinitions(initiative).find((candidate) => candidate.id === packId);
+  if (!pack) throw new SingularityFlowError(`Unknown initiative artifact pack '${packId}'.`);
+  return pack;
+}
+
+// A pack becomes reviewable at the latest phase that contributes a member: everything it contains has
+// been produced by then, and gating it any earlier would block a phase on artifacts that do not exist
+// yet. This is what lets one pack span phases.
+function packTerminalPhase(initiative, pack) {
+  const order = new Map(initiative.resolution.phases.map((phase) => [phase.id, phase.order]));
+  let terminal = null;
+  let latest = -1;
+  for (const member of pack.members) {
+    const position = order.get(member.split('/')[0]);
+    if (position != null && position > latest) { latest = position; terminal = member.split('/')[0]; }
+  }
+  return terminal;
+}
+
+function packsTerminatingAt(initiative, phaseId) {
+  return packDefinitions(initiative).filter((pack) => packTerminalPhase(initiative, pack) === phaseId);
+}
+
+// Hash exactly the pack's members, so a pack that spans phases still has one stable identity and an
+// approval binds to the precise artifact set a reviewer saw. Missing members are recorded rather than
+// skipped: a pack whose member has not been published must not hash the same as a complete one.
+function initiativePackBundle(initiative, pack) {
+  const members = pack.members.map((member) => {
+    const [phaseId, outputId] = member.split('/');
+    const output = initiative.phases[phaseId]?.outputs?.[outputId] ?? null;
+    return {
+      member,
+      status: output?.status ?? 'missing',
+      generation: output?.generation ?? 0,
+      sha256: output?.sha256 ?? null
+    };
+  }).sort((left, right) => left.member.localeCompare(right.member));
+  // A pack may legitimately contain optional outputs — an opportunity brief carries a roadmap only
+  // when one exists. Completeness therefore tracks the members the profile actually requires, while
+  // the hash still covers every member, so approving a pack binds to whether the optional artifact
+  // was present at review time.
+  const required = new Set(pack.members.filter((member) => {
+    const [phaseId, outputId] = member.split('/');
+    return initiativeOutputRequired(initiative, phaseId, outputDefinition(initiative, phaseId, outputId));
+  }));
+  const value = { initiativeId: initiative.initiative.id, pack: pack.id, members };
+  return {
+    value,
+    sha256: recordSha256(value),
+    members: members.map((entry) => ({ ...entry, required: required.has(entry.member) })),
+    missing: members.filter((entry) => required.has(entry.member) && (!entry.sha256 || !['published', 'approved'].includes(entry.status)))
+  };
+}
+
+export function initiativePackState(initiative, phaseId = null) {
+  const packs = phaseId ? packsTerminatingAt(initiative, phaseId) : packDefinitions(initiative);
+  return packs.map((pack) => {
+    const bundle = initiativePackBundle(initiative, pack);
+    return {
+      id: pack.id,
+      label: pack.label,
+      members: pack.members,
+      terminalPhase: packTerminalPhase(initiative, pack),
+      sha256: bundle.sha256,
+      complete: bundle.missing.length === 0,
+      missing: bundle.missing.map((entry) => entry.member),
+      approval: pack.approval
+    };
+  });
+}
+
 export async function initiativeBundle(root, portfolio, initiative, phaseId, { now = new Date() } = {}) {
   const phase = initiative.phases[phaseId];
   const checklist = await evaluateInitiativeChecklist(root, initiative, portfolio, phaseId, { now });
@@ -407,6 +483,32 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       errors.push(`${phaseId} has ${milestone.incomplete.length} blocking stories below ${milestone.requiredMilestone}`);
     } else {
       passes.push(`${phaseId}: all ${milestone.blockingStories} blocking stories reached ${milestone.requiredMilestone}`);
+    }
+  }
+  // Artifact packs are evaluated unconditionally, exactly like individual output approvals, so the
+  // pack must be complete and signed off before the phase gate can pass. Publication does not run this
+  // evaluation, so a pack can still be assembled and reviewed after its members are published.
+  for (const pack of packsTerminatingAt(initiative, phaseId)) {
+    const packBundle = initiativePackBundle(initiative, pack);
+    if (packBundle.missing.length) {
+      errors.push(`artifact pack ${pack.id} is incomplete: ${packBundle.missing.map((entry) => entry.member).join(', ')}`);
+      continue;
+    }
+    if (pack.approval.mode === 'none') {
+      passes.push(`artifact pack complete: ${pack.id}@${packBundle.sha256.slice(0, 12)}`);
+      continue;
+    }
+    const decisions = activeApprovalRecords(bundle.approvals, {
+      phaseId,
+      subjectType: 'pack',
+      subjectId: pack.id,
+      subjectHash: packBundle.sha256
+    }, bundle.invalidatedApprovals);
+    const count = distinctApprovals(decisions);
+    if (count < pack.approval.minimum) {
+      errors.push(`artifact pack ${pack.id} has ${count}/${pack.approval.minimum} approvals for exact pack ${packBundle.sha256.slice(0, 12)}`);
+    } else {
+      passes.push(`artifact pack approval: ${pack.id}@${packBundle.sha256.slice(0, 12)}`);
     }
   }
   if (phase.status === 'approved' && definition.bundleApproval.mode !== 'none') {
@@ -569,6 +671,16 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
 
 function approvalSubject(initiative, phaseId, subject, bundle) {
   if (subject === 'phase') return { definition: phaseDefinition(initiative, phaseId).bundleApproval, type: 'phase', id: phaseId, sha256: bundle.sha256 };
+  // Packs are addressed explicitly as 'pack:<id>' so a pack can never be shadowed by an output or
+  // checklist item that happens to share its name.
+  if (subject.startsWith('pack:')) {
+    const pack = packDefinition(initiative, subject.slice('pack:'.length));
+    const terminal = packTerminalPhase(initiative, pack);
+    if (terminal !== phaseId) throw new SingularityFlowError(`Artifact pack '${pack.id}' is reviewed at phase '${terminal}', not '${phaseId}'.`);
+    const packBundle = initiativePackBundle(initiative, pack);
+    if (packBundle.missing.length) throw new SingularityFlowError(`Artifact pack '${pack.id}' is incomplete: ${packBundle.missing.map((entry) => entry.member).join(', ')}.`);
+    return { definition: pack.approval, type: 'pack', id: pack.id, sha256: packBundle.sha256, generatedBy: null };
+  }
   const output = initiative.phases[phaseId].outputs[subject];
   if (output) return { definition: outputDefinition(initiative, phaseId, subject).approval, type: 'output', id: subject, sha256: output.sha256, generatedBy: output.generatedBy };
   const check = initiative.phases[phaseId].checklist[subject];
@@ -583,7 +695,7 @@ function approvalSubject(initiative, phaseId, subject, bundle) {
       generatedBy: null
     };
   }
-  throw new SingularityFlowError(`Unknown approval subject '${subject}'. Use phase, an output ID, or a checklist ID.`);
+  throw new SingularityFlowError(`Unknown approval subject '${subject}'. Use phase, 'pack:<id>', an output ID, or a checklist ID.`);
 }
 
 export async function approveInitiative(root, {

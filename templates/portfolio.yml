@@ -107,6 +107,70 @@ initiativeProfiles:
     description: Seven phase gates for complex regulated or multi-team delivery.
     lifecycleMode: full-delivery
     phases: [discover-define, design-iterate, pre-inception, inception, elaboration, construction, delivery]
+    # Artifact packs are the deliverables a governance body reviews as one unit. A pack is reviewed at
+    # the latest phase that contributes a member, so a pack may span phases: product readiness is the
+    # gate plus inception, and release readiness is construction plus delivery. Members that the
+    # profile marks optional are hashed but do not hold the pack open.
+    packs:
+      - id: opportunity-investment-brief
+        label: Opportunity & Investment Brief
+        members:
+          - discover-define/opportunity-brief
+          - discover-define/business-case
+          - discover-define/product-roadmap
+        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+      - id: concept-readiness
+        label: Concept Readiness
+        members:
+          - discover-define/requirements
+        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+      - id: experience-strategy-concepts
+        label: Experience Strategy & Concepts
+        members:
+          - design-iterate/service-blueprint
+          - design-iterate/design-specification
+          - design-iterate/solution-validation
+        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+      - id: product-readiness
+        label: Product Readiness
+        members:
+          - pre-inception/initiative-scope
+          - pre-inception/compliance-assessment
+          - inception/prfaq
+          - inception/intake-record
+          - inception/epic-record
+          - inception/stakeholder-raci
+          - inception/feasibility-report
+        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+      - id: technical-design-architecture
+        label: Technical Design & Architecture
+        members:
+          - elaboration/solution-architecture
+          - elaboration/adr-log
+          - elaboration/interface-contracts
+          - elaboration/nfr-specification
+          - elaboration/data-source-decision
+        approval: { mode: bundle, authorities: [architecture-reviewers], minimum: 1 }
+      - id: implementation-specification
+        label: Implementation Specification
+        members:
+          - elaboration/story-plan
+          - elaboration/sequencing-plan
+          - elaboration/dependency-matrix
+          - elaboration/functional-tests
+        approval: { mode: bundle, authorities: [architecture-reviewers], minimum: 1 }
+      - id: validation-release-readiness
+        label: Validation & Release Readiness
+        members:
+          - construction/test-attestation
+          - construction/cicd-readiness
+          - construction/nfr-assessment
+          - construction/operational-readiness
+          - delivery/deployment-record
+          - delivery/production-validation
+          - delivery/observability-handoff
+          - delivery/initiative-conformance
+        approval: { mode: bundle, authorities: [operations-reviewers], minimum: 1 }
 
 initiativePhases:
   epic-intake:

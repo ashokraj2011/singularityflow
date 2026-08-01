@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
@@ -142,6 +143,18 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
   safeId(manifest.id, 'Workspace ID');
   manifest.name = String(manifest.name ?? `${manifest.anchor.key} — ${manifest.anchor.title}`).trim();
   manifest.leadRepository = safeId(manifest.leadRepository, 'Lead repository ID');
+  // What this workspace is for. A workspace is a set of capabilities and a working directory; the
+  // repositories are what those capabilities deliver from. Optional, because a repository can be
+  // governed before anyone has described what it builds — and because workspaces created before
+  // this existed are still valid.
+  manifest.capabilities = [...new Set((manifest.capabilities ?? [])
+    .map((id) => String(id ?? '').trim())
+    .filter(Boolean))].sort();
+  for (const id of manifest.capabilities) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+      throw new SingularityFlowError(`Workspace capability '${id}' must be lower-case kebab-case.`);
+    }
+  }
   const rawRepositories = object(manifest.repositories, 'Workspace repositories');
   const repositories = {};
   const paths = new Set();
@@ -280,7 +293,7 @@ function validateRepositoryPlan(repositories, leadRepository) {
 }
 
 export function previewWorkspace({
-  baseDirectory, anchor, name, repositories, leadRepository
+  baseDirectory, anchor, name, repositories, leadRepository, capabilities
 }) {
   if (!baseDirectory) throw new SingularityFlowError('Choose a workspace base directory.');
   const normalizedAnchor = normalizeWorkspaceAnchor(anchor);
@@ -295,6 +308,7 @@ export function previewWorkspace({
       anchor: normalizedAnchor,
       leadRepository: lead,
       repositories: normalized,
+      capabilities,
       createdAt: nowIso(),
       updatedAt: nowIso()
     }, { workspaceRoot: root }),
@@ -380,6 +394,27 @@ export async function workspaceRepositoryDefaults(repository) {
  * workspace that already records governance history, or starting one.
  */
 /**
+ * Which branch a remote actually hands you.
+ *
+ * The symref is the answer when there is one. There is not always one: a bare repository created
+ * before its first branch keeps a HEAD pointing at a ref that never appeared, and `ls-remote` then
+ * lists the branches without a HEAD line at all. Assuming `main` there invents an answer that is
+ * right often enough to hide the times it is wrong — and a workspace cloned on the wrong branch is a
+ * confusing thing to debug — so the branches that do exist are consulted first.
+ */
+function remoteDefaultBranch(remote, symrefOutput) {
+  const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
+  if (symref?.[1]) return symref[1];
+
+  const heads = run('git', ['ls-remote', '--heads', remote], { allowFailure: true });
+  const branches = heads.status === 0
+    ? [...heads.stdout.matchAll(/^\S+\s+refs\/heads\/(\S+)$/gm)].map((match) => match[1])
+    : [];
+  if (branches.length === 1) return branches[0];
+  return branches.find((branch) => branch === 'main' || branch === 'master') ?? branches[0] ?? 'main';
+}
+
+/**
  * Whether a target names somewhere to clone from, rather than a checkout already on disk.
  *
  * The scheme prefixes are the easy half. An absolute path can be either, and the distinction matters
@@ -410,8 +445,7 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
   if (head.status !== 0) {
     throw new SingularityFlowError(`Cannot reach '${remote}': ${(head.stderr || head.stdout).trim().split('\n')[0]}`);
   }
-  const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(head.stdout);
-  const defaultBranch = symref?.[1] ?? 'main';
+  const defaultBranch = remoteDefaultBranch(remote, head.stdout);
 
   const state = run('git', ['ls-remote', '--heads', remote, stateBranch], { allowFailure: true });
   const hasStateBranch = state.status === 0 && Boolean(state.stdout.trim());
@@ -430,8 +464,86 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
   return { id, url: remote, defaultBranch, hasStateBranch, stateBranch, localPath: null, required: true };
 }
 
+/**
+ * The capability map held by a lead repository, read from the remote.
+ *
+ * A workspace is a set of capabilities and a working directory; the repositories follow from the
+ * capabilities, because a delivery capability is the thing that names one. But the map lives inside
+ * the lead repository, so it cannot be read until the lead is named — which is why naming the lead
+ * by URL comes first and everything else is derived from what comes back.
+ *
+ * Nothing is checked out and no blobs are fetched beyond the one file: this runs while somebody is
+ * still filling in a form, and cloning a monorepo to read four kilobytes of YAML would be felt.
+ *
+ * @returns the tree and what each capability delivers, or `{ capabilities: null, reason }` when the
+ *   lead repository does not describe what it builds — which is a normal state for a new
+ *   organisation, not a failure.
+ */
+export async function workspaceRemoteCapabilities(url, {
+  capabilitiesPath = 'singularity/capabilities.yml',
+  portfolioPath = 'singularity/portfolio.yml'
+} = {}) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A repository URL is required.');
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
+  try {
+    // Partial clones are refused by some servers and by older Git; without the filter this still
+    // works, it just fetches one commit's blobs.
+    // Named explicitly rather than left to HEAD: a remote whose HEAD points at a branch that never
+    // existed clones with nothing to resolve, and `git show HEAD:` then reports the map as absent
+    // when it is right there on the only branch the repository has.
+    const branch = remoteDefaultBranch(remote, run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout);
+    const clone = (extra) => run('git', [
+      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra, remote, scratch
+    ], { allowFailure: true });
+    let cloned = clone(['--filter=blob:none']);
+    if (cloned.status !== 0) {
+      await rm(scratch, { recursive: true, force: true });
+      await mkdir(scratch, { recursive: true });
+      cloned = clone([]);
+    }
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(`Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+    }
+
+    const shown = run('git', ['show', `HEAD:${capabilitiesPath}`], { cwd: scratch, allowFailure: true });
+    if (shown.status !== 0) {
+      return { capabilities: null, deliveries: [], reason: `${remote} does not contain ${capabilitiesPath}.`, path: capabilitiesPath };
+    }
+
+    // The map names repository identifiers; the portfolio is what turns those into somewhere to
+    // clone from. Read in the same fetch, because a capability you cannot clone is not a choice.
+    const portfolioText = run('git', ['show', `HEAD:${portfolioPath}`], { cwd: scratch, allowFailure: true });
+    const portfolio = portfolioText.status === 0 ? (YAML.parse(portfolioText.stdout)?.repositories ?? {}) : {};
+
+    const { capabilityTree, flattenCapabilityTree, validateCapabilities } = await import('./capabilities.mjs');
+    const definition = validateCapabilities(YAML.parse(shown.stdout));
+    const tree = capabilityTree(definition);
+    return {
+      capabilities: tree,
+      // Flat, because the caller's next question is always "which repositories is that?".
+      deliveries: flattenCapabilityTree(tree)
+        .filter((row) => row.repository)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          repository: row.repository,
+          ancestors: row.ancestors,
+          // Null when the capability names a repository the portfolio does not declare — a real
+          // state, and one the person choosing needs to see rather than discover at clone time.
+          url: portfolio[row.repository]?.url ?? null,
+          defaultBranch: portfolio[row.repository]?.defaultBranch ?? 'main'
+        })),
+      reason: null,
+      path: capabilitiesPath
+    };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
 export function previewWorkspaceConfiguration({
-  baseDirectory, id, name, repositories, leadRepository
+  baseDirectory, id, name, repositories, leadRepository, capabilities
 }) {
   const workspaceId = safeId(id, 'Workspace ID');
   const workspaceName = String(name ?? workspaceId).trim();
@@ -445,7 +557,8 @@ export function previewWorkspaceConfiguration({
     },
     name: workspaceName,
     repositories,
-    leadRepository
+    leadRepository,
+    capabilities
   });
 }
 
@@ -456,7 +569,8 @@ export function createWorkspaceConfiguration(options, settings = {}) {
     anchor: preview.manifest.anchor,
     name: preview.manifest.name,
     repositories: preview.manifest.repositories,
-    leadRepository: preview.manifest.leadRepository
+    leadRepository: preview.manifest.leadRepository,
+    capabilities: preview.manifest.capabilities
   }, settings);
 }
 

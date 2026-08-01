@@ -802,74 +802,228 @@ test('each working lens is openable as the file that defines it', () => {
   assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
 });
 
-const { EMPTY_FORM, EMPTY_DRAFT, draftUrls, formProblems, formCommand, workspaceFormHtml } =
-  await import(source('views/workspace-form.ts'));
+const {
+  EMPTY_FORM, EMPTY_DRAFT, coveredCapabilities, derivedRepositories, draftUrls, flattenChoices,
+  formProblems, formCommand, hasCapabilityMap, uncloneable, workspaceFormHtml
+} = await import(source('views/workspace-form.ts'));
 
 const repository = (id, extra = {}) => ({
   id, url: `https://example.com/${id}.git`, defaultBranch: 'main',
   hasStateBranch: false, stateBranch: 'state', ...extra
 });
 
+/** The lead's map, as `workspace capabilities --json` returns it. */
+const REMOTE_TREE = [{
+  id: 'commerce', name: 'Commerce', repository: null, children: [
+    {
+      id: 'payments', name: 'Payments', repository: null, children: [
+        { id: 'payments-api', name: 'Payments API', repository: 'api', children: [] }
+      ]
+    },
+    { id: 'storefront', name: 'Storefront', repository: null, children: [
+      { id: 'storefront-web', name: 'Storefront Web', repository: 'web', children: [] }
+    ] }
+  ]
+}];
+const REMOTE_DELIVERIES = [
+  { id: 'payments-api', url: 'https://example.com/api.git', defaultBranch: 'main' },
+  { id: 'storefront-web', url: 'https://example.com/web.git', defaultBranch: 'trunk' }
+];
+
+const withMap = (selected = []) => ({
+  ...EMPTY_FORM,
+  base: '/work', id: 'checkout-platform', name: 'Checkout platform',
+  lead: repository('platform'),
+  capabilities: flattenChoices(REMOTE_TREE, REMOTE_DELIVERIES),
+  selected
+});
+
 test('an empty workspace form reports every outstanding requirement at once', () => {
   // Revealing them one at a time is how a five-field form takes five attempts.
   const problems = formProblems(EMPTY_FORM);
-  assert.equal(problems.length, 3);
   assert.match(problems.join(' '), /where the workspace directory/);
   assert.match(problems.join(' '), /identifier/);
-  assert.match(problems.join(' '), /at least one repository/);
+  assert.match(problems.join(' '), /lead repository, which holds the capability map/);
 });
 
-test('a complete form has no problems and describes the command it will run', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'checkout-platform', name: 'Checkout platform',
-    repositories: [repository('api'), repository('web')], lead: 'api'
-  };
+test("the lead's map is flattened with each capability's depth, ancestors and clone URL", () => {
+  const rows = flattenChoices(REMOTE_TREE, REMOTE_DELIVERIES);
+  assert.deepEqual(rows.map((row) => row.id),
+    ['commerce', 'payments', 'payments-api', 'storefront', 'storefront-web']);
+  const api = rows.find((row) => row.id === 'payments-api');
+  assert.equal(api.depth, 2);
+  assert.deepEqual(api.ancestors, ['commerce', 'payments']);
+  assert.equal(api.repository, 'api');
+  assert.equal(api.url, 'https://example.com/api.git', 'joined from the portfolio');
+  assert.equal(rows.find((row) => row.id === 'commerce').repository, null, 'a grouping ships nothing');
+});
+
+test('choosing a capability includes everything beneath it, the way a directory does', () => {
+  const form = withMap(['payments']);
+  assert.deepEqual(coveredCapabilities(form).map((entry) => entry.id), ['payments', 'payments-api']);
+
+  // And the repositories follow from that, rather than being curated separately.
+  assert.deepEqual(derivedRepositories(form).map((entry) => entry.id), ['platform', 'api']);
+  assert.equal(derivedRepositories(form).find((entry) => entry.id === 'api').defaultBranch, 'main');
+
+  const whole = withMap(['commerce']);
+  assert.deepEqual(derivedRepositories(whole).map((entry) => entry.id), ['platform', 'api', 'web']);
+  assert.equal(derivedRepositories(whole).find((entry) => entry.id === 'web').defaultBranch, 'trunk',
+    'the branch each repository actually uses, from the portfolio');
+});
+
+test('the lead is always in the workspace: it holds the map and the state branch', () => {
+  // A workspace that omitted its lead could not read its own configuration.
+  assert.deepEqual(derivedRepositories(withMap([])).map((entry) => entry.id), ['platform']);
+});
+
+test('a workspace with a map records the capabilities it is for, not just the repositories', () => {
+  const form = withMap(['payments']);
   assert.deepEqual(formProblems(form), []);
-  assert.deepEqual(formCommand(form), [
+  const argv = formCommand(form);
+  assert.deepEqual(argv.slice(0, 12), [
     'workspace', 'create', '--local', '--json',
-    '--id', 'checkout-platform', '--base', '/work', '--lead', 'api', '--confirm', 'checkout-platform',
-    '--name', 'Checkout platform',
-    '--repository', 'api=https://example.com/api.git',
-    '--repository', 'web=https://example.com/web.git'
+    '--id', 'checkout-platform', '--base', '/work', '--lead', 'platform',
+    '--confirm', 'checkout-platform'
   ]);
+  assert.match(argv.join(' '), /--capability payments/);
+  assert.match(argv.join(' '), /--repository api=https:\/\/example\.com\/api\.git/);
+  assert.match(argv.join(' '), /--default-branch api=main/);
+  assert.doesNotMatch(argv.join(' '), /--repository web=/, 'storefront was not chosen');
+});
+
+test('a lead whose map is read but nothing chosen from cannot be created', () => {
+  assert.match(formProblems(withMap([])).join(' '), /Choose the capabilities this workspace is for/);
+});
+
+test('a capability naming a repository the portfolio does not declare is named, not silently dropped', () => {
+  // Discovering this at clone time, halfway through, is the expensive version of finding out.
+  const form = {
+    ...withMap(['commerce']),
+    capabilities: flattenChoices(REMOTE_TREE, [REMOTE_DELIVERIES[0]])
+  };
+  assert.deepEqual(uncloneable(form).map((entry) => entry.id), ['storefront-web']);
+  assert.match(workspaceFormHtml(form), /which the lead repository's portfolio does not declare/);
+  assert.deepEqual(derivedRepositories(form).map((entry) => entry.id), ['platform', 'api']);
+});
+
+test('a lead with no capability map falls back to naming repositories by URL', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('platform'),
+    capabilities: null, capabilitiesReason: 'platform.git does not contain singularity/capabilities.yml.'
+  };
+  assert.equal(hasCapabilityMap(form), false);
+  const html = workspaceFormHtml(form);
+  assert.match(html, /does not contain singularity\/capabilities\.yml/);
+  assert.match(html, /describe capabilities from the Capabilities screen/);
+  assert.match(html, /Add a repository/, 'the fallback is offered rather than a dead end');
+
+  // The lead alone is enough to create with, because it is a repository like any other.
+  assert.deepEqual(formProblems(form), []);
+});
+
+test('the capability tree is the form, and says which rows came in through a parent', () => {
+  const html = workspaceFormHtml(withMap(['payments']));
+  assert.match(html, /Commerce/);
+  assert.match(html, /data-capability="payments-api"/);
+  assert.match(html, /included by its parent/);
+  assert.match(html, /choosing a\s*\n?\s*directory includes its contents/);
+  // The repositories are shown as a consequence, not as something to curate.
+  assert.match(html, /What the chosen capabilities deliver from/);
+  assert.doesNotMatch(html, /Add a repository/, 'no by-URL card once a map exists');
+});
+
+test('the workspace form asks for a working directory and a lead, in that order', () => {
+  const html = workspaceFormHtml(EMPTY_FORM);
+  assert.ok(html.indexOf('Working directory') < html.indexOf('Lead repository'));
+  assert.ok(html.indexOf('Lead repository') < html.indexOf('Capabilities'));
+  assert.ok(html.indexOf('Capabilities') < html.indexOf('Repositories'));
+  assert.match(html, /data-draft="lead"/);
+  assert.match(html, /Read its capability map/);
+  assert.match(html, /Name the lead repository first/);
 });
 
 test('two repositories with the same identifier is a problem, not a silent overwrite', () => {
   const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w',
-    repositories: [repository('api'), repository('api', { url: 'https://elsewhere/api.git' })], lead: 'api'
+    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api'),
+    repositories: [repository('api'), repository('api', { url: 'https://elsewhere/api.git' })]
   };
   assert.match(formProblems(form).join(' '), /More than one repository is called 'api'/);
 });
 
-test('a repository set with no lead cannot be created', () => {
-  const form = { ...EMPTY_FORM, base: '/work', id: 'w', repositories: [repository('api')], lead: null };
-  assert.match(formProblems(form).join(' '), /which repository leads/);
-});
-
 test('an identifier that is not a safe id is refused before the CLI sees it', () => {
-  const form = { ...EMPTY_FORM, base: '/work', id: 'has spaces', repositories: [repository('api')], lead: 'api' };
+  const form = { ...EMPTY_FORM, base: '/work', id: 'has spaces', lead: repository('api') };
   assert.match(formProblems(form).join(' '), /letters, numbers, dots, underscores and hyphens/i);
 });
 
 test('the form renders each repository with what was read from its remote', () => {
   const form = {
     ...EMPTY_FORM, base: '/work', id: 'w',
-    repositories: [repository('api', { defaultBranch: 'trunk' })], lead: 'api'
+    lead: repository('api', { defaultBranch: 'trunk', hasStateBranch: true })
   };
   const html = workspaceFormHtml(form);
   assert.match(html, /https:\/\/example\.com\/api\.git/);
   assert.match(html, /trunk/);
-  assert.match(html, /name="lead" value="api"[^>]*checked/);
-  // Named specifically: the add-repository button is legitimately disabled while its own URL field
-  // is empty, so a bare search for "disabled" says nothing about the button this test is about.
+  assert.match(html, /<span class="pill ok">state<\/span>/, 'the state branch is already there');
   assert.match(html, /<button data-submit="create" >/);
+});
+
+test('a lead with no state branch says the orphan branch is created with the workspace', () => {
+  const form = { ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api') };
+  assert.match(workspaceFormHtml(form), /orphan <code>state<\/code> branch/);
+  assert.match(workspaceFormHtml(form), /created when this workspace is/);
 });
 
 test('a form still missing something disables the button and lists why', () => {
   const html = workspaceFormHtml({ ...EMPTY_FORM, id: 'w' });
   assert.match(html, /Before this can be created/);
   assert.match(html, /<button data-submit="create" disabled>/);
+});
+
+test('a repository is added by a form on the page, not by a prompt over it', () => {
+  // A prompt shows one field, cannot be corrected without starting over, and covers the rows you
+  // already have while you type — which is the whole reason this is a panel.
+  const form = { ...EMPTY_FORM, lead: repository('platform') };
+  const html = workspaceFormHtml(form);
+  assert.match(html, /Add a repository/);
+  assert.match(html, /data-draft="url"/);
+  assert.match(html, /data-draft="id"/);
+  assert.match(html, /<button data-add="repository" disabled>/);
+  assert.match(html, /read from the URL/, 'the identifier is optional and says why');
+});
+
+test('the add button counts the URLs actually given', () => {
+  const base = { ...EMPTY_FORM, lead: repository('platform') };
+  const one = { ...base, draft: { ...EMPTY_DRAFT, url: ' https://example.com/api.git ' } };
+  assert.deepEqual(draftUrls(one.draft), ['https://example.com/api.git']);
+  assert.match(workspaceFormHtml(one), /<button data-add="repository">\s*Add repository/);
+
+  // Several at once is the case the identifier field cannot serve, so it is disabled and the form
+  // says what will happen instead of silently naming three repositories one thing.
+  const many = {
+    ...base,
+    draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git https://example.com/web.git' }
+  };
+  assert.equal(draftUrls(many.draft).length, 2);
+  const html = workspaceFormHtml(many);
+  assert.match(html, /Add 2 repositories/);
+  assert.match(html, /2 URLs given/);
+});
+
+test('while a remote is being read the form says so and refuses a second read', () => {
+  const form = { ...EMPTY_FORM, adding: true, leadDraft: 'https://example.com/platform.git' };
+  const html = workspaceFormHtml(form);
+  assert.match(html, /Reading…/);
+  assert.match(html, /<button data-read="lead" disabled>/);
+  assert.match(html, /data-draft="lead"[\s\S]{0,120}disabled/);
+});
+
+test('a URL that cannot be read is reported on the form, beside the field it was typed into', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api'),
+    error: "Cannot reach 'https://example.com/gone.git': repository not found."
+  };
+  assert.match(workspaceFormHtml(form), /Cannot reach/);
 });
 
 const { isGovernedConfiguration } = await import(source('governed.ts'));
@@ -1375,52 +1529,3 @@ test('a capability that ships is rendered as one whatever its kind says', () => 
   assert.equal(flattenCapabilities(withMap.capabilityMap.capabilities).length, 2);
 });
 
-test('a repository is added by a form on the page, not by a prompt over it', () => {
-  // A prompt shows one field, cannot be corrected without starting over, and covers the rows you
-  // already have while you type — which is the whole reason this is a panel.
-  const html = workspaceFormHtml(EMPTY_FORM);
-  assert.match(html, /Add a repository/);
-  assert.match(html, /data-draft="url"/);
-  assert.match(html, /data-draft="id"/);
-  assert.match(html, /data-draft="lead"/);
-  assert.match(html, /Leads this workspace/);
-  // Nothing to add yet, so the button says so by being unpressable rather than by failing.
-  assert.match(html, /<button data-add="repository" disabled>/);
-  assert.match(html, /read from the URL/, 'the identifier is optional and says why');
-});
-
-test('the add button counts the URLs actually given', () => {
-  const one = { ...EMPTY_FORM, draft: { ...EMPTY_DRAFT, url: ' https://example.com/api.git ' } };
-  assert.deepEqual(draftUrls(one.draft), ['https://example.com/api.git']);
-  assert.match(workspaceFormHtml(one), /<button data-add="repository">\s*Add repository/);
-
-  // Several at once is the case the identifier field cannot serve, so it is disabled and the form
-  // says what will happen instead of silently naming three repositories one thing.
-  const many = {
-    ...EMPTY_FORM,
-    draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git https://example.com/web.git' }
-  };
-  assert.equal(draftUrls(many.draft).length, 2);
-  const html = workspaceFormHtml(many);
-  assert.match(html, /Add 2 repositories/);
-  assert.match(html, /2 URLs given/);
-  assert.match(html, /data-draft="id" size="20"\s*\n?\s*placeholder="read from the URL" disabled/);
-});
-
-test('while a remote is being read the form says so and refuses a second add', () => {
-  const form = {
-    ...EMPTY_FORM, adding: true, draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git' }
-  };
-  const html = workspaceFormHtml(form);
-  assert.match(html, /Reading the remote…/);
-  assert.match(html, /<button data-add="repository" disabled>/);
-  assert.match(html, /data-draft="url"[\s\S]{0,120}disabled/);
-});
-
-test('a URL that cannot be read is reported on the form, beside the field it was typed into', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w', repositories: [repository('api')], lead: 'api',
-    error: "Could not read 'https://example.com/gone.git': repository not found."
-  };
-  assert.match(workspaceFormHtml(form), /Could not read/);
-});

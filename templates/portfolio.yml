@@ -60,8 +60,10 @@ jira:
 # and never grant initiative approval authority.
 approvalAuthorities:
   initiative-owners: { members: [] }
+  executive-approvers: { members: [] }
   product-approvers: { members: [] }
   architecture-reviewers: { members: [] }
+  security-reviewers: { members: [] }
   risk-reviewers: { members: [] }
   operations-reviewers: { members: [] }
 
@@ -112,13 +114,20 @@ initiativeProfiles:
     # gate plus inception, and release readiness is construction plus delivery. Members that the
     # profile marks optional are hashed but do not hold the pack open.
     packs:
+      # A pack may name an ordered review chain instead of a flat authority list. Each step is one
+      # governance body, and a step opens only once every earlier step has signed, so the control
+      # plane is expressed rather than approximated by a headcount.
       - id: opportunity-investment-brief
         label: Opportunity & Investment Brief
         members:
           - discover-define/opportunity-brief
           - discover-define/business-case
           - discover-define/product-roadmap
-        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+        approval:
+          mode: bundle
+          chain:
+            - { authority: product-approvers, label: Product Governance }
+            - { authority: executive-approvers, label: Executive Decisioning }
       - id: concept-readiness
         label: Concept Readiness
         members:
@@ -141,7 +150,11 @@ initiativeProfiles:
           - inception/epic-record
           - inception/stakeholder-raci
           - inception/feasibility-report
-        approval: { mode: bundle, authorities: [product-approvers], minimum: 1 }
+        approval:
+          mode: bundle
+          chain:
+            - { authority: product-approvers, label: Product Governance }
+            - { authority: risk-reviewers, label: LRC Review }
       - id: technical-design-architecture
         label: Technical Design & Architecture
         members:
@@ -150,7 +163,11 @@ initiativeProfiles:
           - elaboration/interface-contracts
           - elaboration/nfr-specification
           - elaboration/data-source-decision
-        approval: { mode: bundle, authorities: [architecture-reviewers], minimum: 1 }
+        approval:
+          mode: bundle
+          chain:
+            - { authority: architecture-reviewers, label: Architecture Review }
+            - { authority: security-reviewers, label: Security Review }
       - id: implementation-specification
         label: Implementation Specification
         members:
@@ -170,7 +187,12 @@ initiativeProfiles:
           - delivery/production-validation
           - delivery/observability-handoff
           - delivery/initiative-conformance
-        approval: { mode: bundle, authorities: [operations-reviewers], minimum: 1 }
+        approval:
+          mode: bundle
+          chain:
+            - { authority: operations-reviewers, label: Operational Readiness }
+            - { authority: security-reviewers, label: Security Review }
+            - { authority: initiative-owners, label: Stage Gate Approval }
 
 initiativePhases:
   epic-intake:

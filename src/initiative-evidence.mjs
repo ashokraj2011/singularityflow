@@ -107,16 +107,58 @@ function outputDefinition(initiative, phaseId, outputId) {
   return output;
 }
 
-export function isAuthorized(resolution, policy, actor) {
+export function isAuthorized(resolution, policy, actor, records = null) {
   if (policy.mode === 'none') return true;
   const email = actorEmail(actor);
   if (!email) return false;
-  return (policy.authorities ?? []).some((authorityId) =>
-    (resolution.approvalAuthorities[authorityId]?.members ?? []).some((member) => member.email.toLowerCase() === email));
+  // With a chain, only the body whose step is currently open may sign. Callers that have no decision
+  // history to reason about (rejection, evidence waivers) fall back to the union of the chain's
+  // bodies, which is the same question those callers were always asking.
+  if (policy.chain && records) {
+    const progress = approvalChainProgress(policy, records);
+    if (!progress.open) return false;
+    return authorityMembers(resolution, progress.open.authority).has(email);
+  }
+  return (policy.authorities ?? []).some((authorityId) => authorityMembers(resolution, authorityId).has(email));
 }
 
 export function authorityDescription(policy) {
   return (policy.authorities ?? []).join(', ') || 'no configured authority';
+}
+
+function authorityMembers(resolution, authorityId) {
+  return new Set((resolution.approvalAuthorities?.[authorityId]?.members ?? [])
+    .map((member) => String(member.email ?? '').toLowerCase())
+    .filter(Boolean));
+}
+
+// Each decision records the chain step it satisfied, rather than being matched to a body after the
+// fact. Without that, one reviewer who sits on two bodies would silently satisfy both steps with a
+// single approval, and the record would not say which body they signed for.
+export function approvalChainProgress(policy, records) {
+  if (!policy?.chain) return null;
+  const steps = policy.chain.map((step, index) => {
+    const signatures = new Set(records
+      .filter(({ record }) => record.subject?.chainStep === index)
+      .map(({ record }) => actorEmail(record.actor))
+      .filter(Boolean));
+    return {
+      index,
+      authority: step.authority,
+      label: step.label,
+      minimum: step.minimum,
+      count: signatures.size,
+      satisfied: signatures.size >= step.minimum
+    };
+  });
+  const open = steps.find((step) => !step.satisfied) ?? null;
+  return { steps, open, satisfied: !open };
+}
+
+export function chainStatusDescription(progress) {
+  if (!progress) return null;
+  if (progress.satisfied) return 'all review steps satisfied';
+  return `waiting on ${progress.open.label} (${progress.open.count}/${progress.open.minimum})`;
 }
 
 function approvalPolicyForCheck(initiative, phaseId, check) {
@@ -504,9 +546,11 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       subjectId: pack.id,
       subjectHash: packBundle.sha256
     }, bundle.invalidatedApprovals);
-    const count = distinctApprovals(decisions);
-    if (count < pack.approval.minimum) {
-      errors.push(`artifact pack ${pack.id} has ${count}/${pack.approval.minimum} approvals for exact pack ${packBundle.sha256.slice(0, 12)}`);
+    const progress = approvalChainProgress(pack.approval, decisions);
+    const complete = progress ? progress.satisfied : distinctApprovals(decisions) >= pack.approval.minimum;
+    if (!complete) {
+      const detail = progress ? chainStatusDescription(progress) : `${distinctApprovals(decisions)}/${pack.approval.minimum} approvals`;
+      errors.push(`artifact pack ${pack.id} has ${detail} for exact pack ${packBundle.sha256.slice(0, 12)}`);
     } else {
       passes.push(`artifact pack approval: ${pack.id}@${packBundle.sha256.slice(0, 12)}`);
     }
@@ -518,9 +562,12 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       subjectId: phaseId,
       subjectHash: bundle.sha256
     }, bundle.invalidatedApprovals);
+    const progress = approvalChainProgress(definition.bundleApproval, decisions);
     const count = distinctApprovals(decisions);
-    if (count < definition.bundleApproval.minimum) {
-      errors.push(`phase ${phaseId} has ${count}/${definition.bundleApproval.minimum} approvals for exact bundle ${bundle.sha256.slice(0, 12)}`);
+    const complete = progress ? progress.satisfied : count >= definition.bundleApproval.minimum;
+    if (!complete) {
+      const detail = progress ? chainStatusDescription(progress) : `${count}/${definition.bundleApproval.minimum} approvals`;
+      errors.push(`phase ${phaseId} has ${detail} for exact bundle ${bundle.sha256.slice(0, 12)}`);
     } else {
       passes.push(`phase bundle approval: ${phaseId}@${bundle.sha256.slice(0, 12)}`);
     }
@@ -715,7 +762,20 @@ export async function approveInitiative(root, {
   if (!target.sha256) throw new SingularityFlowError(`Approval subject '${subject}' has no published hash.`);
   const actor = identity(root);
   if (!actorEmail(actor)) throw new SingularityFlowError('Initiative approval requires a configured local Git email.');
-  if (!isAuthorized(initiative.resolution, target.definition, actor)) throw new SingularityFlowError(`${actorEmail(actor)} is not authorized to approve ${target.type} '${target.id}'. Required authority: ${authorityDescription(target.definition)}.`);
+  const priorDecisions = activeApprovalRecords(bundle.approvals, {
+    phaseId: selectedPhase,
+    subjectType: target.type,
+    subjectId: target.id,
+    subjectHash: target.sha256
+  }, bundle.invalidatedApprovals);
+  const chainBefore = approvalChainProgress(target.definition, priorDecisions);
+  if (chainBefore?.satisfied) throw new SingularityFlowError(`${target.type} '${target.id}' has already completed its review chain.`);
+  if (!isAuthorized(initiative.resolution, target.definition, actor, priorDecisions)) {
+    const required = chainBefore
+      ? `${chainBefore.open.label} (chain step ${chainBefore.open.index + 1} of ${chainBefore.steps.length})`
+      : authorityDescription(target.definition);
+    throw new SingularityFlowError(`${actorEmail(actor)} is not authorized to approve ${target.type} '${target.id}'. Required authority: ${required}.`);
+  }
   if (target.type === 'phase') {
     const gate = await evaluateInitiativePhase(root, portfolio, initiative, selectedPhase);
     if (!gate.ready) throw new SingularityFlowError(`Initiative phase '${selectedPhase}' is not ready:\n- ${gate.errors.join('\n- ')}`);
@@ -728,6 +788,7 @@ export async function approveInitiative(root, {
     subjectHash: target.sha256
   }, bundle.invalidatedApprovals);
   if (current.some(({ record }) => actorEmail(record.actor) === actorEmail(actor))) throw new SingularityFlowError(`${actorEmail(actor)} already approved this exact ${target.type} hash.`);
+  const chainStep = approvalChainProgress(target.definition, current)?.open ?? null;
   const generatedByEmail = actorEmail(target.generatedBy);
   const phaseGeneratedByActor = Object.values(phase.outputs).some((output) => actorEmail(output.generatedBy) === actorEmail(actor));
   const selfApproval = generatedByEmail === actorEmail(actor) || (target.type === 'phase' && phaseGeneratedByActor);
@@ -738,7 +799,14 @@ export async function approveInitiative(root, {
     decision: 'approved',
     initiativeId,
     phase: selectedPhase,
-    subject: { type: target.type, id: target.id, sha256: target.sha256 },
+    subject: {
+      type: target.type,
+      id: target.id,
+      sha256: target.sha256,
+      // Recorded only for chained policies, so a reviewer on two bodies cannot satisfy two steps with
+      // one decision, and the record names the body they signed for.
+      ...(chainStep ? { chainStep: chainStep.index, authorityGroup: chainStep.authority } : {})
+    },
     actor,
     identityAssurance: 'configured-local',
     persona,
@@ -748,7 +816,8 @@ export async function approveInitiative(root, {
   };
   const appended = await appendInitiativeRecord(root, portfolio, initiativeId, 'approvals', record);
   const after = [...current, appended];
-  const reached = distinctApprovals(after) >= target.definition.minimum;
+  const chainAfter = approvalChainProgress(target.definition, after);
+  const reached = chainAfter ? chainAfter.satisfied : distinctApprovals(after) >= target.definition.minimum;
   if (reached && target.type === 'output') phase.outputs[target.id].status = 'approved';
   if (reached && target.type === 'phase') {
     phase.status = 'approved';

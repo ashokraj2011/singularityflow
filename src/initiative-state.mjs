@@ -730,9 +730,12 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
  */
 export async function setInitiativeApplicability(root, initiativeId, policyId, applicable, { reason = null, persona = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
-  const policy = portfolio.applicabilityPolicies?.[policyId];
+  // The Epic's own pinned policies, so the question being answered is the one it started under.
+  // Older Epics were pinned before policies were carried into the resolution, so they fall back.
+  const declaredPolicies = initiative.resolution?.applicabilityPolicies ?? portfolio.applicabilityPolicies ?? {};
+  const policy = declaredPolicies[policyId];
   if (!policy) {
-    const declared = Object.keys(portfolio.applicabilityPolicies ?? {});
+    const declared = Object.keys(declaredPolicies);
     throw new SingularityFlowError(`Unknown applicability policy '${policyId}'.${declared.length ? ` Declared policies: ${declared.join(', ')}.` : ''}`);
   }
   if (typeof applicable !== 'boolean') throw new SingularityFlowError(`Applicability for '${policyId}' must be answered yes or no.`);
@@ -756,7 +759,8 @@ export async function setInitiativeApplicability(root, initiativeId, policyId, a
 
 /** Every declared policy with its answer, so a UI or the CLI can show what is still unanswered. */
 export function initiativeApplicabilityState(portfolio, initiative) {
-  return Object.entries(portfolio.applicabilityPolicies ?? {}).map(([id, policy]) => {
+  const declared = initiative.resolution?.applicabilityPolicies ?? portfolio.applicabilityPolicies ?? {};
+  return Object.entries(declared).map(([id, policy]) => {
     const answer = initiative.applicability?.[id] ?? null;
     return {
       id,

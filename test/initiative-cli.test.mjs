@@ -323,3 +323,53 @@ test('a local Epic can choose its working lens with --persona, and an unknown le
   const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
   assert.equal(session.persona, 'product-owner', 'the flag is what actually selected the lens');
 });
+
+test('approval harvests knowledge from the approved artifact, in the same commit', async () => {
+  // Harvest existed but nothing called it except an explicit `knowledge harvest`, so in every real
+  // Epic the store stayed empty and the feed-forward into later phases had nothing to feed. And no
+  // path committed knowledge at all: the records survived only as untracked files, which every
+  // governed command afterwards refuses to run against.
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-KNOW', '--title', 'Knowledge carrier']);
+  execute(root, ['initiative', 'phase', 'define']);
+
+  const artifact = path.join(root, 'singularity/initiatives/INIT-KNOW/artifacts/define/business-case.md');
+  await writeFile(artifact, `${await readFile(artifact, 'utf8')}
+## Decisions to revisit
+
+| Decision | Why it may need revisiting |
+|---|---|
+| Ship behind a flag first | The rollout depends on error rates we cannot predict |
+
+## Still unknown
+
+| Open question | What would resolve it |
+|---|---|
+| Whether the vendor supports batch mode | A written answer from the vendor |
+`);
+  execute(root, ['initiative', 'phase', 'publish', 'define']);
+
+  const before = JSON.parse(execute(root, ['knowledge', 'list', '--json']).stdout);
+  assert.deepEqual(before, [], 'nothing is harvested before the artifact is approved');
+
+  const approved = execute(root, ['initiative', 'approve', 'business-case', '--acknowledge-self-approval'],
+    { confirm: 'define:business-case' });
+  assert.match(approved.stdout, /Recorded 2 knowledge entries/);
+
+  const after = JSON.parse(execute(root, ['knowledge', 'list', '--json']).stdout);
+  assert.equal(after.length, 2);
+  assert.deepEqual(after.map((entry) => entry.record.type).sort(), ['decision', 'uncertainty']);
+  // Provenance points at the exact approved artifact, not just the phase.
+  assert.equal(after[0].record.provenance.output, 'business-case');
+  assert.equal(after[0].record.provenance.initiativeId, 'INIT-KNOW');
+
+  // The records are committed with the approval, and the checkout is left clean.
+  assert.equal(git(root, ['status', '--porcelain']), '', 'approval leaves no untracked knowledge behind');
+  const committed = git(root, ['show', '--name-only', '--format=', 'HEAD']);
+  assert.match(committed, /singularity\/knowledge\/records\//, 'knowledge landed in the approval commit');
+
+  // And it feeds forward: the next composed prompt carries it as evidence.
+  const context = execute(root, ['initiative', 'context', 'define']).stdout;
+  assert.match(context, /Prior knowledge/);
+  assert.match(context, /Whether the vendor supports batch mode/);
+});

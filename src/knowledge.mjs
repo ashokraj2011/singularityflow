@@ -16,7 +16,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { identity } from './git.mjs';
-import { canonicalJson, recordSha256 } from './initiative-evidence.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, secureRepositoryPath, writeText } from './util.mjs';
 
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';

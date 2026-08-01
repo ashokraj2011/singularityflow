@@ -390,3 +390,24 @@ test('artifact packs are pinned into the resolution and covered by its hash', as
   assert.notEqual(after.resolutionSha256, resolution.resolutionSha256,
     'changing a pack changes the resolution hash');
 });
+
+test('applicability policies are pinned into the resolution and covered by its hash', async () => {
+  // A conditional check is only meaningful alongside the question that was asked. Reading these from
+  // the live portfolio meant the wording someone answered "no" to could be edited afterwards,
+  // leaving an audit trail of an answer to a question that no longer existed.
+  const root = await repository();
+  const portfolio = await loadPortfolio(root);
+  const resolution = await snapshotInitiativeResolution(
+    root, portfolio, resolveInitiativeProfile(portfolio, 'enterprise-delivery'));
+
+  assert.deepEqual(Object.keys(resolution.applicabilityPolicies).sort(),
+    ['ai-use-case', 'domain-review-required', 'security-review-required', 'ux-required']);
+  assert.equal(resolution.applicabilityPolicies['ux-required'].label, 'UX design required');
+
+  const edited = structuredClone(portfolio);
+  edited.applicabilityPolicies['ux-required'].question = 'A different question entirely?';
+  const after = await snapshotInitiativeResolution(
+    root, edited, resolveInitiativeProfile(edited, 'enterprise-delivery'));
+  assert.notEqual(after.resolutionSha256, resolution.resolutionSha256,
+    'rewording a policy changes the resolution hash');
+});

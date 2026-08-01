@@ -680,6 +680,11 @@ export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = n
     lifecycleMode: profile.lifecycleMode,
     phases: profile.phases.map((id, order) => resolveProfilePhase(portfolio, profile, id, order)),
     packs: structuredClone(profile.packs ?? []),
+    // Pinned for the same reason as phases and packs: a conditional check is only meaningful
+    // alongside the question that was asked. Reading the live portfolio meant the wording someone
+    // answered "no" to could be edited afterwards, leaving an audit trail of an answer to a question
+    // that no longer exists.
+    applicabilityPolicies: structuredClone(portfolio.applicabilityPolicies ?? {}),
     repositories: structuredClone(portfolio.repositories),
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
     identity: { ...structuredClone(portfolio.identity), authority, configurablePerEpic: false },
@@ -727,6 +732,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     // governance body signs off on, so changing its membership changes what an approval meant.
     // Leaving it out let a portfolio edit silently redefine an approval an Epic had already given.
     packs: resolved.packs,
+    applicabilityPolicies: resolved.applicabilityPolicies,
     repositories: resolved.repositories,
     approvalAuthorities: resolved.approvalAuthorities,
     identity: resolved.identity,
@@ -745,6 +751,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     templates,
     phases: structuredClone(resolved.phases),
     packs: structuredClone(resolved.packs ?? []),
+    applicabilityPolicies: structuredClone(resolved.applicabilityPolicies ?? {}),
     repositories: structuredClone(resolved.repositories),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities),
     identity: structuredClone(resolved.identity),

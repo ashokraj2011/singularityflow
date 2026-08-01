@@ -20,7 +20,7 @@ import {
   table,
   writeText
 } from './util.mjs';
-import { assertClean, branch, changes, checkout, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import {
   approvePhase,
   assertNoPendingPublication,
@@ -99,6 +99,7 @@ import {
 } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import {
+  KNOWLEDGE_ROOT,
   currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge
 } from './knowledge.mjs';
 import {
@@ -2240,6 +2241,20 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2)); else printSelectionReceipt(receipt);
 }
 
+/**
+ * Commit whatever the knowledge store just gained.
+ *
+ * Knowledge records were written and never committed by any path, so "Git is the database" did not
+ * hold for them: the entries survived only as untracked files, and every governed command that
+ * follows refuses to run against a dirty checkout. Kept separate from commitInitiativeChange because
+ * a recorded decision need not belong to an initiative at all.
+ */
+function commitKnowledge(root, message) {
+  add(root, [KNOWLEDGE_ROOT]);
+  if (!changes(root).length) return null;
+  return commit(root, message);
+}
+
 async function knowledgeCommand(positionals, options) {
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'list';
@@ -2251,6 +2266,7 @@ async function knowledgeCommand(positionals, options) {
       detail: optionString(options, 'detail') ?? null,
       tags: (optionString(options, 'tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean)
     });
+    if (result.created) commitKnowledge(root, `[knowledge][${result.record.type}] ${result.record.title}`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(`${result.created ? 'Recorded' : 'Already recorded'} ${result.record.type} ${result.sha256.slice(0, 12)}: ${result.record.title}`);
   }
@@ -2259,6 +2275,7 @@ async function knowledgeCommand(positionals, options) {
     const result = await resolveKnowledge(root, requirePositional(positionals, 2, 'knowledge entry hash'), {
       resolution: optionString(options, 'resolution') ?? positionals.slice(3).join(' ')
     });
+    commitKnowledge(root, `[knowledge][resolve] ${result.record.supersedes.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(`Resolved ${result.record.supersedes.slice(0, 12)} as ${result.sha256.slice(0, 12)}: ${result.record.detail}`);
   }
@@ -2276,6 +2293,7 @@ async function knowledgeCommand(positionals, options) {
       for (const candidate of result.candidates) console.log(`${candidate.type.padEnd(12)} ${candidate.provenance.phase}/${candidate.provenance.output}  ${candidate.title}`);
       return console.log(`\n${result.candidates.length} entr${result.candidates.length === 1 ? 'y' : 'ies'} would be harvested. Re-run without --dry-run to record them.`);
     }
+    if (result.harvested.length) commitKnowledge(root, `[${initiativeId}][knowledge][harvest] ${result.harvested.length} entries`);
     for (const entry of result.harvested) console.log(`${entry.record.type.padEnd(12)} ${entry.sha256.slice(0, 12)}  ${entry.record.title}`);
     return console.log(`\nHarvested ${result.harvested.length}; ${result.skipped} already recorded.`);
   }
@@ -2639,8 +2657,17 @@ async function initiativeCommand(positionals, options) {
     if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected))) throw new SingularityFlowError('Initiative approval cancelled.');
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const result = await approveInitiative(root, { initiativeId, phaseId, subject, persona: session.persona, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`);
+    // Knowledge harvested by this approval is committed with it. Two commits would let one land
+    // without the other, and leaving it unstaged left the working tree dirty — which the next
+    // governed command refuses outright, since every one of them starts from a clean checkout.
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
+      extraPaths: result.knowledge?.harvested?.length ? [KNOWLEDGE_ROOT] : []
+    });
     console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    if (result.knowledge?.harvested?.length) {
+      console.log(`Recorded ${result.knowledge.harvested.length} knowledge ${result.knowledge.harvested.length === 1 ? 'entry' : 'entries'} from the approved artifacts.`);
+    }
+    if (result.knowledge?.error) console.warn(`Warning: knowledge harvest failed and was skipped: ${result.knowledge.error}`);
     if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
     if (result.next) console.log(`Current phase: ${result.next}`);
     else if (result.initiative.status === 'complete') console.log('Initiative complete.');

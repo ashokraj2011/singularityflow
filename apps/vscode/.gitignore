@@ -1,2 +1,5 @@
 dist/
 node_modules/
+# Build outputs: the packaged extension, and the engine staged into it during packaging.
+*.vsix
+cli/

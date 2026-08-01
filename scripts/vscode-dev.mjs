@@ -18,7 +18,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -293,6 +293,63 @@ async function demoRepository() {
   return { repository: lead, epic };
 }
 
+/**
+ * The engine, staged inside the extension so a packaged install is self-contained.
+ *
+ * resolveCli already looks for `<extensionPath>/cli/bin/singularity-flow.mjs` — the same layout the
+ * desktop app uses for its extraResources. Without this an installed extension finds no engine and
+ * the first thing a new user meets is a settings path to fill in, which is a poor greeting for a tool
+ * whose entire value is that it runs commands for you.
+ *
+ * `yaml` comes along because it is the engine's one dependency; `npm run check` asserts there is
+ * exactly one, so this list does not quietly grow.
+ */
+const CLI_PAYLOAD = ['bin', 'src', 'templates', 'plugin', 'schemas', 'package.json'];
+
+async function stageCli() {
+  const staged = path.join(extension, 'cli');
+  await rm(staged, { recursive: true, force: true });
+  await mkdir(staged, { recursive: true });
+  for (const entry of CLI_PAYLOAD) {
+    await cp(path.join(root, entry), path.join(staged, entry), { recursive: true });
+  }
+  await cp(path.join(root, 'node_modules', 'yaml'), path.join(staged, 'node_modules', 'yaml'), { recursive: true });
+  return staged;
+}
+
+async function packageExtension() {
+  step('Staging the CLI inside the extension');
+  const staged = await stageCli();
+  try {
+    step('Packaging a .vsix');
+    // vsce is not a dependency of this repository; npx fetches it on demand.
+    const pack = spawnSync('npx', ['--yes', '@vscode/vsce', 'package',
+      '--no-dependencies', '--allow-missing-repository'], { cwd: extension, stdio: 'inherit' });
+    if (pack.status !== 0) {
+      console.error('\nPackaging needs @vscode/vsce, which npx fetches, so it needs network access.');
+      console.error('Without it, use the development host instead: node scripts/vscode-dev.mjs');
+      process.exitCode = 1;
+      return;
+    }
+  } finally {
+    // Staged only for the package; leaving it would shadow the repository CLI during development.
+    await rm(staged, { recursive: true, force: true });
+  }
+
+  const vsix = path.join(extension, 'singularity-flow-vscode-0.9.0.vsix');
+  console.log([
+    '',
+    'Install or re-install it with:',
+    `  code --install-extension ${vsix} --force`,
+    '',
+    '--force is what makes it a re-install: without it VS Code skips a version it already has,',
+    'and the version does not change between builds. Reload the window afterwards.',
+    '',
+    'The engine ships inside the package, so there is nothing to configure.',
+    ''
+  ].join('\n'));
+}
+
 async function main() {
   step('Building the extension');
   const build = spawnSync(process.execPath, [path.join(extension, 'esbuild.mjs')], {
@@ -301,20 +358,7 @@ async function main() {
   if (build.status !== 0) throw new Error('The extension bundle failed to build.');
 
   if (flag('package')) {
-    step('Packaging a .vsix');
-    // vsce is not a dependency of this repository; npx fetches it on demand.
-    const pack = spawnSync('npx', ['--yes', '@vscode/vsce', 'package', '--no-dependencies', '--allow-missing-repository'], {
-      cwd: extension, stdio: 'inherit'
-    });
-    if (pack.status !== 0) {
-      console.error('\nPackaging needs @vscode/vsce, which is fetched by npx and so needs network access.');
-      console.error('Without it, use the development host instead: node scripts/vscode-dev.mjs');
-      process.exitCode = 1;
-      return;
-    }
-    console.log(`\nInstall it with:\n  code --install-extension ${path.join(extension, 'singularity-flow-vscode-0.9.0.vsix')}`);
-    console.log('A packaged install does not ship the CLI. Point it at one with the singularityFlow.cliPath setting:');
-    console.log(`  ${cli}`);
+    await packageExtension();
     return;
   }
 

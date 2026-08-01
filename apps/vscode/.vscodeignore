@@ -1,0 +1,11 @@
+# Only the bundle, its icon, and the CLI it drives are needed at runtime. The TypeScript sources are
+# in Git; shipping them again in every install helps nobody, and the test fixture is a 42 KB snapshot
+# that has no business in a published extension.
+src/**
+test/**
+tsconfig.json
+esbuild.mjs
+**/*.map
+.vscodeignore
+
+# The staged CLI is deliberately NOT ignored: a packaged install has no other way to find an engine.

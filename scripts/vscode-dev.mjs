@@ -9,6 +9,9 @@
  *   node scripts/vscode-dev.mjs                     build, make a demo Epic, open it
  *   node scripts/vscode-dev.mjs --repo /path/to/x   build and open an existing Flow repository
  *   node scripts/vscode-dev.mjs --demo-only         make the demo repository and print its path
+ *   node scripts/vscode-dev.mjs --github            drive the real GitHub sandbox repositories
+ *                                                   (owner from --owner, SFLOW_SANDBOX_OWNER, or gh)
+ *   node scripts/vscode-dev.mjs --clean-github      delete the branches --github created
  *   node scripts/vscode-dev.mjs --package           build a .vsix for installing properly
  *   node scripts/vscode-dev.mjs --editor cursor     use Cursor instead of VS Code
  *
@@ -105,11 +108,87 @@ const confirm = (expected, args, cwd) => spawnSync(process.execPath, [cli, ...ar
 });
 
 /**
- * A repository with an Epic driven all the way to materialized Story branches, so every view has
- * something in it: a pinned source, approved artifacts, a Story plan across two repositories with a
- * real dependency, and two seeded Story branches.
+ * Whose sandbox repositories to use.
+ *
+ * Taken from --owner, then SFLOW_SANDBOX_OWNER, then whoever `gh` is logged in as. Deliberately not
+ * hard-coded: `npm run check` forbids committing a personal repository reference, and a demo script
+ * that names one person's account is wrong for everyone else anyway.
  */
-async function demoRepository() {
+function sandboxOwner() {
+  const explicit = value('owner') ?? process.env.SFLOW_SANDBOX_OWNER;
+  if (explicit) return explicit;
+  const probe = spawnSync('gh', ['api', 'user', '--jq', '.login'], { encoding: 'utf8' });
+  const login = probe.status === 0 ? probe.stdout.trim() : '';
+  if (!login) {
+    throw new Error('Could not tell whose sandbox repositories to use. Pass --owner <github-account>, '
+      + 'set SFLOW_SANDBOX_OWNER, or authenticate with `gh auth login`.');
+  }
+  return login;
+}
+
+const sandboxUrl = (repo) => `https://github.com/${sandboxOwner()}/${repo}.git`;
+
+/**
+ * The three GitHub sandbox repositories, used with --github.
+ *
+ * Real remotes make this a true end-to-end run: materialization clones each one, branches from its
+ * default branch, and pushes. The Story identifiers are deliberately unmistakable so the branches
+ * this creates are obviously the demo's, and so a re-run lands on the same branches rather than
+ * accumulating new ones.
+ */
+const SANDBOX = {
+  'sandbox-api': {
+    repo: 'sflow-sandbox-api',
+    story: 'SFLOW-DEMO-API',
+    title: 'Payment intent endpoint for stored credentials',
+    description: 'As a returning shopper, I want my stored card charged in one call, so that checkout is a single tap.',
+    specification: 'Adds POST /payment-intents accepting a stored-credential token, idempotent by request key.',
+    requirements: ['REQ-001', 'REQ-002'],
+    acceptanceCriteria: ['AC-001', 'AC-002'],
+    dependsOn: []
+  },
+  'sandbox-web-write': {
+    repo: 'sflow-sandbox-web-write',
+    story: 'SFLOW-DEMO-WRITE',
+    title: 'One-tap purchase sheet',
+    description: 'As a returning shopper, I want a single-tap purchase sheet, so that I do not re-enter details.',
+    specification: 'Replaces the confirmation step with a one-tap sheet when a stored card is present.',
+    requirements: ['REQ-001'],
+    acceptanceCriteria: ['AC-001'],
+    dependsOn: ['SFLOW-DEMO-API']
+  },
+  'sandbox-web-read': {
+    repo: 'sflow-sandbox-web-read',
+    story: 'SFLOW-DEMO-READ',
+    title: 'Order confirmation view',
+    description: 'As a returning shopper, I want the confirmation to show what was charged, so that I can trust the tap.',
+    specification: 'Renders the payment intent result, including the acquirer decision.',
+    requirements: ['REQ-002'],
+    acceptanceCriteria: ['AC-002'],
+    dependsOn: ['SFLOW-DEMO-API']
+  }
+};
+
+/** Delete the branches the demo creates, so a sandbox can be returned to its prior state. */
+async function cleanSandbox() {
+  for (const [id, entry] of Object.entries(SANDBOX)) {
+    const url = sandboxUrl(entry.repo);
+    const existing = spawnSync('git', ['ls-remote', '--heads', url, entry.story], { encoding: 'utf8' });
+    if (!existing.stdout.trim()) { console.log(`  ${id}: no ${entry.story} branch`); continue; }
+    const deleted = spawnSync('git', ['push', url, '--delete', entry.story], { encoding: 'utf8' });
+    console.log(`  ${id}: ${deleted.status === 0 ? `deleted ${entry.story}` : `could not delete ${entry.story} — ${deleted.stderr.trim()}`}`);
+  }
+}
+
+/**
+ * A repository with an Epic driven all the way to materialized Story branches, so every view has
+ * something in it: a pinned source, approved artifacts, a Story plan across repositories with real
+ * dependencies, and a seeded Story branch in each.
+ *
+ * The lead repository is always local. It holds the Epic's governed state, and writing that into a
+ * code repository — even a sandbox — would leave it there permanently.
+ */
+async function demoRepository({ github = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-demo-'));
   const child = async (name) => {
     const work = path.join(base, name);
@@ -126,8 +205,17 @@ async function demoRepository() {
     git(['push', bare, 'main'], work);
     return bare;
   };
-  const api = await child('api');
-  const mobile = await child('mobile');
+  // Either fabricated locally, or the real sandbox remotes. Same shape either way: an id, a URL,
+  // and one Story that lands in it.
+  const repositories = github
+    ? Object.fromEntries(Object.entries(SANDBOX).map(([id, entry]) => [id, { ...entry, url: sandboxUrl(entry.repo) }]))
+    : {
+      // The local URL must come AFTER the spread, or SANDBOX's GitHub URL overwrites it and the
+      // "local" demo silently pushes Story branches to the real repositories. It did exactly that.
+      'sandbox-api': { ...SANDBOX['sandbox-api'], url: await child('api') },
+      'sandbox-web-write': { ...SANDBOX['sandbox-web-write'], url: await child('web-write') },
+      'sandbox-web-read': { ...SANDBOX['sandbox-web-read'], url: await child('web-read') }
+    };
 
   const lead = path.join(base, 'checkout-platform');
   await mkdir(lead);
@@ -146,8 +234,8 @@ async function demoRepository() {
   portfolio = portfolio.replace(/^  publish: \w+$/m, '  publish: off');
   portfolio = portfolio.replace(/^repositories:.*$/m, [
     'repositories:',
-    `  api: { url: "${api}", defaultBranch: main, required: true }`,
-    `  mobile: { url: "${mobile}", defaultBranch: main, required: true }`
+    ...Object.entries(repositories).map(([id, entry]) =>
+      `  ${id}: { url: "${entry.url}", defaultBranch: main, required: true }`)
   ].join('\n'));
   await writeFile(portfolioPath, portfolio);
 
@@ -249,20 +337,22 @@ async function demoRepository() {
     '  - planId: EPIC-001', '    title: "One-tap checkout"',
     '    description: "Reduce checkout to a single tap for returning shoppers."',
     '    acceptanceCriteria: [AC-001, AC-002]', '', '    stories:',
-    '      - planId: STORY-001',
-    '        title: "Payment intent endpoint for stored credentials"',
-    '        description: "As a returning shopper, I want my stored card charged in one call, so that checkout is a single tap."',
-    '        specification: "Adds POST /payment-intents accepting a stored-credential token, idempotent by request key."',
-    '        repository: api', '        requirements: [REQ-001, REQ-002]',
-    '        acceptanceCriteria: [AC-001, AC-002]', '        blocking: true',
-    '        suggestedWorkType: feature', '        dependsOn: []', '',
-    '      - planId: STORY-002', '        title: "One-tap purchase sheet"',
-    '        description: "As a returning shopper, I want a single-tap purchase sheet, so that I do not re-enter details."',
-    '        specification: "Replaces the confirmation step with a one-tap sheet when a stored card is present."',
-    '        repository: mobile', '        requirements: [REQ-001]',
-    '        acceptanceCriteria: [AC-001]', '        blocking: true',
-    '        suggestedWorkType: feature', '        dependsOn:',
-    '          - story: STORY-001', '            requiredPhase: implementation-spec', ''
+    ...Object.entries(repositories).flatMap(([id, entry]) => [
+      `      - planId: ${entry.story}`,
+      `        title: "${entry.title}"`,
+      `        description: "${entry.description}"`,
+      `        specification: "${entry.specification}"`,
+      `        repository: ${id}`,
+      `        requirements: [${entry.requirements.join(', ')}]`,
+      `        acceptanceCriteria: [${entry.acceptanceCriteria.join(', ')}]`,
+      '        blocking: true',
+      '        suggestedWorkType: feature',
+      ...(entry.dependsOn.length
+        ? ['        dependsOn:', ...entry.dependsOn.flatMap((dependency) => [
+          `          - story: ${dependency}`, '            requiredPhase: implementation-spec'])]
+        : ['        dependsOn: []']),
+      ''
+    ])
   ].join('\n');
   await writeFile(path.join(planning, 'story-plan.yml'), plan);
   // The executable form. Only the planning-promotion path normally writes this; the demo writes it
@@ -270,10 +360,10 @@ async function demoRepository() {
   await writeFile(path.join(lead, 'singularity/initiatives', epic, 'breakdown.yml'), plan);
 
   const { createHash } = await import('node:crypto');
-  const specs = [
-    ['STORY-001', '# STORY-001 — Payment intent endpoint\n\n## Requirements\n- REQ-001\n- REQ-002\n\n## Acceptance criteria\n- AC-001\n- AC-002\n\n## Specification\nAdds `POST /payment-intents` accepting a stored-credential token, idempotent by request key.\n'],
-    ['STORY-002', '# STORY-002 — One-tap purchase sheet\n\n## Requirements\n- REQ-001\n\n## Acceptance criteria\n- AC-001\n\n## Specification\nReplaces the confirmation step with a one-tap sheet when a stored card is present.\n']
-  ];
+  const specs = Object.values(repositories).map((entry) => [entry.story,
+    `# ${entry.story} — ${entry.title}\n\n## Requirements\n${entry.requirements.map((r) => `- ${r}`).join('\n')}\n\n`
+    + `## Acceptance criteria\n${entry.acceptanceCriteria.map((a) => `- ${a}`).join('\n')}\n\n`
+    + `## Specification\n${entry.specification}\n`]);
   const index = ['version: 1', `epicId: "${epic}"`, 'stories:'];
   for (const [id, body] of specs) {
     const file = path.join(planning, 'stories', id, 'story-spec.md');
@@ -351,6 +441,12 @@ async function packageExtension() {
 }
 
 async function main() {
+  if (flag('clean-github')) {
+    step('Deleting the demo branches from the GitHub sandboxes');
+    await cleanSandbox();
+    return;
+  }
+
   step('Building the extension');
   const build = spawnSync(process.execPath, [path.join(extension, 'esbuild.mjs')], {
     cwd: extension, stdio: 'inherit'
@@ -365,8 +461,18 @@ async function main() {
   let target = value('repo');
   let epic = null;
   if (!target) {
-    step('Creating a demo repository (this drives a real Epic to materialized Story branches)');
-    ({ repository: target, epic } = await demoRepository());
+    const github = flag('github');
+    if (github) {
+      console.log([
+        '',
+        'Using the GitHub sandbox repositories. Materialization will push one branch to each:',
+        ...Object.entries(SANDBOX).map(([id, entry]) => `  ${entry.story}  →  ${sandboxUrl(entry.repo)}`),
+        'Remove them afterwards with: node scripts/vscode-dev.mjs --clean-github',
+        ''
+      ].join('\n'));
+    }
+    step(`Creating a demo repository against ${github ? 'the GitHub sandboxes' : 'local repositories'}`);
+    ({ repository: target, epic } = await demoRepository({ github }));
   }
 
   console.log(`\nRepository: ${target}${epic ? `\nEpic:       ${epic}` : ''}`);

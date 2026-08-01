@@ -148,9 +148,10 @@ import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.m
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
 import {
-  createWorkspace, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace,
-  readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, stageWorkspaceDocuments,
-  workspaceStatus
+  archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
+  listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
+  readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
+  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceStatus
 } from './workspace.mjs';
 import {
   activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
@@ -372,6 +373,12 @@ Usage:
   singularity-flow finalize [--json]
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
+  singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
+    --repository ID=URL [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+  singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
+    [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
+  singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
+  singularity-flow workspace restore <DIRECTORY> [--json]
   singularity-flow workspace list [--json]
   singularity-flow workspace current [--json]
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
@@ -3161,8 +3168,38 @@ async function workspaceCommand(positionals, options) {
     return;
   }
   if (subcommand === 'create') {
+    // A workspace does not need a tracker to exist. The local anchor was already implemented but
+    // reachable only from the desktop app, so a Jira-less team could not create one at all once the
+    // desktop is out of the picture.
+    if (optionBoolean(options, 'local')) {
+      const workspaceId = optionString(options, 'id');
+      if (!workspaceId) throw new SingularityFlowError('workspace create --local requires --id.');
+      const localUrls = optionMap(optionStrings(options, 'repository'), '--repository');
+      const localBranches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');
+      const localInput = {
+        baseDirectory: optionString(options, 'base', process.env.SINGULARITY_FLOW_WORKSPACE_ROOT || path.join(os.homedir(), 'Singularity Workspaces')),
+        id: workspaceId,
+        name: optionString(options, 'name') ?? workspaceId,
+        leadRepository: optionString(options, 'lead'),
+        repositories: Object.fromEntries(Object.entries(localUrls).map(([id, url]) => [id, {
+          url,
+          defaultBranch: localBranches[id] ?? 'main',
+          required: true,
+          path: `repos/${id}`
+        }]))
+      };
+      if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(previewWorkspaceConfiguration(localInput), null, 2));
+      const localResult = await createWorkspaceConfiguration(localInput, {
+        confirmation: optionString(options, 'confirm'),
+        clone: optionBoolean(options, 'clone', true)
+      });
+      await rememberWorkspace(registry, localResult.workspace, localResult.status);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(localResult, null, 2));
+      console.log(`Workspace ${localResult.created ? 'created' : 'resumed'} at ${localResult.workspace.path}.`);
+      return renderWorkspaceStatus(localResult.status);
+    }
     const jiraKey = optionString(options, 'jira');
-    if (!jiraKey) throw new SingularityFlowError('workspace create requires --jira KEY.');
+    if (!jiraKey) throw new SingularityFlowError('workspace create requires --jira KEY, or --local --id ID for a workspace with no tracker.');
     let hierarchy;
     try { hierarchy = await getIssueHierarchy(jiraKey); }
     catch (error) {
@@ -3226,6 +3263,42 @@ async function workspaceCommand(positionals, options) {
     await rememberWorkspace(registry, workspace, status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
     return renderWorkspaceStatus(status);
+  }
+  if (subcommand === 'archive') {
+    const archived = await archiveWorkspace(registry, workspacePath, { confirmation: optionString(options, 'confirm') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(archived, null, 2));
+    return console.log(`Archived ${archived.workspace?.name ?? workspacePath}. Its files are untouched; restore it with singularity-flow workspace restore.`);
+  }
+  if (subcommand === 'restore') {
+    const restored = await restoreWorkspace(registry, workspacePath);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(restored, null, 2));
+    return console.log(`Restored ${restored.workspace?.name ?? workspacePath}.`);
+  }
+  if (subcommand === 'update') {
+    const updateUrls = optionMap(optionStrings(options, 'repository'), '--repository');
+    const updateBranches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');
+    const updateInput = {
+      name: optionString(options, 'name'),
+      leadRepository: optionString(options, 'lead'),
+      repositories: Object.keys(updateUrls).length
+        ? Object.fromEntries(Object.entries(updateUrls).map(([id, url]) => [id, {
+            url,
+            defaultBranch: updateBranches[id] ?? 'main',
+            required: true,
+            path: `repos/${id}`
+          }]))
+        : undefined
+    };
+    if (optionBoolean(options, 'dry-run')) {
+      return console.log(JSON.stringify(await previewWorkspaceUpdate(workspacePath, updateInput), null, 2));
+    }
+    const updated = await updateWorkspaceConfiguration(workspacePath, updateInput, {
+      confirmation: optionString(options, 'confirm')
+    });
+    await rememberWorkspace(registry, updated.workspace, updated.status);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(updated, null, 2));
+    console.log(`Updated ${updated.workspace.name}.`);
+    return renderWorkspaceStatus(updated.status);
   }
   if (subcommand === 'status') {
     const status = await workspaceStatus(workspacePath);

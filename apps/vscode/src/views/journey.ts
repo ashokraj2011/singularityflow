@@ -11,24 +11,8 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
+import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
-
-/** Everything that reaches the page goes through this. */
-function escape(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function nonce(): string {
-  // Not a secret — a CSP nonce only has to be unpredictable per render.
-  let value = '';
-  for (let index = 0; index < 32; index += 1) value += Math.floor(Math.random() * 16).toString(16);
-  return value;
-}
 
 const STATUS_CLASS: Record<string, string> = {
   approved: 'ok',
@@ -120,60 +104,9 @@ function bodyHtml(journey: Journey): string {
     <section><h2>Stories</h2>${stories}</section>`;
 }
 
-const STYLE = `
-  :root { color-scheme: light dark; }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
-         color: var(--vscode-foreground); padding: 0 1.2rem 3rem; line-height: 1.5; }
-  h1 { font-size: 1.5rem; margin: 1.2rem 0 .2rem; }
-  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
-       color: var(--vscode-descriptionForeground); margin: 2rem 0 .6rem; }
-  h3 { font-size: .95rem; margin: .8rem 0 .3rem; }
-  .meta { color: var(--vscode-descriptionForeground); margin: 0; }
-  .muted { color: var(--vscode-descriptionForeground); }
-  .ok-text { color: var(--vscode-testing-iconPassed, #3fb950); }
-  section { border-top: 1px solid var(--vscode-panel-border); }
-  header, section.next { border: 0; }
-  table { border-collapse: collapse; width: 100%; }
-  th { text-align: left; font-weight: 600; font-size: .78rem; text-transform: uppercase;
-       letter-spacing: .05em; color: var(--vscode-descriptionForeground);
-       border-bottom: 1px solid var(--vscode-panel-border); padding: .3rem .5rem .3rem 0; }
-  td { padding: .35rem .5rem .35rem 0; border-bottom: 1px solid var(--vscode-panel-border); }
-  a { color: var(--vscode-textLink-foreground); }
-  code { font-family: var(--vscode-editor-font-family); font-size: .85em; }
-  button { font-family: inherit; font-size: .85em; padding: .25rem .7rem; cursor: pointer;
-           border: 0; border-radius: 2px;
-           background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  .rail { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.4rem; }
-  .stage { display: flex; align-items: center; gap: .45rem; padding: .25rem 0; }
-  .stage .dot { width: .6rem; height: .6rem; border-radius: 50%;
-                background: var(--vscode-descriptionForeground); flex: 0 0 auto; }
-  .stage.ok .dot { background: var(--vscode-testing-iconPassed, #3fb950); }
-  .stage.wait .dot { background: var(--vscode-testing-iconQueued, #d29922); }
-  .stage.active .dot { background: var(--vscode-textLink-foreground); }
-  .stage.bad .dot { background: var(--vscode-testing-iconFailed, #f85149); }
-  .stage.current .name { font-weight: 700; }
-  .stage .count { color: var(--vscode-descriptionForeground); font-size: .8em; }
-  .pill { font-size: .78em; padding: .1rem .5rem; border-radius: 999px;
-          background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-  .pill.ok { background: var(--vscode-testing-iconPassed, #3fb950); color: #06210d; }
-  .pill.wait { background: var(--vscode-testing-iconQueued, #d29922); color: #241a00; }
-  .blockers li { margin: .2rem 0; }
-  .sources { padding-left: 1.1rem; }
-  .empty { padding: 3rem 0; color: var(--vscode-descriptionForeground); }
-`;
-
-function html(journey: Journey, csp: string, token: string): string {
-  return `<!DOCTYPE html><html lang="en"><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
-<title>Journey</title>
-<style nonce="${token}">${STYLE}</style>
-</head><body>
-${bodyHtml(journey)}
-<script nonce="${token}">
+/** The page can only name an action and an id. What either means is decided by the extension. */
+const SCRIPT = `
   const vscode = acquireVsCodeApi();
-  // The page can only name an action and an id. What either means is decided by the extension.
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-open],[data-approve],[data-run]');
     if (!target) return;
@@ -182,9 +115,7 @@ ${bodyHtml(journey)}
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
   });
-</script>
-</body></html>`;
-}
+`;
 
 export type JourneyMessage =
   | { type: 'open'; outputId: string }
@@ -243,13 +174,13 @@ export class JourneyPanel {
 
   private render(): void {
     const token = nonce();
-    const csp = [
-      "default-src 'none'",
-      `style-src 'nonce-${token}'`,
-      `script-src 'nonce-${token}'`,
-      `img-src ${this.panel.webview.cspSource}`
-    ].join('; ');
-    this.panel.webview.html = html(buildJourney(this.store.current.snapshot), csp, token);
+    this.panel.webview.html = page(
+      'Journey',
+      bodyHtml(buildJourney(this.store.current.snapshot)),
+      contentSecurityPolicy(this.panel.webview, token),
+      token,
+      SCRIPT
+    );
   }
 
   dispose(): void {

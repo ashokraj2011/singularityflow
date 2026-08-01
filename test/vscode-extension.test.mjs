@@ -526,3 +526,167 @@ test('the journey says why it is empty rather than rendering a blank page', () =
   assert.match(buildJourney({ initiative: null, initiatives: [], workItems: [] }).empty, /No Epic has been started/);
   assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /No Epic is checked out/);
 });
+
+const { buildReconciliation } = await import(source('views/reconciliation-model.ts'));
+const levelOf = (reconciliation, id) => reconciliation.levels.find((level) => level.id === id);
+
+test('an unmaterialized Epic reports nothing to compare, never that it agrees', () => {
+  // The rule the whole model turns on. An Epic with no branches has nothing to reconcile, and saying
+  // its branches agree would be the most dangerous sentence this view could produce.
+  const reconciliation = buildReconciliation(snapshot, null);
+  assert.deepEqual(reconciliation.levels.map((level) => level.id),
+    ['branches', 'stories', 'repositories', 'conformance']);
+  for (const level of reconciliation.levels) {
+    assert.notEqual(level.verdict, 'aligned', `${level.id} must not claim alignment with no data`);
+    assert.equal(level.verdict, 'not-applicable');
+    assert.ok(level.reason, `${level.id} says why it cannot be judged`);
+  }
+  assert.match(levelOf(reconciliation, 'branches').reason, /materialized/);
+  assert.equal(levelOf(reconciliation, 'branches').remedy, 'singularity-flow initiative materialize');
+});
+
+test('a stale or never-observed Story branch is drift; moving on from the seed is not', () => {
+  // A branch that has moved past its seed is doing the work. Drift is the Epic's record being stale.
+  const materialized = structuredClone(snapshot);
+  materialized.initiative.state.childStories = {
+    'API-1': { workId: 'API-1', repository: 'api', status: 'in-progress', currentPhase: 'build',
+      seedCommit: 'aaaa1111', observedCommit: 'bbbb2222', stale: false },
+    'MOB-1': { workId: 'MOB-1', repository: 'mobile', status: 'seeded', currentPhase: null,
+      seedCommit: 'cccc3333', observedCommit: 'cccc3333', stale: false },
+    'MOB-2': { workId: 'MOB-2', repository: 'mobile', status: 'in-progress', currentPhase: 'build',
+      seedCommit: 'dddd4444', observedCommit: 'eeee5555', stale: true }
+  };
+  const level = levelOf(buildReconciliation(materialized, null), 'branches');
+  assert.equal(level.verdict, 'drifted');
+  assert.equal(level.rows.find((row) => row.id === 'API-1').drifted, false, 'moved on, but observed');
+  assert.equal(level.rows.find((row) => row.id === 'MOB-1').drifted, false, 'still at seed');
+  assert.equal(level.rows.find((row) => row.id === 'MOB-2').drifted, true, 'the record is stale');
+  assert.match(level.rows.find((row) => row.id === 'MOB-2').detail, /sync/);
+  assert.equal(level.remedy, 'singularity-flow initiative sync');
+});
+
+test('a branch that was never observed is drift, not silence', () => {
+  const materialized = structuredClone(snapshot);
+  materialized.initiative.state.childStories = {
+    'API-1': { workId: 'API-1', repository: 'api', status: 'seeded', seedCommit: 'aaaa', observedCommit: null }
+  };
+  const [row] = levelOf(buildReconciliation(materialized, null), 'branches').rows;
+  assert.equal(row.drifted, true);
+  assert.match(row.cells.at(-1), /never observed/);
+});
+
+test('only a blocking Story that is not ready holds the Epic back', () => {
+  const withDelivery = structuredClone(snapshot);
+  withDelivery.initiative.delivery = {
+    materialized: true,
+    blockers: ['API-1 has not completed implementation'],
+    stories: [
+      { id: 'API-1', workId: 'API-1', repository: 'api', blocking: true, ready: false, reason: 'implementation incomplete' },
+      { id: 'MOB-1', workId: 'MOB-1', repository: 'mobile', blocking: true, ready: true },
+      { id: 'MOB-2', workId: 'MOB-2', repository: 'mobile', blocking: false, ready: false }
+    ]
+  };
+  const level = levelOf(buildReconciliation(withDelivery, null), 'stories');
+  assert.equal(level.verdict, 'drifted');
+  assert.equal(level.rows.find((row) => row.id === 'API-1').drifted, true);
+  assert.equal(level.rows.find((row) => row.id === 'MOB-1').drifted, false);
+  assert.equal(level.rows.find((row) => row.id === 'MOB-2').drifted, false, 'non-blocking never gates');
+  assert.match(level.remedy, /implementation/);
+});
+
+test('the merge plan drives the cross-repository level, and names what is next', () => {
+  const plan = {
+    initiativeId: 'INIT-MULTI', epicBranch: 'INIT-MULTI',
+    stories: [
+      { order: 1, id: 'API-1', workId: 'API-1', repository: 'api', blocking: true, status: 'ready', blockedBy: [] },
+      { order: 2, id: 'MOB-1', workId: 'MOB-1', repository: 'mobile', blocking: true, status: 'blocked', blockedBy: ['API-1'] }
+    ],
+    nextToMerge: { workId: 'API-1' }, epicReady: false, outstanding: ['API-1', 'MOB-1']
+  };
+  const level = levelOf(buildReconciliation(snapshot, plan), 'repositories');
+  assert.equal(level.verdict, 'drifted', 'blocking Stories have not merged');
+  assert.match(level.rows[1].cells.at(-1), /blocked by API-1/);
+  assert.match(level.remedy, /Next to merge: API-1/);
+});
+
+test('an Epic whose blocking Stories have all merged reports the repositories aligned', () => {
+  const plan = {
+    epicBranch: 'INIT-MULTI',
+    stories: [{ order: 1, id: 'API-1', workId: 'API-1', repository: 'api', blocking: true, status: 'merged', blockedBy: [] }],
+    nextToMerge: null, epicReady: true, outstanding: []
+  };
+  const level = levelOf(buildReconciliation(snapshot, plan), 'repositories');
+  assert.equal(level.verdict, 'aligned');
+  assert.equal(level.remedy, null);
+});
+
+test('a consumer built against an older contract version is spec-versus-code drift', () => {
+  const withContracts = structuredClone(snapshot);
+  withContracts.initiative.contracts = [
+    {
+      key: 'orders', id: 'orders', version: '2', sha256: 'f'.repeat(64), integrity: 'verified',
+      consumers: [
+        { storyId: 'MOB-1', repository: 'mobile', stale: false, observedContractSha256: 'f'.repeat(64) },
+        { storyId: 'MOB-2', repository: 'mobile', stale: false, observedContractSha256: 'a'.repeat(64) }
+      ]
+    }
+  ];
+  const level = levelOf(buildReconciliation(withContracts, null), 'conformance');
+  assert.equal(level.verdict, 'drifted');
+  assert.equal(level.rows.find((row) => row.id === 'orders/MOB-1').drifted, false);
+  const behind = level.rows.find((row) => row.id === 'orders/MOB-2');
+  assert.equal(behind.drifted, true);
+  assert.match(behind.cells.at(-1), /older version/);
+});
+
+test('a contract file that changed since it was pinned is drift for every consumer', () => {
+  const withContracts = structuredClone(snapshot);
+  withContracts.initiative.contracts = [{
+    key: 'orders', version: '2', sha256: 'f'.repeat(64), integrity: 'stale',
+    consumers: [{ storyId: 'MOB-1', repository: 'mobile', stale: false, observedContractSha256: 'f'.repeat(64) }]
+  }];
+  const level = levelOf(buildReconciliation(withContracts, null), 'conformance');
+  assert.equal(level.verdict, 'drifted');
+  assert.match(level.rows[0].cells.at(-1), /contract file changed/);
+});
+
+test('reconciliation says why it is empty rather than rendering nothing', () => {
+  assert.match(buildReconciliation(null, null).empty, /Reading the repository/);
+  assert.match(buildReconciliation({ initiative: null, initiatives: [], workItems: [] }, null).empty,
+    /No Epic has been started/);
+});
+
+test('a Story that reached conformance contributes its tree hash to the spec-versus-code level', () => {
+  // The conformance tree is the most direct spec-versus-code evidence the system holds; it belongs
+  // beside the contracts rather than only inside the Story's own workflow.
+  const withConformance = structuredClone(snapshot);
+  withConformance.initiative.contracts = [];
+  withConformance.initiative.state.childStories = {
+    'API-1': { workId: 'API-1', repository: 'api', conformance: { status: 'approved', treeSha256: 'ab'.repeat(32) } },
+    'MOB-1': { workId: 'MOB-1', repository: 'mobile', conformance: { status: 'in_progress', treeSha256: null } },
+    'MOB-2': { workId: 'MOB-2', repository: 'mobile' }
+  };
+  const level = levelOf(buildReconciliation(withConformance, null), 'conformance');
+  assert.equal(level.verdict, 'drifted');
+  assert.equal(level.rows.length, 2, 'a Story with no conformance phase contributes no row');
+  const passed = level.rows.find((row) => row.id === 'story:API-1');
+  assert.equal(passed.drifted, false);
+  assert.match(passed.cells.at(-1), /conforms @ abababab/);
+  const pending = level.rows.find((row) => row.id === 'story:MOB-1');
+  assert.equal(pending.drifted, true);
+  assert.match(pending.cells.at(-1), /no conformance tree recorded/);
+});
+
+test('contracts and Story conformance appear in one level, not two verdicts', () => {
+  const both = structuredClone(snapshot);
+  both.initiative.contracts = [{
+    key: 'orders', version: '2', sha256: 'f'.repeat(64), integrity: 'verified',
+    consumers: [{ storyId: 'MOB-1', repository: 'mobile', stale: false, observedContractSha256: 'f'.repeat(64) }]
+  }];
+  both.initiative.state.childStories = {
+    'API-1': { workId: 'API-1', repository: 'api', conformance: { status: 'approved', treeSha256: 'cd'.repeat(32) } }
+  };
+  const level = levelOf(buildReconciliation(both, null), 'conformance');
+  assert.equal(level.verdict, 'aligned');
+  assert.equal(level.rows.length, 2, 'one contract consumer and one conforming Story');
+});

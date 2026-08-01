@@ -64,6 +64,11 @@
         "icon": "$(map)"
       },
       {
+        "command": "singularityFlow.openReconciliation",
+        "title": "Singularity Flow: Open Reconciliation",
+        "icon": "$(git-compare)"
+      },
+      {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
       },
@@ -90,9 +95,14 @@
           "group": "navigation@1"
         },
         {
-          "command": "singularityFlow.refresh",
+          "command": "singularityFlow.openReconciliation",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@2"
+        },
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

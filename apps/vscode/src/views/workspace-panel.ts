@@ -9,8 +9,11 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import {
-  draftUrls, EMPTY_DRAFT, EMPTY_FORM, formCommand, formProblems, workspaceFormHtml,
-  WORKSPACE_FORM_SCRIPT, type FormRepository, type WorkspaceForm
+  derivedRepositories, draftUrls, EMPTY_DRAFT, EMPTY_FORM, flattenChoices, formCommand,
+  formProblems, hasCapabilityMap,
+  workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
+  type CapabilityChoice, type FormRepository, type RemoteCapability, type RemoteDelivery,
+  type WorkspaceForm
 } from './workspace-form.ts';
 import { SingularityFlowClient, type CliLocation } from '../cli/client.ts';
 
@@ -28,7 +31,9 @@ export class WorkspacePanel {
   private readonly output: vscode.OutputChannel;
   private readonly onCreated: (created: WorkspaceCreated) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
-  private form: WorkspaceForm = { ...EMPTY_FORM, repositories: [], draft: { ...EMPTY_DRAFT } };
+  private form: WorkspaceForm = {
+    ...EMPTY_FORM, repositories: [], selected: [], draft: { ...EMPTY_DRAFT }
+  };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -112,35 +117,79 @@ export class WorkspacePanel {
   }
 
   /**
+   * Read the lead repository: what a workspace would record for it, and the map it holds.
+   *
+   * Both come from the same URL and neither clones it. The map is what the rest of the form is made
+   * of, so this is the step everything else waits on — and a lead with no map is reported as the
+   * normal state it is rather than as a failure to read one.
+   */
+  private async readLead(): Promise<void> {
+    const url = this.form.leadDraft.trim();
+    if (!url || this.form.adding) return;
+    this.update({ adding: true, error: null });
+
+    const { added, failures } = await this.inspect([url]);
+    const lead = added[0];
+    if (!lead) {
+      this.update({ adding: false, error: failures.join(' ') || `Could not read '${url}'.` });
+      return;
+    }
+
+    let capabilities: CapabilityChoice[] | null = null;
+    let capabilitiesReason: string | null = null;
+    try {
+      const map = await this.client().run<{
+        capabilities: RemoteCapability[] | null;
+        deliveries: RemoteDelivery[];
+        reason: string | null;
+      }>(['workspace', 'capabilities', url, '--json']);
+      capabilitiesReason = map.reason;
+      capabilities = map.capabilities ? flattenChoices(map.capabilities, map.deliveries) : null;
+    } catch (error) {
+      // Failing to read the map does not invalidate the lead: the repositories can still be named
+      // directly, which is exactly the fallback a repository without a map uses.
+      capabilitiesReason = (error as Error).message;
+    }
+
+    this.update({
+      lead, capabilities, capabilitiesReason, selected: [], adding: false, error: null
+    });
+  }
+
+  private client(): SingularityFlowClient {
+    return new SingularityFlowClient({
+      location: this.location, repository: this.form.base ?? process.cwd(), onOutput: () => {}
+    });
+  }
+
+  /**
    * Add what the draft describes.
    *
-   * Only the URL is required; everything else about a repository is read from its remote. A typed
-   * identifier renames the one repository it can unambiguously refer to — with several URLs there is
-   * no such repository, so it is ignored and the form says so before the button is pressed.
+   * This is the fallback for a lead repository with no capability map. Only the URL is required;
+   * everything else is read from its remote. A typed identifier renames the one repository it can
+   * unambiguously refer to — with several URLs there is no such repository, so it is ignored and the
+   * form says so before the button is pressed.
    *
    * A URL that cannot be read is reported on the form rather than in a notification: it is a fact
    * about what was just typed, and it belongs beside the field it was typed into.
    */
   private async addDrafted(): Promise<void> {
     const urls = draftUrls(this.form.draft);
-    if (!urls.length || this.form.adding) return;
-    const wantsLead = this.form.draft.lead;
+    if (!urls.length || this.form.adding || hasCapabilityMap(this.form)) return;
     const named = urls.length === 1 ? this.form.draft.id.trim() : '';
     this.update({ adding: true, error: null });
 
     const { added, failures } = await this.inspect(urls);
-    const known = new Set(this.form.repositories.map((repository) => repository.url));
+    const known = new Set([
+      ...this.form.repositories.map((repository) => repository.url),
+      ...(this.form.lead ? [this.form.lead.url] : [])
+    ]);
     const fresh = added
       .filter((entry) => !known.has(entry.url))
       .map((entry) => (named ? { ...entry, id: named } : entry));
-    const repositories = [...this.form.repositories, ...fresh];
 
-    // The first repository added leads until someone says otherwise; a single-repository workspace
-    // should not need a choice made about it.
-    const nominated = wantsLead ? fresh[0]?.id ?? null : null;
     this.update({
-      repositories,
-      lead: nominated ?? this.form.lead ?? repositories[0]?.id ?? null,
+      repositories: [...this.form.repositories, ...fresh],
       draft: fresh.length ? { ...EMPTY_DRAFT } : this.form.draft,
       adding: false,
       error: failures.join(' ') || null
@@ -150,6 +199,7 @@ export class WorkspacePanel {
   private async receive(raw: unknown): Promise<void> {
     const message = raw as {
       type?: unknown; what?: unknown; id?: unknown; field?: unknown; value?: unknown;
+      selected?: unknown;
     };
     if (typeof message?.type !== 'string') return;
 
@@ -166,23 +216,40 @@ export class WorkspacePanel {
     // Typed values are recorded without re-rendering: replacing the document on every keystroke
     // would move the caret out from under whoever is typing. The form is redrawn when the data
     // changes — a repository added or removed — not when a character is.
-    if (message.type === 'draft' && typeof message.field === 'string') {
-      const { field, value } = message;
-      if (field === 'lead' && typeof value === 'boolean') this.form.draft.lead = value;
-      else if ((field === 'url' || field === 'id') && typeof value === 'string') this.form.draft[field] = value;
+    if (message.type === 'draft' && typeof message.value === 'string') {
+      if (message.field === 'lead') this.form.leadDraft = message.value;
+      else if (message.field === 'url' || message.field === 'id') this.form.draft[message.field] = message.value;
+      return;
+    }
+
+    if (message.type === 'read-lead') return this.readLead();
+    if (message.type === 'clear-lead') {
+      // Changing the lead invalidates everything read from it. Keeping a capability selection from a
+      // different organisation's map would be worse than asking again.
+      this.update({
+        lead: null, leadDraft: '', capabilities: null, capabilitiesReason: null,
+        selected: [], repositories: [], error: null
+      });
+      return;
+    }
+
+    if (message.type === 'capability' && typeof message.id === 'string') {
+      const known = (this.form.capabilities ?? []).some((entry) => entry.id === message.id);
+      if (!known) return;
+      const selected = new Set(this.form.selected);
+      if (message.selected === true) selected.add(message.id);
+      else selected.delete(message.id);
+      this.update({ selected: [...selected], error: null });
       return;
     }
 
     if (message.type === 'add') return this.addDrafted();
 
     if (message.type === 'remove' && typeof message.id === 'string') {
-      const repositories = this.form.repositories.filter((repository) => repository.id !== message.id);
-      this.update({ repositories, lead: this.form.lead === message.id ? repositories[0]?.id ?? null : this.form.lead });
-      return;
-    }
-
-    if (message.type === 'lead' && typeof message.id === 'string') {
-      if (this.form.repositories.some((repository) => repository.id === message.id)) this.update({ lead: message.id });
+      // Only the directly-named repositories can be removed; a derived one is removed by
+      // deselecting the capability that brought it, and the lead cannot be removed at all.
+      if (hasCapabilityMap(this.form) || message.id === this.form.lead?.id) return;
+      this.update({ repositories: this.form.repositories.filter((entry) => entry.id !== message.id) });
       return;
     }
 
@@ -196,7 +263,7 @@ export class WorkspacePanel {
       const renamed = message.value.trim();
       const repositories = this.form.repositories.map((repository) =>
         (repository.id === message.id ? { ...repository, id: renamed } : repository));
-      this.update({ repositories, lead: this.form.lead === message.id ? renamed : this.form.lead });
+      this.update({ repositories });
       return;
     }
 
@@ -217,16 +284,17 @@ export class WorkspacePanel {
         repository: this.form.base ?? '',
         onOutput: (text) => this.output.append(text)
       });
+      const cloning = derivedRepositories(this.form).length;
       const result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Cloning ${this.form.repositories.length} ${this.form.repositories.length === 1 ? 'repository' : 'repositories'}…`
+          title: `Cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
         },
         () => client.run<{ workspace?: { path?: string; leadRepository?: string } }>(args));
 
       const directory = result.workspace?.path;
       if (!directory) throw new Error('The workspace was created but its directory was not reported.');
-      const lead = result.workspace?.leadRepository ?? this.form.lead ?? '';
+      const lead = result.workspace?.leadRepository ?? this.form.lead?.id ?? '';
       this.panel.dispose();
       await this.onCreated({ directory, lead, leadDirectory: `${directory}/repos/${lead}` });
     } catch (error) {

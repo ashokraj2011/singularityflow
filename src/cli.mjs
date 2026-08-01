@@ -153,7 +153,8 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
   listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteDefaults,
+  isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities,
+  workspaceRemoteDefaults,
   workspaceRepositoryDefaults,
   workspaceStatus
 } from './workspace.mjs';
@@ -385,8 +386,9 @@ Usage:
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
   singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
-    --repository ID=URL [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+    --repository ID=URL [--capability ID] [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
+  singularity-flow workspace capabilities <LEAD-URL> [--json]
   singularity-flow capability [tree] [--json]
   singularity-flow capability show <CAPABILITY-ID> [--json]
   singularity-flow capability of <REPOSITORY-ID> [--json]
@@ -3353,6 +3355,7 @@ async function workspaceCommand(positionals, options) {
         id: workspaceId,
         name: optionString(options, 'name') ?? workspaceId,
         leadRepository: optionString(options, 'lead'),
+        capabilities: optionStrings(options, 'capability'),
         repositories: Object.fromEntries(Object.entries(localUrls).map(([id, url]) => [id, {
           url,
           defaultBranch: localBranches[id] ?? 'main',
@@ -3463,6 +3466,20 @@ async function workspaceCommand(positionals, options) {
     if (remote) console.log(`  ${defaults.stateBranch}: ${defaults.hasStateBranch ? 'present' : 'not created yet'}`);
     return;
   }
+  if (subcommand === 'capabilities') {
+    // What the lead repository says this organisation builds, read before anything is cloned. A
+    // workspace is chosen in these terms — the repositories follow from which ones you pick.
+    const lead = requirePositional(positionals, 2, 'lead repository URL');
+    const map = await workspaceRemoteCapabilities(lead);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(map, null, 2));
+    if (!map.capabilities) return console.log(map.reason);
+    for (const row of flattenCapabilityTree(map.capabilities)) {
+      console.log(`${'  '.repeat(row.depth)}${row.name}${row.repository ? `  \u2192 ${row.repository}` : ''}`);
+    }
+    console.log(`\n${map.deliveries.length} delivering from ${new Set(map.deliveries.map((entry) => entry.repository)).size} repositories.`);
+    return;
+  }
+
   if (subcommand === 'update') {
     const updateUrls = optionMap(optionStrings(options, 'repository'), '--repository');
     const updateBranches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');

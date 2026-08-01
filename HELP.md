@@ -83,8 +83,10 @@ The install command copies the full governed skill contracts to
 `~/.copilot/skills/sf-*/SKILL.md`. These are personal Copilot skills and therefore
 run directly as `/sf-submit`, `/sf-approve`, and so on. Set
 `SINGULARITY_FLOW_COPILOT_SKILLS_DIR` when corporate policy requires another
-skills location. The installer updates only aliases carrying its management
-marker and never overwrites an unrelated personal skill.
+skills location, and add the same parent directory to `COPILOT_SKILLS_DIRS` or
+Copilot's `skillDirectories` setting so the CLI scans it. The installer updates
+only aliases carrying its management marker and never overwrites an unrelated
+personal skill.
 
 Start a new Copilot session after plugin installation. Begin work from Jira or from a manual description:
 

@@ -27,7 +27,7 @@ The package contains:
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
-- A clean Copilot CLI handoff: Electron shows the exact phase-aware `/sf-*` command, while authoring and questions stay in the user’s normal Copilot session.
+- A clean Copilot CLI handoff: Electron shows phase-aware command guidance, while authoring and questions stay in the user’s normal Copilot session; the installed `/sf-*` aliases can be used directly.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
@@ -1181,9 +1181,11 @@ replaces managed aliases; it refuses to overwrite an unrelated personal `sf-*`
 skill.
 
 The default alias directory is `~/.copilot/skills`. Corporate installations may
-choose another approved directory without changing the package:
+choose another approved directory, provided Copilot is also configured to scan
+that directory through `COPILOT_SKILLS_DIRS` or its `skillDirectories` setting:
 
 ```bash
+COPILOT_SKILLS_DIRS="/approved/copilot/skills" \
 SINGULARITY_FLOW_COPILOT_SKILLS_DIR="/approved/copilot/skills" \
   singularity-flow plugin install
 ```

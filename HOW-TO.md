@@ -140,7 +140,7 @@ Keep credentials in `.npmrc`; never put credentials in the registry URL. Verify 
 ```bash
 singularity-flow --version
 copilot plugin list
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 Expected version: `0.9.0`. Start a new Copilot session after plugin installation so the refreshed skills and bundled agent are discovered.

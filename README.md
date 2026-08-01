@@ -10,7 +10,7 @@ Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A reposi
 **Singularity Flow** is the product under the **Singularity** brand. The installer
 creates personal aliases such as `/sf-start`, `/sf-submit`, and `/sf-about`, so
 normal use has no plugin namespace. The packaged `sflow-*` skills remain available
-for compatibility, including the qualified `/singularity-flow:sflow-*` form.
+for compatibility, including the qualified `/singularity-flow/sflow-*` form.
 Run `/sf-about` for the installed version and a concise capability summary. The full
 `singularity-flow <action>` executable remains a compatible CLI for existing
 scripts and documentation.
@@ -1168,7 +1168,7 @@ Install the personal Copilot plugin with:
 
 ```bash
 singularity-flow plugin install
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 The installer removes both the direct installation (`singularity-flow`) and any
@@ -1228,8 +1228,8 @@ commands are:
 
 The `sf-` prefix prevents collisions with generic skills such as `/start`,
 `/status`, and `/approve`. Existing `/sflow-*` and qualified
-`/singularity-flow:sflow-*` invocations remain compatible. After upgrading, run
+`/singularity-flow/sflow-*` invocations remain compatible. After upgrading, run
 `singularity-flow plugin install`, close existing Copilot sessions, and confirm
-that `copilot skill list` reports `sf-*` personal skills.
+that `copilot plugins list --kind skill` reports `sf-*` personal skills.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants and [VERIFICATION.md](VERIFICATION.md) for the release checklist.

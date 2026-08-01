@@ -76,7 +76,7 @@ Install or refresh the GitHub Copilot plugin:
 ```bash
 singularity-flow plugin install
 copilot plugin list
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 The install command copies the full governed skill contracts to
@@ -1653,7 +1653,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-jira-initiative` | Browse Epics, adopt child stories into an initiative, and prepare reviewed Jira write plans |
 | `/sf-workflow-rules` | Explain deterministic workflow rules |
 
-If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot skill list`.
+If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot plugins list --kind skill`.
 
 ## Installation and company registries
 
@@ -1750,7 +1750,7 @@ Run:
 ```bash
 singularity-flow plugin install
 copilot plugin list
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 Only `singularity-flow@singularity-flow` should remain. Close existing Copilot sessions because sessions do not always reload newly installed skills.

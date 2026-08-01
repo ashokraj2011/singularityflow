@@ -796,3 +796,70 @@ test('each working lens is openable as the file that defines it', () => {
   assert.deepEqual(lenses.children.map((child) => child.label), ['Product owner', 'Developer']);
   assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
 });
+
+const { EMPTY_FORM, formProblems, formCommand, workspaceFormHtml } =
+  await import(source('views/workspace-form.ts'));
+
+const repository = (id, extra = {}) => ({
+  id, url: `https://example.com/${id}.git`, defaultBranch: 'main', localPath: `/src/${id}`, ...extra
+});
+
+test('an empty workspace form reports every outstanding requirement at once', () => {
+  // Revealing them one at a time is how a five-field form takes five attempts.
+  const problems = formProblems(EMPTY_FORM);
+  assert.equal(problems.length, 3);
+  assert.match(problems.join(' '), /where the workspace directory/);
+  assert.match(problems.join(' '), /identifier/);
+  assert.match(problems.join(' '), /at least one repository/);
+});
+
+test('a complete form has no problems and describes the command it will run', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'checkout-platform', name: 'Checkout platform',
+    repositories: [repository('api'), repository('web')], lead: 'api'
+  };
+  assert.deepEqual(formProblems(form), []);
+  assert.deepEqual(formCommand(form), [
+    'workspace', 'create', '--local', '--json',
+    '--id', 'checkout-platform', '--base', '/work', '--lead', 'api', '--confirm', 'checkout-platform',
+    '--name', 'Checkout platform',
+    '--repository', 'api=https://example.com/api.git',
+    '--repository', 'web=https://example.com/web.git'
+  ]);
+});
+
+test('two repositories with the same identifier is a problem, not a silent overwrite', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w',
+    repositories: [repository('api'), repository('api', { localPath: '/elsewhere/api' })], lead: 'api'
+  };
+  assert.match(formProblems(form).join(' '), /More than one repository is called 'api'/);
+});
+
+test('a repository set with no lead cannot be created', () => {
+  const form = { ...EMPTY_FORM, base: '/work', id: 'w', repositories: [repository('api')], lead: null };
+  assert.match(formProblems(form).join(' '), /which repository leads/);
+});
+
+test('an identifier that is not a safe id is refused before the CLI sees it', () => {
+  const form = { ...EMPTY_FORM, base: '/work', id: 'has spaces', repositories: [repository('api')], lead: 'api' };
+  assert.match(formProblems(form).join(' '), /letters, numbers, dots, underscores and hyphens/i);
+});
+
+test('the form renders each repository with what was read from its checkout', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w',
+    repositories: [repository('api', { defaultBranch: 'trunk' })], lead: 'api'
+  };
+  const html = workspaceFormHtml(form);
+  assert.match(html, /https:\/\/example\.com\/api\.git/);
+  assert.match(html, /trunk/);
+  assert.match(html, /name="lead" value="api"[^>]*checked/);
+  assert.doesNotMatch(html, /disabled/, 'a form with no problems offers its button');
+});
+
+test('a form still missing something disables the button and lists why', () => {
+  const html = workspaceFormHtml({ ...EMPTY_FORM, id: 'w' });
+  assert.match(html, /Before this can be created/);
+  assert.match(html, /<button data-submit="create" disabled>/);
+});

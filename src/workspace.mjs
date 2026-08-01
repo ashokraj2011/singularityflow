@@ -308,6 +308,64 @@ export function previewWorkspace({
   };
 }
 
+/**
+ * Everything a workspace needs to know about a repository, read from the repository itself.
+ *
+ * Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing at
+ * the wrong fork, or at a branch nobody uses. Pointing at a checkout you already have and reading
+ * its origin, its default branch and its folder name removes every one of those chances to be wrong.
+ *
+ * Refuses anything that is not a repository *root* with an origin: a nested folder would clone the
+ * wrong tree, and a repository with no origin cannot be cloned into a workspace at all — which is
+ * better said here, while a person is choosing, than during the clone.
+ *
+ * This lived in the Electron layer, so the CLI and the editor could not use it and would each have
+ * needed their own copy of these rules. It belongs to the engine for the same reason
+ * `extractSourceText` did.
+ */
+export async function workspaceRepositoryDefaults(repository) {
+  const requested = path.resolve(repository ?? '');
+  const root = await realpath(requested).catch(() => null);
+  const rootInfo = root ? await lstat(root).catch(() => null) : null;
+  if (!rootInfo?.isDirectory()) throw new SingularityFlowError(`Repository folder is not available: ${requested}`);
+
+  const gitMetadata = await lstat(path.join(root, '.git')).catch(() => null);
+  if (!gitMetadata || gitMetadata.isSymbolicLink() || (!gitMetadata.isDirectory() && !gitMetadata.isFile())) {
+    throw new SingularityFlowError(`The selected folder is not a safe Git repository: ${root}`);
+  }
+
+  const topLevel = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
+  const canonicalTopLevel = topLevel.status === 0 ? await realpath(topLevel.stdout.trim()).catch(() => null) : null;
+  if (!canonicalTopLevel || canonicalTopLevel !== root) {
+    throw new SingularityFlowError(`Select the Git repository root instead of a nested folder: ${root}`);
+  }
+
+  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+  if (!origin) throw new SingularityFlowError(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
+
+  const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+    cwd: root,
+    allowFailure: true
+  }).stdout.trim();
+  const defaultBranch = remoteHead.replace(/^origin\//, '') || 'main';
+
+  const id = path.basename(root)
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'repository';
+
+  return {
+    id,
+    localPath: root,
+    url: origin,
+    defaultBranch,
+    required: true,
+    jira: { board: '' },
+    metadata: { name: path.basename(root), appId: '' }
+  };
+}
+
 export function previewWorkspaceConfiguration({
   baseDirectory, id, name, repositories, leadRepository
 }) {

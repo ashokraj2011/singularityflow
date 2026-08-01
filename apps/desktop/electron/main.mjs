@@ -385,40 +385,13 @@ function assertWorkspace(workspace) {
   return requireActiveWorkspace(activeWorkspace, workspace);
 }
 
+/**
+ * Delegates to the engine, which now owns these rules so the CLI and the editor share them.
+ * Kept as a wrapper because the IPC handlers call it by this name.
+ */
 async function workspaceRepositoryDefaults(repository) {
-  const requested = path.resolve(repository);
-  const root = await realpath(requested).catch(() => null);
-  const rootInfo = root ? await lstat(root).catch(() => null) : null;
-  if (!rootInfo?.isDirectory()) throw new Error(`Repository folder is not available: ${requested}`);
-  const gitMetadata = await lstat(path.join(root, '.git')).catch(() => null);
-  if (!gitMetadata || gitMetadata.isSymbolicLink() || (!gitMetadata.isDirectory() && !gitMetadata.isFile())) {
-    throw new Error(`The selected folder is not a safe Git repository: ${root}`);
-  }
-  const { run } = await importCliModule('util.mjs');
-  const topLevel = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
-  const canonicalTopLevel = topLevel.status === 0 ? await realpath(topLevel.stdout.trim()).catch(() => null) : null;
-  if (!canonicalTopLevel || canonicalTopLevel !== root) throw new Error(`Select the Git repository root instead of a nested folder: ${root}`);
-  const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
-  if (!origin) throw new Error(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
-  const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
-    cwd: root,
-    allowFailure: true
-  }).stdout.trim();
-  const branch = remoteHead.replace(/^origin\//, '') || 'main';
-  const id = path.basename(root)
-    .normalize('NFKD')
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase() || 'repository';
-  return {
-    id,
-    localPath: root,
-    url: origin,
-    defaultBranch: branch,
-    required: true,
-    jira: { board: '' },
-    metadata: { name: path.basename(root), appId: '' }
-  };
+  const { workspaceRepositoryDefaults: defaults } = await workspaceModule();
+  return defaults(repository);
 }
 
 function planningWorkspaceBoundary(root) {

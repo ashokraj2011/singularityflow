@@ -706,56 +706,26 @@ test('creating a workspace is possible before any repository is open', async (t)
   }
 });
 
-test('a workspace is created with its repositories, lead, and orphan state branch', async (t) => {
+test('the workspace form opens as a panel and is driven by messages, not prompts', async (t) => {
   if (!requireBundle(t)) return;
-  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-'));
-  // Two local repositories to clone from, so this needs no network.
-  const origins = {};
-  for (const name of ['alpha', 'beta']) {
-    const work = path.join(base, `${name}-src`);
-    await mkdir(work);
-    run('git', ['init', '-q', '-b', 'main', work], { cwd: base });
-    run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: work });
-    run('git', ['config', 'user.email', EMAIL], { cwd: work });
-    await writeFile(path.join(work, 'README.md'), `# ${name}\n`);
-    run('git', ['add', '-A'], { cwd: work });
-    run('git', ['commit', '-qm', 'init'], { cwd: work });
-    const bare = path.join(base, `${name}.git`);
-    await mkdir(bare);
-    run('git', ['init', '-q', '-b', 'main', '--bare', bare], { cwd: base });
-    run('git', ['push', '-q', bare, 'main'], { cwd: work });
-    origins[name] = bare;
-  }
-
-  // Isolate the workspace registry: without this the CLI writes into the real
-  // ~/.singularity-flow/workspaces.json, and a test has no business registering anything there.
-  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(base, 'registry.json');
-  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(base, 'active.json');
-
+  // A workspace is the root concept, and collecting it through a chain of input boxes meant you
+  // could not see what you had added, correct a row, or compare repositories before choosing a lead.
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
-  registered.pickedFolder = path.join(base, 'workspaces');
-  await mkdir(registered.pickedFolder, { recursive: true });
-  // Where to create, the id, the name, then repository URLs and ids until an empty URL finishes.
-  registered.answers = ['platform', 'Platform workspace',
-    origins.alpha, 'alpha', origins.beta, 'beta', '', 'state'];
-
   const extension = loadExtension(api);
   await extension.activate(context());
+
   await registered.commands.get('singularityFlow.createWorkspace')();
-  assert.deepEqual(registered.errors, []);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  assert.ok(panel, 'a workspace panel was created');
+  assert.equal(registered.inputBoxes.length, 0, 'nothing is asked through a prompt chain');
 
-  // The engine derives the directory from the identifier and the name, so it is discovered rather
-  // than reconstructed — reconstructing it here is exactly the mistake this test caught.
-  const [entry] = await readdir(registered.pickedFolder);
-  const directory = path.join(registered.pickedFolder, entry);
-  assert.match(entry, /^platform/, `expected a platform workspace, found ${entry}`);
-  const manifest = JSON.parse(await readFile(path.join(directory, 'workspace.json'), 'utf8'));
-  assert.equal(manifest.leadRepository ?? manifest.lead, 'alpha', 'the chosen lead is recorded');
-  assert.deepEqual(Object.keys(manifest.repositories).sort(), ['alpha', 'beta']);
+  // Same security posture as every other panel.
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
 
-  // Both repositories are really cloned, not merely registered.
-  for (const id of ['alpha', 'beta']) {
-    assert.ok(existsSync(path.join(directory, 'repos', id, '.git')), `${id} was cloned`);
-  }
+  // It opens on the empty form, saying what is still outstanding rather than showing a dead button.
+  assert.match(panel.webview.html, /New workspace/);
+  assert.match(panel.webview.html, /Before this can be created/);
+  assert.match(panel.webview.html, /<button data-submit="create" disabled>/);
 });

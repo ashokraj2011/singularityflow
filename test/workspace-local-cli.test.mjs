@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -92,4 +92,45 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
 
   const restored = cli(['workspace', 'restore', directory], env);
   assert.match(restored.stdout, /Restored/);
+});
+
+test('a repository describes itself, so a workspace never has to be told its URL', async () => {
+  // Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing
+  // at the wrong fork, or at a branch nobody uses. These rules lived in the Electron layer, where
+  // neither the CLI nor the editor could reach them.
+  const { base, source, env } = await environment();
+  const checkout = path.join(base, 'Payments API');
+  run('git', ['clone', '-q', source, checkout], { cwd: base });
+
+  const inspected = JSON.parse(cli(['workspace', 'inspect', checkout, '--json'], env).stdout);
+  assert.equal(inspected.url, source, 'the origin is read from the checkout');
+  assert.equal(inspected.defaultBranch, 'main');
+  assert.equal(inspected.id, 'payments-api', 'the identifier is derived from the folder, safely');
+  assert.equal(inspected.localPath, await realpath(checkout));
+});
+
+test('a folder that cannot join a workspace says so while you are choosing', async () => {
+  const { base, env } = await environment();
+
+  const plain = path.join(base, 'not-a-repo');
+  await mkdir(plain, { recursive: true });
+  const notGit = cli(['workspace', 'inspect', plain], env, { allowFailure: true });
+  assert.notEqual(notGit.status, 0);
+  assert.match(notGit.stderr, /not a safe Git repository/);
+
+  // A repository with no origin cannot be cloned into a workspace, which is better said now than
+  // when the clone fails.
+  const orphan = path.join(base, 'no-origin');
+  await mkdir(orphan, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', orphan], { cwd: base });
+  const noOrigin = cli(['workspace', 'inspect', orphan], env, { allowFailure: true });
+  assert.notEqual(noOrigin.status, 0);
+  assert.match(noOrigin.stderr, /no origin remote/);
+
+  // A nested folder would clone the wrong tree.
+  const nested = path.join(orphan, 'src');
+  await mkdir(nested, { recursive: true });
+  const inner = cli(['workspace', 'inspect', nested], env, { allowFailure: true });
+  assert.notEqual(inner.status, 0);
+  assert.match(inner.stderr, /repository root instead of a nested folder|not a safe Git repository/);
 });

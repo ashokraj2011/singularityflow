@@ -229,17 +229,51 @@ function duration(value, label) {
   return value;
 }
 
+// A flat `authorities` list plus a headcount cannot express a control plane. `authorities: [exec,
+// lrc, architecture], minimum: 3` is satisfied by three people from `exec` alone, because the count
+// is over distinct humans, not distinct bodies. `chain` states the review sequence instead: each step
+// names one authority and how many of its members must sign, and a step opens only once every earlier
+// step is satisfied. The flat form stays valid and unchanged, so existing policies are untouched.
+function normalizedApprovalChain(value, label) {
+  if (value.chain == null) return null;
+  const chain = array(value.chain, `${label}.chain`);
+  if (!chain.length) throw new SingularityFlowError(`${label}.chain must contain at least one review step.`);
+  const steps = chain.map((step, index) => {
+    object(step, `${label}.chain step ${index + 1}`);
+    const authority = safeId(step.authority, `${label}.chain step ${index + 1} authority`);
+    const minimum = step.minimum ?? 1;
+    if (!Number.isInteger(minimum) || minimum < 1) throw new SingularityFlowError(`${label}.chain step '${authority}' minimum must be a positive integer.`);
+    return { authority, label: step.label ?? authority.replaceAll('-', ' '), minimum };
+  });
+  unique(steps.map((step) => step.authority), `${label}.chain authorities`);
+  return steps;
+}
+
 function normalizedApproval(value = {}, label) {
   object(value, label);
   const mode = value.mode ?? 'bundle';
   if (!INITIATIVE_APPROVAL_MODES.has(mode)) throw new SingularityFlowError(`${label}.mode must be individual, bundle, or none.`);
-  const authorities = [...(value.authorities ?? [])];
+  const chain = normalizedApprovalChain(value, label);
+  if (chain && mode === 'none') throw new SingularityFlowError(`${label}.chain cannot be combined with mode none.`);
+  // `authorities` stays populated as the union of the chain's bodies so every existing consumer —
+  // authority-existence validation, the "required authority" message, coarse authorization — keeps
+  // working without knowing about chains. That makes the normalized form carry both keys, so
+  // re-validating an already-normalized policy (the desktop round-trips config through YAML) must be
+  // accepted: reject a hand-written `authorities` only when it contradicts the chain.
+  const chainAuthorities = chain ? chain.map((step) => step.authority) : null;
+  if (chain && value.authorities != null
+    && String([...(value.authorities ?? [])]) !== String(chainAuthorities)) {
+    throw new SingularityFlowError(`${label} must set either authorities or chain, not both.`);
+  }
+  const authorities = chain ? chainAuthorities : [...(value.authorities ?? [])];
   authorities.forEach((id) => safeId(id, `${label}.authorities entry`));
   unique(authorities, `${label}.authorities`);
-  const minimum = value.minimum ?? (mode === 'none' ? 0 : 1);
+  const minimum = chain
+    ? chain.reduce((total, step) => total + step.minimum, 0)
+    : value.minimum ?? (mode === 'none' ? 0 : 1);
   if (!Number.isInteger(minimum) || minimum < 0) throw new SingularityFlowError(`${label}.minimum must be a non-negative integer.`);
   if (mode !== 'none' && minimum < 1) throw new SingularityFlowError(`${label}.minimum must be at least 1 when approval is required.`);
-  return { mode, authorities, minimum, allowSelfApproval: value.allowSelfApproval !== false };
+  return { mode, authorities, minimum, allowSelfApproval: value.allowSelfApproval !== false, chain };
 }
 
 function normalizedFreshness(value = {}, label) {

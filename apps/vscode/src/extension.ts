@@ -191,6 +191,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * profile offers it here without the extension being changed.
    */
   const startEpic = async (): Promise<void> => {
+    // Checked before anything is asked. The engine refuses to start an Epic when no approval
+    // authority has a member, and discovering that after five questions — with a message naming a
+    // YAML key — is a poor greeting for someone who has just initialized a repository.
+    const authorities = store.current.snapshot?.portfolio?.approvalAuthorities ?? {};
+    const named = Object.entries(authorities).filter(([, authority]) => (authority?.members ?? []).length);
+    if (Object.keys(authorities).length && !named.length) {
+      const open = await vscode.window.showWarningMessage(
+        'No approval authority has a member yet, so an Epic cannot be started.',
+        { modal: true, detail: 'Add at least one person under approvalAuthorities in singularity/portfolio.yml. Every governed approval is checked against that list.' },
+        'Open portfolio.yml');
+      if (open === 'Open portfolio.yml') {
+        const target = vscode.Uri.file(path.join(repository, store.current.snapshot?.portfolioPath ?? 'singularity/portfolio.yml'));
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
+      }
+      return;
+    }
+
     const ask = async (title: string, prompt: string): Promise<string | null> => {
       const value = await vscode.window.showInputBox({ title, prompt, ignoreFocusOut: true,
         validateInput: (input) => (input.trim() ? null : 'This is required.') });

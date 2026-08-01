@@ -166,6 +166,26 @@ function storyNode(story: BreakdownStory): TreeNode {
 }
 
 /**
+ * The tree to show when the extension cannot serve this workspace at all.
+ *
+ * A contributed view with no registered provider makes VS Code say "There is no data provider
+ * registered that can provide view data", which tells the reader nothing about their repository.
+ * Returning early from activation and leaving the view unprovided is what produced that, so every
+ * such path now registers a provider that says what is wrong and what would fix it.
+ */
+export function unavailableTree(label: string, detail: string, contextValue?: string): TreeNode[] {
+  return [{
+    kind: 'message',
+    id: 'unavailable',
+    label,
+    tooltip: detail,
+    icon: 'info',
+    ...(contextValue ? { contextValue } : {}),
+    children: [{ kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' }]
+  }];
+}
+
+/**
  * Build the whole tree from one snapshot.
  *
  * Every empty case returns a node that says what is missing and what would fix it, rather than an

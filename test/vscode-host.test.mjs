@@ -273,8 +273,11 @@ test('the built extension activates against a real repository and populates the 
   assert.deepEqual(registered.errors, [], 'activation raised no error dialogs');
 });
 
-test('a folder that is not a Singularity Flow repository activates quietly', async (t) => {
+test('a folder that is not a Singularity Flow repository still gets a provider that says so', async (t) => {
   if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // This test previously asserted that NO tree was registered, which is exactly what made VS Code
+  // report "There is no data provider registered that can provide view data" — an error about the
+  // extension's internals, shown instead of anything about the reader's repository.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-plain-'));
   run('git', ['init', '-q', '-b', 'main', base], { cwd: os.tmpdir() });
 
@@ -285,8 +288,37 @@ test('a folder that is not a Singularity Flow repository activates quietly', asy
 
   // Not a Flow repository is an ordinary state for a folder to be in, not something to shout about.
   assert.deepEqual(registered.errors, []);
-  assert.equal(registered.trees.size, 0, 'no tree is registered for a folder it cannot serve');
-  assert.ok(registered.output.some((line) => /Not activating/.test(line)), 'the reason is recorded for anyone who expected otherwise');
+  const view = registered.trees.get('singularityFlow.lifecycle');
+  assert.ok(view, 'the view always has a provider');
+
+  const [node] = view.treeDataProvider.getChildren();
+  assert.match(node.label, /Not a Singularity Flow repository/);
+  assert.match(node.tooltip, /singularity\/workflow\.yml/);
+  assert.equal(node.contextValue, 'sflow.uninitialized', 'and it offers to initialize one');
+  assert.ok(view.treeDataProvider.getTreeItem(node), 'the node renders');
+  assert.ok(registered.commands.has('singularityFlow.init'), 'the command it offers exists');
+});
+
+test('a window with no folder open explains that, rather than showing no provider', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const view = registered.trees.get('singularityFlow.lifecycle');
+  assert.ok(view, 'the view always has a provider');
+  assert.match(view.treeDataProvider.getChildren()[0].label, /No folder is open/);
+});
+
+test('the view activates on being opened, not only when a workflow file happens to exist', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // Without onView, opening the view in any other folder never activates the extension at all, and
+  // the contributed view sits there with nothing behind it.
+  const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(manifest.activationEvents.includes('onView:singularityFlow.lifecycle'));
+  assert.equal(manifest.contributes.views.singularityFlow[0].id, 'singularityFlow.lifecycle',
+    'the activation event names the view that is actually contributed');
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {

@@ -769,8 +769,12 @@ test('configuration is shown whether or not an Epic is checked out', () => {
   for (const tree of [withEpic, withoutEpic]) {
     const configuration = find(tree, 'configuration');
     assert.ok(configuration, 'configuration is always reachable');
-    assert.deepEqual(configuration.children.map((child) => child.id),
-      ['config:workflow', 'config:portfolio', 'config:personas']);
+    const children = configuration.children.map((child) => child.id);
+    // workflow and portfolio first: they define everything the other sets are instances of.
+    assert.deepEqual(children.slice(0, 2), ['config:workflow', 'config:portfolio']);
+    for (const set of ['config:templates', 'config:prompts', 'config:skills', 'config:personas']) {
+      assert.ok(children.includes(set), `${set} is reachable`);
+    }
   }
 });
 
@@ -862,4 +866,61 @@ test('a form still missing something disables the button and lists why', () => {
   const html = workspaceFormHtml({ ...EMPTY_FORM, id: 'w' });
   assert.match(html, /Before this can be created/);
   assert.match(html, /<button data-submit="create" disabled>/);
+});
+
+const { isGovernedConfiguration } = await import(source('governed.ts'));
+
+test('the editable file sets appear as groups of openable files', () => {
+  // Artifact templates, lens prompts and prompt packs are the things a team actually wants to change
+  // about this product. A template nobody can find is a template nobody edits.
+  const authored = structuredClone(snapshot);
+  authored.templates = [{ path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md' }];
+  authored.personaPrompts = [{ path: 'singularity/personas/architect.md', name: 'architect.md' }];
+  authored.repositorySkills = [];
+  authored.agents = [
+    { id: 'sflow', scope: 'packaged', path: 'plugin/agents/sflow.md', editable: false },
+    { id: 'house', scope: 'repository', path: '.github/agents/house.md', editable: true }
+  ];
+  authored.agentMappings = { path: 'singularity/agent-mappings.yml', exists: true };
+  const tree = buildTree(authored);
+
+  const templates = find(tree, 'config:templates');
+  assert.equal(templates.description, '1');
+  assert.equal(templates.children[0].path, 'singularity/templates/initiatives/business-case.md');
+
+  // An empty set is stated rather than hidden.
+  const packs = find(tree, 'config:skills');
+  assert.equal(packs.description, 'none');
+  assert.match(packs.children[0].label, /No prompt packs/);
+
+  // A packaged agent is not the team's to change; a repository one is.
+  const agents = find(tree, 'config:agents');
+  assert.equal(agents.children.find((child) => child.id === 'agent:sflow').readOnly, true);
+  assert.equal(agents.children.find((child) => child.id === 'agent:house').readOnly, false);
+  assert.equal(agents.children.at(-1).label, 'agent-mappings.yml');
+});
+
+test('governed configuration is recognised, and nothing else is', () => {
+  const repository = '/repo';
+  for (const governed of [
+    'singularity/workflow.yml', 'singularity/portfolio.yml',
+    'singularity/personas/architect.md', 'singularity/templates/initiatives/business-case.md',
+    'singularity/prompts/copilot-planning.md', '.github/skills/sflow-next/SKILL.md',
+    'singularity/agent-mappings.yml'
+  ]) {
+    assert.equal(isGovernedConfiguration(repository, `${repository}/${governed}`), true, governed);
+  }
+
+  for (const other of [
+    'README.md', 'src/index.ts',
+    // Generated and governed state are not configuration and must not be validated as though they
+    // were — editing them is a different problem with a different answer.
+    'singularity/world-model/manifest.json',
+    'singularity/initiatives/SF-E-001/state.json'
+  ]) {
+    assert.equal(isGovernedConfiguration(repository, `${repository}/${other}`), false, other);
+  }
+
+  assert.equal(isGovernedConfiguration(repository, '/elsewhere/singularity/workflow.yml'), false,
+    'a path outside the repository is never governed configuration');
 });

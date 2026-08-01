@@ -10,6 +10,7 @@ import path from 'node:path';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
 import { enableStateLedger } from './workspace.ts';
 import { WorkspacePanel } from './views/workspace-panel.ts';
@@ -148,6 +149,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
+
+  // Governed configuration is edited in ordinary tabs; saving one asks the engine whether the result
+  // is still valid, so a broken workflow.yml is reported where it was typed rather than by a command
+  // failing later for a reason that looks unrelated.
+  context.subscriptions.push(new ConfigurationValidator(client, repository));
 
   const tree = new LifecycleTreeProvider(store);
   context.subscriptions.push(tree);

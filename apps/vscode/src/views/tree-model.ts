@@ -235,6 +235,82 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
  * is done under. These are files, and the editor is good at files — the value here is knowing they
  * exist and where, which is exactly what a newcomer does not.
  */
+/**
+ * The editable file sets, as groups of openable files.
+ *
+ * Artifact templates, working-lens prompts, prompt packs and agent mappings are all Markdown or YAML
+ * that the engine already lists and already guards on save. What the editor adds is knowing they
+ * exist: a template that nobody can find is a template nobody edits, and the shape of an artifact is
+ * one of the few things a team genuinely wants to change about this product.
+ *
+ * An empty set is shown rather than hidden, so "there are no prompt packs" is a fact you can read
+ * instead of an absence you have to infer.
+ */
+function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
+  const sets: Array<{ id: string; label: string; icon: string; files: Array<{ path: string; name: string }> }> = [
+    { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
+    { id: 'prompts', label: 'Lens prompts', icon: 'comment-discussion', files: snapshot.personaPrompts ?? [] },
+    { id: 'skills', label: 'Prompt packs', icon: 'library', files: snapshot.repositorySkills ?? [] }
+  ];
+
+  const nodes: TreeNode[] = sets.map((set) => ({
+    kind: 'group',
+    id: `config:${set.id}`,
+    label: set.label,
+    description: set.files.length ? `${set.files.length}` : 'none',
+    icon: set.icon,
+    children: set.files.length
+      ? set.files
+        .slice()
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((file) => ({
+          kind: 'artifact' as const,
+          id: `file:${file.path}`,
+          label: file.name,
+          tooltip: file.path,
+          icon: set.icon,
+          path: file.path,
+          contextValue: 'sflow.config'
+        }))
+      : [{ kind: 'message' as const, id: `config:${set.id}:empty`, label: `No ${set.label.toLowerCase()}`, icon: 'blank' }]
+  }));
+
+  const agents = snapshot.agents ?? [];
+  if (agents.length || snapshot.agentMappings) {
+    nodes.push({
+      kind: 'group',
+      id: 'config:agents',
+      label: 'Agents',
+      description: agents.length ? `${agents.length}` : 'none',
+      icon: 'hubot',
+      children: [
+        ...agents.map((agent) => ({
+          kind: 'artifact' as const,
+          id: `agent:${agent.id}`,
+          label: agent.id,
+          description: agent.scope,
+          tooltip: agent.path,
+          icon: 'hubot',
+          path: agent.path,
+          // A packaged agent is read-only; only a repository one is the team's to change.
+          readOnly: agent.editable === false,
+          contextValue: 'sflow.config'
+        })),
+        ...(snapshot.agentMappings ? [{
+          kind: 'artifact' as const,
+          id: 'agent:mappings',
+          label: 'agent-mappings.yml',
+          description: snapshot.agentMappings.exists ? 'which agent runs which skill' : 'not created yet',
+          icon: 'list-tree',
+          path: snapshot.agentMappings.path,
+          contextValue: 'sflow.config'
+        }] : [])
+      ]
+    });
+  }
+  return nodes;
+}
+
 function configurationNode(snapshot: DesktopSnapshot): TreeNode {
   const personas = Object.entries(snapshot.definition?.personas ?? {});
   const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
@@ -258,6 +334,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
         description: 'profiles, approvers, repositories', icon: 'organization',
         path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
       },
+      ...fileSetNodes(snapshot),
       {
         kind: 'group', id: 'config:personas', label: 'Working lenses',
         description: personas.length ? `${personas.length}` : 'none', icon: 'person',

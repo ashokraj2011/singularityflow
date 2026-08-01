@@ -83,9 +83,23 @@ function requireBundle(t) {
   return false;
 }
 
+
+/** Wait for a fire-and-forget listener to produce something, or give up with a useful failure. */
+async function until(read, { attempts = 60, everyMs = 50 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const value = read();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+  }
+  return read();
+}
+
+/** Let a fire-and-forget listener finish when the expected outcome is that nothing happens. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -110,6 +124,7 @@ function stubVscode() {
     workspace: {
       workspaceFolders: null,
       getConfiguration: () => ({ get: () => '' }),
+      onDidSaveTextDocument: (listener) => { registered.saveListeners.push(listener); return { dispose() {} }; },
       openTextDocument: async (target) => ({ target }),
       fs: {}
     },
@@ -136,6 +151,16 @@ function stubVscode() {
       registerCommand: (id, handler) => { registered.commands.set(id, handler); return { dispose() {} }; },
       executeCommand: async () => {}
     },
+    languages: {
+      createDiagnosticCollection: () => ({
+        set: (uri, items) => registered.diagnostics.set(String(uri?.fsPath ?? uri), items),
+        delete: (uri) => registered.diagnostics.delete(String(uri?.fsPath ?? uri)),
+        dispose() {}
+      })
+    },
+    Diagnostic: class { constructor(range, message, severity) { this.range = range; this.message = message; this.severity = severity; } },
+    Range: class { constructor(a, b, c, d) { this.start = { line: a, character: b }; this.end = { line: c, character: d }; } },
+    DiagnosticSeverity: { Error: 0, Warning: 1 },
     ViewColumn: { Active: 1 }
   };
   // What a human "types" into the exact-confirmation box, and what they answer to the self-approval
@@ -728,4 +753,35 @@ test('the workspace form opens as a panel and is driven by messages, not prompts
   assert.match(panel.webview.html, /New workspace/);
   assert.match(panel.webview.html, /Before this can be created/);
   assert.match(panel.webview.html, /<button data-submit="create" disabled>/);
+});
+
+test('saving governed configuration asks the engine, and a broken file is reported where it was typed', async (t) => {
+  if (!requireBundle(t)) return;
+  // Governed files are edited in ordinary tabs, which skips the check the engine performs when it
+  // writes one. Without this the first sign of trouble is a command failing later for a reason that
+  // looks unrelated to what was typed.
+  const { root, api, registered } = await activated();
+  assert.equal(registered.saveListeners.length, 1, 'the extension listens for saves');
+
+  const workflow = path.join(root, 'singularity/workflow.yml');
+  const document = { uri: { fsPath: workflow } };
+
+  // Valid to begin with: no diagnostic.
+  registered.saveListeners[0](document);
+  await settle();
+  assert.equal(registered.diagnostics.get(workflow), undefined);
+
+  // Break it, and the engine's own complaint appears against the file. The save listener is
+  // fire-and-forget, as VS Code listeners are, so the result is waited for rather than assumed.
+  await writeFile(workflow, 'workTypes: "not a mapping"\n');
+  registered.saveListeners[0](document);
+  const reported = await until(() => registered.diagnostics.get(workflow));
+  assert.ok(reported?.length, `no diagnostic; keys=${JSON.stringify([...registered.diagnostics.keys()])}`);
+  assert.equal(reported[0].source, 'Singularity Flow');
+
+  // A file that is not configuration is never validated as though it were.
+  const readme = { uri: { fsPath: path.join(root, 'README.md') } };
+  registered.saveListeners[0](readme);
+  await settle();
+  assert.equal(registered.diagnostics.get(path.join(root, 'README.md')), undefined);
 });

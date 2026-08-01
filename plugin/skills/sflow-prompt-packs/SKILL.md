@@ -8,6 +8,7 @@ description: Inspect, trust, synchronize, and refresh hash-pinned remote Markdow
 Choose the requested operation:
 
 - Discover: `singularity-flow prompt-packs list`.
+- Inspect Copilot-agent routing: `singularity-flow prompt-packs mappings`.
 - Inspect: `singularity-flow prompt-packs status [PACK]`.
 - First trust: `singularity-flow prompt-packs lock <PACK>`.
 - Review an update: `singularity-flow prompt-packs lock <PACK> --update`.
@@ -17,3 +18,8 @@ Choose the requested operation:
 First trust and updates require exact pack-name confirmation. Never edit `singularity/agents.lock.yml` manually, bypass a changed hash, send credentials, or overwrite local output unless the user explicitly requests `--replace`.
 
 A prompt pack adds Markdown instructions, templates, or generated context to the active Copilot session. It cannot act as a human, select a working lens, or approve/reject lifecycle state.
+
+Copilot custom-agent IDs may be mapped to different prompt-pack IDs in
+`singularity/agent-mappings.yml`. Explicit mappings win; omitted agents use the
+same-name fallback. Never infer a working lens, identity, or approval authority
+from this mapping.

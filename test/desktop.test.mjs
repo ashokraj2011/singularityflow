@@ -99,6 +99,10 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.match(startSkill.description, /workflow template and prompt-only working lens/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
+  assert.equal(snapshot.agentMappings.path, 'singularity/agent-mappings.yml');
+  assert.equal(snapshot.agentMappings.exists, true);
+  assert.match(snapshot.agentMappings.content, /mappings: \{\}/);
+  assert.ok(snapshot.agentMappings.rows.some((row) => row.copilotAgent === 'sflow-workflow' && row.source === 'same-name fallback'));
   assert.ok(snapshot.agentStatus.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.definition.sequenceGates.default, 'soft');
   assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
@@ -337,10 +341,16 @@ test('desktop configuration saves validate atomically and publish scoped changes
   await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await writeFile(path.join(root, '.github/agents/reviewer.agent.md'), '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work.\n');
   await saveDesktopFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
+  const mappingPath = path.join(root, 'singularity/agent-mappings.yml');
+  const originalMappings = await readFile(mappingPath, 'utf8');
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown prompt pack/i);
+  assert.equal(await readFile(mappingPath, 'utf8'), originalMappings);
+  await saveDesktopFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: reviewer\n');
+  await assert.rejects(() => deleteDesktopFile(root, '.github/agents/reviewer.agent.md'), /Copilot agent mapping enterprise-reviewer/);
   assert.equal((await validateDesktopConfiguration(root)).valid, true);
   const published = await publishDesktopConfiguration(root, 'Configure desktop template');
   assert.equal(published.pushed, false);
-  assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', templatePath].sort());
+  assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', 'singularity/agent-mappings.yml', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure desktop template/);
 });
 

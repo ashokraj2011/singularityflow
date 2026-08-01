@@ -29,7 +29,15 @@ import {
   SingularityFlowError,
   writeText
 } from './util.mjs';
-import { AGENT_LOCK_PATH, agentStatus, discoverAgents } from './agents.mjs';
+import {
+  AGENT_LOCK_PATH,
+  AGENT_MAPPING_PATH,
+  agentMappingStatus,
+  agentStatus,
+  discoverAgents,
+  loadAgentMappings,
+  validateAgentMappings
+} from './agents.mjs';
 import { structuredWorldModelViewReferences, worldModelViewCatalog } from './world-model-views.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
@@ -322,6 +330,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     review.markdown = reviewMarkdown(review);
   }
   const agents = await discoverAgents(root);
+  const mappingStatus = await agentMappingStatus(root);
   const telemetry = await copilotTelemetryStatus(root);
   let ledger;
   try {
@@ -338,6 +347,10 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     type: 'file'
   });
   const lockExists = agentLock.exists;
+  const agentMappings = await secureRepositoryPath(root, AGENT_MAPPING_PATH, {
+    label: 'Copilot agent mapping file',
+    type: 'file'
+  });
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   let worldModelManifest = null;
   try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* A missing model is represented by rebuildReason below. */ }
@@ -412,6 +425,14 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     },
     agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
     agentStatus: await agentStatus(root),
+    agentMappings: {
+      path: AGENT_MAPPING_PATH,
+      exists: agentMappings.exists,
+      content: agentMappings.exists
+        ? await readFile(agentMappings.absolute, 'utf8')
+        : await readFile(path.join(packageRoot, 'templates', 'agent-mappings.yml'), 'utf8'),
+      rows: mappingStatus.rows
+    },
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote prompt packs are trusted yet.\n' },
     workItems: items,
     initiatives,
@@ -539,6 +560,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
   return relative === WORKFLOW_PATH
     || relative === PORTFOLIO_PATH
     || relative === 'singularity/capabilities.yml'
+    || relative === AGENT_MAPPING_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
     || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`)
@@ -575,6 +597,12 @@ export async function saveDesktopFile(root, requestedPath, content) {
     try { validatePortfolio(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because portfolio validation failed: ${error.message}`); }
   }
+  if (relative === AGENT_MAPPING_PATH) {
+    try {
+      const agents = await discoverAgents(root);
+      validateAgentMappings(YAML.parse(content), { agentIds: agents.map((agent) => agent.id) });
+    } catch (error) { throw new SingularityFlowError(`Change was not saved because agent mapping validation failed: ${error.message}`); }
+  }
   const target = await secureRepositoryPath(root, relative, {
     label: 'Desktop configuration target',
     type: 'file'
@@ -587,6 +615,7 @@ export async function saveDesktopFile(root, requestedPath, content) {
     const updatedPortfolio = await loadPortfolio(root, { required: false });
     if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
     await discoverAgents(root);
+    await loadAgentMappings(root);
   } catch (error) {
     if (existed) await writeText(target.absolute, previous);
     else await unlink(target.absolute);
@@ -630,6 +659,16 @@ export async function deleteDesktopFile(root, requestedPath) {
     const prompt = relative.slice(promptsRoot.length + 1);
     for (const [personaId, persona] of Object.entries(definition.personas)) if (persona.prompt === prompt) references.push(`persona ${personaId}`);
   }
+  if (relative.startsWith('.github/agents/')) {
+    const agents = await discoverAgents(root);
+    const deletedAgent = agents.find((agent) => agent.scope === 'repository' && agent.source === relative);
+    if (deletedAgent) {
+      const mapping = await loadAgentMappings(root, { agents });
+      for (const [copilotAgent, promptPack] of Object.entries(mapping.mappings)) {
+        if (promptPack === deletedAgent.id) references.push(`Copilot agent mapping ${copilotAgent}`);
+      }
+    }
+  }
   if (references.length) throw new SingularityFlowError(`File '${relative}' is still referenced by ${references.join(', ')}. Select a replacement before deleting it.`);
   const target = await secureRepositoryPath(root, relative, {
     label: 'Desktop configuration file',
@@ -669,6 +708,7 @@ export async function desktopExportBundle(root) {
     await textFiles(root, definition.personaPromptsRoot),
     await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
+    await exists(path.join(root, AGENT_MAPPING_PATH)) ? [{ path: AGENT_MAPPING_PATH, content: await readFile(path.join(root, AGENT_MAPPING_PATH), 'utf8') }] : [],
     await exists(path.join(root, AGENT_LOCK_PATH)) ? [{ path: AGENT_LOCK_PATH, content: await readFile(path.join(root, AGENT_LOCK_PATH), 'utf8') }] : [],
     prompt.missing ? [] : [prompt],
     planner.missing ? [] : [planner],
@@ -683,6 +723,7 @@ export async function validateDesktopConfiguration(root) {
   const portfolio = await loadPortfolio(root, { required: false });
   if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);
+  await loadAgentMappings(root, { agents });
   return {
     valid: true,
     workTypes: Object.keys(definition.workTypes).length,

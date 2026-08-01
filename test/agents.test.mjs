@@ -6,13 +6,17 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
+  AGENT_MAPPING_PATH,
+  agentMappingStatus,
   agentStatus,
   fetchRemoteMarkdown,
+  loadAgentMappings,
   lockAgent,
   materializeAgentTemplate,
   parseAgentDependencies,
   prepareRemoteOutputs,
   renderAgentSkills,
+  resolveCopilotAgent,
   syncAgent
 } from '../src/agents.mjs';
 import { setAgentSession, setPersonaSession, loadSession } from '../src/session.mjs';
@@ -82,6 +86,40 @@ test('agent Markdown parser processes only exact dependency tables and validates
   assert.throws(() => parseAgentDependencies(agentMarkdown.replace('{generation}', '{secret}')), /unsupported variable/);
   assert.throws(() => parseAgentDependencies(agentMarkdown.replace('artifacts/design/threat-model.md', '../threat-model.md')), /under artifacts\/design/);
   assert.throws(() => parseAgentDependencies(agentMarkdown.replace('| design-template |', '| secure-review |')), /duplicated/);
+});
+
+test('agent mappings resolve different Copilot names before same-name fallback', async () => {
+  const root = await rootWithAgent();
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), YAML.stringify({
+    version: 1,
+    mappings: { 'enterprise-architect': 'architecture' }
+  }));
+
+  const explicit = await resolveCopilotAgent(root, 'enterprise-architect');
+  assert.equal(explicit.promptPack, 'architecture');
+  assert.equal(explicit.source, 'configured');
+  assert.equal(explicit.agent.id, 'architecture');
+
+  const fallback = await resolveCopilotAgent(root, 'architecture');
+  assert.equal(fallback.promptPack, 'architecture');
+  assert.equal(fallback.source, 'same-name');
+  assert.equal(fallback.agent.id, 'architecture');
+
+  const status = await agentMappingStatus(root);
+  assert.ok(status.rows.some((row) => row.copilotAgent === 'enterprise-architect' && row.source === 'configured'));
+  assert.ok(status.rows.some((row) => row.copilotAgent === 'architecture' && row.source === 'same-name fallback'));
+});
+
+test('agent mapping validation rejects malformed names and unknown prompt packs', async () => {
+  const root = await rootWithAgent();
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  enterprise-architect: missing-pack\n');
+  await assert.rejects(() => loadAgentMappings(root), /unknown prompt pack 'missing-pack'/);
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  "bad agent": architecture\n');
+  await assert.rejects(() => loadAgentMappings(root), /mapping key 'bad agent'/);
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 2\nmappings: {}\n');
+  await assert.rejects(() => loadAgentMappings(root), /version must be 1/);
 });
 
 test('remote fetch enforces redirects, UTF-8 content, emptiness, and byte ceilings', async () => {

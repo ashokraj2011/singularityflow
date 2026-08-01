@@ -13,6 +13,7 @@ import { WorkspaceStore } from './state.ts';
 import { approveWithReceipt, runGovernedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
+import { ReconciliationPanel } from './views/reconciliation.ts';
 import type { TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -138,6 +139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('singularityFlow.runAction', runNode),
     vscode.commands.registerCommand('singularityFlow.approve', runNode),
     vscode.commands.registerCommand('singularityFlow.openJourney', () => JourneyPanel.show(context, store, onJourneyMessage)),
+    vscode.commands.registerCommand('singularityFlow.openReconciliation', () => ReconciliationPanel.show(context, store, client)),
     vscode.commands.registerCommand('singularityFlow.showImpact', () => showImpact(client, output))
   );
 

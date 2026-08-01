@@ -431,3 +431,30 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
   assert.equal(businessCase.readOnly, true, 'an approved artifact is now hash-pinned');
   assert.equal(businessCase.command, undefined, 'and offers no second approval');
 });
+
+test('the reconciliation panel opens under the same CSP as the journey', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // One shared implementation of the security posture, so a second panel cannot quietly relax it.
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openReconciliation')();
+
+  const [panel] = registered.panels;
+  assert.ok(panel, 'a webview panel was created');
+  assert.equal(panel.options.localResourceRoots.length, 1);
+  assert.match(panel.options.localResourceRoots[0].fsPath, /apps\/vscode\/media$/);
+
+  const html = panel.webview.html;
+  assert.match(html, /default-src 'none'/);
+  assert.match(html, /script-src 'nonce-[0-9a-f]{32}'/);
+  assert.doesNotMatch(html, /unsafe-inline|unsafe-eval/);
+  assert.doesNotMatch(html, /https?:\/\//);
+
+  // It rendered the four levels against the real Epic, and reported honestly that a freshly
+  // started Epic has nothing to compare rather than claiming everything agrees.
+  assert.match(html, /INIT-CHECKOUT/);
+  for (const label of ['Child branch', 'Story → Epic', 'Cross-repository', 'Spec ↔ code']) {
+    assert.match(html, new RegExp(label.replace(/[→↔]/g, '.')), `${label} is present`);
+  }
+  assert.match(html, /nothing to compare/);
+  assert.doesNotMatch(html, /levels have drifted/);
+});

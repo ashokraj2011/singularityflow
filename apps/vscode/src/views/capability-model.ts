@@ -1,0 +1,189 @@
+/**
+ * The capability editor's model: structure, delivery, Jira, teams, and policy as it will apply.
+ *
+ * Policy folds from the root toward each child and every fold is monotonic — the stricter severity,
+ * the larger minimum, the smaller budget, the intersection of allowlists, the union of obligations.
+ * A capability can therefore tighten what an ancestor set and can never loosen it.
+ *
+ * That is invisible in the file. A child declaring `approvalMinimum: 1` beneath a parent demanding
+ * two reads as though one approval will do, and it will not. So every policy field is presented as
+ * three facts: what this capability declared, what it will actually be held to, and — when those
+ * differ — that the declaration is being overridden and by which ancestor. Showing only the file
+ * would be showing the intention rather than the rule.
+ */
+import type { CapabilityNode, CapabilityPolicyValue as PolicyValue } from '../cli/snapshot.ts';
+
+export type { PolicyValue };
+
+export interface PolicyField {
+  key: string;
+  label: string;
+  /** How this field folds, which is why an override happens; shown so the rule is learnable. */
+  rule: string;
+  declared: PolicyValue;
+  effective: PolicyValue;
+  /** True when what was declared is not what will apply. */
+  overridden: boolean;
+}
+
+export interface CapabilityDetail {
+  id: string;
+  name: string;
+  kind: string;
+  /** Ancestors from the root down, which is the chain policy folds along. */
+  ancestors: string[];
+  delivery: boolean;
+  repository: string | null;
+  jira: { projectKey?: string; board?: string; component?: string } | null;
+  teams: string[];
+  owns: string[];
+  policy: PolicyField[];
+  /** Delivery capabilities beneath this one; a leaf ships itself. */
+  ships: Array<{ id: string; repository: string }>;
+}
+
+/**
+ * The policy vocabulary, with how each field folds.
+ *
+ * Ordered so the fields a reader is most likely to be looking for come first, rather than
+ * alphabetically — approval rules before token budgets.
+ */
+const POLICY_FIELDS: Array<{ key: string; label: string; rule: string }> = [
+  { key: 'gateSeverity', label: 'Gate severity', rule: 'the stricter of this and every ancestor' },
+  { key: 'approvalMinimum', label: 'Approvals required', rule: 'the largest demanded by any ancestor' },
+  { key: 'allowSelfApproval', label: 'Self-approval allowed', rule: 'only if every ancestor allows it' },
+  { key: 'requiredAuthorityGroups', label: 'Required authorities', rule: 'the union of every ancestor' },
+  { key: 'requiredChecks', label: 'Required checks', rule: 'the union of every ancestor' },
+  { key: 'protectedPaths', label: 'Protected paths', rule: 'the union of every ancestor' },
+  { key: 'qualityCommands', label: 'Quality commands', rule: 'the union of every ancestor' },
+  { key: 'allowedPhases', label: 'Allowed phases', rule: 'the intersection with every ancestor' },
+  { key: 'writeScopes', label: 'Write scopes', rule: 'the intersection with every ancestor' },
+  { key: 'worldModelGrounding', label: 'World-model grounding', rule: 'the stricter of this and every ancestor' },
+  { key: 'worldModelStaleness', label: 'World-model staleness', rule: 'the stricter of this and every ancestor' },
+  { key: 'requiredWorldModelViews', label: 'Required views', rule: 'the union of every ancestor' },
+  { key: 'jiraProjects', label: 'Jira projects', rule: 'the intersection with every ancestor' },
+  { key: 'jiraOperations', label: 'Jira operations', rule: 'the intersection with every ancestor' },
+  { key: 'gitPublication', label: 'Git publication', rule: 'the stricter of this and every ancestor' },
+  { key: 'contextBoundary', label: 'Context boundary', rule: 'the stricter of this and every ancestor' },
+  { key: 'maxDocumentBytes', label: 'Maximum document bytes', rule: 'the smallest set by any ancestor' },
+  { key: 'tokenBudget', label: 'Token budget', rule: 'the smallest set by any ancestor' },
+  { key: 'contextMaxBytes', label: 'Context maximum bytes', rule: 'the smallest set by any ancestor' }
+];
+
+const same = (left: PolicyValue, right: PolicyValue): boolean => {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((item, index) => item === right[index]);
+  }
+  return left === right;
+};
+
+/** Flatten the tree once, keeping each node's ancestors. */
+export function flattenCapabilities(
+  tree: CapabilityNode[],
+  ancestors: string[] = []
+): Array<CapabilityNode & { depth: number; ancestors: string[] }> {
+  return tree.flatMap((node) => [
+    { ...node, depth: ancestors.length, ancestors },
+    ...flattenCapabilities(node.children ?? [], [...ancestors, node.id])
+  ]);
+}
+
+export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): CapabilityDetail | null {
+  const rows = flattenCapabilities(tree);
+  const row = rows.find((entry) => entry.id === capabilityId);
+  if (!row) return null;
+
+  const declaredPolicy = row.policy ?? {};
+  const effectivePolicy = row.effectivePolicy ?? {};
+
+  const policy = POLICY_FIELDS
+    .map((field) => {
+      const declared = declaredPolicy[field.key] ?? null;
+      const effective = effectivePolicy[field.key] ?? null;
+      return {
+        ...field,
+        declared,
+        effective,
+        // An empty effective list is not an override of an absent declaration; it is the same
+        // nothing said twice.
+        overridden: declared != null && !same(declared, effective)
+      };
+    })
+    // Only fields that say something. A form listing twenty empty rules teaches nothing.
+    .filter((field) => field.declared != null
+      || (Array.isArray(field.effective) ? field.effective.length > 0 : field.effective != null));
+
+  const ships = rows
+    .filter((entry) => entry.repository
+      && (entry.id === capabilityId || entry.ancestors.includes(capabilityId)))
+    .map((entry) => ({ id: entry.id, repository: entry.repository as string }));
+
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    ancestors: row.ancestors,
+    delivery: Boolean(row.repository),
+    repository: row.repository ?? null,
+    jira: row.jira ?? null,
+    teams: row.teams ?? [],
+    owns: row.owns ?? [],
+    policy,
+    ships
+  };
+}
+
+/** Which flag carries which field. The panel's field names, the CLI's option names. */
+const EDIT_FLAGS: Array<[string, string]> = [
+  ['name', '--name'], ['kind', '--kind'], ['parent', '--parent'], ['repository', '--repository'],
+  ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams']
+];
+
+/**
+ * The CLI call one edit becomes.
+ *
+ * An empty value is passed rather than dropped: `--repository ''` turns a delivery capability back
+ * into a grouping, while omitting the flag says nothing about it. Those are different edits, and a
+ * form that could only ever set things would make the second one unreachable.
+ */
+export function capabilityArgv(
+  mode: 'add' | 'set' | 'remove',
+  capabilityId: string,
+  edits: Record<string, string> = {}
+): string[] {
+  const argv = ['capability', mode, capabilityId];
+  if (mode === 'remove') return argv;
+  for (const [field, flag] of EDIT_FLAGS) {
+    if (edits[field] === undefined) continue;
+    argv.push(flag, edits[field].trim());
+  }
+  return argv;
+}
+
+/**
+ * Where a capability may sit.
+ *
+ * Two exclusions, both of which the engine would otherwise refuse after the fact: a capability
+ * cannot be moved beneath itself or its own descendants, and cannot be placed under one that ships
+ * from a repository, because a capability that ships is a leaf. Offering only the legal parents means
+ * the common mistakes are unreachable rather than reported.
+ */
+export function parentChoices(
+  tree: CapabilityNode[],
+  capabilityId: string | null
+): Array<{ id: string; name: string; depth: number }> {
+  const rows = flattenCapabilities(tree);
+  return rows
+    .filter((row) => row.id !== capabilityId)
+    .filter((row) => !capabilityId || !row.ancestors.includes(capabilityId))
+    .filter((row) => !row.repository)
+    .map((row) => ({ id: row.id, name: row.name, depth: row.depth }));
+}
+
+/** Rendered for the value columns: an array reads as a list, an absent value as nothing set. */
+export function formatPolicyValue(value: PolicyValue): string {
+  if (value == null) return '—';
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'none';
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  return String(value);
+}

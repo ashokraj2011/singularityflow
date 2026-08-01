@@ -1,0 +1,128 @@
+/**
+ * The capability screen: what this organisation builds, and the policy each part is held to.
+ *
+ * Jira and teams live here rather than on a workspace because they are properties of the thing being
+ * built, not of who has cloned what. A workspace is a local grouping; a capability outlives it.
+ *
+ * Editing goes through `capability add|set|remove`, which validates the whole map before writing —
+ * so the screen cannot save a tree the engine would reject, and does not need a second copy of the
+ * rules to know that. Refusals come back as the engine's own sentence.
+ */
+import * as vscode from 'vscode';
+import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
+import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import type { WorkspaceStore } from '../state.ts';
+
+export type CapabilitiesMessage =
+  | { type: 'create'; id: string; edits: Record<string, string> }
+  | { type: 'save'; id: string; edits: Record<string, string> }
+  | { type: 'remove'; id: string };
+
+export class CapabilitiesPanel {
+  private static current: CapabilitiesPanel | null = null;
+
+  private readonly panel: vscode.WebviewPanel;
+  private readonly store: WorkspaceStore;
+  private readonly subscription: { dispose(): void };
+  private readonly disposables: vscode.Disposable[] = [];
+  private selected: string | null = null;
+  private adding: { parent: string | null } | null = null;
+  private error: string | null = null;
+
+  private constructor(
+    panel: vscode.WebviewPanel,
+    store: WorkspaceStore,
+    onMessage: (message: CapabilitiesMessage) => void
+  ) {
+    this.panel = panel;
+    this.store = store;
+    this.subscription = store.onDidChange(() => this.render());
+
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const message = raw as { type?: unknown; id?: unknown; parent?: unknown; edits?: unknown };
+      // Selecting and cancelling are the panel's own state; only the three that touch the map leave.
+      if (message?.type === 'select' && typeof message.id === 'string') {
+        this.selected = message.id;
+        this.adding = null;
+        this.error = null;
+        return this.render();
+      }
+      if (message?.type === 'add') {
+        this.adding = { parent: typeof message.parent === 'string' && message.parent ? message.parent : null };
+        this.error = null;
+        return this.render();
+      }
+      if (message?.type === 'cancel') {
+        this.adding = null;
+        return this.render();
+      }
+      if (message?.type === 'create') {
+        const edits = readEdits(message.edits);
+        const id = String((message.edits as Record<string, unknown> | undefined)?.id ?? '').trim();
+        if (!id) return this.report('An identifier is required.');
+        return onMessage({ type: 'create', id, edits });
+      }
+      if (message?.type === 'remove' && typeof message.id === 'string') {
+        return onMessage({ type: 'remove', id: message.id });
+      }
+      if (message?.type === 'save' && typeof message.id === 'string') {
+        return onMessage({ type: 'save', id: message.id, edits: readEdits(message.edits) });
+      }
+    }, null, this.disposables);
+
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.render();
+  }
+
+  static show(
+    context: vscode.ExtensionContext,
+    store: WorkspaceStore,
+    onMessage: (message: CapabilitiesMessage) => void
+  ): CapabilitiesPanel {
+    if (CapabilitiesPanel.current) {
+      CapabilitiesPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      return CapabilitiesPanel.current;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      'singularityFlow.capabilities', 'Capabilities', vscode.ViewColumn.Active, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+      });
+    CapabilitiesPanel.current = new CapabilitiesPanel(panel, store, onMessage);
+    return CapabilitiesPanel.current;
+  }
+
+  /** A refused edit reports the engine's own sentence on the screen that caused it. */
+  report(error: string | null): void {
+    this.error = error;
+    this.render();
+  }
+
+  /** Called after an accepted edit, so the form closes and the new node is the one on screen. */
+  settled(capabilityId: string): void {
+    this.selected = capabilityId;
+    this.adding = null;
+    this.error = null;
+    this.render();
+  }
+
+  private render(): void {
+    const map = this.store.current.snapshot?.capabilityMap;
+    const token = nonce();
+    this.panel.webview.html = page(
+      'Capabilities',
+      bodyHtml(map?.capabilities ?? [], this.selected, this.adding, this.error ?? map?.error ?? null),
+      contentSecurityPolicy(this.panel.webview, token),
+      token,
+      SCRIPT
+    );
+  }
+
+  dispose(): void {
+    CapabilitiesPanel.current = null;
+    this.subscription.dispose();
+    this.panel.dispose();
+    for (const disposable of this.disposables) disposable.dispose();
+  }
+}

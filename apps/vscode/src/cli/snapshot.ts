@@ -21,14 +21,26 @@
  * `undefined`, which is what a closed Record silently did — later phases showed no icon at all
  * because the real value is `not_started` and this file had guessed `pending`.
  */
+/** The value of any policy field; the vocabulary is wide, the shapes are these four. */
+export type CapabilityPolicyValue = string | number | boolean | string[] | null;
+
 export interface CapabilityNode {
   id: string;
   name: string;
-  kind: 'business' | 'delivery';
+  kind: string;
   description?: string;
   owner?: string | null;
+  /** True when this capability ships, which the engine infers from naming a repository. */
+  delivery?: boolean;
   /** Present on delivery capabilities only: the repository this ships from. */
-  repository?: string;
+  repository?: string | null;
+  jira?: { projectKey?: string; board?: string; component?: string } | null;
+  teams?: string[];
+  owns?: string[];
+  /** What this capability's own entry declares. */
+  policy?: Record<string, CapabilityPolicyValue>;
+  /** What it will be held to once every ancestor's policy has folded in. */
+  effectivePolicy?: Record<string, CapabilityPolicyValue>;
   children: CapabilityNode[];
 }
 

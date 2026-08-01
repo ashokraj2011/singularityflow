@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { exists, SingularityFlowError } from './util.mjs';
@@ -192,6 +192,64 @@ export async function loadCapabilities(root, { required = false } = {}) {
   return validateCapabilities(YAML.parse(await readFile(file, 'utf8')));
 }
 
+/**
+ * Add, change, or remove one capability, in place.
+ *
+ * The file is edited as a document rather than parsed into objects and re-emitted, so the comments
+ * and ordering a person put there survive a change made from a screen. A map that people hand-edit
+ * and a tool also writes has to be readable after the tool has written it.
+ *
+ * Only the fields a caller names are touched; an empty string clears a field rather than setting it
+ * to nothing, which is how a delivery capability becomes a grouping again. Policy is deliberately not
+ * editable here — it folds, so the value that applies is rarely the value written, and a field-by-
+ * field form would teach the wrong model. The screen shows the fold and sends the reader to the file.
+ *
+ * @param mode `add` refuses an identifier that exists, `set` refuses one that does not. A screen
+ *   knows which it meant, and a typo that silently creates a sibling is the expensive mistake.
+ */
+export async function editCapability(root, capabilityId, changes = {}, { mode = 'set', portfolio = null } = {}) {
+  const file = path.join(root, CAPABILITIES_PATH);
+  const existing = (await exists(file)) ? await readFile(file, 'utf8') : null;
+  const document = existing == null
+    ? YAML.parseDocument('version: 1\ncapabilities: {}\n')
+    : YAML.parseDocument(existing);
+
+  const before = document.toJS() ?? {};
+  const present = Boolean(before.capabilities?.[capabilityId]);
+  if (mode === 'add' && present) throw new SingularityFlowError(`Capability '${capabilityId}' already exists.`);
+  if (mode !== 'add' && !present) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
+
+  if (mode === 'remove') {
+    const children = Object.entries(before.capabilities ?? {})
+      .filter(([, capability]) => capability.parent === capabilityId)
+      .map(([id]) => `'${id}'`);
+    if (children.length) {
+      throw new SingularityFlowError(`Capability '${capabilityId}' still contains ${children.join(', ')}. Move or remove them first.`);
+    }
+    document.deleteIn(['capabilities', capabilityId]);
+  } else {
+    // createNode rather than a bare object: setIn writes a plain value as an opaque scalar, and the
+    // field-by-field writes below need a collection to descend into.
+    if (mode === 'add') document.setIn(['capabilities', capabilityId], document.createNode({}));
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined) continue;
+      const empty = value === null || value === '' || (Array.isArray(value) && !value.length);
+      // `parent: null` is meaningful — it is the root — so it is written rather than deleted.
+      if (empty && !(key === 'parent' && value === null)) document.deleteIn(['capabilities', capabilityId, ...key.split('.')]);
+      else document.setIn(['capabilities', capabilityId, ...key.split('.')], value);
+    }
+  }
+
+  // Validated before anything is written: a refused edit must leave the file as it was.
+  const after = validateCapabilities(document.toJS(), portfolio);
+  await mkdir(path.dirname(file), { recursive: true });
+  // Unpadded flow collections, because that is how this file is written by hand and by the starter
+  // template. Without it every `[a, b]` in the file comes back as `[ a, b ]` and one edit shows up in
+  // review as a diff against lines nobody touched.
+  await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
+  return { path: CAPABILITIES_PATH, capabilityId, removed: mode === 'remove', capabilities: after.capabilities };
+}
+
 export function capabilityPath(definition, capabilityId) {
   const capabilities = validateCapabilities(definition).capabilities;
   if (!capabilities[capabilityId]) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
@@ -261,6 +319,22 @@ export function resolveEffectiveCapabilityPolicy(definition, capabilityId, ledge
  */
 export function capabilityTree(definition) {
   const capabilities = definition?.capabilities ?? {};
+
+  /**
+   * Policy is folded from the root toward each child, and every fold is monotonic: stricter of two
+   * severities, the larger minimum, the smaller budget, the intersection of allowlists, the union of
+   * obligations. A child can therefore tighten what an ancestor set and can never loosen it.
+   *
+   * That is invisible in the file, where a child's `approvalMinimum: 1` looks like it means one — so
+   * both are carried: what this capability declared, and what it will actually be held to.
+   */
+  const effectiveFor = (id) => {
+    const chain = [];
+    let cursor = id;
+    while (cursor) { chain.unshift(cursor); cursor = capabilities[cursor]?.parent ?? null; }
+    return chain.reduce((policy, step) => foldCapabilityPolicy(policy, capabilities[step]?.policy ?? {}), {});
+  };
+
   const childrenOf = (parent) => Object.entries(capabilities)
     .filter(([, capability]) => (capability.parent ?? null) === parent)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -276,6 +350,8 @@ export function capabilityTree(definition) {
       // convention `owns` already follows, and the reader should see the tidied list.
       teams: uniqueStrings(capability.teams, 'teams') ?? [],
       owns: capability.owns ?? [],
+      policy: capability.policy ?? {},
+      effectivePolicy: effectiveFor(id),
       children: childrenOf(id)
     }));
   return childrenOf(null);

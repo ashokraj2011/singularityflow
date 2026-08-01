@@ -264,16 +264,19 @@ function capabilityNode(snapshot: DesktopSnapshot): TreeNode {
     };
   }
 
+  // Whether a capability ships is decided by naming a repository, not by what its `kind` says. Kind
+  // is free text the organisation chooses; reading it as a flag made a capability labelled anything
+  // other than "delivery" render as an empty grouping however clearly it named its repository.
   const toNode = (capability: CapabilityNode): TreeNode => ({
-    kind: capability.kind === 'delivery' ? 'artifact' : 'group',
+    kind: capability.repository ? 'artifact' : 'group',
     id: `capability:${capability.id}`,
     label: capability.name,
-    description: capability.kind === 'delivery' ? capability.repository : undefined,
-    tooltip: capability.description || (capability.kind === 'delivery'
+    description: capability.repository ?? undefined,
+    tooltip: capability.description || (capability.repository
       ? `Ships from ${capability.repository}.`
       : 'Groups the capabilities beneath it.'),
-    icon: capability.kind === 'delivery' ? 'repo' : 'type-hierarchy',
-    contextValue: capability.kind === 'delivery' ? 'sflow.capability.delivery' : 'sflow.capability',
+    icon: capability.repository ? 'repo' : 'type-hierarchy',
+    contextValue: capability.repository ? 'sflow.capability.delivery' : 'sflow.capability',
     ...(capability.children.length ? { children: capability.children.map(toNode) } : {})
   });
 

@@ -20,6 +20,8 @@ import { ReconciliationPanel } from './views/reconciliation.ts';
 import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
 import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
+import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
+import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -399,7 +401,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  /**
+   * Editing the capability map.
+   *
+   * The engine validates the whole tree before it writes, so a refusal is the answer rather than a
+   * failure: it goes back onto the panel that caused it, in the engine's own words, instead of into a
+   * notification the reader has to hold in their head while fixing the form.
+   */
+  const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
+    const panel = CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    if (message.type === 'remove') {
+      const confirmed = await vscode.window.showWarningMessage(
+        `Remove ${message.id} from the capability map?`,
+        { modal: true, detail: 'The map is the lead repository\'s record of what this organisation builds. Anything this capability delivers loses its owner.' },
+        'Remove'
+      );
+      if (confirmed !== 'Remove') return;
+    }
+    const argv = message.type === 'remove'
+      ? capabilityArgv('remove', message.id)
+      : capabilityArgv(message.type === 'create' ? 'add' : 'set', message.id, message.edits);
+
+    output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+    try {
+      await client.runText(argv);
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      return panel.report((error as Error).message);
+    }
+    await store.refresh();
+    panel.settled(message.type === 'remove' ? '' : message.id);
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('singularityFlow.openCapabilities',
+      () => CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); })),
     vscode.commands.registerCommand('singularityFlow.openImpact',
       () => ImpactPanel.show(context, store, client)),
     vscode.commands.registerCommand('singularityFlow.openStories',

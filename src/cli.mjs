@@ -164,7 +164,7 @@ import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
 import {
-  CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree,
+  CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability,
   flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
   validateCapabilities
 } from './capabilities.mjs';
@@ -389,6 +389,9 @@ Usage:
   singularity-flow capability [tree] [--json]
   singularity-flow capability show <CAPABILITY-ID> [--json]
   singularity-flow capability of <REPOSITORY-ID> [--json]
+  singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
+    [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
+  singularity-flow capability remove <CAPABILITY-ID> [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
@@ -2265,16 +2268,61 @@ function commitKnowledge(root, message) {
 }
 
 /**
- * The capability map, read.
+ * Structure a capability edit from options, leaving unnamed fields alone.
  *
- * Editing it is editing the file: it is a small tree that a person reads and changes directly, and a
- * command per node would be a worse editor than the editor. What is worth having is the derived
- * answers — what a capability ships, and who owns a repository — which a reader cannot get by
- * looking at one place in the file.
+ * `--repository ''` is not the same as omitting `--repository`: the first makes a delivery capability
+ * into a grouping, the second says nothing about it. So absent options become `undefined` and empty
+ * ones become the empty string, which `editCapability` reads as a clearance.
+ */
+function capabilityChanges(options) {
+  // Insertion order is the order new keys land in the file, so this is the order a person reads a
+  // capability in: what it is, where it sits, what it ships, then who tracks and runs it.
+  const changes = {};
+  const put = (option, field, transform = (value) => value) => {
+    const value = optionString(options, option);
+    if (value != null) changes[field] = transform(value);
+  };
+  const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
+  put('name', 'name');
+  put('kind', 'kind');
+  put('parent', 'parent', (value) => value || null);
+  put('repository', 'repository');
+  put('jira-project', 'jira.projectKey');
+  put('jira-board', 'jira.board');
+  put('jira-component', 'jira.component');
+  put('teams', 'teams', list);
+  put('owns', 'owns', list);
+  put('description', 'description');
+  put('owner', 'owner');
+  return changes;
+}
+
+/**
+ * The capability map: read, and edited one node at a time.
+ *
+ * Reading gives the derived answers a reader cannot get by looking at one place in the file — what a
+ * capability ships, and who owns a repository. Writing exists because a screen needs a write path
+ * that validates before it saves; it edits the YAML document rather than re-emitting it, so a map
+ * that people also hand-edit stays readable afterwards.
+ *
+ * Policy is not editable here. It folds from the root down, so the value that applies is often not
+ * the value written, and an option per field would make that easier to get wrong rather than easier
+ * to see. `capability show --json` reports both.
  */
 async function capabilityCommand(positionals, options) {
   const root = repoRoot();
   const portfolio = await loadPortfolio(root, { required: false });
+  const subcommandForWrite = positionals[1];
+
+  if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
+    const id = requirePositional(positionals, 2, 'capability ID');
+    const result = await editCapability(root, id, capabilityChanges(options), { mode: subcommandForWrite, portfolio });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(result.removed
+      ? `Removed capability ${id} from ${result.path}.`
+      : `Saved capability ${id} to ${result.path}.`);
+  }
+
   const definition = await loadCapabilities(root);
   if (!definition) {
     throw new SingularityFlowError(`No capability map exists. Describe what this organisation builds in ${CAPABILITIES_PATH}.`);
@@ -2286,9 +2334,21 @@ async function capabilityCommand(positionals, options) {
   if (subcommand === 'show') {
     const id = requirePositional(positionals, 2, 'capability ID');
     const deliveries = capabilityDeliveries(definition, id);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ id, deliveries }, null, 2));
+    // Both policies, because they differ silently: a capability declaring one approval beneath a
+    // parent demanding two is held to two, and only the effective form says so.
+    const node = flattenCapabilityTree(tree).find((row) => row.id === id);
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({
+        id, deliveries, policy: node?.policy ?? {}, effectivePolicy: node?.effectivePolicy ?? {}
+      }, null, 2));
+    }
     console.log(`${id} ships from ${deliveries.length} ${deliveries.length === 1 ? 'repository' : 'repositories'}`);
     for (const delivery of deliveries) console.log(`  ${delivery.id.padEnd(28)} ${delivery.repository}`);
+    for (const [key, value] of Object.entries(node?.effectivePolicy ?? {})) {
+      const declared = node?.policy?.[key];
+      const overridden = declared !== undefined && JSON.stringify(declared) !== JSON.stringify(value);
+      console.log(`  ${key.padEnd(28)} ${Array.isArray(value) ? value.join(', ') : value}${overridden ? `  (declared ${JSON.stringify(declared)}, overridden by an ancestor)` : ''}`);
+    }
     return;
   }
 

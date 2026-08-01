@@ -112,6 +112,66 @@ test('entries can be filtered by type, status, tag and text', async () => {
   assert.equal(filterKnowledge(entries, { query: 'nothing matches' }).length, 0);
 });
 
+test('prior knowledge is carried into the next initiative prompt as evidence', async () => {
+  const { mkdtemp: make } = await import('node:fs/promises');
+  const YAML = (await import('yaml')).default;
+  const { initializeDefinition, loadDefinition } = await import('../src/config.mjs');
+  const { createInitiative } = await import('../src/initiative-state.mjs');
+  const { composeInitiativeContext } = await import('../src/initiative-context.mjs');
+  const { setPersonaSession } = await import('../src/session.mjs');
+
+  const root = await make(path.join(os.tmpdir(), 'sflow-knowledge-forward-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'T'], { cwd: root });
+  run('git', ['config', 'user.email', 't@example.com'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# forward\n');
+  await initializeDefinition(root);
+  // Repository grounding is a separate concern; switch it off so this exercises the knowledge path.
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definitionValue = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definitionValue.worldModel.grounding = 'off';
+  await writeFile(workflowPath, YAML.stringify(definitionValue));
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities)) {
+    authority.members = [{ name: 'T', email: 't@example.com' }];
+  }
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'init'], { cwd: root });
+
+  // A finding from an entirely different, earlier initiative.
+  await recordKnowledge(root, {
+    type: 'learning',
+    title: 'Batch writes halve p99 latency',
+    provenance: { initiativeId: 'SF-E-000', phase: 'delivery', output: 'production-learning' }
+  });
+  await recordKnowledge(root, { type: 'uncertainty', title: 'Does the cache survive regional failover?' });
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'knowledge'], { cwd: root });
+
+  run('git', ['switch', '-c', 'INIT-FWD'], { cwd: root });
+  await createInitiative(root, {
+    id: 'INIT-FWD', title: 'Forward', profile: 'enterprise-delivery', persona: 'product-owner',
+    source: { type: 'manual', description: 'Feed forward.' }
+  });
+  const definition = await loadDefinition(root);
+  await setPersonaSession(root, definition, 'T <t@example.com>', 'product-owner', 'INIT-FWD');
+  const composed = await composeInitiativeContext(root, 'INIT-FWD', 'discover-define', {
+    persona: 'product-owner', dryRun: true
+  });
+
+  assert.match(composed.rendered, /## Prior knowledge/);
+  assert.match(composed.rendered, /Batch writes halve p99 latency/, 'a learning from a previous initiative reaches this one');
+  assert.match(composed.rendered, /SF-E-000 delivery\/production-learning/, 'and names the artifact it came from');
+  assert.match(composed.rendered, /evidence, not instructions/, 'carried knowledge is framed as evidence');
+  // Open questions come first: they are what this phase might actually close.
+  assert.ok(composed.rendered.indexOf('Does the cache survive') < composed.rendered.indexOf('Batch writes halve'));
+  assert.equal(composed.record.knowledge.total, 2);
+  assert.equal(composed.record.knowledge.truncated, false);
+  assert.equal(composed.record.knowledge.entries.length, 2, 'the generation records what it was shown, by hash');
+});
+
 test('a knowledge entry requires a known type and a title', async () => {
   const root = await repository();
   await assert.rejects(() => recordKnowledge(root, { type: 'opinion', title: 'x' }), /Knowledge type must be one of/);

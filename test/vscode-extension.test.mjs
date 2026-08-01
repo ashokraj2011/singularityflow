@@ -1221,3 +1221,154 @@ test('a capability map that does not validate reports the engine reason', () => 
   assert.equal(node.description, 'not valid');
   assert.match(node.children[0].label, /which the portfolio does not declare/);
 });
+
+const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
+  await import(source('views/capability-model.ts'));
+const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
+
+/** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
+const capabilityFixture = [{
+  id: 'commerce', name: 'Commerce', kind: 'portfolio', delivery: false, repository: null,
+  jira: null, teams: ['Commerce leadership'], owns: [],
+  policy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
+  effectivePolicy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
+  children: [{
+    id: 'payments', name: 'Payments', kind: 'product', delivery: false, repository: null,
+    jira: { projectKey: 'PAY', board: 'Payments board' }, teams: ['Payments squad'], owns: [],
+    policy: { approvalMinimum: 1, protectedPaths: ['src/payments/**'] },
+    effectivePolicy: {
+      gateSeverity: 'block', approvalMinimum: 2,
+      protectedPaths: ['singularity/workflow.yml', 'src/payments/**']
+    },
+    children: [{
+      id: 'payments-api', name: 'Payments API', kind: 'service', delivery: true, repository: 'api',
+      jira: null, teams: [], owns: [],
+      policy: {},
+      effectivePolicy: {
+        gateSeverity: 'block', approvalMinimum: 2,
+        protectedPaths: ['singularity/workflow.yml', 'src/payments/**']
+      },
+      children: []
+    }]
+  }]
+}];
+
+test('a declared policy value an ancestor overrides is shown as overridden, not as what was written', () => {
+  // The whole reason this screen exists. `payments` asks for one approval beneath a parent demanding
+  // two, and will be held to two — the file says nothing about that.
+  const detail = capabilityDetail(capabilityFixture, 'payments');
+  const minimum = detail.policy.find((field) => field.key === 'approvalMinimum');
+  assert.equal(minimum.declared, 1);
+  assert.equal(minimum.effective, 2);
+  assert.equal(minimum.overridden, true);
+  assert.match(minimum.rule, /largest demanded by any ancestor/);
+
+  // Inherited-but-not-declared is not an override: nothing here was contradicted.
+  const severity = detail.policy.find((field) => field.key === 'gateSeverity');
+  assert.equal(severity.declared, null);
+  assert.equal(severity.effective, 'block');
+  assert.equal(severity.overridden, false);
+
+  // A union that grew is still the child's declaration honoured, plus the ancestor's — but it is not
+  // what was written, so the reader is told.
+  const paths = detail.policy.find((field) => field.key === 'protectedPaths');
+  assert.deepEqual(paths.effective, ['singularity/workflow.yml', 'src/payments/**']);
+  assert.equal(paths.overridden, true);
+
+  // Fields nobody set anywhere are omitted. Twenty empty rules would teach nothing.
+  assert.equal(detail.policy.some((field) => field.key === 'tokenBudget'), false);
+});
+
+test('a capability reports what it ships, at any depth beneath it', () => {
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'commerce').ships,
+    [{ id: 'payments-api', repository: 'api' }]);
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'payments-api').ships,
+    [{ id: 'payments-api', repository: 'api' }], 'a leaf ships itself');
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'commerce').ancestors, []);
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'payments-api').ancestors, ['commerce', 'payments']);
+  assert.equal(capabilityDetail(capabilityFixture, 'gone'), null);
+});
+
+test('Jira and teams are read from the capability, which is where they belong', () => {
+  const detail = capabilityDetail(capabilityFixture, 'payments');
+  assert.deepEqual(detail.jira, { projectKey: 'PAY', board: 'Payments board' });
+  assert.deepEqual(detail.teams, ['Payments squad']);
+  assert.equal(detail.delivery, false);
+  assert.equal(capabilityDetail(capabilityFixture, 'payments-api').delivery, true);
+});
+
+test('the parent chooser cannot offer a move the engine would refuse', () => {
+  // Moving a capability beneath itself or its own descendant is a cycle; a capability that ships
+  // cannot contain anything. Both are unreachable rather than reported after the fact.
+  const offered = parentChoices(capabilityFixture, 'payments').map((choice) => choice.id);
+  assert.deepEqual(offered, ['commerce']);
+
+  const forNew = parentChoices(capabilityFixture, null).map((choice) => choice.id);
+  assert.deepEqual(forNew, ['commerce', 'payments'], 'payments-api ships, so it cannot contain');
+});
+
+test('an empty field is sent as a clearance, and an untouched one is not sent at all', () => {
+  // Turning a delivery capability back into a grouping is `--repository ''`; omitting the flag says
+  // nothing about the repository. A form that could only set things could never do the first.
+  assert.deepEqual(
+    capabilityArgv('set', 'payments-api', { repository: '', teams: 'Payments squad, Platform' }),
+    ['capability', 'set', 'payments-api', '--repository', '', '--teams', 'Payments squad, Platform']);
+  assert.deepEqual(capabilityArgv('set', 'payments', { name: ' Payments ' }),
+    ['capability', 'set', 'payments', '--name', 'Payments']);
+  assert.deepEqual(capabilityArgv('remove', 'payments'), ['capability', 'remove', 'payments']);
+  assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'service' }),
+    ['capability', 'add', 'ledger', '--kind', 'service', '--parent', 'payments']);
+});
+
+test('the page cannot widen what an edit writes', () => {
+  // Messages from a webview are claims, not instructions. Only the named fields survive.
+  assert.deepEqual(
+    readEdits({ name: 'Payments', policy: 'gateSeverity: off', __proto__: 'x', teams: 42 }),
+    { name: 'Payments' });
+  assert.deepEqual(readEdits(null), {});
+});
+
+test('the capability screen shows declared beside effective, and names the override', () => {
+  const html = capabilitiesHtml(capabilityFixture, 'payments', null, null);
+  assert.match(html, /Approvals required/);
+  assert.match(html, /the largest demanded by any ancestor/);
+  assert.match(html, /overridden by an ancestor and will not apply as written/);
+  // Both values are on the page: the one written and the one that applies.
+  assert.match(html, /<td class="muted">1<\/td>\s*<td><strong>2<\/strong><\/td>/);
+  assert.match(html, /Payments board/);
+  assert.match(html, /Payments squad/);
+
+  // Policy is not editable here, and the screen says where it is edited rather than staying silent.
+  assert.equal(/data-field="policy/.test(html), false);
+  assert.match(html, /singularity\/capabilities\.yml/);
+});
+
+test('a repository with no capability map offers to describe the first capability', () => {
+  const html = capabilitiesHtml([], null, null, null);
+  assert.match(html, /Describe the first capability/);
+  assert.match(html, /data-add=""/);
+
+  // A refusal is shown on the screen that caused it, in the engine's own words.
+  const refused = capabilitiesHtml(capabilityFixture, 'payments', null,
+    "Capability 'payments' delivers from repository 'nope', which the portfolio does not declare.");
+  assert.match(refused, /which the portfolio does not declare/);
+});
+
+test('a capability that ships is rendered as one whatever its kind says', () => {
+  // `kind` is free text the organisation chooses. Reading it as the delivery flag made a capability
+  // labelled anything other than "delivery" render as an empty grouping beside its own repository.
+  const withMap = structuredClone(snapshot);
+  withMap.capabilityMap = {
+    repositories: ['api'],
+    capabilities: [{
+      id: 'commerce', name: 'Commerce', kind: 'portfolio', children: [
+        { id: 'payments-api', name: 'Payments API', kind: 'service', repository: 'api', children: [] }
+      ]
+    }]
+  };
+  const node = find(buildTree(withMap), 'capability:payments-api');
+  assert.equal(node.description, 'api');
+  assert.equal(node.contextValue, 'sflow.capability.delivery');
+  assert.match(node.tooltip, /Ships from api/);
+  assert.equal(flattenCapabilities(withMap.capabilityMap.capabilities).length, 2);
+});

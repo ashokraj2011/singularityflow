@@ -15,7 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -190,9 +190,16 @@ function stubVscode() {
     return registered.selfApprovalAnswer;
   };
   api.window.createWebviewPanel = (id, title, column, options) => {
+    // The handler is kept, not discarded: a panel that is only ever rendered is half-tested. Driving
+    // a real message through it is what proves the button on the page reaches the engine.
+    let handler = null;
     const panel = {
       id, title, options,
-      webview: { html: '', cspSource: 'vscode-resource:', onDidReceiveMessage: () => ({ dispose() {} }) },
+      webview: {
+        html: '', cspSource: 'vscode-resource:',
+        onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; }
+      },
+      post: async (message) => { await handler?.(message); },
       reveal() {}, onDidDispose: () => ({ dispose() {} }), dispose() {}
     };
     registered.panels.push(panel);
@@ -829,4 +836,104 @@ test('the planning and impact panel computes from the plan, not from the map', a
   assert.match(panel.webview.html, /Planning and impact/);
   // It renders synchronously before the subprocess answers, rather than showing a blank page.
   assert.match(panel.webview.html, /Computing impact|Reconciliation|No Epic/);
+});
+
+test('the capability tree can be grown entirely from the editor', async (t) => {
+  if (!requireBundle(t)) return;
+  // The map is the lead repository's record of what the organisation builds, and until now the only
+  // way to change it was to write YAML. This drives the whole loop — page message, CLI, file,
+  // snapshot, re-render — because every step in it has been the one that silently did nothing.
+  const { root, registered } = await activated();
+  const capabilitiesFile = path.join(root, 'singularity/capabilities.yml');
+  await registered.commands.get('singularityFlow.openCapabilities')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
+  assert.ok(panel, 'a capabilities panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  // A fresh repository is seeded with a root and a product beneath it.
+  assert.match(panel.webview.html, /data-select="enterprise"/);
+  assert.match(panel.webview.html, /data-select="product"/);
+
+  // Panel messages are handled fire-and-forget, as VS Code delivers them, so each step waits for the
+  // page to actually change rather than assuming the round trip finished.
+  const shows = (pattern) => until(() => (pattern.test(panel.webview.html) ? panel.webview.html : null));
+
+  await panel.post({ type: 'add', parent: 'product' });
+  assert.match(panel.webview.html, /New capability/, 'the form for a capability that does not exist yet');
+
+  // A delivery capability, naming a repository the portfolio actually declares.
+  await panel.post({
+    type: 'create',
+    edits: { id: 'checkout-api', name: 'Checkout API', kind: 'service', parent: 'product', repository: 'api' }
+  });
+  assert.match(await shows(/Checkout API/), /Checkout API/);
+  assert.match(await readFile(capabilitiesFile, 'utf8'), /name: Checkout API/);
+  assert.match(panel.webview.html, /delivers/);
+  assert.match(panel.webview.html, /Ships from/);
+  assert.doesNotMatch(panel.webview.html, /New capability/, 'the form closed once the edit landed');
+
+  // Jira and teams belong to the capability. They round-trip through the engine and back onto the
+  // page rather than being held in the panel.
+  await panel.post({
+    type: 'save',
+    id: 'checkout-api',
+    edits: { 'jira.projectKey': 'CHK', teams: 'Checkout squad, Platform' }
+  });
+  assert.match(await shows(/CHK/), /Checkout squad, Platform/);
+
+  // A refusal is the engine's own sentence, on the screen that caused it.
+  await panel.post({ type: 'save', id: 'checkout-api', edits: { repository: 'nowhere' } });
+  assert.match(await shows(/does not declare/), /which the portfolio does not declare/);
+  assert.match(await readFile(capabilitiesFile, 'utf8'), /repository: api/,
+    'the refused edit left the file alone');
+
+  // Removing asks first, and a declined confirmation removes nothing.
+  registered.selfApprovalAnswer = undefined;
+  await panel.post({ type: 'remove', id: 'checkout-api' });
+  await settle();
+  assert.match(await readFile(capabilitiesFile, 'utf8'), /checkout-api/);
+  assert.match(registered.warnings.at(-1) ?? '', /Remove checkout-api/);
+
+  registered.selfApprovalAnswer = 'Remove';
+  await panel.post({ type: 'remove', id: 'checkout-api' });
+  // `until` reads synchronously; a promise would always look truthy on the first attempt and prove
+  // nothing. The file is read here and the predicate applied to the text.
+  await until(() => (existsSync(capabilitiesFile)
+    && !readFileSync(capabilitiesFile, 'utf8').includes('checkout-api')) || null);
+  assert.doesNotMatch(await readFile(capabilitiesFile, 'utf8'), /checkout-api/);
+});
+
+test('the capability screen shows the policy that applies, not only the policy that was written', async (t) => {
+  if (!requireBundle(t)) return;
+  // Inheritance is monotonic and silent: a capability asking for one approval beneath a parent
+  // demanding two is held to two, and the file gives no hint of it.
+  const { root, registered } = await activated();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    '  enterprise:',
+    '    name: Enterprise',
+    '    kind: portfolio',
+    '    parent: null',
+    '    policy: { gateSeverity: block, approvalMinimum: 2, protectedPaths: [singularity/workflow.yml] }',
+    '  checkout:',
+    '    name: Checkout',
+    '    kind: product',
+    '    parent: enterprise',
+    '    policy: { approvalMinimum: 1, protectedPaths: [src/checkout/**] }',
+    ''
+  ].join('\n'));
+
+  await registered.commands.get('singularityFlow.refresh')();
+  await registered.commands.get('singularityFlow.openCapabilities')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
+  await panel.post({ type: 'select', id: 'checkout' });
+
+  assert.match(panel.webview.html, /overridden by an ancestor and will not apply as written/);
+  assert.match(panel.webview.html, /<td class="muted">1<\/td>\s*<td><strong>2<\/strong><\/td>/);
+  assert.match(panel.webview.html, /the largest demanded by any ancestor/);
+  // The union of protected paths, which is also not what this capability wrote.
+  assert.match(panel.webview.html, /singularity\/workflow\.yml, src\/checkout\/\*\*/);
+  // Severity was never declared here, so inheriting it is not an override.
+  assert.match(panel.webview.html, /Gate severity/);
 });

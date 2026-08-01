@@ -70,6 +70,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.openCapabilities",
+        "title": "Singularity Flow: Capabilities",
+        "icon": "$(type-hierarchy)"
+      },
+      {
         "command": "singularityFlow.openApprovals",
         "title": "Singularity Flow: Approvals",
         "icon": "$(verified)"
@@ -131,9 +136,14 @@
     "menus": {
       "view/title": [
         {
-          "command": "singularityFlow.createWorkspace",
+          "command": "singularityFlow.openCapabilities",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.createWorkspace",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "9_setup@0"
         },
         {
           "command": "singularityFlow.openApprovals",

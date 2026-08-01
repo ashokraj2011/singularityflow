@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import {
+  CAPABILITIES_PATH, editCapability,
   activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities
 } from '../src/capabilities.mjs';
 
@@ -229,4 +233,112 @@ test('what a capability ships, and which capability ships a repository', () => {
   assert.deepEqual(capabilityForRepository(definition, 'web'),
     { id: 'storefront-web', name: 'storefront-web', ancestors: ['commerce', 'storefront'] });
   assert.equal(capabilityForRepository(definition, 'unclaimed'), null);
+});
+
+test('editing a capability preserves the comments and ordering of the file it edits', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-edit-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    await writeFile(path.join(root, CAPABILITIES_PATH), [
+      '# What this organisation builds. The lead repository holds this map.',
+      'version: 1',
+      'capabilities:',
+      '  commerce:',
+      '    kind: portfolio',
+      '    parent: null',
+      '    # Two approvals, because money moves through everything beneath this.',
+      '    policy:',
+      '      approvalMinimum: 2',
+      '  payments:',
+      '    kind: product',
+      '    parent: commerce',
+      ''
+    ].join('\n'), 'utf8');
+
+    await editCapability(root, 'payments', { name: 'Payments', teams: ['Payments squad'] });
+    const text = await readFile(path.join(root, CAPABILITIES_PATH), 'utf8');
+
+    // A file people hand-edit and a screen also writes has to survive the screen having written it.
+    assert.match(text, /# What this organisation builds/);
+    assert.match(text, /# Two approvals, because money moves/);
+    assert.match(text, /name: Payments/);
+    assert.match(text, /- Payments squad/);
+    // Untouched fields stay untouched rather than being re-emitted from a parsed object.
+    assert.match(text, /kind: portfolio/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a refused capability edit leaves the file exactly as it was', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-refuse-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const original = [
+      'version: 1',
+      'capabilities:',
+      '  commerce: { kind: portfolio, parent: null }',
+      '  payments: { kind: product, parent: commerce }',
+      ''
+    ].join('\n');
+    await writeFile(path.join(root, CAPABILITIES_PATH), original, 'utf8');
+
+    // A capability that ships cannot also contain, and the refusal has to happen before the write —
+    // a map that is briefly invalid on disk is a map something else can read while it is invalid.
+    await assert.rejects(
+      () => editCapability(root, 'commerce', { repository: 'api' }, { portfolio: { repositories: { api: {} } } }),
+      /cannot also contain 'payments'/);
+    assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
+
+    await assert.rejects(
+      () => editCapability(root, 'payments', { repository: 'unconfigured' }, { portfolio: { repositories: { api: {} } } }),
+      /which the portfolio does not declare/);
+    await assert.rejects(() => editCapability(root, 'payments', { parent: 'payments' }), /cycle/);
+    await assert.rejects(() => editCapability(root, 'Payments', {}, { mode: 'add' }), /kebab-case/);
+    await assert.rejects(() => editCapability(root, 'payments', {}, { mode: 'add' }), /already exists/);
+    await assert.rejects(() => editCapability(root, 'missing', {}), /Unknown capability/);
+    await assert.rejects(() => editCapability(root, 'commerce', {}, { mode: 'remove' }), /still contains 'payments'/);
+    assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('an empty value clears a field, and an omitted one leaves it alone', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-clear-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    await writeFile(path.join(root, CAPABILITIES_PATH), [
+      'version: 1',
+      'capabilities:',
+      '  commerce: { kind: portfolio, parent: null }',
+      '  payments-api:',
+      '    kind: service',
+      '    parent: commerce',
+      '    repository: api',
+      '    teams: [Payments squad]',
+      '    jira: { projectKey: PAY }',
+      ''
+    ].join('\n'), 'utf8');
+    const portfolio = { repositories: { api: {} } };
+
+    // Naming no repository is how a delivery capability becomes a grouping again; it is a different
+    // edit from saying nothing about the repository, so both have to be expressible.
+    const cleared = await editCapability(root, 'payments-api', { repository: '', teams: [] }, { portfolio });
+    assert.equal(cleared.capabilities['payments-api'].repository, undefined);
+    assert.equal(cleared.capabilities['payments-api'].teams, undefined);
+    assert.deepEqual(cleared.capabilities['payments-api'].jira, { projectKey: 'PAY' }, 'untouched');
+    assert.equal(cleared.capabilities['payments-api'].kind, 'service', 'untouched');
+
+    const added = await editCapability(root, 'payments-web',
+      { name: 'Payments Web', kind: 'service', parent: 'commerce', repository: 'api' },
+      { mode: 'add', portfolio });
+    assert.equal(added.capabilities['payments-web'].name, 'Payments Web');
+
+    const removed = await editCapability(root, 'payments-web', {}, { mode: 'remove', portfolio });
+    assert.equal(removed.removed, true);
+    assert.equal(removed.capabilities['payments-web'], undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

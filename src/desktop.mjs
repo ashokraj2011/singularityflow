@@ -578,7 +578,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
   );
   return relative === WORKFLOW_PATH
     || relative === PORTFOLIO_PATH
-    || relative === 'singularity/capabilities.yml'
+    || relative === CAPABILITIES_PATH
     || relative === AGENT_MAPPING_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
@@ -615,6 +615,13 @@ export async function saveDesktopFile(root, requestedPath, content) {
   if (relative === PORTFOLIO_PATH) {
     try { validatePortfolio(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because portfolio validation failed: ${error.message}`); }
+  }
+  if (relative === CAPABILITIES_PATH) {
+    // Validated here rather than only on the next read. A capability map that names an unknown
+    // repository, has two roots, or declares a parent cycle is refused at the point of saving, so
+    // the editor that produced it is the thing that reports it.
+    try { validateCapabilities(YAML.parse(content), portfolio); }
+    catch (error) { throw new SingularityFlowError(`Change was not saved because capability map validation failed: ${error.message}`); }
   }
   if (relative === AGENT_MAPPING_PATH) {
     try {

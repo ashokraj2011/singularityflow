@@ -445,13 +445,14 @@ session:
   requireBeforeTools: false
 ```
 
-The bundled Copilot plugin registers only an advisory `sessionStart` prompt. It
-may remind the contributor to use `/sflow-session` for existing work or
-`/sflow-start` for new work, but it does not invoke either skill, run a command,
-or deny Bash, edit, search, or view tools. Deterministic CLI lifecycle checks
-remain the enforcement boundary. The retained `session-start` and
-`persona-guard` CLI hook handlers are available only for teams that deliberately
-install a custom command-hook policy.
+The bundled Copilot plugin registers an advisory `sessionStart` prompt and one
+nonblocking `subagentStart` command hook. The first may remind the contributor
+to use `/sflow-session` or `/sflow-start`; it never invokes either skill. The
+second maps an exact Copilot custom-agent name to the same Singularity Flow
+prompt-pack ID for the local session. Neither hook denies Bash, edit, search, or
+view tools, and deterministic CLI lifecycle checks remain the enforcement
+boundary. The retained `session-start` and `persona-guard` CLI hook handlers are
+available only for teams that deliberately install a custom command-hook policy.
 
 New repositories also rotate Copilot context after an approved phase:
 
@@ -931,6 +932,22 @@ phase contract and template
 ```
 
 Remote skills are pack-scoped prompt context; they do not become global slash commands and cannot approve.
+
+### Automatic Copilot-agent mapping
+
+When Copilot starts a custom agent, its `subagentStart` event includes the
+selected agent name. Singularity Flow performs an exact ID match against
+repository agents in `.github/agents` and the bundled plugin agents. A matching
+local-only prompt pack, or a matching
+locked pack whose bytes are already verified in the local cache, becomes the
+active session prompt pack automatically. The current work-item binding and
+working lens are preserved.
+
+The hook never downloads content or establishes trust. An unlocked, changed, or
+uncached remote pack remains inactive and Copilot receives the exact
+`prompt-packs lock`, `lock --update`, or `sync` command to show the contributor.
+An unrelated Copilot agent has no effect. Prompt packs remain instructions and
+context—not a human identity, working lens, or approval authority.
 
 ### Use a remote artifact template
 

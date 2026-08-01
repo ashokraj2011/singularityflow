@@ -152,16 +152,20 @@ test('plugin provides workspace discovery and switching skills', async () => {
   assert.match(select, /Do not launch a nested Copilot process/);
 });
 
-test('plugin hooks provide nonblocking session guidance without command or tool guards', async () => {
+test('plugin hooks provide nonblocking guidance and deterministic custom-agent mapping without tool guards', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
   assert.equal(hooks.version, 1);
-  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart']);
+  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart', 'subagentStart']);
   assert.equal(hooks.hooks.sessionStart.length, 1);
   assert.equal(hooks.hooks.sessionStart[0].type, 'prompt');
   assert.match(hooks.hooks.sessionStart[0].prompt, /remind them to invoke \/sflow-session/);
   assert.match(hooks.hooks.sessionStart[0].prompt, /Do not invoke either skill automatically/);
-  assert.doesNotMatch(JSON.stringify(hooks), /preToolUse|persona-guard|turn-intent|turn-end|"type":"command"/);
+  assert.equal(hooks.hooks.subagentStart.length, 1);
+  assert.equal(hooks.hooks.subagentStart[0].type, 'command');
+  assert.equal(hooks.hooks.subagentStart[0].bash, 'singularity-flow hook agent-start');
+  assert.equal(hooks.hooks.subagentStart[0].powershell, 'singularity-flow hook agent-start');
+  assert.doesNotMatch(JSON.stringify(hooks), /preToolUse|persona-guard|turn-intent|turn-end/);
 });
 
 test('session skill selects synchronized work-item state before working-lens binding', async () => {
@@ -188,7 +192,9 @@ test('inbox skill presents remote pending approvals before an explicit reviewer 
 test('bundled workflow agent self-activates and ships inert dependency tables', async () => {
   const content = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   assert.match(content, /name:\s*sflow-workflow/);
-  assert.match(content, /singularity-flow prompt-packs sync sflow-workflow/);
+  assert.match(content, /`subagentStart` hook maps this Copilot agent/);
+  assert.doesNotMatch(content, /singularity-flow prompt-packs sync sflow-workflow/);
+  assert.match(content, /Do not run `prompt-packs sync` merely to activate this bundled local-only pack/);
   assert.match(content, /Grounding contract/);
   assert.match(content, /mandatory phase world-model views/);
   assert.match(content, /additional working-lens world-model views/);

@@ -1705,11 +1705,14 @@ singularity-flow recover WORK-123 --fetch --apply
 
 Recovery is plan-first. Apply only retries retained publication or performs a
 clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards
-work. The bundled Copilot plugin uses one nonblocking `sessionStart` prompt. It
-offers session guidance but does not execute commands, automatically open a
-skill, or register a `preToolUse` guard. Work-item synchronization and
-working-lens selection happen only when the contributor explicitly invokes
-`/sflow-session`, `/sflow-start`, or the equivalent CLI command.
+work. The bundled Copilot plugin uses a nonblocking `sessionStart` prompt for
+guidance and a nonblocking `subagentStart` command hook for exact custom-agent
+name to prompt-pack mapping. The mapping activates only local-only packs or
+already locked and cached remote packs; it never fetches, trusts, changes a
+working lens, or grants approval authority. No `preToolUse` guard is registered.
+Work-item synchronization and working-lens selection happen only when the
+contributor explicitly invokes `/sflow-session`, `/sflow-start`, or the
+equivalent CLI command.
 
 ## Troubleshooting
 

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { sessionStartPersonaHook, personaGuardHook } from '../src/persona-hooks.mjs';
+import { copilotAgentStartHook, sessionStartPersonaHook, personaGuardHook } from '../src/persona-hooks.mjs';
 import {
-  activateWorkItemSession, clearCopilotTurnIntent, personaSessionStatus, recordCopilotTurnIntent,
+  activateWorkItemSession, clearCopilotTurnIntent, loadSession, personaSessionStatus, recordCopilotTurnIntent,
   sessionOnlyPrompt, setPersonaSession
 } from '../src/session.mjs';
 
@@ -24,6 +24,58 @@ function workflow(policy = definition.session) {
     resolution: { session: policy }
   };
 }
+
+test('Copilot custom agents automatically activate an exact ready Flow prompt pack and preserve the working lens', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-hook-'));
+  await setPersonaSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1');
+  assert.deepEqual(await copilotAgentStartHook(root, {
+    sessionId: 'copilot-agent-session', agentName: 'sflow-workflow'
+  }), {});
+  const session = await loadSession(root);
+  assert.equal(session.agent, 'sflow-workflow');
+  assert.equal(session.persona, 'architect');
+  assert.equal(session.workId, 'HOOK-1');
+});
+
+test('Copilot agents with untrusted remote dependencies are not activated automatically', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-trust-'));
+  await mkdir(path.join(root, '.github', 'agents'), { recursive: true });
+  await writeFile(path.join(root, '.github', 'agents', 'architecture.agent.md'), `---
+name: architecture
+description: Architecture agent
+---
+
+## Remote skills
+
+| ID | URL | Phases | Personas | Optional | Max bytes |
+| --- | --- | --- | --- | --- | --- |
+| secure-design | https://example.com/secure-design.md | design | architect | false | 65536 |
+
+## Remote artifact templates
+
+| ID | URL | Phases | Optional | Max bytes |
+| --- | --- | --- | --- | --- |
+
+## Remote generated artifacts
+
+| ID | URL template | Phase | Target | Optional | Max bytes |
+| --- | --- | --- | --- | --- | --- |
+`);
+  await setPersonaSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1');
+  const result = await copilotAgentStartHook(root, { agent_name: 'architecture' });
+  assert.match(result.additionalContext, /trust state is unlocked/);
+  assert.match(result.additionalContext, /prompt-packs lock architecture/);
+  assert.equal((await loadSession(root)).agent, undefined);
+});
+
+test('unrelated Copilot agents do not change the Flow session or inject context', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-unmapped-'));
+  await setPersonaSession(root, definition, 'User <user@example.com>', 'developer', 'HOOK-1');
+  assert.deepEqual(await copilotAgentStartHook(root, { agentName: 'security-review' }), {});
+  const session = await loadSession(root);
+  assert.equal(session.agent, undefined);
+  assert.equal(session.persona, 'developer');
+});
 
 test('new Copilot sessions require work-item selection before persona selection and guard tools until both complete', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-persona-hook-'));

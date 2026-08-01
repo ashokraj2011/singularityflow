@@ -90,7 +90,7 @@ import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
-import { personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
+import { copilotAgentStartHook, personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import {
@@ -1699,6 +1699,7 @@ async function hookCommand(positionals) {
       await clearCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
       return console.log('{}');
     }
+    if (event === 'agent-start') return console.log(JSON.stringify(await copilotAgentStartHook(root, payload)));
     const config = await loadConfig(root); let workflow = null;
     try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartPersonaHook(root, config, workflow, payload)));

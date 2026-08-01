@@ -249,9 +249,13 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
       content: target.exists ? await readFile(target.absolute, 'utf8') : null
     });
   }
-  const sources = initiative.resolution.profile === 'epic-planning'
-    ? (await listEpicSources(root, initiativeId)).manifest
-    : { version: 1, initiativeId, sources: [] };
+  // Reported for every profile, not just epic-planning. Nothing gates `epic sources add` by profile,
+  // so an enterprise-delivery Epic can pin sources perfectly well — they were simply invisible to
+  // every surface, which reads as "nothing is pinned" when the opposite is true. An Epic with no
+  // sources directory yields an empty manifest rather than an error.
+  let sources = { version: 1, initiativeId, sources: [] };
+  try { sources = (await listEpicSources(root, initiativeId)).manifest; }
+  catch { /* No manifest yet is the same as nothing pinned. */ }
   // The imported Jira Epic is a hashed, citable source that verifyEpicTraceability accepts, but it
   // is not in the uploaded manifest — so a surface counting only uploads reported "nothing pinned"
   // while the contract was telling Copilot to cite this exact id. Derived here, once, by the same

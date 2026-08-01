@@ -54,6 +54,16 @@
     },
     "commands": [
       {
+        "command": "singularityFlow.startEpic",
+        "title": "Singularity Flow: Start an Epic",
+        "icon": "$(add)"
+      },
+      {
+        "command": "singularityFlow.addSource",
+        "title": "Singularity Flow: Pin a Source",
+        "icon": "$(new-file)"
+      },
+      {
         "command": "singularityFlow.refresh",
         "title": "Singularity Flow: Refresh",
         "icon": "$(refresh)"
@@ -119,6 +129,16 @@
         {
           "command": "singularityFlow.approve",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.pack.approvable",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.addSource",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.sources",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.startEpic",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.start",
           "group": "inline"
         }
       ],

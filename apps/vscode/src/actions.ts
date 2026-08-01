@@ -14,6 +14,7 @@
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
+import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -225,4 +226,42 @@ export async function approveWithReceipt(
     void vscode.window.showErrorMessage((error as Error).message);
     return false;
   }
+}
+
+/**
+ * Fill a suggested command's placeholders by asking, rather than running them literally.
+ *
+ * `<PATH>` is an instruction to a person. Passing it through as an argument produces a failure about
+ * a file of that name, which tells the reader nothing about what was actually wanted. A path
+ * placeholder opens a file picker — which is the one thing an editor does better than a terminal
+ * here — and anything else asks for text.
+ *
+ * @returns the completed argv, or null if the person declined to answer.
+ */
+export async function resolvePlaceholders(argv: string[], repository: string): Promise<string[] | null> {
+  const placeholders = commandPlaceholders(argv);
+  if (!placeholders.length) return argv;
+
+  const answers = new Map<number, string>();
+  for (const placeholder of placeholders) {
+    if (placeholder.kind === 'file') {
+      const picked = await vscode.window.showOpenDialog({
+        title: placeholderPrompt(placeholder),
+        openLabel: 'Use this file',
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(repository)
+      });
+      if (!picked?.length || !picked[0]) return null;
+      answers.set(placeholder.index, picked[0].fsPath);
+      continue;
+    }
+    const typed = await vscode.window.showInputBox({
+      title: placeholderPrompt(placeholder),
+      ignoreFocusOut: true,
+      validateInput: (value) => (value.trim() ? null : 'This is required.')
+    });
+    if (typed === undefined) return null;
+    answers.set(placeholder.index, typed.trim());
+  }
+  return fillPlaceholders(argv, answers);
 }

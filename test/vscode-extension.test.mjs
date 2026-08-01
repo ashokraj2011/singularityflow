@@ -308,13 +308,14 @@ test('a repository with no Epic on this branch says so, and how many exist', () 
   const [node] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
   assert.match(node.label, /No Epic is checked out/);
   assert.equal(node.description, '2 available');
-  assert.match(node.tooltip, /epic start/);
+  // Offered as an action rather than a command to retype; the tooltip no longer carries one.
+  assert.equal(node.contextValue, 'sflow.start');
 });
 
 test('a repository with no Epic at all offers the command that starts one', () => {
   const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.match(node.label, /No Epic has been started/);
-  assert.match(node.tooltip, /epic start --local/);
+  assert.equal(node.contextValue, 'sflow.start');
 });
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
@@ -689,4 +690,72 @@ test('contracts and Story conformance appear in one level, not two verdicts', ()
   const level = levelOf(buildReconciliation(both, null), 'conformance');
   assert.equal(level.verdict, 'aligned');
   assert.equal(level.rows.length, 2, 'one contract consumer and one conforming Story');
+});
+
+const { commandArgv, commandPlaceholders, fillPlaceholders, placeholderPrompt } =
+  await import(source('commands.ts'));
+
+test('a suggested command with a placeholder is not runnable as written', () => {
+  // The sources step suggests `--file <PATH>`, where <PATH> is an instruction to a person. Running
+  // it literally passes the string "<PATH>" to the CLI, which fails on a file of that name — a
+  // failure that says nothing about what was actually wanted.
+  const argv = commandArgv('singularity-flow epic sources add --epic SF-E-001 --file <PATH>');
+  assert.deepEqual(argv, ['epic', 'sources', 'add', '--epic', 'SF-E-001', '--file', '<PATH>']);
+
+  const [placeholder] = commandPlaceholders(argv);
+  assert.equal(placeholder.index, 6);
+  assert.equal(placeholder.name, 'PATH');
+  assert.equal(placeholder.flag, '--file');
+  assert.equal(placeholder.kind, 'file', 'a path deserves a file picker, not a text box');
+  assert.match(placeholderPrompt(placeholder), /--file/);
+});
+
+test('an ordinary command has no placeholders and runs as written', () => {
+  assert.deepEqual(commandPlaceholders(commandArgv('singularity-flow initiative phase define')), []);
+});
+
+test('optional-argument brackets are not placeholders', () => {
+  // `[PHASE]` means the argument may be omitted, and the command runs correctly without it.
+  // Treating it as a placeholder would prompt for something nobody has to supply.
+  assert.deepEqual(commandPlaceholders(commandArgv('singularity-flow initiative phase [PHASE]')), []);
+});
+
+test('a placeholder with no flag is asked for as text', () => {
+  const [placeholder] = commandPlaceholders(commandArgv('singularity-flow initiative approve <SUBJECT>'));
+  assert.equal(placeholder.flag, null);
+  assert.equal(placeholder.kind, 'text');
+});
+
+test('answers are substituted positionally, leaving everything else alone', () => {
+  const argv = commandArgv('singularity-flow epic sources add --epic SF-E-001 --file <PATH>');
+  const filled = fillPlaceholders(argv, new Map([[6, '/tmp/brief.md']]));
+  assert.deepEqual(filled, ['epic', 'sources', 'add', '--epic', 'SF-E-001', '--file', '/tmp/brief.md']);
+});
+
+test('pinned sources appear in the tree, and an empty list reads as a finding', () => {
+  // Everything a requirement may cite has to be pinned, so nothing pinned is a state worth naming
+  // rather than an empty branch.
+  const empty = find(buildTree(snapshot), 'sources');
+  assert.equal(empty.description, 'none pinned');
+  assert.match(empty.tooltip, /no cited source to rest on/);
+  assert.equal(empty.children[0].label, 'Nothing is pinned yet');
+  assert.equal(empty.contextValue, 'sflow.sources', 'and the node offers to fix it');
+
+  const pinned = structuredClone(snapshot);
+  pinned.initiative.sources = {
+    version: 1,
+    initiativeId: 'INIT-MULTI',
+    sources: [{ sourceId: 'SRC-ABC123', name: 'brief.md', provider: 'local', sha256: 'a'.repeat(64) }]
+  };
+  const group = find(buildTree(pinned), 'sources');
+  assert.equal(group.description, '1');
+  assert.equal(group.children[0].label, 'brief.md');
+  assert.equal(group.children[0].description, 'local');
+  assert.match(group.children[0].tooltip, /SRC-ABC123/);
+});
+
+test('an empty repository offers to start an Epic rather than describing the command', () => {
+  const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  assert.equal(node.contextValue, 'sflow.start');
+  assert.doesNotMatch(node.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
 });

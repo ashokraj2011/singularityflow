@@ -10,7 +10,7 @@ import path from 'node:path';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
-import { approveWithReceipt, runGovernedAction } from './actions.ts';
+import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
@@ -82,15 +82,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * to be worth distinguishing here rather than papering over with one code path.
    */
   const runNode = async (node?: TreeNode): Promise<void> => {
-    const ran = node?.approve
-      ? await approveWithReceipt(client, node.approve, output)
-      : node?.command
-        ? await runGovernedAction(client, {
-          command: node.command,
-          title: node.confirmation?.summary ?? `singularity-flow ${node.command.join(' ')}`,
-          ...(node.confirmation ? { confirmation: node.confirmation } : {})
-        }, output)
-        : false;
+    if (node?.approve) {
+      if (await approveWithReceipt(client, node.approve, output)) await store.refresh();
+      return;
+    }
+    if (!node?.command) return;
+    // A suggested command may carry `<PATH>`-style placeholders meant for a person to fill in.
+    // Running them literally passes the placeholder to the CLI, which then fails on a file of that
+    // name — a failure that says nothing about what was actually wanted.
+    const argv = await resolvePlaceholders(node.command, repository);
+    if (!argv) return;
+    const ran = await runGovernedAction(client, {
+      command: argv,
+      title: node.confirmation?.summary ?? `singularity-flow ${argv.join(' ')}`,
+      ...(node.confirmation ? { confirmation: node.confirmation } : {})
+    }, output);
     if (ran) await store.refresh();
   };
 
@@ -119,6 +125,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const onJourneyMessage = async (message: JourneyMessage): Promise<void> => {
+    if (message.type === 'pin') return addSource();
     if (message.type === 'run') {
       const next = store.current.snapshot?.initiative?.nextActions?.[0];
       if (!next) return;
@@ -133,7 +140,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runNode(node);
   };
 
+  /**
+   * Start an Epic.
+   *
+   * Every answer is asked for; none is guessed. The profile and the working lens come from the
+   * repository's own configuration rather than a list this file keeps, so a portfolio that adds a
+   * profile offers it here without the extension being changed.
+   */
+  const startEpic = async (): Promise<void> => {
+    const ask = async (title: string, prompt: string): Promise<string | null> => {
+      const value = await vscode.window.showInputBox({ title, prompt, ignoreFocusOut: true,
+        validateInput: (input) => (input.trim() ? null : 'This is required.') });
+      return value?.trim() || null;
+    };
+    const title = await ask('Start an Epic', 'Title');
+    if (!title) return;
+    const description = await ask('Start an Epic', 'What is being asked for?');
+    if (!description) return;
+    const goal = await ask('Start an Epic', 'What outcome would make this a success?');
+    if (!goal) return;
+
+    const profiles = await client.run<Array<{ id: string; label?: string; description?: string }>>(
+      ['initiative', 'profiles', '--json']).catch(() => []);
+    const profile = profiles.length
+      ? await vscode.window.showQuickPick(
+        profiles.map((entry) => ({ label: entry.label ?? entry.id, description: entry.description ?? '', id: entry.id })),
+        { title: 'Delivery profile', placeHolder: 'Which phases this Epic will run', ignoreFocusOut: true })
+      : { id: 'epic-planning' };
+    if (!profile) return;
+
+    const personas = store.current.snapshot?.definition?.personas ?? {};
+    const lens = await vscode.window.showQuickPick(
+      Object.entries(personas).map(([id, persona]) => ({
+        label: (persona as { label?: string })?.label ?? id, id
+      })),
+      { title: 'Working lens', placeHolder: 'The lens this Epic starts under', ignoreFocusOut: true });
+    if (!lens) return;
+
+    const ran = await runGovernedAction(client, {
+      command: ['epic', 'start', '--local', '--title', title, '--description', description,
+        '--goal', goal, '--profile', profile.id, '--persona', lens.id],
+      title: `Starting ${title}`
+    }, output);
+    if (ran) await store.refresh();
+  };
+
+  /**
+   * Pin a source.
+   *
+   * A file picker is the one thing an editor does better than a terminal here, and pinning is the
+   * step that decides what every later requirement is allowed to cite.
+   */
+  const addSource = async (): Promise<void> => {
+    const picked = await vscode.window.showOpenDialog({
+      title: 'Pin a source for this Epic',
+      openLabel: 'Pin this source',
+      canSelectMany: false
+    });
+    if (!picked?.length || !picked[0]) return;
+    const ran = await runGovernedAction(client, {
+      command: ['epic', 'sources', 'add', '--provider', 'local', '--file', picked[0].fsPath],
+      title: 'Pinning source'
+    }, output);
+    if (ran) await store.refresh();
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('singularityFlow.startEpic', startEpic),
+    vscode.commands.registerCommand('singularityFlow.addSource', addSource),
     vscode.commands.registerCommand('singularityFlow.refresh', () => store.refresh()),
     vscode.commands.registerCommand('singularityFlow.openArtifact', (node?: TreeNode) => openArtifact(repository, node)),
     vscode.commands.registerCommand('singularityFlow.runAction', runNode),

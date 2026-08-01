@@ -192,6 +192,14 @@ export interface DesktopSnapshot {
     views: Array<{ id: string; references: string[] }>;
     files?: Array<{ path: string; content?: string }>;
   };
+  /**
+   * The workflow definition, of which only the working lenses are read: starting an Epic has to
+   * offer the lenses this repository declares, not a list this extension keeps.
+   */
+  definition?: {
+    personas?: Record<string, { label?: string; description?: string }>;
+    [key: string]: unknown;
+  };
   session?: { persona?: string; workId?: string | null } | null;
   diagnostics?: unknown;
   [key: string]: unknown;

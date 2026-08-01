@@ -11,7 +11,8 @@ import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
-import { createWorkspace, enableStateLedger } from './workspace.ts';
+import { enableStateLedger } from './workspace.ts';
+import { WorkspacePanel } from './views/workspace-panel.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
@@ -43,7 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Registered before any early return: this is the command for when there is no repository to
    * serve yet, which is precisely when activation stops early.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', () => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -51,24 +52,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return void vscode.window.showErrorMessage((error as Error).message);
     }
 
-    const created = await createWorkspace(location, output);
-    if (!created) return;
+    WorkspacePanel.show(context, location, output, async (created) => {
+      const branch = await vscode.window.showInputBox({
+        title: 'Workflow state branch',
+        prompt: 'An orphan branch recording what happens to each work item. Leave empty to skip.',
+        value: 'state',
+        ignoreFocusOut: true
+      });
+      if (branch?.trim()) await enableStateLedger(location, created.leadDirectory, branch.trim(), output);
 
-    const branch = await vscode.window.showInputBox({
-      title: 'Workflow state branch',
-      prompt: 'An orphan branch recording what happens to each work item. Leave empty to skip.',
-      value: 'state',
-      ignoreFocusOut: true
+      const open = await vscode.window.showInformationMessage(
+        `Workspace created with ${created.lead} as lead.`,
+        'Open lead repository', 'Open workspace folder');
+      const target = open === 'Open lead repository' ? created.leadDirectory
+        : open === 'Open workspace folder' ? created.directory
+          : null;
+      if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: true });
     });
-    if (branch?.trim()) await enableStateLedger(location, created.leadDirectory, branch.trim(), output);
-
-    const open = await vscode.window.showInformationMessage(
-      `Workspace created with ${created.lead} as lead.`,
-      'Open lead repository', 'Open workspace folder');
-    const target = open === 'Open lead repository' ? created.leadDirectory
-      : open === 'Open workspace folder' ? created.directory
-        : null;
-    if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: true });
   }));
 
   /** Diagnostics, as the CLI reports them. */

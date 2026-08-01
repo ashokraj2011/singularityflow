@@ -153,7 +153,7 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
   listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceStatus
+  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRepositoryDefaults, workspaceStatus
 } from './workspace.mjs';
 import {
   activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
@@ -380,6 +380,7 @@ Usage:
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
   singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
     --repository ID=URL [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+  singularity-flow workspace inspect <DIRECTORY> [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
@@ -3325,6 +3326,15 @@ async function workspaceCommand(positionals, options) {
     const restored = await restoreWorkspace(registry, workspacePath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(restored, null, 2));
     return console.log(`Restored ${restored.workspace?.name ?? workspacePath}.`);
+  }
+  if (subcommand === 'inspect') {
+    // What a workspace would record for this checkout, read from the checkout. Lets any surface
+    // offer "add the repository I already have" without reimplementing how those values are found.
+    const directory = requirePositional(positionals, 2, 'repository directory');
+    const defaults = await workspaceRepositoryDefaults(directory);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(defaults, null, 2));
+    console.log(`${defaults.id}\n  path:   ${defaults.localPath}\n  origin: ${defaults.url}\n  branch: ${defaults.defaultBranch}`);
+    return;
   }
   if (subcommand === 'update') {
     const updateUrls = optionMap(optionStrings(options, 'repository'), '--repository');

@@ -426,3 +426,103 @@ test('every node has a unique id, or the tree view collapses the duplicates', ()
   assert.equal(new Set(phaseArtifacts).size, phaseArtifacts.length);
   assert.ok(ids.length > 10);
 });
+
+const { buildJourney } = await import(source('views/journey-model.ts'));
+
+test('a published artifact offers approval, carrying the confirmation the CLI will demand', () => {
+  // The confirmation travels with the node so the editor can ask a human to type it. The extension
+  // must never fill it in itself — that would turn a deliberate act into a click.
+  const published = structuredClone(snapshot);
+  published.initiative.state.phases.define.outputs['business-case'].status = 'published';
+  published.initiative.state.phases.define.outputs['business-case'].sha256 = 'b'.repeat(64);
+  const artifact = find(buildTree(published), 'artifact:define/business-case');
+  assert.equal(artifact.approve.subject, 'business-case');
+  assert.equal(artifact.approve.initiativeId, 'INIT-MULTI');
+  assert.equal(artifact.approve.expected, 'define:business-case');
+  assert.equal(artifact.contextValue, 'sflow.artifact.approvable');
+});
+
+test('an unwritten or already-approved artifact offers no approval', () => {
+  // Offering it would produce a refusal the reviewer could have been spared.
+  const unwritten = find(buildTree(snapshot), 'artifact:define/business-case');
+  assert.equal(unwritten.approve, undefined, 'nothing is generated yet');
+
+  const done = structuredClone(snapshot);
+  done.initiative.state.phases.define.outputs['business-case'].status = 'approved';
+  done.initiative.state.phases.define.outputs['business-case'].sha256 = 'c'.repeat(64);
+  assert.equal(find(buildTree(done), 'artifact:define/business-case').approve, undefined);
+});
+
+test('a cross-phase pack is approved at its terminal phase, not its first', () => {
+  // Validation & Release Readiness spans construction and delivery. Attributing it to the earlier
+  // phase would ask a phase too early and produce a confirmation string the CLI would reject.
+  const withPacks = structuredClone(snapshot);
+  for (const phase of Object.values(withPacks.initiative.state.phases)) {
+    for (const output of Object.values(phase.outputs)) {
+      output.sha256 = 'd'.repeat(64);
+      output.status = 'published';
+    }
+  }
+  withPacks.initiative.state.resolution.packs = [{
+    id: 'spanning',
+    label: 'Spanning pack',
+    // Deliberately listed out of phase order: the terminal phase comes from the declared order.
+    members: ['build/implementation-index', 'define/business-case']
+  }];
+  const pack = find(buildTree(withPacks), 'pack:spanning');
+  assert.ok(pack.approve, 'every member exists, so the pack is approvable');
+  assert.equal(pack.approve.subject, 'pack:spanning');
+  assert.equal(pack.approve.expected, 'build:pack:spanning',
+    'attributed to the latest phase any member sits in');
+  assert.equal(pack.contextValue, 'sflow.pack.approvable');
+});
+
+test('an incomplete pack is not approvable', () => {
+  const withPacks = structuredClone(snapshot);
+  withPacks.initiative.state.resolution.packs = [{
+    id: 'partial', label: 'Partial', members: ['define/business-case', 'define/scope-and-outcomes']
+  }];
+  const pack = find(buildTree(withPacks), 'pack:partial');
+  assert.equal(pack.approve, undefined);
+  assert.equal(pack.contextValue, 'sflow.pack');
+});
+
+test('the journey reports where the Epic stands and what it is waiting on', () => {
+  const journey = buildJourney(snapshot);
+  assert.equal(journey.empty, null);
+  assert.equal(journey.id, 'INIT-MULTI');
+  assert.deepEqual(journey.stages.map((stage) => stage.id), ['define', 'plan', 'build', 'release']);
+  assert.equal(journey.currentStage.id, 'define');
+  assert.equal(journey.artifacts.length, 3, 'the current phase contributes its artifacts');
+  assert.equal(journey.repositories.length, 2);
+  assert.match(journey.nextAction.command, /initiative phase define/);
+});
+
+test('the journey reads each pack chain position from the gate rather than re-deriving it', () => {
+  // Re-deriving would be a second implementation of approvalChainProgress that could disagree with
+  // the one actually blocking the phase.
+  const blocked = structuredClone(snapshot);
+  blocked.initiative.state.resolution.packs = [
+    { id: 'opportunity', label: 'Opportunity', members: ['define/business-case'] }
+  ];
+  blocked.initiative.phaseGate = {
+    ready: false, warnings: [], passes: [],
+    errors: ['artifact pack opportunity has waiting on Executive Decisioning (0/1) for exact pack abc123']
+  };
+  const journey = buildJourney(blocked);
+  assert.equal(journey.packs[0].waitingOn, 'waiting on Executive Decisioning (0/1)');
+  assert.equal(journey.packs[0].approved, false);
+  assert.deepEqual(journey.blockers, blocked.initiative.phaseGate.errors);
+});
+
+test('a gate the engine says is ready contributes no blockers', () => {
+  const ready = structuredClone(snapshot);
+  ready.initiative.phaseGate = { ready: true, errors: ['stale'], warnings: [], passes: [] };
+  assert.deepEqual(buildJourney(ready).blockers, [], 'a ready gate has nothing outstanding');
+});
+
+test('the journey says why it is empty rather than rendering a blank page', () => {
+  assert.match(buildJourney(null).empty, /Reading the repository/);
+  assert.match(buildJourney({ initiative: null, initiatives: [], workItems: [] }).empty, /No Epic has been started/);
+  assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /No Epic is checked out/);
+});

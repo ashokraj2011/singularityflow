@@ -314,9 +314,17 @@ export async function evaluateInitiativeChecklist(root, initiative, portfolio, p
     const active = matching.filter((entry) => entry.status === 'active');
     const decision = active.slice().reverse().find((entry) => ['not_applicable', 'waived'].includes(entry.record.decision));
     const accepted = active.filter((entry) => check.acceptedAssurance.includes(entry.record.assurance) && !entry.record.decision);
+    // A conditional item is resolved by the initiative's answer to its applicability policy. An
+    // explicit evidence decision still wins — somebody who recorded a waiver meant it — but an
+    // unanswered policy is reported as such rather than masquerading as missing evidence, because the
+    // fix is to answer the question, not to hunt for an artifact.
+    const policyId = check.applicability?.policy ?? null;
+    const answer = policyId ? initiative.applicability?.[policyId] ?? null : null;
     let status;
     if (decision) status = decision.record.decision;
+    else if (answer && answer.applicable === false) status = 'not_applicable';
     else if (accepted.length) status = 'satisfied';
+    else if (policyId && !answer) status = 'unanswered';
     else if (initiativeCheckRequirement(initiative, phaseId, check) === 'optional') status = 'optional';
     else if (matching.some((entry) => entry.status === 'stale')) status = 'stale';
     else status = 'missing';
@@ -326,6 +334,7 @@ export async function evaluateInitiativeChecklist(root, initiative, portfolio, p
       requirement: initiativeCheckRequirement(initiative, phaseId, check),
       gate: check.gate,
       status,
+      applicabilityPolicy: policyId,
       acceptedAssurance: check.acceptedAssurance,
       evidence: matching.map((entry) => ({
         sha256: entry.sha256,
@@ -515,7 +524,9 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       passes.push(`checklist ${phaseId}/${check.id}: ${check.status}`);
       continue;
     }
-    const message = `checklist ${phaseId}/${check.id} is ${check.status}`;
+    const message = check.status === 'unanswered'
+      ? `checklist ${phaseId}/${check.id} needs an applicability decision: run singularity-flow initiative applicability set ${check.applicabilityPolicy} yes|no --reason "..."`
+      : `checklist ${phaseId}/${check.id} is ${check.status}`;
     if (check.gate === 'block') errors.push(message);
     else if (check.gate === 'warn') warnings.push(message);
   }

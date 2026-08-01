@@ -399,6 +399,21 @@ export function validatePortfolio(value) {
   portfolio.jira = normalizeJiraPolicy(portfolio.jira ?? {});
   portfolio.identity = normalizeIdentityPolicy(portfolio.identity ?? {}, portfolio.jira);
   portfolio.storage = normalizeStorage(portfolio.storage ?? {});
+  // A conditional checklist item names an applicability policy — "is a security review required for
+  // this initiative?". The policy id was previously accepted as a bare identifier and never used, so
+  // a conditional check blocked until somebody hand-waived it and a typo went unnoticed. Declaring
+  // policies here makes the question explicit, answerable, and auditable.
+  portfolio.applicabilityPolicies = object(portfolio.applicabilityPolicies ?? {}, 'applicabilityPolicies');
+  for (const [id, policy] of Object.entries(portfolio.applicabilityPolicies)) {
+    safeId(id, 'Applicability policy ID');
+    object(policy, `Applicability policy '${id}'`);
+    policy.label = policy.label ?? id.replaceAll('-', ' ');
+    if (typeof policy.label !== 'string' || !policy.label.trim()) throw new SingularityFlowError(`Applicability policy '${id}' label must be a non-empty string.`);
+    if (policy.question != null && (typeof policy.question !== 'string' || !policy.question.trim())) {
+      throw new SingularityFlowError(`Applicability policy '${id}' question must be a non-empty string.`);
+    }
+    policy.question = policy.question ?? `Does ${id.replaceAll('-', ' ')} apply to this initiative?`;
+  }
 
   for (const [id, repository] of Object.entries(portfolio.repositories)) {
     safeId(id, 'Repository ID'); object(repository, `Repository '${id}'`);
@@ -509,6 +524,9 @@ export function validatePortfolio(value) {
       }
       for (const check of phase.checklist) {
         for (const revalidatePhase of check.freshness.revalidateAt) if (!position.has(revalidatePhase)) throw new SingularityFlowError(`Checklist '${phaseId}/${check.id}' revalidates at inactive phase '${revalidatePhase}'.`);
+        if (check.applicability && !portfolio.applicabilityPolicies[check.applicability.policy]) {
+          throw new SingularityFlowError(`Checklist '${phaseId}/${check.id}' references unknown applicability policy '${check.applicability.policy}'. Declare it under applicabilityPolicies.`);
+        }
       }
     }
 

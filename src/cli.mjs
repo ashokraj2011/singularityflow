@@ -101,7 +101,8 @@ import { loadPortfolio } from './initiative-config.mjs';
 import {
   commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
   availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
-  selectInitiativePhaseOutputs, syncInitiativePublication, validateInitiativeId
+  selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
+  syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
 import {
   approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
@@ -303,6 +304,8 @@ Usage:
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
   singularity-flow initiative outputs [PHASE] [--include a,b,c] [--reason TEXT]
+  singularity-flow initiative applicability [--json]
+  singularity-flow initiative applicability set <POLICY> <yes|no> [--reason TEXT] [--json]
   singularity-flow initiative phase [publish] [PHASE]
   singularity-flow initiative context [PHASE] [--persona ID] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
@@ -2321,6 +2324,35 @@ async function initiativeCommand(positionals, options) {
     const state = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
     console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    return;
+  }
+  if (subcommand === 'applicability') {
+    const state = initiativeApplicabilityState(portfolio, initiative);
+    if (positionals[2] !== 'set') {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(state, null, 2));
+      for (const policy of state) {
+        const answer = policy.answered ? (policy.applicable ? 'applicable' : 'not applicable') : 'unanswered';
+        console.log(`${policy.answered ? (policy.applicable ? '[x]' : '[-]') : '[ ]'} ${policy.id.padEnd(28)} ${answer}`);
+        console.log(`    ${policy.question}${policy.reason ? `\n    reason: ${policy.reason}` : ''}`);
+      }
+      const pending = state.filter((policy) => !policy.answered);
+      if (pending.length) console.log(`\nsingularity-flow initiative applicability set ${pending[0].id} yes|no --reason "..."`);
+      return;
+    }
+    const policyId = requirePositional(positionals, 3, 'applicability policy');
+    const answer = String(requirePositional(positionals, 4, 'yes or no')).toLowerCase();
+    if (!['yes', 'no', 'true', 'false'].includes(answer)) throw new SingularityFlowError(`Answer '${answer}' must be yes or no.`);
+    const session = await loadSession(root, { required: false });
+    const result = await setInitiativeApplicability(root, initiativeId, policyId, ['yes', 'true'].includes(answer), {
+      reason: optionString(options, 'reason') ?? null,
+      persona: session?.persona ?? null
+    });
+    const saved = await loadInitiative(root, initiativeId);
+    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, `[${initiativeId}][initiative:applicability] ${policyId}`);
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({ policyId, applicable: result.applicable, publication }, null, 2));
+    }
+    console.log(`${result.policy.label} is ${result.applicable ? 'applicable' : 'not applicable'} to ${initiativeId}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'outputs') {

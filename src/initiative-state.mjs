@@ -721,6 +721,57 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
 }
 
 /**
+ * Record whether an applicability policy applies to this initiative.
+ *
+ * A conditional checklist item — "security review completed when required by policy" — cannot be
+ * judged from the artifacts alone; somebody has to say whether the control is in scope. Recording it
+ * on the initiative makes the decision explicit and auditable rather than leaving the item to be
+ * hand-waived with evidence, and lets the checklist resolve itself once the answer exists.
+ */
+export async function setInitiativeApplicability(root, initiativeId, policyId, applicable, { reason = null, persona = null } = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  const policy = portfolio.applicabilityPolicies?.[policyId];
+  if (!policy) {
+    const declared = Object.keys(portfolio.applicabilityPolicies ?? {});
+    throw new SingularityFlowError(`Unknown applicability policy '${policyId}'.${declared.length ? ` Declared policies: ${declared.join(', ')}.` : ''}`);
+  }
+  if (typeof applicable !== 'boolean') throw new SingularityFlowError(`Applicability for '${policyId}' must be answered yes or no.`);
+  const actor = identity(root);
+  const previous = initiative.applicability?.[policyId] ?? null;
+  initiative.applicability = {
+    ...(initiative.applicability ?? {}),
+    [policyId]: { applicable, reason: reason ?? null, actor: actorKey(actor), at: nowIso() }
+  };
+  initiative.history.push({
+    at: nowIso(),
+    actor: actorKey(actor),
+    persona,
+    event: 'initiative_applicability_set',
+    phase: initiative.currentPhase,
+    detail: `${policyId}: ${previous ? `${previous.applicable ? 'applicable' : 'not applicable'} → ` : ''}${applicable ? 'applicable' : 'not applicable'}${reason ? `: ${reason}` : ''}`
+  });
+  await saveInitiative(root, portfolio, initiative);
+  return { portfolio, initiative, policyId, policy, applicable, previous };
+}
+
+/** Every declared policy with its answer, so a UI or the CLI can show what is still unanswered. */
+export function initiativeApplicabilityState(portfolio, initiative) {
+  return Object.entries(portfolio.applicabilityPolicies ?? {}).map(([id, policy]) => {
+    const answer = initiative.applicability?.[id] ?? null;
+    return {
+      id,
+      label: policy.label,
+      question: policy.question,
+      answered: Boolean(answer),
+      applicable: answer?.applicable ?? null,
+      reason: answer?.reason ?? null,
+      actor: answer?.actor ?? null,
+      at: answer?.at ?? null
+    };
+  });
+}
+
+/**
  * Take an Epic back to its first phase without taking anything else with it.
  *
  * Starting over used to mean deleting the branch and starting a new Epic, which is a bigger

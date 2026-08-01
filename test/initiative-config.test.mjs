@@ -93,6 +93,7 @@ test('portfolio validation rejects bad references, assurance, conditions, and em
     version: 1,
     repositories: {},
     approvalAuthorities: { owners: { members: [{ email: 'owner@example.com' }] } },
+    applicabilityPolicies: { 'review-needed': { label: 'Review needed' } },
     initiativeProfiles: { lite: { phases: ['one', 'two'] } },
     initiativePhases: {
       one: { outputs: [{ id: 'brief', kind: 'markdown', path: 'brief.md', template: 'brief.md' }], bundleApproval: { authorities: ['owners'] } },

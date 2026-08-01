@@ -1,0 +1,1392 @@
+{
+  "selectedWorkId": null,
+  "selectedInitiativeId": "INIT-MULTI",
+  "workItems": [],
+  "initiatives": [
+    {
+      "id": "INIT-MULTI",
+      "title": "INIT-MULTI",
+      "profile": "initiative-lite",
+      "profileLabel": "Initiative lite",
+      "idAuthority": "local",
+      "status": "in_progress",
+      "currentPhase": "define",
+      "currentPhaseLabel": "Define",
+      "currentPhaseStatus": "in_progress",
+      "percentage": 0,
+      "phasesApproved": 0,
+      "phasesTotal": 4,
+      "waitingSince": "2026-08-01T09:08:49.279Z",
+      "lastActor": "initiative.owner@example.com",
+      "lastEvent": "initiative_started",
+      "branch": "INIT-MULTI",
+      "updatedAt": "2026-08-01T09:08:49.279Z",
+      "source": "working-tree"
+    }
+  ],
+  "workflow": null,
+  "worldModel": {
+    "root": "singularity/world-model",
+    "generatedAt": null,
+    "rebuildReason": null,
+    "views": [
+      {
+        "id": "business",
+        "references": [
+          "phase 'intake'",
+          "phase 'requirements'",
+          "phase 'design-intake'",
+          "phase 'design-inventory'",
+          "persona 'product-owner' prompt",
+          "persona 'product-designer' prompt",
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "architecture",
+        "references": [
+          "phase 'design'",
+          "phase 'implementation-spec'",
+          "phase 'fix-design'",
+          "phase 'design-intake'",
+          "phase 'design-inventory'",
+          "phase 'component-mapping'",
+          "phase 'mobile-spec'",
+          "phase 'conformance'",
+          "persona 'architect' prompt",
+          "persona 'product-designer' prompt",
+          "persona 'mobile-architect' prompt",
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "development",
+        "references": [
+          "phase 'implementation-spec'",
+          "phase 'reproduction'",
+          "phase 'fix-design'",
+          "phase 'fix-spec'",
+          "phase 'component-mapping'",
+          "phase 'mobile-spec'",
+          "phase 'implementation'",
+          "phase 'verification'",
+          "phase 'visual-verification'",
+          "phase 'conformance'",
+          "persona 'developer' prompt",
+          "persona 'qa' prompt",
+          "persona 'mobile-architect' prompt",
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "testing",
+        "references": [
+          "phase 'implementation-spec'",
+          "phase 'reproduction'",
+          "phase 'fix-spec'",
+          "phase 'mobile-spec'",
+          "phase 'implementation'",
+          "phase 'verification'",
+          "phase 'visual-verification'",
+          "phase 'conformance'",
+          "persona 'developer' prompt",
+          "persona 'qa' prompt",
+          "persona 'product-designer' prompt",
+          "persona 'mobile-architect' prompt",
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "release",
+        "references": [
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "operations",
+        "references": [
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      },
+      {
+        "id": "security",
+        "references": [
+          "phase 'design'",
+          "phase 'implementation-spec'",
+          "phase 'fix-design'",
+          "phase 'fix-spec'",
+          "phase 'component-mapping'",
+          "phase 'mobile-spec'",
+          "phase 'verification'",
+          "phase 'visual-verification'",
+          "phase 'conformance'",
+          "persona 'architect' prompt",
+          "persona 'qa' prompt",
+          "persona 'mobile-architect' prompt",
+          "Markdown 'singularity/prompts/worldmodel-builder.md'"
+        ]
+      }
+    ]
+  },
+  "session": null,
+  "initiative": {
+    "state": {
+      "initiative": {
+        "id": "INIT-MULTI",
+        "title": "INIT-MULTI",
+        "profile": "initiative-lite",
+        "profileLabel": "Initiative lite",
+        "branch": "INIT-MULTI",
+        "createdAt": "2026-08-01T09:08:49.279Z",
+        "createdBy": {
+          "name": "Initiative Owner",
+          "email": "initiative.owner@example.com",
+          "login": null
+        },
+        "source": {
+          "type": "manual"
+        }
+      },
+      "currentPhase": "define",
+      "phaseOrder": [
+        "define",
+        "plan",
+        "build",
+        "release"
+      ],
+      "status": "in_progress",
+      "phases": {
+        "define": {
+          "id": "define",
+          "label": "Define",
+          "order": 0,
+          "status": "in_progress",
+          "generation": 0,
+          "outputs": {
+            "business-case": {
+              "id": "business-case",
+              "label": "Business case",
+              "kind": "markdown",
+              "path": "artifacts/define/business-case.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "scope-and-outcomes": {
+              "id": "scope-and-outcomes",
+              "label": "Scope and outcomes",
+              "kind": "markdown",
+              "path": "artifacts/define/scope-and-outcomes.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "acceptance-criteria": {
+              "id": "acceptance-criteria",
+              "label": "Acceptance criteria",
+              "kind": "markdown",
+              "path": "artifacts/define/acceptance-criteria.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            }
+          }
+        },
+        "plan": {
+          "id": "plan",
+          "label": "Plan",
+          "order": 1,
+          "status": "not_started",
+          "generation": 0,
+          "outputs": {
+            "architecture-summary": {
+              "id": "architecture-summary",
+              "label": "Architecture summary",
+              "kind": "markdown",
+              "path": "artifacts/plan/architecture-summary.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "story-plan": {
+              "id": "story-plan",
+              "label": "Story plan",
+              "kind": "yaml",
+              "path": "artifacts/plan/story-plan.yml",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "interface-contracts": {
+              "id": "interface-contracts",
+              "label": "Interface contracts",
+              "kind": "interface-contract",
+              "path": "artifacts/plan/interface-contracts.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            }
+          }
+        },
+        "build": {
+          "id": "build",
+          "label": "Build",
+          "order": 2,
+          "status": "not_started",
+          "generation": 0,
+          "outputs": {
+            "implementation-index": {
+              "id": "implementation-index",
+              "label": "Implementation evidence index",
+              "kind": "markdown",
+              "path": "artifacts/build/implementation-index.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "test-and-ci-report": {
+              "id": "test-and-ci-report",
+              "label": "Test and CI report",
+              "kind": "markdown",
+              "path": "artifacts/build/test-and-ci-report.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            }
+          }
+        },
+        "release": {
+          "id": "release",
+          "label": "Release",
+          "order": 3,
+          "status": "not_started",
+          "generation": 0,
+          "outputs": {
+            "release-record": {
+              "id": "release-record",
+              "label": "Release record",
+              "kind": "markdown",
+              "path": "artifacts/release/release-record.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "production-validation": {
+              "id": "production-validation",
+              "label": "Production validation",
+              "kind": "markdown",
+              "path": "artifacts/release/production-validation.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            },
+            "initiative-conformance": {
+              "id": "initiative-conformance",
+              "label": "Initiative conformance",
+              "kind": "markdown",
+              "path": "artifacts/release/initiative-conformance.md",
+              "required": true,
+              "status": "not_generated",
+              "generation": 0,
+              "sha256": null,
+              "bytes": 0,
+              "generatedBy": null,
+              "generatedPersona": null
+            }
+          }
+        }
+      },
+      "resolution": {
+        "profile": "initiative-lite",
+        "phases": [
+          {
+            "id": "define",
+            "label": "Define",
+            "lanes": [
+              "business-product"
+            ],
+            "worldModelViews": [
+              "business"
+            ],
+            "outputs": [
+              {
+                "id": "business-case",
+                "label": "Business case",
+                "kind": "markdown",
+                "path": "business-case.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [],
+                "required": true,
+                "approval": {
+                  "mode": "individual",
+                  "authorities": [
+                    "product-approvers"
+                  ],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "scope-and-outcomes",
+                "label": "Scope and outcomes",
+                "kind": "markdown",
+                "path": "scope-and-outcomes.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "acceptance-criteria",
+                "label": "Acceptance criteria",
+                "kind": "markdown",
+                "path": "acceptance-criteria.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "checklist": [
+              {
+                "id": "business-case-approved",
+                "label": "Business case approved",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "human-approved"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "scope-agreed",
+                "label": "Scope and outcomes agreed",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "human-approved"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "bundleApproval": {
+              "mode": "bundle",
+              "authorities": [
+                "initiative-owners"
+              ],
+              "minimum": 1,
+              "allowSelfApproval": true,
+              "chain": null
+            },
+            "order": 0
+          },
+          {
+            "id": "plan",
+            "label": "Plan",
+            "lanes": [
+              "business-product",
+              "design-architecture",
+              "engineering"
+            ],
+            "worldModelViews": [
+              "business",
+              "architecture",
+              "security"
+            ],
+            "outputs": [
+              {
+                "id": "architecture-summary",
+                "label": "Architecture summary",
+                "kind": "markdown",
+                "path": "architecture-summary.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "define/scope-and-outcomes"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "individual",
+                  "authorities": [
+                    "architecture-reviewers"
+                  ],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "story-plan",
+                "label": "Story plan",
+                "kind": "yaml",
+                "path": "story-plan.yml",
+                "template": "initiatives/generic-output.yml",
+                "generator": null,
+                "consumes": [
+                  "define/acceptance-criteria"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "interface-contracts",
+                "label": "Interface contracts",
+                "kind": "interface-contract",
+                "path": "interface-contracts.md",
+                "template": "initiatives/interface-contract.md",
+                "generator": null,
+                "consumes": [
+                  "define/scope-and-outcomes"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "individual",
+                  "authorities": [
+                    "architecture-reviewers"
+                  ],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "checklist": [
+              {
+                "id": "stories-ready",
+                "label": "Repository stories estimated and sequenced",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "human-approved",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "dependencies-agreed",
+                "label": "Dependencies and contracts agreed",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "human-approved",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "bundleApproval": {
+              "mode": "bundle",
+              "authorities": [
+                "initiative-owners"
+              ],
+              "minimum": 1,
+              "allowSelfApproval": true,
+              "chain": null
+            },
+            "order": 1
+          },
+          {
+            "id": "build",
+            "label": "Build",
+            "lanes": [
+              "engineering"
+            ],
+            "worldModelViews": [
+              "architecture",
+              "development",
+              "testing",
+              "security",
+              "operations"
+            ],
+            "outputs": [
+              {
+                "id": "implementation-index",
+                "label": "Implementation evidence index",
+                "kind": "markdown",
+                "path": "implementation-index.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "plan/story-plan",
+                  "plan/interface-contracts"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "test-and-ci-report",
+                "label": "Test and CI report",
+                "kind": "markdown",
+                "path": "test-and-ci-report.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "plan/story-plan"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "checklist": [
+              {
+                "id": "blocking-stories-complete",
+                "label": "All blocking stories complete and conformant",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "machine-verified",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "tests-passing",
+                "label": "Required tests and CI checks pass",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "machine-verified",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "bundleApproval": {
+              "mode": "bundle",
+              "authorities": [
+                "initiative-owners"
+              ],
+              "minimum": 1,
+              "allowSelfApproval": true,
+              "chain": null
+            },
+            "order": 2
+          },
+          {
+            "id": "release",
+            "label": "Release",
+            "lanes": [
+              "business-product",
+              "engineering"
+            ],
+            "worldModelViews": [
+              "release",
+              "operations",
+              "testing"
+            ],
+            "outputs": [
+              {
+                "id": "release-record",
+                "label": "Release record",
+                "kind": "markdown",
+                "path": "release-record.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "build/implementation-index"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "production-validation",
+                "label": "Production validation",
+                "kind": "markdown",
+                "path": "production-validation.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "build/test-and-ci-report"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "initiative-conformance",
+                "label": "Initiative conformance",
+                "kind": "markdown",
+                "path": "initiative-conformance.md",
+                "template": "initiatives/generic-output.md",
+                "generator": null,
+                "consumes": [
+                  "build/implementation-index",
+                  "build/test-and-ci-report"
+                ],
+                "required": true,
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "checklist": [
+              {
+                "id": "deployment-complete",
+                "label": "Production deployment completed",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "machine-verified",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "monitoring-healthy",
+                "label": "Production monitoring is healthy",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "machine-verified",
+                  "system-verified"
+                ],
+                "freshness": {
+                  "validFor": "24h",
+                  "revalidateAt": [
+                    "release"
+                  ]
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              },
+              {
+                "id": "business-accepted",
+                "label": "Business acceptance completed",
+                "requirement": "must",
+                "applicability": null,
+                "acceptedAssurance": [
+                  "human-approved"
+                ],
+                "freshness": {
+                  "validFor": null,
+                  "revalidateAt": []
+                },
+                "gate": "block",
+                "approval": {
+                  "mode": "bundle",
+                  "authorities": [],
+                  "minimum": 1,
+                  "allowSelfApproval": true,
+                  "chain": null
+                }
+              }
+            ],
+            "bundleApproval": {
+              "mode": "bundle",
+              "authorities": [
+                "initiative-owners"
+              ],
+              "minimum": 1,
+              "allowSelfApproval": true,
+              "chain": null
+            },
+            "order": 3
+          }
+        ],
+        "worldModelGrounding": "enforce"
+      }
+    },
+    "breakdown": {
+      "version": 1,
+      "initiativeId": "INIT-MULTI",
+      "epics": [
+        {
+          "id": "EPIC-1",
+          "planId": "EPIC-1",
+          "title": "X",
+          "description": "",
+          "acceptanceCriteria": [],
+          "jiraKey": null,
+          "jiraIssueId": null,
+          "stories": [
+            {
+              "id": "API-1",
+              "planId": "API-1",
+              "workId": "API-1",
+              "title": "Create API",
+              "description": "",
+              "specification": "",
+              "requirements": [],
+              "acceptanceCriteria": [],
+              "epicId": "EPIC-1",
+              "repository": "api",
+              "blocking": true,
+              "suggestedWorkType": "feature",
+              "dependsOn": [],
+              "consumesContracts": [],
+              "jiraKey": null,
+              "initialJiraKey": null,
+              "jiraAliases": [],
+              "jiraIssueId": null,
+              "epicKey": null,
+              "estimate": null,
+              "idAuthority": null,
+              "parentMode": "managed",
+              "metadata": {},
+              "tasks": []
+            },
+            {
+              "id": "MOB-1",
+              "planId": "MOB-1",
+              "workId": "MOB-1",
+              "title": "Use API",
+              "description": "",
+              "specification": "",
+              "requirements": [],
+              "acceptanceCriteria": [],
+              "epicId": "EPIC-1",
+              "repository": "mobile",
+              "blocking": true,
+              "suggestedWorkType": "feature",
+              "dependsOn": [
+                {
+                  "story": "API-1",
+                  "requiredPhase": "implementation-spec"
+                }
+              ],
+              "consumesContracts": [],
+              "jiraKey": null,
+              "initialJiraKey": null,
+              "jiraAliases": [],
+              "jiraIssueId": null,
+              "epicKey": null,
+              "estimate": null,
+              "idAuthority": null,
+              "parentMode": "managed",
+              "metadata": {},
+              "tasks": []
+            },
+            {
+              "id": "MOB-2",
+              "planId": "MOB-2",
+              "workId": "MOB-2",
+              "title": "Polish",
+              "description": "",
+              "specification": "",
+              "requirements": [],
+              "acceptanceCriteria": [],
+              "epicId": "EPIC-1",
+              "repository": "mobile",
+              "blocking": false,
+              "suggestedWorkType": "feature",
+              "dependsOn": [],
+              "consumesContracts": [],
+              "jiraKey": null,
+              "initialJiraKey": null,
+              "jiraAliases": [],
+              "jiraIssueId": null,
+              "epicKey": null,
+              "estimate": null,
+              "idAuthority": null,
+              "parentMode": "managed",
+              "metadata": {},
+              "tasks": []
+            }
+          ]
+        }
+      ],
+      "stories": [
+        {
+          "id": "API-1",
+          "planId": "API-1",
+          "workId": "API-1",
+          "title": "Create API",
+          "description": "",
+          "specification": "",
+          "requirements": [],
+          "acceptanceCriteria": [],
+          "epicId": "EPIC-1",
+          "repository": "api",
+          "blocking": true,
+          "suggestedWorkType": "feature",
+          "dependsOn": [],
+          "consumesContracts": [],
+          "jiraKey": null,
+          "initialJiraKey": null,
+          "jiraAliases": [],
+          "jiraIssueId": null,
+          "epicKey": null,
+          "estimate": null,
+          "idAuthority": null,
+          "parentMode": "managed",
+          "metadata": {},
+          "tasks": []
+        },
+        {
+          "id": "MOB-1",
+          "planId": "MOB-1",
+          "workId": "MOB-1",
+          "title": "Use API",
+          "description": "",
+          "specification": "",
+          "requirements": [],
+          "acceptanceCriteria": [],
+          "epicId": "EPIC-1",
+          "repository": "mobile",
+          "blocking": true,
+          "suggestedWorkType": "feature",
+          "dependsOn": [
+            {
+              "story": "API-1",
+              "requiredPhase": "implementation-spec"
+            }
+          ],
+          "consumesContracts": [],
+          "jiraKey": null,
+          "initialJiraKey": null,
+          "jiraAliases": [],
+          "jiraIssueId": null,
+          "epicKey": null,
+          "estimate": null,
+          "idAuthority": null,
+          "parentMode": "managed",
+          "metadata": {},
+          "tasks": []
+        },
+        {
+          "id": "MOB-2",
+          "planId": "MOB-2",
+          "workId": "MOB-2",
+          "title": "Polish",
+          "description": "",
+          "specification": "",
+          "requirements": [],
+          "acceptanceCriteria": [],
+          "epicId": "EPIC-1",
+          "repository": "mobile",
+          "blocking": false,
+          "suggestedWorkType": "feature",
+          "dependsOn": [],
+          "consumesContracts": [],
+          "jiraKey": null,
+          "initialJiraKey": null,
+          "jiraAliases": [],
+          "jiraIssueId": null,
+          "epicKey": null,
+          "estimate": null,
+          "idAuthority": null,
+          "parentMode": "managed",
+          "metadata": {},
+          "tasks": []
+        }
+      ]
+    },
+    "phaseGate": {
+      "ready": false,
+      "errors": [
+        "required output define/business-case is not published",
+        "required output define/scope-and-outcomes is not published",
+        "required output define/acceptance-criteria is not published",
+        "checklist define/business-case-approved is missing",
+        "checklist define/scope-agreed is missing"
+      ],
+      "warnings": [],
+      "passes": [],
+      "bundleSha256": "f2b415018a73454d633805827b4cca8f13e2f92b81167844ee8938687f2ea645",
+      "checklist": [
+        {
+          "id": "business-case-approved",
+          "label": "Business case approved",
+          "requirement": "must",
+          "gate": "block",
+          "status": "missing",
+          "applicabilityPolicy": null,
+          "acceptedAssurance": [
+            "human-approved"
+          ],
+          "evidence": []
+        },
+        {
+          "id": "scope-agreed",
+          "label": "Scope and outcomes agreed",
+          "requirement": "must",
+          "gate": "block",
+          "status": "missing",
+          "applicabilityPolicy": null,
+          "acceptedAssurance": [
+            "human-approved"
+          ],
+          "evidence": []
+        }
+      ]
+    },
+    "nextActions": [
+      {
+        "action": "prepare",
+        "command": "singularity-flow initiative phase define",
+        "reason": "Create the configured output documents for the active phase."
+      }
+    ],
+    "outputChoicesByPhase": {
+      "define": {
+        "editable": true,
+        "choices": [
+          {
+            "id": "business-case",
+            "label": "Business case",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "scope-and-outcomes",
+            "label": "Scope and outcomes",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "acceptance-criteria",
+            "label": "Acceptance criteria",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          }
+        ]
+      },
+      "plan": {
+        "editable": true,
+        "choices": [
+          {
+            "id": "architecture-summary",
+            "label": "Architecture summary",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "story-plan",
+            "label": "Story plan",
+            "kind": "yaml",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "interface-contracts",
+            "label": "Interface contracts",
+            "kind": "interface-contract",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          }
+        ]
+      },
+      "build": {
+        "editable": true,
+        "choices": [
+          {
+            "id": "implementation-index",
+            "label": "Implementation evidence index",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "test-and-ci-report",
+            "label": "Test and CI report",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          }
+        ]
+      },
+      "release": {
+        "editable": true,
+        "choices": [
+          {
+            "id": "release-record",
+            "label": "Release record",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "production-validation",
+            "label": "Production validation",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          },
+          {
+            "id": "initiative-conformance",
+            "label": "Initiative conformance",
+            "kind": "markdown",
+            "required": true,
+            "pinned": true,
+            "included": true,
+            "authored": false
+          }
+        ]
+      }
+    },
+    "documents": [
+      {
+        "id": "business-case",
+        "label": "Business case",
+        "kind": "markdown",
+        "path": "artifacts/define/business-case.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "define",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/business-case.md",
+        "content": null
+      },
+      {
+        "id": "scope-and-outcomes",
+        "label": "Scope and outcomes",
+        "kind": "markdown",
+        "path": "artifacts/define/scope-and-outcomes.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "define",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/scope-and-outcomes.md",
+        "content": null
+      },
+      {
+        "id": "acceptance-criteria",
+        "label": "Acceptance criteria",
+        "kind": "markdown",
+        "path": "artifacts/define/acceptance-criteria.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "define",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/acceptance-criteria.md",
+        "content": null
+      },
+      {
+        "id": "architecture-summary",
+        "label": "Architecture summary",
+        "kind": "markdown",
+        "path": "artifacts/plan/architecture-summary.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "plan",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/architecture-summary.md",
+        "content": null
+      },
+      {
+        "id": "story-plan",
+        "label": "Story plan",
+        "kind": "yaml",
+        "path": "artifacts/plan/story-plan.yml",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "plan",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/story-plan.yml",
+        "content": null
+      },
+      {
+        "id": "interface-contracts",
+        "label": "Interface contracts",
+        "kind": "interface-contract",
+        "path": "artifacts/plan/interface-contracts.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "plan",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/interface-contracts.md",
+        "content": null
+      },
+      {
+        "id": "implementation-index",
+        "label": "Implementation evidence index",
+        "kind": "markdown",
+        "path": "artifacts/build/implementation-index.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "build",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/build/implementation-index.md",
+        "content": null
+      },
+      {
+        "id": "test-and-ci-report",
+        "label": "Test and CI report",
+        "kind": "markdown",
+        "path": "artifacts/build/test-and-ci-report.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "build",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/build/test-and-ci-report.md",
+        "content": null
+      },
+      {
+        "id": "release-record",
+        "label": "Release record",
+        "kind": "markdown",
+        "path": "artifacts/release/release-record.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "release",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/release-record.md",
+        "content": null
+      },
+      {
+        "id": "production-validation",
+        "label": "Production validation",
+        "kind": "markdown",
+        "path": "artifacts/release/production-validation.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "release",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/production-validation.md",
+        "content": null
+      },
+      {
+        "id": "initiative-conformance",
+        "label": "Initiative conformance",
+        "kind": "markdown",
+        "path": "artifacts/release/initiative-conformance.md",
+        "required": true,
+        "status": "not_generated",
+        "generation": 0,
+        "sha256": null,
+        "bytes": null,
+        "generatedBy": null,
+        "generatedPersona": null,
+        "phase": "release",
+        "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/initiative-conformance.md",
+        "content": null
+      }
+    ]
+  }
+}

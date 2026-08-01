@@ -99,6 +99,9 @@ import {
 } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import {
+  currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge
+} from './knowledge.mjs';
+import {
   commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
   availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
   selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
@@ -301,6 +304,12 @@ Usage:
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT] [--selection-receipt TOKEN]
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative restart <INIT-ID> [--reason TEXT]
+  singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
+  singularity-flow knowledge show <SHA256> [--json]
+  singularity-flow knowledge record <decision|learning|uncertainty|result> --title TEXT [--detail TEXT] [--tags a,b]
+  singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
+  singularity-flow knowledge resolve <SHA256> --resolution TEXT [--json]
+
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
   singularity-flow initiative outputs [PHASE] [--include a,b,c] [--reason TEXT]
@@ -2206,6 +2215,77 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
   } else throw new SingularityFlowError('Initiative choice action must be start or approve.');
   const receipt = await beginCustomSelectionReceipt(root, { action: receiptAction, workId: initiativeId, choiceSets, context });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2)); else printSelectionReceipt(receipt);
+}
+
+async function knowledgeCommand(positionals, options) {
+  const root = repoRoot();
+  const subcommand = positionals[1] ?? 'list';
+
+  if (subcommand === 'record') {
+    const result = await recordKnowledge(root, {
+      type: requirePositional(positionals, 2, 'knowledge type'),
+      title: optionString(options, 'title') ?? positionals.slice(3).join(' '),
+      detail: optionString(options, 'detail') ?? null,
+      tags: (optionString(options, 'tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean)
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(`${result.created ? 'Recorded' : 'Already recorded'} ${result.record.type} ${result.sha256.slice(0, 12)}: ${result.record.title}`);
+  }
+
+  if (subcommand === 'resolve') {
+    const result = await resolveKnowledge(root, requirePositional(positionals, 2, 'knowledge entry hash'), {
+      resolution: optionString(options, 'resolution') ?? positionals.slice(3).join(' ')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(`Resolved ${result.record.supersedes.slice(0, 12)} as ${result.sha256.slice(0, 12)}: ${result.record.detail}`);
+  }
+
+  if (subcommand === 'harvest') {
+    const initiativeId = optionString(options, 'initiative') ?? branch(root);
+    const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+    const dryRun = optionBoolean(options, 'dry-run');
+    const result = await harvestInitiativeKnowledge(root, portfolio, initiative, {
+      phaseId: optionString(options, 'phase') ?? null,
+      dryRun
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (dryRun) {
+      for (const candidate of result.candidates) console.log(`${candidate.type.padEnd(12)} ${candidate.provenance.phase}/${candidate.provenance.output}  ${candidate.title}`);
+      return console.log(`\n${result.candidates.length} entr${result.candidates.length === 1 ? 'y' : 'ies'} would be harvested. Re-run without --dry-run to record them.`);
+    }
+    for (const entry of result.harvested) console.log(`${entry.record.type.padEnd(12)} ${entry.sha256.slice(0, 12)}  ${entry.record.title}`);
+    return console.log(`\nHarvested ${result.harvested.length}; ${result.skipped} already recorded.`);
+  }
+
+  if (subcommand === 'show') {
+    const wanted = requirePositional(positionals, 2, 'knowledge entry hash');
+    const entries = await readKnowledge(root);
+    const found = entries.find((entry) => entry.sha256 === wanted || entry.sha256.startsWith(wanted));
+    if (!found) throw new SingularityFlowError(`No knowledge entry matches '${wanted}'.`);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(found, null, 2));
+    console.log(`${found.record.type} ${found.sha256}`);
+    console.log(`\n${found.record.title}`);
+    if (found.record.detail) console.log(`\n${found.record.detail}`);
+    if (found.record.provenance) {
+      const source = found.record.provenance;
+      console.log(`\nFrom ${source.initiativeId} ${source.phase}/${source.output} (${source.section}) @ ${String(source.sha256).slice(0, 12)}`);
+    }
+    return console.log(`Recorded ${found.record.recordedAt} by ${found.record.actor ?? 'unknown'}`);
+  }
+
+  const entries = filterKnowledge(currentKnowledge(await readKnowledge(root)), {
+    type: optionString(options, 'type') ?? null,
+    status: optionString(options, 'status') ?? null,
+    tag: optionString(options, 'tag') ?? null,
+    query: optionString(options, 'query') ?? null
+  });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(entries, null, 2));
+  if (!entries.length) return console.log('No knowledge entries yet. Harvest an approved initiative with: singularity-flow knowledge harvest');
+  for (const { sha256, record } of entries) {
+    const scope = record.provenance ? `${record.provenance.initiativeId}/${record.provenance.phase}` : 'manual';
+    console.log(`${sha256.slice(0, 12)}  ${record.type.padEnd(12)} ${(record.status ?? '').padEnd(9)} ${scope.padEnd(28)} ${record.title}`);
+  }
+  console.log(`\n${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
 }
 
 async function initiativeCommand(positionals, options) {
@@ -4274,6 +4354,7 @@ async function dispatch(command, positionals, options) {
     plugin: () => pluginCommand(positionals, options),
     desktop: () => desktopCommand(positionals, options),
     initiative: () => initiativeCommand(positionals, options),
+    knowledge: () => knowledgeCommand(positionals, options),
     epic: () => epicCommand(positionals, options),
     story: () => storyCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),

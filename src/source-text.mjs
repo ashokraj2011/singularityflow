@@ -119,6 +119,23 @@ function extractXlsx(buffer) {
   return lines.join('\n');
 }
 
+/**
+ * Where a derived rendition is written, relative to the cached original.
+ *
+ * Defined here rather than in the context module so the source pipeline can write renditions without
+ * importing the composer, which imports it.
+ */
+export const TEXT_RENDITION_SUFFIX = '.sflow-text.md';
+
+/** A source already readable as UTF-8 needs no rendition; handing Copilot the original is better. */
+export function isTextualSource(mimeType, name = '') {
+  const mime = String(mimeType ?? '');
+  if (mime.startsWith('text/')) return true;
+  if (['application/json', 'application/yaml', 'application/xml'].includes(mime)) return true;
+  const extension = String(name).slice(String(name).lastIndexOf('.')).toLowerCase();
+  return ['.md', '.markdown', '.txt', '.csv', '.json', '.yml', '.yaml', '.xml'].includes(extension);
+}
+
 /** Formats that arrive as bytes but carry no text this can honestly recover. */
 export const UNREADABLE_MIME_TYPES = new Set([
   'application/pdf',
@@ -140,6 +157,18 @@ const EXTRACTORS = {
  * can say so, which is the whole point — the previous behaviour was to hand Copilot the bytes and
  * let it invent from noise.
  */
+export function renderSourceRendition(record, text) {
+  return [
+    `# Text extracted from ${record.name ?? record.sourceId}`,
+    '',
+    `- Source: \`${record.sourceId}\``,
+    `- SHA-256 of the original: \`${record.sha256}\``,
+    '',
+    text,
+    ''
+  ].join('\n');
+}
+
 export function extractSourceText(bytes, mimeType) {
   const extractor = EXTRACTORS[mimeType];
   if (!extractor) {

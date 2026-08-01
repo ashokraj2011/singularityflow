@@ -91,7 +91,7 @@ async function approvedInputSections(root, portfolio, initiative, phase) {
 }
 
 // Written beside the cached bytes by the desktop layer; see apps/desktop/electron/source-text.mjs.
-export const TEXT_RENDITION_SUFFIX = '.sflow-text.md';
+export { TEXT_RENDITION_SUFFIX } from './source-text.mjs';
 
 function isTextualMime(mimeType) {
   return String(mimeType).startsWith('text/')

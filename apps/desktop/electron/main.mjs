@@ -994,28 +994,9 @@ function registerHandlers() {
 // rendition is declared unreadable in the contract rather than silently handed over.
 async function writeSourceRenditions(root, initiativeId, records) {
   const { verifyEpicSources } = await importCliModule('epic-sources.mjs');
-  const { TEXT_RENDITION_SUFFIX } = await importCliModule('initiative-context.mjs');
-  const verification = await verifyEpicSources(root, initiativeId, { materialize: true }).catch(() => null);
-  if (!verification) return;
-  for (const record of records) {
-    const result = verification.results?.find((item) => item.sourceId === record.sourceId);
-    if (!result?.cachePath) continue;
-    if (isTextualSource(record.mimeType, record.name)) continue;
-    try {
-      const absolute = path.join(root, result.cachePath);
-      const rendition = extractSourceText(await readFile(absolute), record.mimeType);
-      if (rendition.status !== 'extracted') continue;
-      await writeFile(`${absolute}${TEXT_RENDITION_SUFFIX}`, [
-        `# Text extracted from ${record.name}`,
-        '',
-        `- Source: \`${record.sourceId}\``,
-        `- SHA-256 of the original: \`${record.sha256}\``,
-        '',
-        rendition.text,
-        ''
-      ].join('\n'), 'utf8');
-    } catch { /* A rendition is an optimisation; the pinned bytes remain the evidence. */ }
-  }
+  // Materializing is what derives the text rendition now; the engine writes it beside the cached
+  // bytes so the CLI, the desktop and any other surface all get the same readable source.
+  await verifyEpicSources(root, initiativeId, { materialize: true }).catch(() => null);
 }
 
 function isTextualSource(mimeType, name = '') {

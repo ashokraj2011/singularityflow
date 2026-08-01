@@ -1462,12 +1462,12 @@ test('the contract says what Copilot can actually read', async () => {
   assert.match(context, /Readable text/);
   assert.match(context, /\*\*not readable as text\*\*/);
   assert.match(context, /Record what you need from it as an open question rather than inventing a requirement/);
-  assert.match(context, /export const TEXT_RENDITION_SUFFIX/);
+  assert.match(context, /export \{ TEXT_RENDITION_SUFFIX \} from '\.\/source-text\.mjs'/);
 
   // The engine must not grow a document parser: it has one dependency and the gate asserts so.
   const enginePackage = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
   assert.deepEqual(Object.keys(enginePackage.dependencies ?? {}), ['yaml']);
-  const extractor = await readFile(path.join(packageRoot, 'apps', 'desktop', 'electron', 'source-text.mjs'), 'utf8');
+  const extractor = await readFile(path.join(packageRoot, 'src', 'source-text.mjs'), 'utf8');
   assert.match(extractor, /from 'node:zlib'/);
   assert.doesNotMatch(extractor, /require\(|from '(?!node:)/);
 

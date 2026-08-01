@@ -18,6 +18,7 @@ import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
 import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
+import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -367,7 +368,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  const onStoriesMessage = async (message: StoriesMessage): Promise<void> => {
+    const initiativeId = store.current.snapshot?.initiative?.state.initiative.id ?? '';
+    if (message.type === 'materialize') {
+      // The confirmation is the Epic's own identifier, exactly as the terminal demands it.
+      return runNode({
+        kind: 'action', id: 'materialize', label: 'Push Stories to their repositories',
+        command: ['initiative', 'materialize'],
+        confirmation: { expected: initiativeId, summary: `Push ${initiativeId} Stories to their repositories` }
+      });
+    }
+    if (message.type === 'spec') {
+      // The specification lives beside the Story plan, under the planning phase.
+      return openArtifact(repository, {
+        kind: 'artifact', id: `spec:${message.story.planId}`, label: message.story.workId,
+        path: `singularity/initiatives/${initiativeId}/artifacts/epic-planning/stories/${message.story.planId}/story-spec.md`
+      });
+    }
+    const title = await vscode.window.showInputBox({
+      title: `Split ${message.story.workId}`,
+      prompt: 'Title of the new Story carved out of this one',
+      ignoreFocusOut: true,
+      validateInput: (value) => (value.trim() ? null : 'A title is required.')
+    });
+    if (!title?.trim()) return;
+    await runNode({
+      kind: 'action', id: `split:${message.story.planId}`, label: 'Split Story',
+      command: ['epic', 'stories', 'split', message.story.planId, '--title', title.trim()]
+    });
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('singularityFlow.openStories',
+      () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); })),
     vscode.commands.registerCommand('singularityFlow.openApprovals',
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); })),
     vscode.commands.registerCommand('singularityFlow.startEpic', startEpic),

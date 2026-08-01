@@ -800,3 +800,18 @@ test('the approvals panel opens under the same CSP and leads with what is yours'
   // A freshly started Epic has nothing generated, so it says so rather than showing an empty page.
   assert.match(panel.webview.html, /Nothing is waiting|Before this phase can close/);
 });
+
+test('the Stories panel opens and offers the push once a plan exists', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openStories')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.stories');
+  assert.ok(panel, 'a stories panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+
+  // The demo Epic has a two-repository plan with a real dependency.
+  assert.match(panel.webview.html, /SFLOW-DEMO-API|API-1|STORY-001|Stories/);
+  assert.match(panel.webview.html, /Push these Stories|Merge order|repository/);
+});

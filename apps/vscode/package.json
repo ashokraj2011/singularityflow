@@ -75,6 +75,11 @@
         "icon": "$(verified)"
       },
       {
+        "command": "singularityFlow.openStories",
+        "title": "Singularity Flow: Stories",
+        "icon": "$(git-pull-request)"
+      },
+      {
         "command": "singularityFlow.addSource",
         "title": "Singularity Flow: Pin a Source",
         "icon": "$(new-file)"
@@ -129,6 +134,11 @@
           "command": "singularityFlow.openApprovals",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.openStories",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@2"
         },
         {
           "command": "singularityFlow.openJourney",

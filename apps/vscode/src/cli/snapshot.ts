@@ -116,6 +116,9 @@ export interface BreakdownStory {
   epicId: string;
   blocking: boolean;
   dependsOn: Array<{ story: string; requiredPhase: string }>;
+  /** The Epic requirements and acceptance criteria this Story is allocated. */
+  requirements?: string[];
+  acceptanceCriteria?: string[];
 }
 
 export interface InitiativeBreakdown {

@@ -113,9 +113,6 @@ import {
   readInitiativeRecords, registerInitiativeEvidence
 } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
-import {
-  CAPABILITY_MAP_PATH, capabilityForRepository, deliveriesUnder, flattenCapabilities, loadCapabilityMap
-} from './capability-map.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import {
   initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, sameRepositoryRemote,
@@ -166,7 +163,11 @@ import {
 import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
-import { loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy } from './capabilities.mjs';
+import {
+  CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree,
+  flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
+  validateCapabilities
+} from './capabilities.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 
 const VERSION = '0.9.0';
@@ -2274,15 +2275,17 @@ function commitKnowledge(root, message) {
 async function capabilityCommand(positionals, options) {
   const root = repoRoot();
   const portfolio = await loadPortfolio(root, { required: false });
-  const map = await loadCapabilityMap(root, portfolio);
-  if (!map) {
-    throw new SingularityFlowError(`No capability map exists. Describe what this organisation builds in ${CAPABILITY_MAP_PATH}.`);
+  const definition = await loadCapabilities(root);
+  if (!definition) {
+    throw new SingularityFlowError(`No capability map exists. Describe what this organisation builds in ${CAPABILITIES_PATH}.`);
   }
+  validateCapabilities(definition, portfolio);
+  const tree = capabilityTree(definition);
   const subcommand = positionals[1] ?? 'tree';
 
   if (subcommand === 'show') {
     const id = requirePositional(positionals, 2, 'capability ID');
-    const deliveries = deliveriesUnder(map, id);
+    const deliveries = capabilityDeliveries(definition, id);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ id, deliveries }, null, 2));
     console.log(`${id} ships from ${deliveries.length} ${deliveries.length === 1 ? 'repository' : 'repositories'}`);
     for (const delivery of deliveries) console.log(`  ${delivery.id.padEnd(28)} ${delivery.repository}`);
@@ -2291,7 +2294,7 @@ async function capabilityCommand(positionals, options) {
 
   if (subcommand === 'of') {
     const repository = requirePositional(positionals, 2, 'repository ID');
-    const owner = capabilityForRepository(map, repository);
+    const owner = capabilityForRepository(definition, repository);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(owner, null, 2));
     if (!owner) return console.log(`No capability claims repository '${repository}'.`);
     console.log(`${repository} delivers ${owner.id}`);
@@ -2299,15 +2302,16 @@ async function capabilityCommand(positionals, options) {
     return;
   }
 
-  const rows = flattenCapabilities(map);
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(map, null, 2));
+  const rows = flattenCapabilityTree(tree);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ capabilities: tree }, null, 2));
   for (const row of rows) {
     const indent = '  '.repeat(row.depth);
-    const suffix = row.kind === 'delivery' ? `  → ${row.repository}` : '';
+    const suffix = row.delivery ? `  → ${row.repository}` : '';
     console.log(`${indent}${row.name}${suffix}`);
   }
-  const deliveries = rows.filter((row) => row.kind === 'delivery').length;
-  console.log(`\n${rows.length} capabilities, ${deliveries} delivering from ${map.repositories.length} ${map.repositories.length === 1 ? 'repository' : 'repositories'}.`);
+  const deliveries = rows.filter((row) => row.delivery);
+  const repositories = new Set(deliveries.map((row) => row.repository));
+  console.log(`\n${rows.length} capabilities, ${deliveries.length} delivering from ${repositories.size} ${repositories.size === 1 ? 'repository' : 'repositories'}.`);
 }
 
 async function knowledgeCommand(positionals, options) {

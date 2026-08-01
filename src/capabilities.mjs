@@ -112,7 +112,50 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }
 
-export function validateCapabilities(definition) {
+/**
+ * What a capability delivers, who runs it, and where its work is tracked.
+ *
+ * A capability that names a repository is a delivery capability: the leaf that actually ships. One
+ * that does not is a grouping. That is the whole distinction, and inferring it from the presence of
+ * a repository rather than a separate flag means the two can never disagree.
+ *
+ * Jira and teams belong here rather than to the workspace. A workspace is a local convenience — a
+ * directory holding checkouts of whatever someone is working on this week — while which board tracks
+ * a capability and who runs it are properties of the capability itself, true regardless of who has
+ * cloned what.
+ */
+function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
+  if (capability.repository != null) {
+    if (typeof capability.repository !== 'string' || !capability.repository.trim()) {
+      throw new SingularityFlowError(`Capability '${id}' repository must be a repository identifier.`);
+    }
+    if (portfolio && !portfolio.repositories?.[capability.repository]) {
+      throw new SingularityFlowError(`Capability '${id}' delivers from repository '${capability.repository}', which the portfolio does not declare.`);
+    }
+    const children = Object.entries(capabilities).filter(([, other]) => other.parent === id);
+    if (children.length) {
+      throw new SingularityFlowError(`Capability '${id}' delivers from a repository, so it cannot also contain ${children.map(([child]) => `'${child}'`).join(', ')}.`);
+    }
+  }
+
+  if (capability.jira != null) {
+    object(capability.jira, `Capability '${id}'.jira`);
+    for (const field of ['projectKey', 'board', 'component']) {
+      if (capability.jira[field] != null && typeof capability.jira[field] !== 'string') {
+        throw new SingularityFlowError(`Capability '${id}'.jira.${field} must be text.`);
+      }
+    }
+  }
+
+  if (capability.teams != null) uniqueStrings(capability.teams, `Capability '${id}'.teams`);
+}
+
+/**
+ * @param portfolio when given, a delivery capability's repository must be one the portfolio
+ *   declares. A capability pointing at a repository nobody configured looks fine until something
+ *   tries to clone it.
+ */
+export function validateCapabilities(definition, portfolio = null) {
   object(definition, 'capabilities.yml');
   if (definition.version !== 1) throw new SingularityFlowError('capabilities.yml version must be 1.');
   const capabilities = object(definition.capabilities, 'capabilities');
@@ -124,6 +167,7 @@ export function validateCapabilities(definition) {
     if (capability.parent != null && !capabilities[capability.parent]) throw new SingularityFlowError(`Capability '${id}' references unknown parent '${capability.parent}'.`);
     uniqueStrings(capability.owns, `Capability '${id}'.owns`);
     foldCapabilityPolicy({}, capability.policy ?? {});
+    validateCapabilityDelivery(id, capability, capabilities, portfolio);
   }
   const roots = Object.entries(capabilities).filter(([, capability]) => capability.parent == null).map(([id]) => id);
   if (roots.length !== 1) throw new SingularityFlowError(`Capability tree requires exactly one root; found ${roots.length}.`);
@@ -205,4 +249,60 @@ export function resolveEffectiveCapabilityPolicy(definition, capabilityId, ledge
     policy: leases.reduce((policy, lease) => ({ ...policy, ...lease.relaxation }), base.policy),
     leases
   };
+}
+
+/**
+ * The capability tree, nested.
+ *
+ * Stored as a flat map with parent pointers, which is the right shape for editing one node and for
+ * proving there is exactly one root. It is the wrong shape for reading, so this is the other view of
+ * the same data — every reader wants the hierarchy, and deriving it here means nobody derives it
+ * twice.
+ */
+export function capabilityTree(definition) {
+  const capabilities = definition?.capabilities ?? {};
+  const childrenOf = (parent) => Object.entries(capabilities)
+    .filter(([, capability]) => (capability.parent ?? null) === parent)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, capability]) => ({
+      id,
+      name: capability.name ?? id,
+      kind: capability.kind,
+      // Inferred, never declared separately: a capability that ships names a repository.
+      delivery: Boolean(capability.repository),
+      repository: capability.repository ?? null,
+      jira: capability.jira ?? null,
+      // Normalized here rather than stored back: uniqueStrings trims and de-duplicates, which is the
+      // convention `owns` already follows, and the reader should see the tidied list.
+      teams: uniqueStrings(capability.teams, 'teams') ?? [],
+      owns: capability.owns ?? [],
+      children: childrenOf(id)
+    }));
+  return childrenOf(null);
+}
+
+/** Every capability, depth first, each with the ancestors that reach it. */
+export function flattenCapabilityTree(tree, ancestors = []) {
+  return tree.flatMap((node) => [
+    { ...node, depth: ancestors.length, ancestors },
+    ...flattenCapabilityTree(node.children, [...ancestors, node.id])
+  ]);
+}
+
+/** What a capability ships: every delivery capability at or beneath it. */
+export function capabilityDeliveries(definition, capabilityId) {
+  const rows = flattenCapabilityTree(capabilityTree(definition));
+  if (!rows.some((row) => row.id === capabilityId)) {
+    throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
+  }
+  return rows
+    .filter((row) => row.delivery && (row.id === capabilityId || row.ancestors.includes(capabilityId)))
+    .map((row) => ({ id: row.id, name: row.name, repository: row.repository }));
+}
+
+/** Which capability delivers a repository, and the chain of groupings above it. */
+export function capabilityForRepository(definition, repositoryId) {
+  const row = flattenCapabilityTree(capabilityTree(definition))
+    .find((entry) => entry.repository === repositoryId);
+  return row ? { id: row.id, name: row.name, ancestors: row.ancestors } : null;
 }

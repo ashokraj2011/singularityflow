@@ -340,8 +340,10 @@ Usage:
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
     [--text TEXT | --text-file FILE]
   singularity-flow epic requirements prepare|status|publish|approve
-  singularity-flow epic planning prepare|status|validate|publish
-    Planning approval is an explicit business review in the Singularity Flow desktop UI.
+  singularity-flow epic planning prepare|status|validate|publish|approve
+    Approving the Story plan is an explicit business review: it needs the exact
+    "<phase>:<subject>" confirmation, and --acknowledge-self-approval when you
+    generated any of its outputs yourself.
   singularity-flow epic stories list|show|update|split|adopt|validate|metadata|tasks
     update <PLAN-ID> [--metadata KEY=VALUE]... [--tasks-file FILE]
     split <PLAN-ID> [--title TEXT] [--repository ID] [--metadata KEY=VALUE]...
@@ -2591,10 +2593,18 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'approve') {
     const subject = positionals[2] ?? 'phase';
     const phaseId = initiative.currentPhase;
-    if (initiative.resolution.profile === 'epic-planning' && phaseId === EPIC_PHASES.planning) {
+    // Planning approval was refused here and implemented only in the desktop app's IPC, so the Story
+    // plan could not be approved without Electron at all. The guard the desktop applied — an explicit
+    // acknowledgement that approving your own work is not independent review — is applied here
+    // instead, so the governance property is identical wherever the approval happens. Exact-hash
+    // confirmation and working-lens selection are already enforced by the flow below.
+    const approvalActor = String(identity(root).email ?? '').toLowerCase();
+    const selfApproval = Boolean(approvalActor) && Object.values(initiative.phases[phaseId]?.outputs ?? {})
+      .some((output) => String(output.generatedBy?.email ?? '').toLowerCase() === approvalActor);
+    if (selfApproval && !optionBoolean(options, 'acknowledge-self-approval')) {
       throw new SingularityFlowError(
-        'The Epic Story plan must be reviewed and approved in the Singularity Flow desktop UI. '
-        + 'Open Planning, inspect every Story and specification, then use Approve exact plan.'
+        `${approvalActor} generated an output in '${phaseId}', so approving it is self-approval and is not independent review. `
+        + 'Re-run with --acknowledge-self-approval to record it as such.'
       );
     }
     const receiptToken = optionString(options, 'selection-receipt');
@@ -3562,14 +3572,8 @@ async function epicCommand(positionals, options) {
       return;
     }
     if (action === 'publish') return initiativeCommand(['initiative', 'phase', 'publish', phaseId], options);
-    if (action === 'approve' && subcommand === 'planning') {
-      throw new SingularityFlowError(
-        'The Epic Story plan must be reviewed and approved in the Singularity Flow desktop UI. '
-        + 'Open Planning, inspect every Story and specification, then use Approve exact plan.'
-      );
-    }
     if (action === 'approve') return initiativeCommand(['initiative', 'approve', 'phase'], options);
-    const allowed = subcommand === 'planning' ? 'prepare, status, validate, or publish' : 'prepare, status, publish, or approve';
+    const allowed = subcommand === 'planning' ? 'prepare, status, validate, publish, or approve' : 'prepare, status, publish, or approve';
     throw new SingularityFlowError(`Unknown Epic ${subcommand} action '${action}'. Use ${allowed}.`);
   }
   if (subcommand === 'stories') {

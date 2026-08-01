@@ -373,3 +373,42 @@ test('approval harvests knowledge from the approved artifact, in the same commit
   assert.match(context, /Prior knowledge/);
   assert.match(context, /Whether the vendor supports batch mode/);
 });
+
+test('approving a phase bundle harvests its artifacts, not only individually approved outputs', async () => {
+  // A profile signs off either an artifact or the phase bundle containing it. Harvest read only
+  // individually-approved outputs, so for every bundle-approving profile — which is most of them —
+  // it found nothing, and the store stayed empty exactly where it was designed to fill.
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-BUNDLE', '--title', 'Bundle harvest']);
+  execute(root, ['initiative', 'phase', 'define']);
+
+  const artifact = path.join(root, 'singularity/initiatives/INIT-BUNDLE/artifacts/define/scope-and-outcomes.md');
+  await writeFile(artifact, `${await readFile(artifact, 'utf8')}
+## Still unknown
+
+| Open question | What would resolve it |
+|---|---|
+| Whether the vendor supports batch mode | A written answer from the vendor |
+`);
+  execute(root, ['initiative', 'phase', 'publish', 'define']);
+  await writeFile(path.join(root, 'approval.md'), '# Approved\n');
+  execute(root, ['initiative', 'evidence', 'add', 'business-case-approved', '--assurance', 'human-approved', '--path', 'approval.md']);
+  execute(root, ['initiative', 'evidence', 'add', 'scope-agreed', '--assurance', 'human-approved', '--path', 'approval.md']);
+  execute(root, ['initiative', 'approve', 'business-case', '--acknowledge-self-approval'], { confirm: 'define:business-case' });
+
+  // scope-and-outcomes is never approved on its own — only the phase bundle is.
+  const state = JSON.parse(await readFile(path.join(root, 'singularity/initiatives/INIT-BUNDLE/state.json'), 'utf8'));
+  assert.notEqual(state.phases.define.outputs['scope-and-outcomes'].status, 'approved');
+
+  const approved = execute(root, ['initiative', 'approve', 'phase', '--acknowledge-self-approval'], { confirm: 'define:phase' });
+  assert.match(approved.stdout, /Recorded 1 knowledge entry/);
+
+  const entries = JSON.parse(execute(root, ['knowledge', 'list', '--json']).stdout);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].record.type, 'uncertainty');
+  assert.equal(entries[0].record.provenance.output, 'scope-and-outcomes');
+  // Committed with the approval, leaving nothing of the store untracked. (The scratch approval.md
+  // this test writes at the repository root is its own litter, so the check is scoped to the store.)
+  assert.equal(git(root, ['status', '--porcelain', 'singularity/knowledge']), '');
+  assert.match(git(root, ['show', '--name-only', '--format=', 'HEAD']), /singularity\/knowledge\/records\//);
+});

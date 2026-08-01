@@ -68,7 +68,10 @@
     "desktop:publish:artifactory": "node scripts/desktop-release.mjs publish-artifactory",
     "vscode:build": "npm run build --workspace singularity-flow-vscode",
     "vscode:watch": "npm run watch --workspace singularity-flow-vscode",
-    "vscode:typecheck": "npm run typecheck --workspace singularity-flow-vscode"
+    "vscode:typecheck": "npm run typecheck --workspace singularity-flow-vscode",
+    "vscode:dev": "node scripts/vscode-dev.mjs",
+    "vscode:demo": "node scripts/vscode-dev.mjs --demo-only",
+    "vscode:package": "node scripts/vscode-dev.mjs --package"
   },
   "engines": {
     "node": ">=20"

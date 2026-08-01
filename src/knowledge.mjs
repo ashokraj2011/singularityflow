@@ -176,8 +176,14 @@ export async function harvestInitiativeKnowledge(root, portfolio, initiative, { 
   for (const id of phases) {
     const phase = initiative.phases[id];
     if (!phase) continue;
+    // An artifact's claims become citable when it has been signed off, and a profile may sign off
+    // either the artifact or the phase bundle that contains it. Reading only individually-approved
+    // outputs meant harvest found nothing for every bundle-approving profile — which is most of
+    // them, including epic-planning — so the store stayed empty exactly where it was designed to fill.
+    const phaseApproved = phase.status === 'approved';
     for (const output of Object.values(phase.outputs ?? {})) {
-      if (output.status !== 'approved' || !output.sha256) continue;
+      if (!output.sha256) continue;
+      if (output.status !== 'approved' && !phaseApproved) continue;
       const target = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
         label: `Initiative output '${id}/${output.id}'`, type: 'file'
       });

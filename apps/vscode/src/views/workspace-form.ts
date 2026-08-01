@@ -6,9 +6,10 @@
  * what you have added, cannot correct a row, and cannot compare two repositories before choosing
  * which leads. This is a form, because that is what the thing is.
  *
- * Repositories are added by choosing checkouts you already have, and every field is read from the
- * checkout: the origin URL, the default branch from origin/HEAD, and an identifier from the folder
- * name. Typing a clone URL is how a workspace ends up pointing at the wrong fork.
+ * Repositories are added by clone URL, because nothing needs to be checked out first — the platform
+ * clones. Only the URL is asked for: the identifier, the default branch and whether the state branch
+ * already exists are read from the remote with ls-remote, so a wrong URL is caught while somebody is
+ * still looking at it rather than when a clone fails minutes later.
  */
 import { escape } from './webview.ts';
 
@@ -22,20 +23,39 @@ export interface FormRepository {
   stateBranch: string;
 }
 
+/** The repository being described but not yet added. */
+export interface RepositoryDraft {
+  url: string;
+  /** Optional: read from the URL when left empty. */
+  id: string;
+  lead: boolean;
+}
+
 export interface WorkspaceForm {
   base: string | null;
   id: string;
   name: string;
   repositories: FormRepository[];
   lead: string | null;
+  draft: RepositoryDraft;
+  /** Set while a remote is being read, so the form can say which one and refuse a second add. */
+  adding: boolean;
   /** Set while the CLI is running, so the form can say so and refuse a second submit. */
   busy: boolean;
   error: string | null;
 }
 
+export const EMPTY_DRAFT: RepositoryDraft = { url: '', id: '', lead: false };
+
 export const EMPTY_FORM: WorkspaceForm = {
-  base: null, id: '', name: '', repositories: [], lead: null, busy: false, error: null
+  base: null, id: '', name: '', repositories: [], lead: null,
+  draft: { ...EMPTY_DRAFT }, adding: false, busy: false, error: null
 };
+
+/** The URLs a draft names. Several may be pasted at once; whitespace and commas separate them. */
+export function draftUrls(draft: RepositoryDraft): string[] {
+  return draft.url.split(/[\s,]+/).map((url) => url.trim()).filter(Boolean);
+}
 
 /**
  * What still stands between this form and a workspace.
@@ -87,6 +107,44 @@ function repositoryRows(form: WorkspaceForm): string {
     </tr>`).join('');
 }
 
+/**
+ * The form for the repository being added.
+ *
+ * Inline rather than a prompt, for the same reason the rest of this is a form: a prompt shows one
+ * field, cannot be corrected without starting over, and hides the rows you already have while you
+ * type. Only the URL is required — the identifier, the default branch and whether the state branch
+ * exists are all read from the remote, and the first two are shown here so a mistyped URL is caught
+ * before anything is cloned.
+ */
+function addRepositoryHtml(form: WorkspaceForm): string {
+  const urls = draftUrls(form.draft);
+  const several = urls.length > 1;
+  const disabled = form.adding ? ' disabled' : '';
+  return `
+  <div class="card">
+    <div class="card-head"><h3>Add a repository</h3></div>
+    <p>
+      <label>Clone URL <input type="text" value="${escape(form.draft.url)}" data-draft="url" size="46"
+        placeholder="https://github.com/org/service.git"${disabled}></label>
+    </p>
+    <p>
+      <label>Identifier <input type="text" value="${escape(form.draft.id)}" data-draft="id" size="20"
+        placeholder="read from the URL"${form.adding || several ? ' disabled' : ''}></label>
+      <label><input type="checkbox" data-draft="lead"${form.draft.lead ? ' checked' : ''}${disabled}> Leads this workspace</label>
+    </p>
+    <p class="muted">Nothing is cloned yet: the default branch and whether the <code>state</code>
+      branch already exists are read from the remote.
+      <span data-hint="urls">${several
+    ? `<strong>${urls.length} URLs given</strong> — each is added under the identifier read from its own URL.`
+    : 'Paste several URLs separated by spaces to add them at once.'}</span></p>
+    <p class="card-foot">
+      <button data-add="repository"${form.adding || !urls.length ? ' disabled' : ''}>
+        ${form.adding ? 'Reading the remote…' : several ? `Add ${urls.length} repositories` : 'Add repository'}
+      </button>
+    </p>
+  </div>`;
+}
+
 export function workspaceFormHtml(form: WorkspaceForm): string {
   const problems = formProblems(form);
   return `
@@ -121,7 +179,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
       <thead><tr><th>Lead</th><th>Identifier</th><th>Origin</th><th>Branch</th><th>State</th><th></th></tr></thead>
       <tbody>${repositoryRows(form)}</tbody>
     </table>
-    <p><button class="secondary" data-choose="repositories">Add repositories…</button></p>
+    ${addRepositoryHtml(form)}
   </section>
 
   <section>
@@ -141,17 +199,57 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 export const WORKSPACE_FORM_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-choose],[data-remove],[data-submit],[data-lead]');
+    const target = event.target.closest('[data-choose],[data-remove],[data-submit],[data-lead],[data-add]');
     if (!target) return;
     if (target.dataset.choose) vscode.postMessage({ type: 'choose', what: target.dataset.choose });
     else if (target.dataset.remove) vscode.postMessage({ type: 'remove', id: target.dataset.remove });
     else if (target.dataset.lead) vscode.postMessage({ type: 'lead', id: target.dataset.lead });
+    else if (target.dataset.add) vscode.postMessage({ type: 'add' });
     else if (target.dataset.submit) vscode.postMessage({ type: 'create' });
   });
+  /**
+   * The draft is reported as it is typed so 'add' never has to trust what the page sends with it —
+   * but the panel does NOT re-render in response, because replacing the document on every keystroke
+   * would take the caret with it. The affordances that depend on what is typed are therefore updated
+   * here, in the page, where they are presentation and nothing else.
+   */
+  const affordances = () => {
+    const url = document.querySelector('[data-draft="url"]');
+    const identifier = document.querySelector('[data-draft="id"]');
+    const button = document.querySelector('[data-add]');
+    const hint = document.querySelector('[data-hint="urls"]');
+    if (!url || !button) return;
+    const urls = url.value.split(/[\\s,]+/).map((value) => value.trim()).filter(Boolean);
+    button.disabled = urls.length === 0;
+    button.textContent = urls.length > 1 ? 'Add ' + urls.length + ' repositories' : 'Add repository';
+    if (identifier) identifier.disabled = urls.length > 1;
+    if (hint) {
+      hint.textContent = urls.length > 1
+        ? urls.length + ' URLs given — each is added under the identifier read from its own URL.'
+        : 'Paste several URLs separated by spaces to add them at once.';
+    }
+  };
+  const draft = (event) => {
+    const field = event.target.dataset?.draft;
+    if (!field) return false;
+    vscode.postMessage({
+      type: 'draft', field,
+      value: event.target.type === 'checkbox' ? event.target.checked : event.target.value
+    });
+    return true;
+  };
+  document.addEventListener('input', (event) => { if (draft(event)) affordances(); });
   document.addEventListener('change', (event) => {
+    if (draft(event)) return;
     const field = event.target.dataset?.field;
     if (field) return vscode.postMessage({ type: 'field', field, value: event.target.value });
     const id = event.target.dataset?.id;
     if (id) vscode.postMessage({ type: 'rename', id, value: event.target.value });
+  });
+  // Enter in the URL field adds, because that is what Enter in a one-field form means.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.target.dataset?.draft !== 'url') return;
+    event.preventDefault();
+    vscode.postMessage({ type: 'add' });
   });
 `;

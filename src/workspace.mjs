@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -378,6 +379,26 @@ export async function workspaceRepositoryDefaults(repository) {
  * The state branch matters at this moment because it decides whether this repository is joining a
  * workspace that already records governance history, or starting one.
  */
+/**
+ * Whether a target names somewhere to clone from, rather than a checkout already on disk.
+ *
+ * The scheme prefixes are the easy half. An absolute path can be either, and the distinction matters
+ * because each inspector says something useful the other cannot: reading a checkout can point out
+ * that you picked a nested folder or that it has no origin, while ls-remote can read a repository
+ * nobody has cloned. So a path that exists is a checkout — unless it is bare, which is a place to
+ * clone from and nothing else. A path that does not exist is a remote nobody answers, which is what
+ * ls-remote will say.
+ *
+ * Bare is detected the way Git itself does, by layout, rather than by spawning a process to ask.
+ */
+export function isCloneTarget(target) {
+  const value = String(target ?? '').trim();
+  if (/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(value)) return true;
+  if (!path.isAbsolute(value)) return false;
+  if (!existsSync(value)) return true;
+  return ['HEAD', 'objects', 'refs'].every((entry) => existsSync(path.join(value, entry)));
+}
+
 export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');

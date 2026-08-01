@@ -177,3 +177,21 @@ test('a URL that cannot be reached is refused while it is being typed', async ()
   assert.notEqual(nonsense.status, 0);
   assert.match(nonsense.stderr, /is not available|not a safe Git repository|is not a clone URL/);
 });
+
+test('a bare repository path is somewhere to clone from, not a checkout to read', async () => {
+  // `file://` is a scheme people rarely type. A plain absolute path to a bare repository — a local
+  // mirror, a network share, a fixture — was read as a working checkout and refused with "not a safe
+  // Git repository", which describes the wrong thing entirely: it is a perfectly good remote.
+  const { source, env } = await environment();
+  const inspected = JSON.parse(cli(['workspace', 'inspect', source, '--json'], env).stdout);
+  assert.equal(inspected.url, source);
+  assert.equal(inspected.defaultBranch, 'main', 'read from the remote HEAD');
+  assert.equal(inspected.localPath, null, 'nothing was cloned to answer this');
+
+  // A path that does not exist is a remote nobody answers, reported as such rather than as a
+  // complaint about the local filesystem.
+  const missing = cli(['workspace', 'inspect', path.join(path.dirname(source), 'absent.git'), '--json'],
+    env, { allowFailure: true });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /Cannot reach/);
+});

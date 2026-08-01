@@ -153,7 +153,8 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
   listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteDefaults, workspaceRepositoryDefaults,
+  isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteDefaults,
+  workspaceRepositoryDefaults,
   workspaceStatus
 } from './workspace.mjs';
 import {
@@ -3451,7 +3452,7 @@ async function workspaceCommand(positionals, options) {
     // A URL is inspected over the network; a directory is read from the checkout. Both answer the
     // same question — what a workspace would record for this repository.
     const target = requirePositional(positionals, 2, 'repository URL or directory');
-    const remote = /^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(target);
+    const remote = isCloneTarget(target);
     const defaults = remote
       ? await workspaceRemoteDefaults(target, { stateBranch: optionString(options, 'state-branch', 'state') })
       : await workspaceRepositoryDefaults(target);

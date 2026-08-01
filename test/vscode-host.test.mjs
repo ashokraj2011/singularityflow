@@ -937,3 +937,55 @@ test('the capability screen shows the policy that applies, not only the policy t
   // Severity was never declared here, so inheriting it is not an override.
   assert.match(panel.webview.html, /Gate severity/);
 });
+
+test('a repository is added to a workspace by the form, from a URL, with nothing checked out', async (t) => {
+  if (!requireBundle(t)) return;
+  // The button used to open an input box, which is the one thing this panel exists to avoid. This
+  // drives the inline form against a real remote: type a URL, press add, and the identifier, default
+  // branch and state branch come back from ls-remote without anything being cloned.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-form-'));
+  const origin = path.join(base, 'payments-api.git');
+  await mkdir(origin);
+  run('git', ['init', '-b', 'trunk', '--bare', origin], { cwd: base });
+  // A branch has to exist for a remote to have a default one; ls-remote reads HEAD, not config.
+  const seed = path.join(base, 'seed');
+  await mkdir(seed);
+  run('git', ['init', '-b', 'trunk', seed], { cwd: base });
+  run('git', ['-c', 'user.email=seed@example.com', '-c', 'user.name=Seed',
+    'commit', '-q', '--allow-empty', '-m', 'Initial'], { cwd: seed });
+  run('git', ['push', '-q', origin, 'trunk:trunk'], { cwd: seed });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  assert.ok(panel, 'a workspace panel was created');
+
+  await panel.post({ type: 'draft', field: 'url', value: origin });
+  await panel.post({ type: 'add' });
+  // The URL is echoed into the draft field while the remote is being read, so waiting for the
+  // identifier to appear anywhere would match the half-finished render. Wait for the table.
+  const settled = () => !panel.webview.html.includes('No repositories yet');
+  const html = await until(() => (settled() ? panel.webview.html : null));
+
+  assert.match(html, /payments-api/, 'the identifier was read from the URL');
+  assert.match(html, /trunk/, 'the default branch was read from the remote');
+  assert.match(html, /none yet/, 'the state branch does not exist on this remote, and it says so');
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+  // The first repository added leads; a one-repository workspace needs no choice made about it.
+  assert.match(html, /name="lead" value="payments-api"[^>]*checked/);
+  // The draft is cleared, so the next URL starts from an empty field rather than the last one.
+  assert.match(html, /data-draft="url" size="46"/);
+  assert.doesNotMatch(html, new RegExp(`value="${origin}" data-draft="url"`));
+
+  // A URL nothing answers is reported on the form, not as a notification that outlives the panel.
+  await panel.post({ type: 'draft', field: 'url', value: path.join(base, 'absent.git') });
+  await panel.post({ type: 'add' });
+  const failed = await until(() => (panel.webview.html.includes('Reading the remote')
+    ? null
+    : panel.webview.html));
+  assert.match(failed, /absent/);
+  assert.equal(registered.warnings.length, 0, 'reported on the form rather than over it');
+});

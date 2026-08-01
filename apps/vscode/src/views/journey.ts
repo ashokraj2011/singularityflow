@@ -11,7 +11,7 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -62,9 +62,9 @@ function bodyHtml(journey: Journey): string {
   if (journey.empty) return `<div class="empty"><p>${escape(journey.empty)}</p></div>`;
 
   const blockers = journey.blockers.length
-    ? `<section><h2>This phase is not ready</h2><ul class="blockers">${
+    ? `<section><h2>${icon('bad')}This phase is not ready</h2><ul class="blockers">${
       journey.blockers.map((blocker) => `<li>${escape(blocker)}</li>`).join('')}</ul></section>`
-    : '<section><h2>Gate</h2><p class="ok-text">Every requirement of this phase is satisfied.</p></section>';
+    : `<section><h2>${icon('gate')}Gate</h2><p class="ok-text">${icon('ok')}Every requirement of this phase is satisfied.</p></section>`;
 
   const sources = `${journey.sources.length
     ? `<ul class="sources">${journey.sources.map((source) => `
@@ -80,18 +80,18 @@ function bodyHtml(journey: Journey): string {
 
   return `
     <header>
-      <h1>${escape(journey.title)}</h1>
+      <h1>${icon('epic', { size: 20 })}${escape(journey.title)}</h1>
       <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} · branch ${escape(journey.branch ?? 'unknown')} · ${escape(journey.status)}</p>
     </header>
 
     ${journey.nextAction ? `
     <section class="next">
-      <h2>Next</h2>
+      <h2>${icon('ok')}Next</h2>
       <p>${escape(journey.nextAction.reason)}</p>
       <button data-run="next">${escape(journey.nextAction.command)}</button>
     </section>` : ''}
 
-    <section><h2>Lifecycle</h2><ul class="rail">${railHtml(journey)}</ul></section>
+    <section><h2>${icon('epic')}Lifecycle</h2><ul class="rail">${railHtml(journey)}</ul></section>
 
     <section>
       <h2>${escape(journey.currentStage?.label ?? 'Current phase')}</h2>
@@ -100,9 +100,9 @@ function bodyHtml(journey: Journey): string {
 
     ${blockers}
 
-    <section><h2>Artifact packs</h2>${packsHtml(journey)}</section>
-    <section><h2>Pinned sources</h2>${sources}</section>
-    <section><h2>Stories</h2>${stories}</section>`;
+    <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
+    <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
+    <section><h2>${icon('story')}Stories</h2>${stories}</section>`;
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */

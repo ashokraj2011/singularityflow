@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { buildReconciliation, type MergePlan, type Reconciliation, type ReconciliationLevel } from './reconciliation-model.ts';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -20,7 +20,7 @@ const VERDICT_PILL: Record<string, { className: string; label: string }> = {
 function levelHtml(level: ReconciliationLevel): string {
   const pill = VERDICT_PILL[level.verdict] ?? VERDICT_PILL['not-applicable'];
   const head = `
-    <h2>${escape(level.label)} <span class="pill ${pill?.className ?? ''}">${escape(pill?.label ?? '')}</span></h2>
+    <h2>${icon('merge')}${escape(level.label)}&nbsp;<span class="pill ${pill?.className ?? ''}">${icon(pill?.className || 'wait')}${escape(pill?.label ?? '')}</span></h2>
     <p class="question">${escape(level.question)}</p>`;
 
   if (level.verdict === 'not-applicable') {
@@ -57,7 +57,7 @@ function bodyHtml(reconciliation: Reconciliation): string {
     : 'Every level that can be compared currently agrees.';
   return `
     <header>
-      <h1>Reconciliation</h1>
+      <h1>${icon('impact', { size: 20 })}Reconciliation</h1>
       <p class="meta">${escape(reconciliation.initiativeId)} · ${escape(summary)}</p>
     </header>
     ${reconciliation.levels.map(levelHtml).join('')}`;

@@ -7,7 +7,7 @@
  * actually touches is the part that changes decisions, so it comes first and the inventory follows.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -84,7 +84,7 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
 
   return `
   <header>
-    <h1>Planning and impact</h1>
+    <h1>${icon('impact', { size: 20 })}Planning and impact</h1>
     <p class="meta">${escape(report.initiativeId ?? '')} ·
       ${report.storyCount ?? 0} ${report.storyCount === 1 ? 'Story' : 'Stories'} across
       ${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} ·
@@ -92,18 +92,18 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
   </header>
 
   <section class="plain">
-    <h2>Reconciliation</h2>
+    <h2>${icon('impact')}Reconciliation</h2>
     ${findingsHtml(report)}
   </section>
 
   <section>
-    <h2>What this Epic touches</h2>
+    <h2>${icon('repository')}What this Epic touches</h2>
     ${repositories.length ? `
     <table>
       <thead><tr><th>Repository</th><th>Stories</th><th>Gates the Epic</th><th>Contracts</th><th>World model</th><th>In the map</th></tr></thead>
       <tbody>${repositories.map((repository) => `
         <tr>
-          <td><code>${escape(repository.id)}</code>${repository.lead ? ' <span class="muted">lead</span>' : ''}</td>
+          <td>${icon('repository')}<code>${escape(repository.id)}</code>${repository.lead ? ' <span class="muted">lead</span>' : ''}</td>
           <td>${repository.storyCount}</td>
           <td>${repository.blockingStoryCount}</td>
           <td>${repository.consumesContracts?.length ? repository.consumesContracts.map((id) => escape(id)).join(', ') : '<span class="muted">—</span>'}</td>
@@ -116,7 +116,7 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
   </section>
 
   <section>
-    <h2>Cross-repository order</h2>
+    <h2>${icon('branch')}Cross-repository order</h2>
     ${edges.length ? `
     <table>
       <thead><tr><th>Must land first</th><th>Then</th><th>Because</th></tr></thead>
@@ -132,7 +132,7 @@ function bodyHtml(report: ImpactReport | null, error: string | null): string {
 
   ${report.reconciliation?.missingWorldModel?.length ? `
   <section>
-    <h2>No committed world model</h2>
+    <h2>${icon('bad')}No committed world model</h2>
     <p class="muted">Grounding for these repositories has nothing to draw on:
       ${report.reconciliation.missingWorldModel.map((id) => `<code>${escape(id)}</code>`).join(' ')}</p>
   </section>` : ''}`;

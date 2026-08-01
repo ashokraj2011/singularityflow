@@ -802,7 +802,7 @@ test('each working lens is openable as the file that defines it', () => {
   assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
 });
 
-const { EMPTY_FORM, formProblems, formCommand, workspaceFormHtml } =
+const { EMPTY_FORM, EMPTY_DRAFT, draftUrls, formProblems, formCommand, workspaceFormHtml } =
   await import(source('views/workspace-form.ts'));
 
 const repository = (id, extra = {}) => ({
@@ -852,7 +852,7 @@ test('an identifier that is not a safe id is refused before the CLI sees it', ()
   assert.match(formProblems(form).join(' '), /letters, numbers, dots, underscores and hyphens/i);
 });
 
-test('the form renders each repository with what was read from its checkout', () => {
+test('the form renders each repository with what was read from its remote', () => {
   const form = {
     ...EMPTY_FORM, base: '/work', id: 'w',
     repositories: [repository('api', { defaultBranch: 'trunk' })], lead: 'api'
@@ -861,7 +861,9 @@ test('the form renders each repository with what was read from its checkout', ()
   assert.match(html, /https:\/\/example\.com\/api\.git/);
   assert.match(html, /trunk/);
   assert.match(html, /name="lead" value="api"[^>]*checked/);
-  assert.doesNotMatch(html, /disabled/, 'a form with no problems offers its button');
+  // Named specifically: the add-repository button is legitimately disabled while its own URL field
+  // is empty, so a bare search for "disabled" says nothing about the button this test is about.
+  assert.match(html, /<button data-submit="create" >/);
 });
 
 test('a form still missing something disables the button and lists why', () => {
@@ -1371,4 +1373,54 @@ test('a capability that ships is rendered as one whatever its kind says', () => 
   assert.equal(node.contextValue, 'sflow.capability.delivery');
   assert.match(node.tooltip, /Ships from api/);
   assert.equal(flattenCapabilities(withMap.capabilityMap.capabilities).length, 2);
+});
+
+test('a repository is added by a form on the page, not by a prompt over it', () => {
+  // A prompt shows one field, cannot be corrected without starting over, and covers the rows you
+  // already have while you type — which is the whole reason this is a panel.
+  const html = workspaceFormHtml(EMPTY_FORM);
+  assert.match(html, /Add a repository/);
+  assert.match(html, /data-draft="url"/);
+  assert.match(html, /data-draft="id"/);
+  assert.match(html, /data-draft="lead"/);
+  assert.match(html, /Leads this workspace/);
+  // Nothing to add yet, so the button says so by being unpressable rather than by failing.
+  assert.match(html, /<button data-add="repository" disabled>/);
+  assert.match(html, /read from the URL/, 'the identifier is optional and says why');
+});
+
+test('the add button counts the URLs actually given', () => {
+  const one = { ...EMPTY_FORM, draft: { ...EMPTY_DRAFT, url: ' https://example.com/api.git ' } };
+  assert.deepEqual(draftUrls(one.draft), ['https://example.com/api.git']);
+  assert.match(workspaceFormHtml(one), /<button data-add="repository">\s*Add repository/);
+
+  // Several at once is the case the identifier field cannot serve, so it is disabled and the form
+  // says what will happen instead of silently naming three repositories one thing.
+  const many = {
+    ...EMPTY_FORM,
+    draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git https://example.com/web.git' }
+  };
+  assert.equal(draftUrls(many.draft).length, 2);
+  const html = workspaceFormHtml(many);
+  assert.match(html, /Add 2 repositories/);
+  assert.match(html, /2 URLs given/);
+  assert.match(html, /data-draft="id" size="20"\s*\n?\s*placeholder="read from the URL" disabled/);
+});
+
+test('while a remote is being read the form says so and refuses a second add', () => {
+  const form = {
+    ...EMPTY_FORM, adding: true, draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git' }
+  };
+  const html = workspaceFormHtml(form);
+  assert.match(html, /Reading the remote…/);
+  assert.match(html, /<button data-add="repository" disabled>/);
+  assert.match(html, /data-draft="url"[\s\S]{0,120}disabled/);
+});
+
+test('a URL that cannot be read is reported on the form, beside the field it was typed into', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w', repositories: [repository('api')], lead: 'api',
+    error: "Could not read 'https://example.com/gone.git': repository not found."
+  };
+  assert.match(workspaceFormHtml(form), /Could not read/);
 });

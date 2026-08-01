@@ -332,7 +332,7 @@ initiativePhases:
     outputs:
       - { id: requirements, label: Requirement and impact analysis, kind: markdown, path: requirements.md, template: initiatives/requirement-impact.md, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
       - { id: business-case, label: Business case, kind: markdown, path: business-case.md, template: initiatives/generic-output.md, required: false, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
-      - { id: opportunity-brief, label: Market and customer opportunity, kind: markdown, path: opportunity-brief.md, template: initiatives/generic-output.md, required: false }
+      - { id: opportunity-brief, label: Market and customer opportunity, kind: markdown, path: opportunity-brief.md, template: initiatives/opportunity-brief.md, required: false }
       - { id: product-roadmap, label: Product roadmap, kind: markdown, path: product-roadmap.md, template: initiatives/generic-output.md, required: false }
     checklist:
       - { id: opportunity-defined, label: Opportunity and measurable outcomes defined, requirement: must, acceptedAssurance: [human-approved], gate: block }
@@ -343,9 +343,9 @@ initiativePhases:
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture]
     outputs:
-      - { id: service-blueprint, label: Service blueprint and journey, kind: markdown, path: service-blueprint.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
+      - { id: service-blueprint, label: Service blueprint and journey, kind: markdown, path: service-blueprint.md, template: initiatives/service-blueprint.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
       - { id: design-specification, label: Design specification and prototype index, kind: markdown, path: design-specification.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
-      - { id: solution-validation, label: Solution validation report, kind: markdown, path: solution-validation.md, template: initiatives/generic-output.md, consumes: [discover-define/requirements, discover-define/business-case] }
+      - { id: solution-validation, label: Solution validation report, kind: markdown, path: solution-validation.md, template: initiatives/solution-validation.md, consumes: [discover-define/requirements, discover-define/business-case] }
     checklist:
       - { id: solution-validated, label: Proposed solution validated with representative users and stakeholders, requirement: must, acceptedAssurance: [human-approved, system-verified], gate: block }
     bundleApproval: { mode: bundle, authorities: [product-approvers], minimum: 1, allowSelfApproval: true }
@@ -374,6 +374,7 @@ initiativePhases:
       - { id: prfaq, label: PRFAQ, kind: markdown, path: prfaq.md, template: initiatives/generic-output.md, consumes: [pre-inception/initiative-scope], approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
       - { id: test-data-inventory, label: Test data entity inventory, kind: markdown, path: test-data-inventory.md, template: initiatives/generic-output.md, consumes: [pre-inception/initiative-scope] }
       - { id: feasibility-report, label: Feasibility report, kind: markdown, path: feasibility-report.md, template: initiatives/generic-output.md, consumes: [pre-inception/initiative-scope] }
+      - { id: release-scope, label: Release scope and rollout, kind: markdown, path: release-scope.md, template: initiatives/release-scope.md, consumes: [pre-inception/initiative-scope] }
       - { id: ux-concept, label: UX concept design, kind: markdown, path: ux-concept.md, template: initiatives/generic-output.md, consumes: [design-iterate/design-specification], required: false }
       - { id: poc-results, label: POC summary and results, kind: markdown, path: poc-results.md, template: initiatives/generic-output.md, consumes: [pre-inception/initiative-scope], required: false }
     checklist:
@@ -397,10 +398,11 @@ initiativePhases:
       - { id: story-plan, label: Repository story plan, kind: yaml, path: story-plan.yml, template: initiatives/generic-output.yml, consumes: [inception/epic-record, inception/prfaq], approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
       - { id: data-source-decision, label: Test data source decision, kind: markdown, path: data-source-decision.md, template: initiatives/generic-output.md, consumes: [inception/test-data-inventory] }
       - { id: data-readiness, label: Test data readiness, kind: markdown, path: data-readiness.md, template: initiatives/generic-output.md, consumes: [inception/test-data-inventory] }
-      - { id: solution-architecture, label: Solution architecture, kind: markdown, path: solution-architecture.md, template: initiatives/generic-output.md, consumes: [inception/feasibility-report], approval: { mode: individual, authorities: [architecture-reviewers], minimum: 1, allowSelfApproval: true } }
+      - { id: solution-architecture, label: Solution architecture, kind: markdown, path: solution-architecture.md, template: initiatives/solution-architecture.md, consumes: [inception/feasibility-report], approval: { mode: individual, authorities: [architecture-reviewers], minimum: 1, allowSelfApproval: true } }
       - { id: adr-log, label: Architecture decision record log, kind: markdown, path: adr-log.md, template: initiatives/generic-output.md, consumes: [inception/feasibility-report] }
       - { id: dependency-matrix, label: Dependency and communication matrix, kind: markdown, path: dependency-matrix.md, template: initiatives/generic-output.md, consumes: [inception/stakeholder-raci] }
       - { id: eta-register, label: Dependency ETA register, kind: markdown, path: eta-register.md, template: initiatives/generic-output.md, consumes: [inception/stakeholder-raci] }
+      - { id: measurement-plan, label: Measurement plan, kind: markdown, path: measurement-plan.md, template: initiatives/measurement-plan.md, consumes: [inception/release-scope] }
       - { id: sequencing-plan, label: Prioritized backlog and sequencing plan, kind: markdown, path: sequencing-plan.md, template: initiatives/generic-output.md, consumes: [inception/epic-record] }
       - { id: interface-contracts, label: Cross-repository interface contracts, kind: interface-contract, path: interface-contracts.md, template: initiatives/interface-contract.md, consumes: [inception/feasibility-report], approval: { mode: individual, authorities: [architecture-reviewers], minimum: 1, allowSelfApproval: true } }
       - { id: technical-poc-results, label: Technical POC results, kind: markdown, path: technical-poc-results.md, template: initiatives/generic-output.md, consumes: [inception/feasibility-report], required: false }
@@ -431,7 +433,7 @@ initiativePhases:
       - { id: test-attestation, label: Testing attestation, kind: markdown, path: test-attestation.md, template: initiatives/generic-output.md, consumes: [elaboration/functional-tests, elaboration/nfr-specification] }
       - { id: cicd-readiness, label: CI/CD readiness, kind: markdown, path: cicd-readiness.md, template: initiatives/generic-output.md, consumes: [elaboration/story-plan] }
       - { id: nfr-assessment, label: NFR assessment, kind: markdown, path: nfr-assessment.md, template: initiatives/generic-output.md, consumes: [elaboration/nfr-specification] }
-      - { id: operational-readiness, label: Operational readiness, kind: markdown, path: operational-readiness.md, template: initiatives/generic-output.md, consumes: [elaboration/nfr-specification], approval: { mode: individual, authorities: [operations-reviewers], minimum: 1, allowSelfApproval: true } }
+      - { id: operational-readiness, label: Operational readiness, kind: markdown, path: operational-readiness.md, template: initiatives/operational-readiness.md, consumes: [elaboration/nfr-specification], approval: { mode: individual, authorities: [operations-reviewers], minimum: 1, allowSelfApproval: true } }
     checklist:
       - { id: stories-accepted, label: All blocking stories implemented accepted and conformant, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
       - { id: tests-complete, label: Applicable test artifacts pass and meet standards, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }
@@ -452,6 +454,7 @@ initiativePhases:
       - { id: deployment-record, label: Production deployment record, kind: markdown, path: deployment-record.md, template: initiatives/generic-output.md, consumes: [construction/implementation-index] }
       - { id: production-validation, label: Production validation, kind: markdown, path: production-validation.md, template: initiatives/generic-output.md, consumes: [construction/test-attestation] }
       - { id: observability-handoff, label: Observability and monitoring handoff, kind: markdown, path: observability-handoff.md, template: initiatives/generic-output.md, consumes: [construction/operational-readiness] }
+      - { id: production-learning, label: Production learning, kind: markdown, path: production-learning.md, template: initiatives/production-learning.md, consumes: [elaboration/measurement-plan] }
       - { id: initiative-conformance, label: Initiative conformance and epic closure, kind: markdown, path: initiative-conformance.md, template: initiatives/generic-output.md, consumes: [construction/implementation-index, construction/test-attestation, construction/nfr-assessment], approval: { mode: individual, authorities: [initiative-owners], minimum: 1, allowSelfApproval: true } }
     checklist:
       - { id: production-deployed, label: Code successfully deployed to production, requirement: must, acceptedAssurance: [machine-verified, system-verified], gate: block }

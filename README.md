@@ -5,12 +5,13 @@ and Initiative lifecycle events on an unrelated `singularity/ledger` orphan bran
 Durable work-branch intents let another machine reconcile a missing ledger append
 after partial publication.
 
-Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, prompt-only working lenses, human approval authority groups, world-model views, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its Copilot skills use the collision-safe `sflow-` prefix.
+Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, prompt-only working lenses, human approval authority groups, world-model views, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its preferred direct Copilot skills use the short `sf-` prefix.
 
-**Singularity Flow** is the product under the **Singularity** brand. Public
-Copilot commands are always `/sflow-<action>`—for example `/sflow-start` and
-`/sflow-about`—with no `singularity` slash-command prefix. Run `sflow-about` for
-the installed version and a concise capability summary. The full
+**Singularity Flow** is the product under the **Singularity** brand. The installer
+creates personal aliases such as `/sf-start`, `/sf-submit`, and `/sf-about`, so
+normal use has no plugin namespace. The packaged `sflow-*` skills remain available
+for compatibility, including the qualified `/singularity-flow:sflow-*` form.
+Run `/sf-about` for the installed version and a concise capability summary. The full
 `singularity-flow <action>` executable remains a compatible CLI for existing
 scripts and documentation.
 
@@ -26,7 +27,7 @@ The package contains:
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
-- A clean Copilot CLI handoff: Electron shows the exact phase-aware `/sflow-*` command, while authoring and questions stay in the user’s normal Copilot session.
+- A clean Copilot CLI handoff: Electron shows the exact phase-aware `/sf-*` command, while authoring and questions stay in the user’s normal Copilot session.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
@@ -34,7 +35,7 @@ For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 desktop, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). For the implementation-level
-path from `/sflow-*` through the Node.js launcher, command dispatcher, prompt
+path from `/sf-*` through the Node.js launcher, command dispatcher, prompt
 composer, question bridge, and Git publication, read
 [Singularity Flow under the hood](docs/UNDER-THE-HOOD.md).
 
@@ -1172,8 +1173,23 @@ copilot skill list
 
 The installer removes both the direct installation (`singularity-flow`) and any
 existing marketplace installation (`singularity-flow@singularity-flow`), then
-installs the plugin bundled with the CLI package. Running the command again is a
-safe replacement operation; `--force` is not required.
+installs the plugin bundled with the CLI package. It also creates a complete,
+managed copy of every skill under the personal Copilot skills directory using
+the shorter `sf-*` names. Personal skills can be invoked directly, so this removes
+the plugin namespace from day-to-day commands. Running the command again safely
+replaces managed aliases; it refuses to overwrite an unrelated personal `sf-*`
+skill.
+
+The default alias directory is `~/.copilot/skills`. Corporate installations may
+choose another approved directory without changing the package:
+
+```bash
+SINGULARITY_FLOW_COPILOT_SKILLS_DIR="/approved/copilot/skills" \
+  singularity-flow plugin install
+```
+
+Fully exit and restart Copilot CLI after installation so it discovers the new
+personal skills.
 
 An organization can publish the same plugin through its own Copilot marketplace:
 
@@ -1186,27 +1202,32 @@ SINGULARITY_FLOW_MARKETPLACE_SOURCE="company/singularity-flow" \
 source approved by the organization. When it is absent, installation remains
 local and does not contact a personal source repository.
 
-The plugin package remains named `singularity-flow`, while every public skill has a globally unique command name:
+The plugin package remains named `singularity-flow`, while the preferred direct
+commands are:
 
 ```text
-/sflow-about
-/sflow-start ENG-142 --title "Add invoice export"
-/sflow-lens
-/sflow-phase
-/sflow-progress
-/sflow-nextsteps
-/sflow-next
-/sflow-report
-/sflow-help
-/sflow-upload ./requirements.pdf --epic MOB-100
-/sflow-documents list
-/sflow-status
-/sflow-submit
-/sflow-approve
-/sflow-reject
-/sflow-resume ENG-142
+/sf-about
+/sf-start ENG-142 --title "Add invoice export"
+/sf-lens
+/sf-phase
+/sf-progress
+/sf-nextsteps
+/sf-next
+/sf-report
+/sf-help
+/sf-upload ./requirements.pdf --epic MOB-100
+/sf-documents list
+/sf-status
+/sf-submit
+/sf-approve
+/sf-reject
+/sf-resume ENG-142
 ```
 
-The `sflow-` prefix prevents collisions with generic skills such as `/start`, `/status`, and `/approve` from other plugins. After upgrading from v0.6.0 or v0.6.1, run `singularity-flow plugin install`, close existing Copilot sessions, and confirm that `copilot plugin list` contains only `singularity-flow@singularity-flow` and `copilot skill list` reports the `sflow-*` skills.
+The `sf-` prefix prevents collisions with generic skills such as `/start`,
+`/status`, and `/approve`. Existing `/sflow-*` and qualified
+`/singularity-flow:sflow-*` invocations remain compatible. After upgrading, run
+`singularity-flow plugin install`, close existing Copilot sessions, and confirm
+that `copilot skill list` reports `sf-*` personal skills.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for invariants and [VERIFICATION.md](VERIFICATION.md) for the release checklist.

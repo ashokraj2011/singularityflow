@@ -5,7 +5,7 @@ Singularity Flow is a Git-native SDLC workflow for GitHub Copilot and engineerin
 Use this manual in three places:
 
 - Terminal: `singularity-flow help` or `singularity-flow help <topic>`
-- GitHub Copilot CLI: `/sflow-help`
+- GitHub Copilot CLI: `/sf-help` (preferred) or `/sflow-help` (compatibility)
 - Singularity Flow Desktop: open **Help** in the sidebar
 
 The short command reference is available with `singularity-flow --help`.
@@ -44,9 +44,10 @@ Git-native, configurable SDLC orchestration system that carries requirements,
 designs, implementation specifications, evidence, approvals, and reports through
 reviewable work-item branches.
 
-Run `/sflow-about` in Copilot or `sflow-about` in a terminal for the concise
-installed-version summary. All public Copilot commands use the short,
-collision-safe `/sflow-<action>` form. Terminal shortcuts use
+Run `/sf-about` in Copilot or `sflow-about` in a terminal for the concise
+installed-version summary. Installer-managed personal Copilot skills use the
+short, collision-safe `/sf-<action>` form without a plugin namespace. Packaged
+`/sflow-<action>` skills remain compatible. Terminal shortcuts use
 `sflow-<action>` where supplied. The full `singularity-flow <action>` CLI remains
 available for scripts and backward compatibility; it is not a Copilot slash-command
 prefix.
@@ -78,13 +79,20 @@ copilot plugin list
 copilot skill list
 ```
 
+The install command copies the full governed skill contracts to
+`~/.copilot/skills/sf-*/SKILL.md`. These are personal Copilot skills and therefore
+run directly as `/sf-submit`, `/sf-approve`, and so on. Set
+`SINGULARITY_FLOW_COPILOT_SKILLS_DIR` when corporate policy requires another
+skills location. The installer updates only aliases carrying its management
+marker and never overwrites an unrelated personal skill.
+
 Start a new Copilot session after plugin installation. Begin work from Jira or from a manual description:
 
 ```text
-/sflow-start WORK-123
-/sflow-nextsteps WORK-123
-/sflow-next
-/sflow-phase
+/sf-start WORK-123
+/sf-nextsteps WORK-123
+/sf-next
+/sf-phase
 ```
 
 The normal phase loop is:
@@ -96,7 +104,7 @@ The normal phase loop is:
 5. Approve it or reject it to an allowed earlier phase.
 6. Continue until conformance is approved.
 
-Use `/sflow-progress` for deterministic completion and `/sflow-report` for timing, waiting, rework, and token metrics.
+Use `/sf-progress` for deterministic completion and `/sf-report` for timing, waiting, rework, and token metrics.
 
 ## Multi-repository initiatives
 
@@ -1606,41 +1614,42 @@ World-model content is never imported from an agent or remote URL: it is built f
 
 ## Copilot commands
 
-All public skills use the collision-safe `sflow-` prefix:
+Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
+`sflow-*` plugin skills remain available for backward compatibility:
 
 | Copilot command | Purpose |
 |---|---|
-| `/sflow-about` | Explain the Singularity Flow brand, installed version, capabilities, and command namespace |
-| `/sflow-start` | Guided Jira or manual intake, workflow selection, and working-lens selection |
-| `/sflow-resume` | Fetch, fast-forward, and select a working lens |
-| `/sflow-lens` | Select or change the prompt-only working lens for the current local work-item session |
-| `/sflow-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session working lens |
-| `/sflow-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
-| `/sflow-help` | Load this manual or explain the selected work-item workflow |
-| `/sflow-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
-| `/sflow-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
-| `/sflow-next` | Execute exactly one next valid lifecycle action |
-| `/sflow-inputs` | Preview or render approved upstream artifact inputs |
-| `/sflow-phase` | Generate the current phase using its contract and world model |
-| `/sflow-show-prompt` | Display the complete phase skill and exact governed prompt without changing state |
-| `/sflow-requirements` | Requirements-focused generation |
-| `/sflow-design` | Architecture/design-focused generation |
-| `/sflow-implement` | Implementation-focused generation |
-| `/sflow-verify` | Verification and evidence generation |
-| `/sflow-submit` | Submit the current generated phase |
-| `/sflow-approve` | Explicitly review and approve a submitted phase |
-| `/sflow-reject` | Explicitly reject to an allowed earlier phase |
-| `/sflow-status` | Show detailed work-item state and warnings |
-| `/sflow-progress` | Show deterministic phase completion |
-| `/sflow-report` | Show timing, waiting, rework, token, and bottleneck metrics |
-| `/sflow-upload` | Upload files, folders, notes, images, Figma exports, or HTTPS references to the active Epic or Story |
-| `/sflow-documents` | List, view, and upload supporting documents |
-| `/sflow-review` | Review current artifacts and evidence |
-| `/sflow-release` | Prepare final release/conformance activities |
-| `/sflow-jira-story` | Inspect or import one Jira story |
-| `/sflow-jira-work` | Find assigned Jira work |
-| `/sflow-jira-initiative` | Browse Epics, adopt child stories into an initiative, and prepare reviewed Jira write plans |
-| `/sflow-workflow-rules` | Explain deterministic workflow rules |
+| `/sf-about` | Explain the Singularity Flow brand, installed version, capabilities, and command namespace |
+| `/sf-start` | Guided Jira or manual intake, workflow selection, and working-lens selection |
+| `/sf-resume` | Fetch, fast-forward, and select a working lens |
+| `/sf-lens` | Select or change the prompt-only working lens for the current local work-item session |
+| `/sf-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session working lens |
+| `/sf-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
+| `/sf-help` | Load this manual or explain the selected work-item workflow |
+| `/sf-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
+| `/sf-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
+| `/sf-next` | Execute exactly one next valid lifecycle action |
+| `/sf-inputs` | Preview or render approved upstream artifact inputs |
+| `/sf-phase` | Generate the current phase using its contract and world model |
+| `/sf-show-prompt` | Display the complete phase skill and exact governed prompt without changing state |
+| `/sf-requirements` | Requirements-focused generation |
+| `/sf-design` | Architecture/design-focused generation |
+| `/sf-implement` | Implementation-focused generation |
+| `/sf-verify` | Verification and evidence generation |
+| `/sf-submit` | Submit the current generated phase |
+| `/sf-approve` | Explicitly review and approve a submitted phase |
+| `/sf-reject` | Explicitly reject to an allowed earlier phase |
+| `/sf-status` | Show detailed work-item state and warnings |
+| `/sf-progress` | Show deterministic phase completion |
+| `/sf-report` | Show timing, waiting, rework, token, and bottleneck metrics |
+| `/sf-upload` | Upload files, folders, notes, images, Figma exports, or HTTPS references to the active Epic or Story |
+| `/sf-documents` | List, view, and upload supporting documents |
+| `/sf-review` | Review current artifacts and evidence |
+| `/sf-release` | Prepare final release/conformance activities |
+| `/sf-jira-story` | Inspect or import one Jira story |
+| `/sf-jira-work` | Find assigned Jira work |
+| `/sf-jira-initiative` | Browse Epics, adopt child stories into an initiative, and prepare reviewed Jira write plans |
+| `/sf-workflow-rules` | Explain deterministic workflow rules |
 
 If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot skill list`.
 

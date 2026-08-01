@@ -410,12 +410,23 @@ test('initiative Copilot skills expose orchestration without persona authority s
 
 test('plugin install replaces old copies before installing the bundled local plugin', () => {
   const calls = [];
+  const aliasCalls = [];
   const execute = (command, args, options) => {
     calls.push({ command, args, options });
     return { status: 0, stdout: '', stderr: '' };
   };
 
-  installPlugin({ execute, exists: () => true, developmentSource: undefined, marketplaceSource: undefined });
+  installPlugin({
+    execute,
+    exists: () => true,
+    developmentSource: undefined,
+    marketplaceSource: undefined,
+    installAliases: () => {
+      aliasCalls.push('install');
+      return { installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' };
+    },
+    log: () => {}
+  });
 
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
@@ -423,6 +434,7 @@ test('plugin install replaces old copies before installing the bundled local plu
     ['plugin', 'install', pluginRoot]
   ]);
   assert.equal(calls.at(-1).options.stdio, 'inherit');
+  assert.deepEqual(aliasCalls, ['install']);
 });
 
 test('plugin install uses an explicitly configured organization marketplace', () => {
@@ -437,7 +449,9 @@ test('plugin install uses an explicitly configured organization marketplace', ()
     execute,
     exists: () => true,
     developmentSource: undefined,
-    marketplaceSource: 'company/singularity-flow'
+    marketplaceSource: 'company/singularity-flow',
+    installAliases: () => ({ installed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' }),
+    log: () => {}
   });
 
   assert.deepEqual(calls.map((call) => call.args), [
@@ -452,15 +466,22 @@ test('plugin install uses an explicitly configured organization marketplace', ()
 
 test('plugin uninstall removes both known Copilot identities', () => {
   const calls = [];
+  const aliasCalls = [];
   uninstallPlugin({
     exists: () => true,
     execute: (command, args, options) => {
       calls.push({ command, args, options });
       return { status: 0, stdout: '', stderr: '' };
-    }
+    },
+    uninstallAliases: () => {
+      aliasCalls.push('uninstall');
+      return { removed: ['sf-submit'], targetRoot: '/tmp/copilot/skills' };
+    },
+    log: () => {}
   });
   assert.deepEqual(calls.map((call) => call.args), [
     ['plugin', 'uninstall', 'singularity-flow'],
     ['plugin', 'uninstall', 'singularity-flow@singularity-flow']
   ]);
+  assert.deepEqual(aliasCalls, ['uninstall']);
 });

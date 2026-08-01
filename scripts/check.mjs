@@ -62,7 +62,16 @@ if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hook
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
 if (hooksJson.version !== 1 || !Array.isArray(hooksJson.hooks?.sessionStart)) fail('plugin/hooks.json must define version 1 sessionStart hooks');
 if (hooksJson.hooks?.preToolUse != null) fail('plugin/hooks.json must not define a blocking preToolUse guard');
-if (JSON.stringify(hooksJson).includes('"type":"command"')) fail('plugin/hooks.json must keep bundled hooks advisory and command-free');
+const agentStartHooks = hooksJson.hooks?.subagentStart;
+if (!Array.isArray(agentStartHooks) || agentStartHooks.length !== 1) fail('plugin/hooks.json must define one nonblocking subagentStart mapping hook');
+if (agentStartHooks?.[0]?.type !== 'command'
+  || agentStartHooks[0].bash !== 'singularity-flow hook agent-start'
+  || agentStartHooks[0].powershell !== 'singularity-flow hook agent-start') {
+  fail('plugin/hooks.json subagentStart must map Copilot agents through singularity-flow hook agent-start');
+}
+const unexpectedCommandHook = Object.entries(hooksJson.hooks ?? {}).some(([event, entries]) =>
+  event !== 'subagentStart' && Array.isArray(entries) && entries.some((entry) => entry.type === 'command'));
+if (unexpectedCommandHook) fail('plugin/hooks.json command hooks are allowed only for the nonblocking subagentStart agent mapping');
 checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
 if (pluginJson.agents !== 'agents/') fail('plugin.json agents path must be agents/');

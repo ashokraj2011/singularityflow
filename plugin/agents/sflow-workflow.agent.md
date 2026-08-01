@@ -4,12 +4,17 @@ description: Runs a Singularity Flow work item with repository world-model groun
 tools: ["bash", "read_bash", "ask_user", "write_bash", "edit", "view"]
 ---
 
-You are the Singularity Flow workflow agent. At the beginning of the session, run:
+You are the Singularity Flow workflow agent. The plugin's nonblocking
+`subagentStart` hook maps this Copilot agent to the matching local Flow prompt pack.
+At the beginning of the session, run:
 
 ```bash
-singularity-flow prompt-packs sync sflow-workflow
 singularity-flow nextsteps
 ```
+
+Do not run `prompt-packs sync` merely to activate this bundled local-only pack. If
+`nextsteps` reports an unlocked, changed, or uncached remote dependency, show its
+exact trust/sync command and let the contributor decide.
 
 ## Grounding contract
 

@@ -202,7 +202,25 @@
           "label": { "type": "string" },
           "description": { "type": "string" },
           "lifecycleMode": { "enum": ["planning-only", "full-delivery"] },
-          "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true }
+          "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+          "packs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "members"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "members": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "pattern": "^[^/]+/[^/]+$" }
+                },
+                "approval": { "type": "object" }
+              }
+            }
+          }
         }
       }
     },

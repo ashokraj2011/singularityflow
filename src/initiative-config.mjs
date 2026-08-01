@@ -307,6 +307,34 @@ function normalizeCheck(check, phaseId, index) {
   };
 }
 
+// An artifact pack is a named set of outputs reviewed as one deliverable — the "artifact package" a
+// governance body signs off. It is declared on the profile rather than on a phase because the packs
+// that matter most span phases: a release-readiness pack is construction plus delivery, and a
+// product-readiness pack is the gate phase plus inception. Members are written '<phase>/<output>' and
+// are resolved against the profile's own active phases, so a pack can never reference an output the
+// profile does not run.
+function normalizePack(pack, profileId, index) {
+  object(pack, `Initiative profile '${profileId}' pack ${index + 1}`);
+  const id = safeId(pack.id, `Initiative profile '${profileId}' pack ID`);
+  const members = array(pack.members ?? [], `Artifact pack '${profileId}/${id}' members`);
+  if (!members.length) throw new SingularityFlowError(`Artifact pack '${profileId}/${id}' must list at least one member output.`);
+  for (const member of members) {
+    if (typeof member !== 'string' || member.split('/').length !== 2) {
+      throw new SingularityFlowError(`Artifact pack '${profileId}/${id}' member '${member}' must be written as '<phase>/<output>'.`);
+    }
+    const [phaseId, outputId] = member.split('/');
+    safeId(phaseId, `Artifact pack '${profileId}/${id}' member phase`);
+    safeId(outputId, `Artifact pack '${profileId}/${id}' member output`);
+  }
+  unique(members, `Artifact pack '${profileId}/${id}' members`);
+  return {
+    id,
+    label: pack.label ?? id.replaceAll('-', ' '),
+    members: [...members],
+    approval: normalizedApproval(pack.approval ?? {}, `Artifact pack '${profileId}/${id}' approval`)
+  };
+}
+
 function normalizePhase(phase, id) {
   object(phase, `Initiative phase '${id}'`);
   const outputs = array(phase.outputs ?? [], `Initiative phase '${id}' outputs`).map((output, index) => normalizeOutput(output, id, index));
@@ -449,6 +477,22 @@ export function validatePortfolio(value) {
         for (const revalidatePhase of check.freshness.revalidateAt) if (!position.has(revalidatePhase)) throw new SingularityFlowError(`Checklist '${phaseId}/${check.id}' revalidates at inactive phase '${revalidatePhase}'.`);
       }
     }
+
+    profile.packs = array(profile.packs ?? [], `Initiative profile '${id}' packs`)
+      .map((pack, index) => normalizePack(pack, id, index));
+    unique(profile.packs.map((pack) => pack.id), `Initiative profile '${id}' pack IDs`);
+    for (const pack of profile.packs) {
+      for (const member of pack.members) {
+        const [phaseId, outputId] = member.split('/');
+        if (!position.has(phaseId)) throw new SingularityFlowError(`Artifact pack '${id}/${pack.id}' references inactive phase '${phaseId}'.`);
+        if (!portfolio.initiativePhases[phaseId].outputs.some((candidate) => candidate.id === outputId)) {
+          throw new SingularityFlowError(`Artifact pack '${id}/${pack.id}' references unknown output '${member}'.`);
+        }
+      }
+      for (const authority of pack.approval.authorities) {
+        if (!portfolio.approvalAuthorities[authority]) throw new SingularityFlowError(`Artifact pack '${id}/${pack.id}' references unknown approval authority '${authority}'.`);
+      }
+    }
   }
   return portfolio;
 }
@@ -505,6 +549,7 @@ export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = n
     label: profile.label,
     lifecycleMode: profile.lifecycleMode,
     phases: profile.phases.map((id, order) => ({ ...structuredClone(portfolio.initiativePhases[id]), order })),
+    packs: structuredClone(profile.packs ?? []),
     repositories: structuredClone(portfolio.repositories),
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),
     identity: { ...structuredClone(portfolio.identity), authority, configurablePerEpic: false },

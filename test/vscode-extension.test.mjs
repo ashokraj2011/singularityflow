@@ -806,7 +806,8 @@ const { EMPTY_FORM, formProblems, formCommand, workspaceFormHtml } =
   await import(source('views/workspace-form.ts'));
 
 const repository = (id, extra = {}) => ({
-  id, url: `https://example.com/${id}.git`, defaultBranch: 'main', localPath: `/src/${id}`, ...extra
+  id, url: `https://example.com/${id}.git`, defaultBranch: 'main',
+  hasStateBranch: false, stateBranch: 'state', ...extra
 });
 
 test('an empty workspace form reports every outstanding requirement at once', () => {
@@ -836,7 +837,7 @@ test('a complete form has no problems and describes the command it will run', ()
 test('two repositories with the same identifier is a problem, not a silent overwrite', () => {
   const form = {
     ...EMPTY_FORM, base: '/work', id: 'w',
-    repositories: [repository('api'), repository('api', { localPath: '/elsewhere/api' })], lead: 'api'
+    repositories: [repository('api'), repository('api', { url: 'https://elsewhere/api.git' })], lead: 'api'
   };
   assert.match(formProblems(form).join(' '), /More than one repository is called 'api'/);
 });

@@ -80,24 +80,29 @@ export class WorkspacePanel {
     this.render();
   }
 
-  /** Read what a workspace would record for each chosen checkout, from the checkout itself. */
-  private async inspect(directories: string[]): Promise<FormRepository[]> {
+  /**
+   * Read what a workspace would record for each URL, from the remote.
+   *
+   * `workspace inspect` uses ls-remote, so nothing is cloned to answer this — the clone happens once,
+   * at creation. A URL that cannot be reached is named while somebody is still typing rather than
+   * when the clone fails minutes later.
+   */
+  private async inspect(urls: string[]): Promise<FormRepository[]> {
     const added: FormRepository[] = [];
-    for (const directory of directories) {
+    for (const url of urls) {
       try {
         const client = new SingularityFlowClient({
-          location: this.location, repository: directory, onOutput: () => {}
+          location: this.location, repository: this.form.base ?? process.cwd(), onOutput: () => {}
         });
-        const defaults = await client.run<FormRepository>(['workspace', 'inspect', directory, '--json']);
+        const defaults = await client.run<FormRepository>(['workspace', 'inspect', url, '--json']);
         added.push({
           id: defaults.id,
           url: defaults.url,
           defaultBranch: defaults.defaultBranch,
-          localPath: defaults.localPath
+          hasStateBranch: Boolean(defaults.hasStateBranch),
+          stateBranch: defaults.stateBranch ?? 'state'
         });
       } catch (error) {
-        // Named rather than skipped: a folder that cannot join a workspace is worth knowing about
-        // while you are choosing, not when a clone fails later.
         void vscode.window.showWarningMessage((error as Error).message);
       }
     }
@@ -119,15 +124,17 @@ export class WorkspacePanel {
     }
 
     if (message.type === 'choose' && message.what === 'repositories') {
-      const picked = await vscode.window.showOpenDialog({
-        title: 'Add repositories to this workspace',
-        openLabel: 'Add',
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: true
+      const typed = await vscode.window.showInputBox({
+        title: 'Add repositories by clone URL',
+        prompt: 'One URL, or several separated by spaces or newlines. Nothing is cloned yet.',
+        ignoreFocusOut: true,
+        validateInput: (value) => (value.trim() ? null : 'At least one URL is required.')
       });
-      if (!picked?.length) return;
-      const added = await this.inspect(picked.map((uri) => uri.fsPath));
-      const known = new Set(this.form.repositories.map((repository) => repository.localPath));
-      const repositories = [...this.form.repositories, ...added.filter((entry) => !known.has(entry.localPath))];
+      if (!typed?.trim()) return;
+      const added = await this.inspect(typed.split(/[\s,]+/).map((url) => url.trim()).filter(Boolean));
+      if (!added.length) return;
+      const known = new Set(this.form.repositories.map((repository) => repository.url));
+      const repositories = [...this.form.repositories, ...added.filter((entry) => !known.has(entry.url))];
       // The first repository added leads until someone says otherwise; a single-repository
       // workspace should not need a choice made about it.
       this.update({ repositories, lead: this.form.lead ?? repositories[0]?.id ?? null });

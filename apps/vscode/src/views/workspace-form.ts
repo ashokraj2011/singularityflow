@@ -16,7 +16,10 @@ export interface FormRepository {
   id: string;
   url: string;
   defaultBranch: string;
-  localPath: string;
+  /** Whether this repository already carries the workflow state branch. */
+  hasStateBranch: boolean;
+  /** Which branch that was looked for, so the column can say what it checked. */
+  stateBranch: string;
 }
 
 export interface WorkspaceForm {
@@ -68,7 +71,7 @@ export function formCommand(form: WorkspaceForm): string[] {
 
 function repositoryRows(form: WorkspaceForm): string {
   if (!form.repositories.length) {
-    return `<tr><td colspan="5" class="muted">No repositories yet. Add the checkouts this workspace governs.</td></tr>`;
+    return `<tr><td colspan="6" class="muted">No repositories yet. Add the repositories this workspace governs, by URL.</td></tr>`;
   }
   return form.repositories.map((repository) => `
     <tr>
@@ -77,6 +80,9 @@ function repositoryRows(form: WorkspaceForm): string {
       <td><input type="text" value="${escape(repository.id)}" data-id="${escape(repository.id)}" size="18"></td>
       <td><code>${escape(repository.url)}</code></td>
       <td>${escape(repository.defaultBranch)}</td>
+      <td>${repository.hasStateBranch
+        ? `<span class="pill ok">${escape(repository.stateBranch)}</span>`
+        : '<span class="muted">none yet</span>'}</td>
       <td><button class="link" data-remove="${escape(repository.id)}" title="Remove">Remove</button></td>
     </tr>`).join('');
 }
@@ -92,7 +98,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   <section class="plain">
     <h2>Location</h2>
     <p>
-      <button data-choose="base">Choose folder…</button>
+      <button class="secondary" data-choose="base">Choose folder…</button>
       ${form.base ? `<code>${escape(form.base)}</code>` : '<span class="muted">Not chosen</span>'}
     </p>
   </section>
@@ -109,12 +115,13 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 
   <section>
     <h2>Repositories</h2>
-    <p class="question">Added from checkouts you already have. The origin URL and default branch are read from each one.</p>
+    <p class="question">Added by clone URL — nothing needs to be checked out first. The default branch and
+      whether the workflow state branch already exists are read from each remote.</p>
     <table>
-      <thead><tr><th>Lead</th><th>Identifier</th><th>Origin</th><th>Branch</th><th></th></tr></thead>
+      <thead><tr><th>Lead</th><th>Identifier</th><th>Origin</th><th>Branch</th><th>State</th><th></th></tr></thead>
       <tbody>${repositoryRows(form)}</tbody>
     </table>
-    <p><button data-choose="repositories">Add repositories…</button></p>
+    <p><button class="secondary" data-choose="repositories">Add repositories…</button></p>
   </section>
 
   <section>

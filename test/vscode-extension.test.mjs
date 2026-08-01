@@ -924,3 +924,123 @@ test('governed configuration is recognised, and nothing else is', () => {
   assert.equal(isGovernedConfiguration(repository, '/elsewhere/singularity/workflow.yml'), false,
     'a path outside the repository is never governed configuration');
 });
+
+const { buildApprovals } = await import(source('views/approvals-model.ts'));
+
+/** A snapshot with one artifact awaiting a decision under a named authority. */
+function awaiting({ authorities = ['product-approvers'], members = ['me@example.com'], actor = 'me@example.com', generatedBy = null, chain = null, gateErrors = [] } = {}) {
+  const shot = structuredClone(snapshot);
+  shot.identities = { git: { email: actor } };
+  shot.portfolio = { approvalAuthorities: { 'product-approvers': { members: members.map((email) => ({ email })) } } };
+  shot.initiative.state.phases.define.outputs['business-case'].sha256 = 'a'.repeat(64);
+  shot.initiative.state.phases.define.outputs['business-case'].status = 'published';
+  shot.initiative.state.phases.define.outputs['business-case'].generatedBy = generatedBy;
+  const declared = shot.initiative.state.resolution.phases.find((phase) => phase.id === 'define');
+  declared.outputs.find((output) => output.id === 'business-case').approval =
+    { mode: 'individual', authorities, minimum: 1, allowSelfApproval: true, chain };
+  shot.initiative.phaseGate = { ready: false, errors: gateErrors, warnings: [], passes: [] };
+  shot.initiative.report = { approvals: { byPhase: {} } };
+  return shot;
+}
+
+test('an approval you may sign is yours; one you may not names who is being waited on', () => {
+  // The question a reviewer opens this to ask is "is anything waiting for me". Everything else is
+  // context for that.
+  const mine = buildApprovals(awaiting());
+  assert.equal(mine.pending.length, 1);
+  assert.equal(mine.pending[0].standing, 'yours');
+  assert.equal(mine.pending[0].expected, 'define:business-case');
+  assert.equal(mine.pending[0].reason, null);
+
+  const theirs = buildApprovals(awaiting({ members: ['someone.else@example.com'] }));
+  assert.equal(theirs.pending[0].standing, 'others');
+  assert.match(theirs.pending[0].reason, /Waiting on product-approvers/);
+});
+
+test('an approval with no configured authority cannot proceed, and says so', () => {
+  // A configuration gap, not a decision anybody can take — presenting it as actionable would send
+  // a reviewer to a refusal.
+  const orphan = buildApprovals(awaiting({ authorities: [] }));
+  assert.equal(orphan.pending[0].standing, 'blocked');
+  assert.match(orphan.pending[0].reason, /No approval authority is configured/);
+});
+
+test('approving your own work is flagged before you decide, not after', () => {
+  const own = buildApprovals(awaiting({ generatedBy: 'me@example.com' }));
+  assert.equal(own.pending[0].selfApproval, true);
+  assert.equal(own.pending[0].standing, 'yours', 'still yours to sign — just not independent');
+
+  const someoneElses = buildApprovals(awaiting({ generatedBy: 'other@example.com' }));
+  assert.equal(someoneElses.pending[0].selfApproval, false);
+});
+
+test('the open chain step is read from the gate rather than recomputed', () => {
+  // The report drops the chainStep each decision recorded, so recomputing would mean guessing which
+  // body signed. The gate already composes the answer and is what actually blocks the phase.
+  const chain = [
+    { authority: 'product-approvers', label: 'Product Governance', minimum: 1 },
+    { authority: 'executive-approvers', label: 'Executive Decisioning', minimum: 1 }
+  ];
+  const shot = awaiting({
+    chain,
+    gateErrors: ['output define/business-case has waiting on Executive Decisioning (0/1) for exact output abc123']
+  });
+  const [approval] = buildApprovals(shot).pending;
+  assert.deepEqual(approval.chain.map((step) => [step.label, step.satisfied, step.open]), [
+    ['Product Governance', true, false],
+    ['Executive Decisioning', false, true]
+  ]);
+  // Alice sits on product-approvers only, and the open step is the executive one.
+  assert.equal(approval.standing, 'others');
+  assert.match(approval.reason, /Executive Decisioning \(0\/1\)/);
+});
+
+test('yours is listed before anything you cannot act on', () => {
+  const shot = awaiting({ members: ['me@example.com'] });
+  // A second artifact nobody can sign.
+  shot.initiative.state.phases.define.outputs['scope-and-outcomes'].sha256 = 'b'.repeat(64);
+  shot.initiative.state.phases.define.outputs['scope-and-outcomes'].status = 'published';
+  const declared = shot.initiative.state.resolution.phases.find((phase) => phase.id === 'define');
+  declared.outputs.find((output) => output.id === 'scope-and-outcomes').approval =
+    { mode: 'individual', authorities: [], minimum: 1, allowSelfApproval: true, chain: null };
+
+  const standings = buildApprovals(shot).pending.map((approval) => approval.standing);
+  assert.deepEqual(standings, ['yours', 'blocked']);
+});
+
+test('gate problems that are not approvals are listed separately', () => {
+  const shot = awaiting({
+    gateErrors: ['checklist define/scope-agreed is missing', 'output define/x has 0/1 approvals']
+  });
+  const approvals = buildApprovals(shot);
+  // An approval count is an approval; a missing checklist is something else to go and do.
+  assert.deepEqual(approvals.obstacles, ['checklist define/scope-agreed is missing']);
+});
+
+test('a phase whose gate is ready becomes the decision that is waiting', () => {
+  // A ready gate means every requirement is met and the phase itself is what is now outstanding.
+  // Reporting "nothing is waiting" at that moment would hide the one decision left.
+  const ready = structuredClone(snapshot);
+  ready.identities = { git: { email: 'me@example.com' } };
+  ready.portfolio = { approvalAuthorities: { 'product-approvers': { members: [{ email: 'me@example.com' }] } } };
+  ready.initiative.phaseGate = { ready: true, errors: [], warnings: [], passes: [], bundleSha256: 'c'.repeat(64) };
+  ready.initiative.report = { approvals: { byPhase: {} } };
+  const declared = ready.initiative.state.resolution.phases.find((phase) => phase.id === 'define');
+  declared.bundleApproval = { mode: 'bundle', authorities: ['product-approvers'], minimum: 1, allowSelfApproval: true, chain: null };
+
+  const [approval] = buildApprovals(ready).pending;
+  assert.equal(approval.kind, 'phase');
+  assert.equal(approval.expected, 'define:phase');
+  assert.equal(approval.standing, 'yours');
+  assert.match(approval.detail, /closes it and opens the next/);
+});
+
+test('an Epic with nothing outstanding says so rather than showing an empty page', () => {
+  const quiet = structuredClone(snapshot);
+  // Approved phase, ready gate: there is genuinely nothing to decide.
+  quiet.initiative.state.phases.define.status = 'approved';
+  quiet.initiative.phaseGate = { ready: true, errors: [], warnings: [], passes: [] };
+  quiet.initiative.report = { approvals: { byPhase: {} } };
+  assert.match(buildApprovals(quiet).empty ?? '', /Nothing is waiting/);
+  assert.match(buildApprovals(null).empty, /Reading the repository/);
+});

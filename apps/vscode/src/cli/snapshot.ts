@@ -222,6 +222,12 @@ export interface DesktopSnapshot {
   repositorySkills?: Array<{ path: string; name: string; bytes?: number }>;
   agents?: Array<{ id: string; scope: string; path: string; editable?: boolean }>;
   agentMappings?: { path: string; exists: boolean };
+  /** Who this repository will attribute a decision to. Approvals turn on it. */
+  identities?: {
+    git?: { name?: string; email?: string; login?: string | null };
+    github?: string | null;
+    assurance?: Record<string, string>;
+  };
   session?: { persona?: string; workId?: string | null } | null;
   diagnostics?: unknown;
   [key: string]: unknown;

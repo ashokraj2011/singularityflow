@@ -785,3 +785,18 @@ test('saving governed configuration asks the engine, and a broken file is report
   await settle();
   assert.equal(registered.diagnostics.get(path.join(root, 'README.md')), undefined);
 });
+
+test('the approvals panel opens under the same CSP and leads with what is yours', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openApprovals')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.approvals');
+  assert.ok(panel, 'an approvals panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.doesNotMatch(panel.webview.html, /https?:\/\//);
+  assert.match(panel.webview.html, /Approvals/);
+  // A freshly started Epic has nothing generated, so it says so rather than showing an empty page.
+  assert.match(panel.webview.html, /Nothing is waiting|Before this phase can close/);
+});

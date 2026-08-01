@@ -193,6 +193,15 @@ export interface DesktopSnapshot {
     files?: Array<{ path: string; content?: string }>;
   };
   /**
+   * The portfolio, of which only the approval authorities are read: an Epic cannot start until at
+   * least one is populated, and finding that out after asking five questions is a poor greeting.
+   */
+  portfolio?: {
+    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
+    [key: string]: unknown;
+  } | null;
+  portfolioPath?: string;
+  /**
    * The workflow definition, of which only the working lenses are read: starting an Epic has to
    * offer the lenses this repository declares, not a list this extension keeps.
    */

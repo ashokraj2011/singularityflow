@@ -558,3 +558,84 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'research.md');
 });
+
+test('an Epic can be started and its first source pinned entirely from the editor', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // Intake end to end through the extension's own commands: the two steps that had no command at
+  // all until now. A repository initialized but with no Epic is where a real user starts.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-'));
+  const root = path.join(base, 'platform');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# platform\n');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'], { cwd: root });
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  // An Epic cannot start until an approval authority has a member; that is the engine's rule and
+  // the first thing a new repository has to configure.
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  // The tree starts by saying there is nothing here, and offering the one thing to do.
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  assert.match(provider.getChildren()[0].label, /No Epic has been started/);
+  assert.equal(provider.getChildren()[0].contextValue, 'sflow.start');
+
+  // Start an Epic: title, description, goal, then profile and working lens.
+  registered.answers = ['One-tap checkout', 'Reduce checkout to a single tap', 'Lift completion to 80%'];
+  await registered.commands.get('singularityFlow.startEpic')();
+  assert.deepEqual(registered.errors, [], 'starting an Epic raised no error');
+  assert.equal(registered.inputBoxes.length, 3, 'each answer was asked for, none guessed');
+  assert.equal(registered.quickPicks.length, 2, 'profile and working lens both chosen');
+
+  const roots = provider.getChildren();
+  assert.equal(roots[0].kind, 'initiative', `expected an Epic, got ${roots[0].label}`);
+
+  // Pin the first source.
+  const brief = path.join(root, 'brief.md');
+  await writeFile(brief, '# Brief\n\n- REQ-001 A shopper can pay in one tap.\n');
+  registered.pickedFile = brief;
+  await registered.commands.get('singularityFlow.addSource')();
+  assert.deepEqual(registered.errors, []);
+
+  const sources = provider.getChildren(provider.getChildren()[0]).find((node) => node.id === 'sources');
+  assert.equal(sources.description, '1');
+  assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
+});
+
+test('starting an Epic before any approver is named says so first, and offers the file to fix', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The engine refuses this, correctly. What it must not do is refuse *after* five questions with a
+  // message naming a YAML key — the precondition is knowable before anything is asked.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-noapprover-'));
+  const root = path.join(base, 'platform');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# platform\n');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'], { cwd: root });
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  registered.selfApprovalAnswer = undefined; // the person dismissed the modal
+  await registered.commands.get('singularityFlow.startEpic')();
+
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
+  assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
+});

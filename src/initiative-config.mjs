@@ -25,7 +25,7 @@ export const JIRA_WRITE_OPERATIONS = new Set([
   'attach-artifact',
   'set-lineage-property'
 ]);
-export const STORAGE_PROVIDER_TYPES = new Set(['jira-attachment', 'artifactory', 'sharepoint', 's3', 'https-reference']);
+export const STORAGE_PROVIDER_TYPES = new Set(['jira-attachment', 'artifactory', 'sharepoint', 's3', 'https-reference', 'local']);
 export const BRANCH_COMPLETION_POLICIES = new Set(['pr', 'direct', 'either']);
 export const ID_AUTHORITIES = new Set(['jira', 'local']);
 const DEFAULT_JIRA_FIELDS = ['summary', 'description', 'parent', 'labels', 'components'];

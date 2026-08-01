@@ -251,6 +251,48 @@ export function storageAdapter(providerId, provider, runtime = {}) {
       return { exists: true, version: result.response.headers?.get?.('etag') ?? reference.version, etag: result.response.headers?.get?.('etag') ?? null };
     }
   };
+  // The only provider that needs nothing outside the repository. Every other adapter reaches a
+  // system — Jira, Artifactory, SharePoint, S3 — so a repository with none of them configured could
+  // pin a Markdown note and nothing else: a PDF brief, the most ordinary intake document there is,
+  // had no path in. Bytes are committed beside the initiative rather than cached under .git, because
+  // a pinned source has to verify on somebody else's machine; a cache that only exists locally would
+  // make `epic sources verify` pass for the author and fail for the reviewer.
+  if (type === 'local') {
+    const blobPath = (initiativeId, contentSha, filename) => path.posix.join('sources', 'blobs', contentSha, filename);
+    const resolve = async (initiativeId, relative, options = {}) => {
+      if (!runtime.root || !runtime.portfolio) {
+        throw new SingularityFlowError(`Local storage provider '${providerId}' is only available for initiative sources.`);
+      }
+      return secureInitiativePath(runtime.root, runtime.portfolio, initiativeId, relative, {
+        label: `Local source object for '${initiativeId}'`, ...options
+      });
+    };
+    return {
+      async put({ initiativeId, filename, bytes, sha256: contentSha }) {
+        const target = await resolve(initiativeId, blobPath(initiativeId, contentSha, filename), { type: 'file' });
+        if (!target.exists) {
+          await mkdir(path.dirname(target.absolute), { recursive: true });
+          await writeAtomic(target.absolute, bytes);
+        }
+        // Content addressing means re-registering the same bytes is a no-op rather than a duplicate.
+        return { objectId: target.relative, url: null, version: contentSha, etag: null, providerMetadata: { local: true } };
+      },
+      async get(reference, { maxBytes }) {
+        const target = await resolve(reference.initiativeId, blobPath(reference.initiativeId, reference.version, path.posix.basename(reference.objectId ?? '')), {
+          mustExist: true, type: 'file'
+        });
+        const bytes = await readFile(target.absolute);
+        if (maxBytes != null && bytes.length > maxBytes) {
+          throw new SingularityFlowError(`Local source object exceeds the ${maxBytes} bytes limit.`);
+        }
+        return { bytes, mimeType: reference.mimeType ?? 'application/octet-stream', version: reference.version };
+      },
+      async head(reference) {
+        const target = await resolve(reference.initiativeId, blobPath(reference.initiativeId, reference.version, path.posix.basename(reference.objectId ?? '')), { type: 'file' });
+        return { exists: target.exists, version: reference.version, etag: null };
+      }
+    };
+  }
   throw new SingularityFlowError(`Unsupported storage provider type '${type}'.`);
 }
 
@@ -297,7 +339,7 @@ export async function registerEpicSource(root, {
   const maxBytes = maxBytesFor(storage, provider);
   ensureMime(mimeType, storage, 'Epic source');
   ensureMime(mimeType, provider, `Storage provider '${selectedId}'`);
-  const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
+  const adapter = storageAdapter(selectedId, provider, { ...sourceRuntime(runtime, selectedId), root, portfolio });
   let filename, displayName = null, bytes = null, contentSha = null, size = null, remote;
   if (filePath) {
     const absolute = await realpath(path.resolve(filePath));
@@ -516,7 +558,7 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
       continue;
     }
     try {
-      const adapter = storageAdapter(record.provider, provider, sourceRuntime(runtime, record.provider));
+      const adapter = storageAdapter(record.provider, provider, { ...sourceRuntime(runtime, record.provider), root, portfolio });
       const headResult = await adapter.head(record);
       let actualSha256 = null;
       let cachePath = null;

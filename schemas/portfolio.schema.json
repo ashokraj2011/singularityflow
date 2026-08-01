@@ -203,6 +203,34 @@
           "description": { "type": "string" },
           "lifecycleMode": { "enum": ["planning-only", "full-delivery"] },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+          "templateOverrides": {
+            "type": "object",
+            "propertyNames": { "pattern": "^[^/]+/[^/]+$" },
+            "additionalProperties": { "type": "string", "minLength": 1 }
+          },
+          "phaseOverrides": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string" },
+                "worldModelViews": { "type": "array", "items": { "type": "string" } },
+                "bundleApproval": { "type": "object" },
+                "outputs": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "label": { "type": "string" },
+                      "required": { "type": "boolean" },
+                      "template": { "type": "string" },
+                      "approval": { "type": "object" }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "packs": {
             "type": "array",
             "items": {

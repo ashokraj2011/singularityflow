@@ -512,6 +512,55 @@ export function validatePortfolio(value) {
       }
     }
 
+    // Phases are a shared catalog, so two delivery types that both run `elaboration` would otherwise
+    // demand byte-identical artifacts. Work types on the story side already solve this with
+    // templateOverrides and phaseOverrides; profiles mirror that idiom so there is one concept to
+    // learn. Template overrides are keyed '<phase>/<output>' because an initiative phase produces
+    // many outputs, unlike a story phase which produces one artifact.
+    profile.templateOverrides = object(profile.templateOverrides ?? {}, `Initiative profile '${id}' templateOverrides`);
+    for (const [key, template] of Object.entries(profile.templateOverrides)) {
+      const label = `Initiative profile '${id}' templateOverrides '${key}'`;
+      if (key.split('/').length !== 2) throw new SingularityFlowError(`${label} must be keyed '<phase>/<output>'.`);
+      const [phaseId, outputId] = key.split('/');
+      if (!position.has(phaseId)) throw new SingularityFlowError(`${label} references inactive phase '${phaseId}'.`);
+      if (!portfolio.initiativePhases[phaseId].outputs.some((candidate) => candidate.id === outputId)) {
+        throw new SingularityFlowError(`${label} references unknown output '${key}'.`);
+      }
+      if (typeof template !== 'string' || !template.trim()) throw new SingularityFlowError(`${label} must be a template path.`);
+    }
+
+    profile.phaseOverrides = object(profile.phaseOverrides ?? {}, `Initiative profile '${id}' phaseOverrides`);
+    for (const [phaseId, override] of Object.entries(profile.phaseOverrides)) {
+      const label = `Initiative profile '${id}' phaseOverrides '${phaseId}'`;
+      object(override, label);
+      if (!position.has(phaseId)) throw new SingularityFlowError(`${label} references inactive phase '${phaseId}'.`);
+      if (override.bundleApproval != null) {
+        override.bundleApproval = normalizedApproval(override.bundleApproval, `${label} bundle approval`);
+        for (const authority of override.bundleApproval.authorities) {
+          if (!portfolio.approvalAuthorities[authority]) throw new SingularityFlowError(`${label} references unknown approval authority '${authority}'.`);
+        }
+      }
+      if (override.outputs != null) {
+        object(override.outputs, `${label} outputs`);
+        for (const [outputId, outputOverride] of Object.entries(override.outputs)) {
+          const outputLabel = `${label} output '${outputId}'`;
+          object(outputOverride, outputLabel);
+          if (!portfolio.initiativePhases[phaseId].outputs.some((candidate) => candidate.id === outputId)) {
+            throw new SingularityFlowError(`${outputLabel} is not an output of phase '${phaseId}'.`);
+          }
+          if (outputOverride.required != null && typeof outputOverride.required !== 'boolean') {
+            throw new SingularityFlowError(`${outputLabel}.required must be boolean.`);
+          }
+          if (outputOverride.approval != null) {
+            outputOverride.approval = normalizedApproval(outputOverride.approval, `${outputLabel} approval`);
+            for (const authority of outputOverride.approval.authorities) {
+              if (!portfolio.approvalAuthorities[authority]) throw new SingularityFlowError(`${outputLabel} references unknown approval authority '${authority}'.`);
+            }
+          }
+        }
+      }
+    }
+
     profile.packs = array(profile.packs ?? [], `Initiative profile '${id}' packs`)
       .map((pack, index) => normalizePack(pack, id, index));
     unique(profile.packs.map((pack) => pack.id), `Initiative profile '${id}' pack IDs`);
@@ -567,6 +616,35 @@ export function portfolioWorldModelViews(portfolio) {
   return [...views].sort();
 }
 
+// Layer a profile's overrides over the shared phase definition. Mirrors resolveWorkType on the story
+// side: the override supplies only the keys it changes, and nested policy objects merge rather than
+// replace, so narrowing one output's `required` does not silently drop the rest of its definition.
+function resolveProfilePhase(portfolio, profile, phaseId, order) {
+  const phase = structuredClone(portfolio.initiativePhases[phaseId]);
+  const override = structuredClone(profile.phaseOverrides?.[phaseId] ?? {});
+  const templateOverrides = profile.templateOverrides ?? {};
+  const outputs = phase.outputs.map((output) => {
+    const outputOverride = override.outputs?.[output.id] ?? {};
+    const template = templateOverrides[`${phaseId}/${output.id}`] ?? outputOverride.template ?? output.template;
+    return {
+      ...output,
+      ...outputOverride,
+      template,
+      approval: outputOverride.approval ?? output.approval
+    };
+  });
+  return {
+    ...phase,
+    ...override,
+    label: override.label ?? phase.label,
+    worldModelViews: override.worldModelViews ?? phase.worldModelViews,
+    bundleApproval: override.bundleApproval ?? phase.bundleApproval,
+    outputs,
+    checklist: phase.checklist,
+    order
+  };
+}
+
 export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = null } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
@@ -582,7 +660,7 @@ export function resolveInitiativeProfile(portfolio, profileId, { idAuthority = n
     id: profileId,
     label: profile.label,
     lifecycleMode: profile.lifecycleMode,
-    phases: profile.phases.map((id, order) => ({ ...structuredClone(portfolio.initiativePhases[id]), order })),
+    phases: profile.phases.map((id, order) => resolveProfilePhase(portfolio, profile, id, order)),
     packs: structuredClone(profile.packs ?? []),
     repositories: structuredClone(portfolio.repositories),
     approvalAuthorities: structuredClone(portfolio.approvalAuthorities),

@@ -723,6 +723,10 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
   const canonical = JSON.stringify({
     profile: resolved.id,
     phases: resolved.phases,
+    // Packs belong in the hash for the same reason phases do: a pack names the artifact set a
+    // governance body signs off on, so changing its membership changes what an approval meant.
+    // Leaving it out let a portfolio edit silently redefine an approval an Epic had already given.
+    packs: resolved.packs,
     repositories: resolved.repositories,
     approvalAuthorities: resolved.approvalAuthorities,
     identity: resolved.identity,
@@ -740,6 +744,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     resolutionSha256: createHash('sha256').update(canonical).digest('hex'),
     templates,
     phases: structuredClone(resolved.phases),
+    packs: structuredClone(resolved.packs ?? []),
     repositories: structuredClone(resolved.repositories),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities),
     identity: structuredClone(resolved.identity),

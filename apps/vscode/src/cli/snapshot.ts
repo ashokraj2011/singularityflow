@@ -11,10 +11,24 @@
  * breakdown, and no world model, and each of those is a normal state to render rather than an error.
  */
 
-export type PhaseStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale';
+/**
+ * Phase and artifact status vocabularies are the engine's, not this extension's.
+ *
+ * They are typed as a union of the known values *plus* string, deliberately. A closed union would
+ * make an engine that adds a status a compile error here, which sounds like a good alarm but is the
+ * wrong one: the extension is a reader, and a reader that refuses to render an unfamiliar state is
+ * worse than one that renders it plainly. Every lookup below falls back rather than producing
+ * `undefined`, which is what a closed Record silently did — later phases showed no icon at all
+ * because the real value is `not_started` and this file had guessed `pending`.
+ */
+export type PhaseStatus =
+  | 'not_started' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale'
+  | (string & {});
 
-/** An artifact's status inside a phase; `not_generated` is the state before a phase has run. */
-export type OutputStatus = 'not_generated' | 'generated' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale';
+/** `not_generated` before a phase runs, `published` once it has, `approved` once it is signed off. */
+export type OutputStatus =
+  | 'not_generated' | 'draft' | 'published' | 'awaiting_approval' | 'approved' | 'rejected' | 'stale'
+  | (string & {});
 
 export interface InitiativeOutput {
   id: string;

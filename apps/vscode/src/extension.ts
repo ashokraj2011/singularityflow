@@ -10,7 +10,9 @@ import path from 'node:path';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { approveWithReceipt, runGovernedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
+import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import type { TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -72,9 +74,70 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     status.show();
   }));
 
+  /**
+   * Run whatever a node offers, then refresh so every view reflects what just happened.
+   *
+   * Approvals take the receipt path; everything else is a plain command. They are different enough
+   * to be worth distinguishing here rather than papering over with one code path.
+   */
+  const runNode = async (node?: TreeNode): Promise<void> => {
+    const ran = node?.approve
+      ? await approveWithReceipt(client, node.approve, output)
+      : node?.command
+        ? await runGovernedAction(client, {
+          command: node.command,
+          title: node.confirmation?.summary ?? `singularity-flow ${node.command.join(' ')}`,
+          ...(node.confirmation ? { confirmation: node.confirmation } : {})
+        }, output)
+        : false;
+    if (ran) await store.refresh();
+  };
+
+  /** Resolve a webview's artifact id against the snapshot; ids from a page are never paths. */
+  const nodeForOutput = (outputId: string): TreeNode | null => {
+    const initiative = store.current.snapshot?.initiative;
+    const phaseId = initiative?.state.currentPhase;
+    if (!initiative || !phaseId) return null;
+    const output = initiative.state.phases[phaseId]?.outputs?.[outputId];
+    if (!output) return null;
+    return {
+      kind: 'artifact',
+      id: `artifact:${phaseId}/${output.id}`,
+      label: output.label ?? output.id,
+      path: output.path,
+      readOnly: output.status === 'approved',
+      ...(output.sha256 && output.status !== 'approved' ? {
+        approve: {
+          initiativeId: initiative.state.initiative.id,
+          subject: output.id,
+          expected: `${phaseId}:${output.id}`,
+          summary: `Approve ${output.label ?? output.id}`
+        }
+      } : {})
+    };
+  };
+
+  const onJourneyMessage = async (message: JourneyMessage): Promise<void> => {
+    if (message.type === 'run') {
+      const next = store.current.snapshot?.initiative?.nextActions?.[0];
+      if (!next) return;
+      return runNode({
+        kind: 'action', id: 'next', label: next.reason,
+        command: next.command.replace(/^singularity-flow\s+/, '').split(/\s+/)
+      });
+    }
+    const node = nodeForOutput(message.outputId);
+    if (!node) return;
+    if (message.type === 'open') return openArtifact(repository, node);
+    await runNode(node);
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('singularityFlow.refresh', () => store.refresh()),
     vscode.commands.registerCommand('singularityFlow.openArtifact', (node?: TreeNode) => openArtifact(repository, node)),
+    vscode.commands.registerCommand('singularityFlow.runAction', runNode),
+    vscode.commands.registerCommand('singularityFlow.approve', runNode),
+    vscode.commands.registerCommand('singularityFlow.openJourney', () => JourneyPanel.show(context, store, onJourneyMessage)),
     vscode.commands.registerCommand('singularityFlow.showImpact', () => showImpact(client, output))
   );
 

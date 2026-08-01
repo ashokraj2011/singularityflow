@@ -38,6 +38,17 @@ export interface TreeNode {
   readOnly?: boolean;
   /** A CLI invocation this node offers, already split into argv. */
   command?: string[];
+  /**
+   * Set when the CLI will demand an exact confirmation string for this command. Carried so the
+   * editor can ask a human to type it — never so the extension can supply it silently.
+   */
+  confirmation?: { expected: string; summary: string };
+  /**
+   * An approval, which goes through a selection receipt rather than plain flags: a receipt binds to
+   * HEAD and to the exact artifact hashes, and it is also where `initiative approve`'s working-lens
+   * answer lives, since that path has no --persona.
+   */
+  approve?: { initiativeId: string; subject: string; expected: string; summary: string };
   contextValue?: string;
 }
 
@@ -69,7 +80,25 @@ const phaseIcon = (status: PhaseStatus): string => PHASE_ICON[status] ?? 'circle
 const phaseDescription = (status: PhaseStatus): string =>
   PHASE_DESCRIPTION[status] ?? String(status).replace(/_/g, ' ');
 
-function artifactNode(output: InitiativeOutput, phaseId: string): TreeNode {
+/**
+ * The phase a pack's approval is attributed to: the latest phase any member sits in.
+ *
+ * Mirrors packTerminalPhase in initiative-evidence.mjs. It has to be the *terminal* phase, not the
+ * first: Validation & Release Readiness spans construction and delivery, and attributing it to
+ * construction would ask for the approval a phase too early and produce a confirmation string the
+ * CLI would reject.
+ */
+function packTerminalPhase(phaseOrder: string[], members: Array<{ phase: string }>): string | null {
+  let terminal: string | null = null;
+  let latest = -1;
+  for (const member of members) {
+    const position = phaseOrder.indexOf(member.phase);
+    if (position > latest) { latest = position; terminal = member.phase; }
+  }
+  return terminal;
+}
+
+function artifactNode(output: InitiativeOutput, phaseId: string, initiativeId: string): TreeNode {
   const pinned = output.status === 'approved' && Boolean(output.sha256);
   const icon = output.status === 'approved' ? 'lock-small'
     : output.sha256 ? 'file'
@@ -85,11 +114,23 @@ function artifactNode(output: InitiativeOutput, phaseId: string): TreeNode {
     icon,
     path: output.path,
     readOnly: pinned,
-    contextValue: pinned ? 'sflow.artifact.pinned' : 'sflow.artifact'
+    // Only an artifact that exists and is not already approved can be approved. Offering the action
+    // on an unwritten artifact would produce a refusal the reviewer could have been spared.
+    ...(output.sha256 && output.status !== 'approved' ? {
+      approve: {
+        initiativeId,
+        subject: output.id,
+        expected: `${phaseId}:${output.id}`,
+        summary: `Approve ${output.label ?? output.id}`
+      }
+    } : {}),
+    contextValue: pinned
+      ? 'sflow.artifact.pinned'
+      : output.sha256 ? 'sflow.artifact.approvable' : 'sflow.artifact'
   };
 }
 
-function phaseNode(phase: ReturnType<typeof phasesInOrder>[number]): TreeNode {
+function phaseNode(phase: ReturnType<typeof phasesInOrder>[number], initiativeId: string): TreeNode {
   const authored = phase.outputs.filter((output) => output.sha256).length;
   const required = phase.outputs.filter((output) => output.required).length;
   return {
@@ -105,7 +146,7 @@ function phaseNode(phase: ReturnType<typeof phasesInOrder>[number]): TreeNode {
     children: phase.outputs
       .slice()
       .sort((left, right) => (left.label ?? left.id).localeCompare(right.label ?? right.id))
-      .map((output) => artifactNode(output, phase.id))
+      .map((output) => artifactNode(output, phase.id, initiativeId))
   };
 }
 
@@ -165,6 +206,25 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
   return [initiativeNode(initiative)];
 }
 
+/** The approve command for a pack, or null when it is not yet complete. */
+function packApproval(
+  phaseOrder: string[],
+  initiativeId: string,
+  pack: { id: string; label: string; members: Array<{ phase: string; authored: boolean }> }
+): { approve: NonNullable<TreeNode['approve']> } | null {
+  if (!pack.members.length || !pack.members.every((member) => member.authored)) return null;
+  const terminal = packTerminalPhase(phaseOrder, pack.members);
+  if (!terminal) return null;
+  return {
+    approve: {
+      initiativeId,
+      subject: `pack:${pack.id}`,
+      expected: `${terminal}:pack:${pack.id}`,
+      summary: `Approve pack ${pack.label}`
+    }
+  };
+}
+
 function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
   const { state } = initiative;
   const phases = phasesInOrder(initiative);
@@ -209,7 +269,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
     label: 'Lifecycle',
     description: `${phases.filter((phase) => phase.status === 'approved').length}/${phases.length} approved`,
     icon: 'list-ordered',
-    children: phases.map(phaseNode)
+    children: phases.map((phase) => phaseNode(phase, state.initiative.id))
   });
 
   if (packs.length) {
@@ -225,9 +285,12 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         label: pack.label,
         description: `${pack.members.filter((member) => member.authored).length}/${pack.members.length}`,
         icon: 'package',
-        contextValue: 'sflow.pack',
+        // A pack is approvable once every member exists; that is what makes it a reviewable unit
+        // rather than a folder.
+        ...(packApproval(state.phaseOrder, state.initiative.id, pack) ?? {}),
+        contextValue: packApproval(state.phaseOrder, state.initiative.id, pack) ? 'sflow.pack.approvable' : 'sflow.pack',
         children: pack.members.map((member) => (member.artifact
-          ? artifactNode(member.artifact, member.phase)
+          ? artifactNode(member.artifact, member.phase, state.initiative.id)
           : {
             kind: 'message' as const,
             id: `pack-missing:${pack.id}/${member.phase}/${member.output}`,

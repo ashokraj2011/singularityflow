@@ -60,11 +60,22 @@
       },
       {
         "command": "singularityFlow.openJourney",
-        "title": "Singularity Flow: Open Journey"
+        "title": "Singularity Flow: Open Journey",
+        "icon": "$(map)"
       },
       {
         "command": "singularityFlow.openArtifact",
         "title": "Singularity Flow: Open Artifact"
+      },
+      {
+        "command": "singularityFlow.runAction",
+        "title": "Singularity Flow: Run This Action",
+        "icon": "$(play)"
+      },
+      {
+        "command": "singularityFlow.approve",
+        "title": "Singularity Flow: Approve\u2026",
+        "icon": "$(check)"
       },
       {
         "command": "singularityFlow.showImpact",
@@ -74,9 +85,45 @@
     "menus": {
       "view/title": [
         {
+          "command": "singularityFlow.openJourney",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@1"
+        },
+        {
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation"
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "singularityFlow.runAction",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.action",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.approve",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.artifact.approvable",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.approve",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.pack.approvable",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "singularityFlow.openArtifact",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.runAction",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.approve",
+          "when": "false"
         }
       ]
     }

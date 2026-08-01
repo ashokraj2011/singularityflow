@@ -14,6 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -33,7 +34,7 @@ const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs')
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [] };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [] };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -54,6 +55,7 @@ function stubVscode() {
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { Notification: 15 },
     Uri: { file: (value) => ({ fsPath: value, scheme: 'file' }) },
+    ExtensionContext: null,
     workspace: {
       workspaceFolders: null,
       getConfiguration: () => ({ get: () => '' }),
@@ -81,8 +83,36 @@ function stubVscode() {
     commands: {
       registerCommand: (id, handler) => { registered.commands.set(id, handler); return { dispose() {} }; },
       executeCommand: async () => {}
-    }
+    },
+    ViewColumn: { Active: 1 }
   };
+  // What a human "types" into the exact-confirmation box, and what they answer to the self-approval
+  // modal. Set per test: the default is a person who confirms nothing.
+  registered.typed = null;
+  registered.selfApprovalAnswer = undefined;
+  registered.pickedLens = 'first';
+  api.window.showInputBox = async (options) => {
+    registered.inputBoxes.push(options);
+    return registered.typed;
+  };
+  api.window.showQuickPick = async (items, options) => {
+    registered.quickPicks.push({ items, options });
+    return registered.pickedLens === null ? undefined : (items[0] ?? undefined);
+  };
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    return registered.selfApprovalAnswer;
+  };
+  api.window.createWebviewPanel = (id, title, column, options) => {
+    const panel = {
+      id, title, options,
+      webview: { html: '', cspSource: 'vscode-resource:', onDidReceiveMessage: () => ({ dispose() {} }) },
+      reveal() {}, onDidDispose: () => ({ dispose() {} }), dispose() {}
+    };
+    registered.panels.push(panel);
+    return panel;
+  };
+  api.Uri.joinPath = (base, ...parts) => ({ fsPath: [base.fsPath, ...parts].join('/') });
   return { api, registered };
 }
 
@@ -168,7 +198,8 @@ async function demoRepository() {
 }
 
 function context() {
-  return { subscriptions: [], extensionPath: path.join(packageRoot, 'apps', 'vscode') };
+  const root = path.join(packageRoot, 'apps', 'vscode');
+  return { subscriptions: [], extensionPath: root, extensionUri: { fsPath: root } };
 }
 
 test('the built extension activates against a real repository and populates the tree', async (t) => {
@@ -263,4 +294,140 @@ test('refusing to open an artifact path that escapes the repository', async (t) 
   await open({ path: '../../../../etc/passwd' });
   assert.equal(registered.errors.length, 1);
   assert.match(registered.errors[0], /outside the repository/);
+});
+
+/** Activate against a repo and hand back everything a test needs to drive it. */
+async function activated() {
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  return { root, api, registered, extension };
+}
+
+test('the journey panel opens with a strict CSP and no remote origins', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openJourney')();
+
+  const [panel] = registered.panels;
+  assert.ok(panel, 'a webview panel was created');
+  // Nothing outside the extension's own media directory is loadable.
+  assert.equal(panel.options.localResourceRoots.length, 1);
+  assert.match(panel.options.localResourceRoots[0].fsPath, /apps\/vscode\/media$/);
+
+  const html = panel.webview.html;
+  assert.match(html, /default-src 'none'/);
+  assert.match(html, /script-src 'nonce-[0-9a-f]{32}'/);
+  assert.match(html, /style-src 'nonce-[0-9a-f]{32}'/);
+  assert.doesNotMatch(html, /unsafe-inline|unsafe-eval/);
+  assert.doesNotMatch(html, /https?:\/\//, 'no remote origin is referenced anywhere in the page');
+  // It rendered the real Epic, not a placeholder.
+  assert.match(html, /INIT-CHECKOUT/);
+  assert.match(html, /Discover &amp; Define/, 'engine labels are HTML-escaped on the way in');
+});
+
+test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The whole point of the B5 escapes was that a GUI *can* answer these prompts, not that it may
+  // skip them. If this ever passes without a human typing the string, the guard is gone.
+  const { registered } = await activated();
+  const node = {
+    kind: 'artifact',
+    approve: {
+      initiativeId: 'INIT-CHECKOUT', subject: 'business-case',
+      expected: 'discover-define:business-case', summary: 'Approve Business case'
+    }
+  };
+
+  registered.typed = null; // the person dismissed the box
+  await registered.commands.get('singularityFlow.approve')(node);
+  assert.equal(registered.inputBoxes.length, 1, 'the confirmation was asked for');
+  assert.match(registered.inputBoxes[0].prompt, /discover-define:business-case/);
+  assert.deepEqual(registered.errors, [], 'declining to confirm is not an error');
+
+  // And the box refuses anything that is not the exact string.
+  const { validateInput } = registered.inputBoxes[0];
+  assert.match(validateInput('discover-define:business'), /Type exactly/);
+  assert.equal(validateInput('discover-define:business-case'), null);
+  assert.equal(validateInput(''), null, 'an empty box is not yet an error, just not a confirmation');
+});
+
+test('a self-approval is refused by the engine and re-asked as an explicit acknowledgement', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The engine refuses rather than silently recording a non-independent approval. The editor must
+  // surface that refusal as a decision, not paper over it by always passing the flag.
+  const { root, registered } = await activated();
+
+  // Generate and publish so there is something real to approve.
+  const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }) }
+  });
+  cli(['initiative', 'resume', 'INIT-CHECKOUT']);
+  cli(['initiative', 'phase']);
+  cli(['initiative', 'phase', 'publish', 'discover-define']);
+
+  const node = {
+    kind: 'artifact',
+    approve: {
+      initiativeId: 'INIT-CHECKOUT', subject: 'business-case',
+      expected: 'discover-define:business-case', summary: 'Approve Business case'
+    }
+  };
+  registered.typed = 'discover-define:business-case';
+  registered.selfApprovalAnswer = undefined; // the person declined the modal
+
+  await registered.commands.get('singularityFlow.approve')(node);
+  assert.ok(registered.warnings.some((message) => /not independent review/.test(message)),
+    'the self-approval was surfaced as a modal decision');
+  assert.deepEqual(registered.errors, [], 'declining is a decision, not a failure');
+
+  // Nothing was approved.
+  const status = JSON.parse(cli(['initiative', 'status', '--json']).stdout);
+  assert.notEqual(status.initiative.phases['discover-define'].outputs['business-case'].status, 'approved');
+});
+
+test('a confirmed and acknowledged approval actually lands, and the views refresh', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The mirror of the previous test: proving it refuses is only half the claim. This proves the
+  // editor can complete a governed approval, and that what it recorded is a real approval.
+  const { root, registered } = await activated();
+  const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }) }
+  });
+  cli(['initiative', 'resume', 'INIT-CHECKOUT']);
+  cli(['initiative', 'phase']);
+  cli(['initiative', 'phase', 'publish', 'discover-define']);
+
+  registered.typed = 'discover-define:business-case';
+  registered.selfApprovalAnswer = 'Approve anyway';
+  await registered.commands.get('singularityFlow.approve')({
+    kind: 'artifact',
+    approve: {
+      initiativeId: 'INIT-CHECKOUT', subject: 'business-case',
+      expected: 'discover-define:business-case', summary: 'Approve Business case'
+    }
+  });
+
+  assert.deepEqual(registered.errors, []);
+  const status = JSON.parse(cli(['initiative', 'status', '--json']).stdout);
+  assert.equal(status.initiative.phases['discover-define'].outputs['business-case'].status, 'approved');
+
+  // The record says it was not independent review, exactly as a terminal approval would.
+  const report = JSON.parse(cli(['initiative', 'report', '--format', 'json']).stdout);
+  assert.equal(report.approvals.selfApprovals.length, 1);
+
+  // And the tree reflects it without anyone asking for a refresh.
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const roots = provider.getChildren();
+  const lifecycle = provider.getChildren(roots[0]).find((node) => node.id === 'phases');
+  const discover = provider.getChildren(lifecycle)[0];
+  const businessCase = provider.getChildren(discover).find((node) => node.id.endsWith('/business-case'));
+  assert.equal(businessCase.readOnly, true, 'an approved artifact is now hash-pinned');
+  assert.equal(businessCase.command, undefined, 'and offers no second approval');
 });

@@ -4,9 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import YAML from 'yaml';
-import { exists, nowIso, posix, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
 
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
+export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const HARD_MAX_BYTES = 10 * 1024 * 1024;
@@ -15,6 +16,7 @@ const ALLOWED_TOKENS = new Set(['workId', 'workType', 'phase', 'generation']);
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function idPattern(value) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
+function copilotAgentPattern(value) { return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value); }
 function splitList(value) { return !value || value === '*' || value === '-' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean); }
 function parseBoolean(value, label) {
   if (!value || value === '-') return false;
@@ -123,6 +125,63 @@ export async function discoverAgents(root) {
     }
   }
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function validateAgentMappings(value, { agentIds = null } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} must contain a YAML object.`);
+  for (const key of Object.keys(value)) if (!['version', 'mappings'].includes(key)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} contains unknown field '${key}'.`);
+  if (value.version !== 1) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} version must be 1.`);
+  const mappings = value.mappings ?? {};
+  if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} mappings must be an object.`);
+  const known = agentIds ? new Set(agentIds) : null;
+  const normalized = {};
+  for (const [copilotAgent, promptPack] of Object.entries(mappings)) {
+    if (!copilotAgentPattern(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must use letters, numbers, '.', '_' or '-' and be at most 128 characters.`);
+    if (typeof promptPack !== 'string' || !idPattern(promptPack)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case prompt-pack ID.`);
+    if (known && !known.has(promptPack)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown prompt pack '${promptPack}'.`);
+    normalized[copilotAgent] = promptPack;
+  }
+  return { version: 1, mappings: normalized };
+}
+
+export async function loadAgentMappings(root, { agents = null } = {}) {
+  const discovered = agents ?? await discoverAgents(root);
+  const file = await secureRepositoryPath(root, AGENT_MAPPING_PATH, {
+    label: 'Copilot agent mapping file',
+    type: 'file'
+  });
+  if (!file.exists) return { path: AGENT_MAPPING_PATH, exists: false, version: 1, mappings: {} };
+  let parsed;
+  try { parsed = YAML.parse(await readFile(file.absolute, 'utf8')); }
+  catch (error) { throw new SingularityFlowError(`${AGENT_MAPPING_PATH} is invalid YAML: ${error.message}`); }
+  return { path: AGENT_MAPPING_PATH, exists: true, ...validateAgentMappings(parsed, { agentIds: discovered.map((agent) => agent.id) }) };
+}
+
+export async function resolveCopilotAgent(root, copilotAgent, { agents = null } = {}) {
+  const discovered = agents ?? await discoverAgents(root);
+  const configured = await loadAgentMappings(root, { agents: discovered });
+  const explicit = Object.hasOwn(configured.mappings, copilotAgent);
+  const promptPack = explicit ? configured.mappings[copilotAgent] : copilotAgent;
+  return {
+    copilotAgent,
+    promptPack,
+    source: explicit ? 'configured' : 'same-name',
+    mappingPath: configured.path,
+    agent: discovered.find((candidate) => candidate.id === promptPack) ?? null
+  };
+}
+
+export async function agentMappingStatus(root) {
+  const agents = await discoverAgents(root);
+  const configured = await loadAgentMappings(root, { agents });
+  const rows = Object.entries(configured.mappings).map(([copilotAgent, promptPack]) => ({
+    copilotAgent, promptPack, source: 'configured'
+  }));
+  for (const agent of agents) {
+    if (Object.hasOwn(configured.mappings, agent.id)) continue;
+    rows.push({ copilotAgent: agent.id, promptPack: agent.id, source: 'same-name fallback' });
+  }
+  return { ...configured, rows: rows.sort((left, right) => left.copilotAgent.localeCompare(right.copilotAgent)) };
 }
 
 export async function findAgent(root, id) {

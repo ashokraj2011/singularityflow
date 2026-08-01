@@ -936,9 +936,27 @@ Remote skills are pack-scoped prompt context; they do not become global slash co
 ### Automatic Copilot-agent mapping
 
 When Copilot starts a custom agent, its `subagentStart` event includes the
-selected agent name. Singularity Flow performs an exact ID match against
-repository agents in `.github/agents` and the bundled plugin agents. A matching
-local-only prompt pack, or a matching
+selected agent name. Singularity Flow first checks the committed optional
+mapping file `singularity/agent-mappings.yml`, then falls back to an exact ID
+match against repository agents in `.github/agents` and the bundled plugin
+agents:
+
+```yaml
+version: 1
+mappings:
+  enterprise-architect: architecture
+  mobile-delivery-agent: mobile-delivery
+```
+
+The YAML keys are Copilot custom-agent IDs and the values are discovered
+Singularity Flow prompt-pack IDs. Inspect the effective routing with:
+
+```bash
+singularity-flow prompt-packs mappings
+```
+
+A resolved
+local-only prompt pack, or a resolved
 locked pack whose bytes are already verified in the local cache, becomes the
 active session prompt pack automatically. The current work-item binding and
 working lens are preserved.
@@ -946,8 +964,11 @@ working lens are preserved.
 The hook never downloads content or establishes trust. An unlocked, changed, or
 uncached remote pack remains inactive and Copilot receives the exact
 `prompt-packs lock`, `lock --update`, or `sync` command to show the contributor.
-An unrelated Copilot agent has no effect. Prompt packs remain instructions and
-context—not a human identity, working lens, or approval authority.
+An unrelated Copilot agent has no effect. Invalid mappings and unknown target
+packs fail validation instead of silently selecting another pack. Prompt packs
+remain instructions and context—not a human identity, working lens, or approval
+authority. Edit the mapping YAML in the desktop **Prompt packs** page or commit
+it normally so every contributor receives the same routing.
 
 ### Use a remote artifact template
 
@@ -1014,7 +1035,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |
 | `sflow-next [--task TEXT]` | Execute exactly one next valid action; alias for `singularity-flow next`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
-| `singularity-flow prompt-packs list\|lock\|sync\|status\|refresh-output` | Trust, materialize, inspect, and refresh remote Markdown prompt packs. |
+| `singularity-flow prompt-packs list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown prompt packs. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |

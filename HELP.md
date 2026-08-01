@@ -1451,10 +1451,26 @@ Discover, trust, and activate a prompt pack:
 
 ```bash
 singularity-flow prompt-packs list
+singularity-flow prompt-packs mappings
 singularity-flow prompt-packs lock architecture
 singularity-flow prompt-packs sync architecture
 singularity-flow prompt-packs status architecture
 ```
+
+Copilot custom-agent names may be different from Flow prompt-pack IDs. Commit
+the differences in `singularity/agent-mappings.yml`; omitted agents retain the
+same-name fallback:
+
+```yaml
+version: 1
+mappings:
+  enterprise-architect: architecture
+```
+
+The mapping selects prompt context only. It never selects a working lens,
+changes the contributor identity, or grants approval authority. Unknown target
+packs are rejected during validation. The desktop **Prompt packs** page exposes
+the editable mapping YAML and its effective resolution table.
 
 First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active prompt pack while preserving the selected working lens. No authentication, cookies, or bearer tokens are sent.
 
@@ -1814,6 +1830,7 @@ singularity-flow recover [WORK-ID] [--fetch] [--apply]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run]
 singularity-flow prompt-packs list
+singularity-flow prompt-packs mappings
 singularity-flow prompt-packs lock <PACK> [--update]
 singularity-flow prompt-packs sync <PACK>
 singularity-flow prompt-packs status [PACK]

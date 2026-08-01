@@ -69,7 +69,7 @@ import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
-import { agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
+import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
   bootstrapDesktopPortfolio,
   deleteDesktopFile,
@@ -237,6 +237,7 @@ Usage:
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow prompt-packs list
+  singularity-flow prompt-packs mappings
   singularity-flow prompt-packs lock <PACK> [--update]
   singularity-flow prompt-packs sync <PACK>
   singularity-flow prompt-packs status [PACK]
@@ -936,6 +937,16 @@ async function promptPacksCommand(positionals, options) {
     if (!agents.length) return console.log('No repository or bundled prompt packs found.');
     return console.log(table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
       { key: 'id', label: 'PACK' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
+    ]));
+  }
+  if (subcommand === 'mappings') {
+    const result = await agentMappingStatus(root);
+    console.log(`Copilot agent mappings: ${result.path}${result.exists ? '' : ' (not created; same-name fallback only)'}`);
+    if (!result.rows.length) return console.log('No Copilot agents or Singularity Flow prompt packs were discovered.');
+    return console.log(table(result.rows, [
+      { key: 'copilotAgent', label: 'COPILOT AGENT' },
+      { key: 'promptPack', label: 'FLOW PROMPT PACK' },
+      { key: 'source', label: 'RESOLUTION' }
     ]));
   }
   if (subcommand === 'lock') {

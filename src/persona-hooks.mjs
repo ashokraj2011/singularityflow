@@ -4,7 +4,7 @@ import path from 'node:path';
 import { currentPhase } from './state.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { branch } from './git.mjs';
-import { agentStatus, discoverAgents } from './agents.mjs';
+import { AGENT_MAPPING_PATH, agentStatus, resolveCopilotAgent } from './agents.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { initiativeRelative } from './initiative-state.mjs';
@@ -52,7 +52,8 @@ function copilotAgentName(payload = {}) {
 }
 
 // Copilot exposes the selected custom-agent ID on subagentStart, but it does not pass that
-// selection to child shell processes. Map an exact, already-discovered Flow prompt-pack ID into
+// selection to child shell processes. Resolve an explicit agent-mappings.yml entry first, then
+// retain same-name matching as a zero-configuration fallback. Record the resolved prompt pack in
 // the machine-local session so phase composition can use the same context automatically. This
 // hook is intentionally trust-preserving: local-only packs and fully cached locked packs may be
 // activated, while first trust, changed hashes, and network synchronization remain explicit human
@@ -63,7 +64,13 @@ export async function copilotAgentStartHook(root, payload = {}) {
   const log = repositoryLogger(root, null, {
     context: { hook: 'agent-start', sessionId: payload.sessionId ?? payload.session_id ?? null, agentName }
   });
-  const agent = (await discoverAgents(root)).find((candidate) => candidate.id === agentName);
+  let resolution;
+  try { resolution = await resolveCopilotAgent(root, agentName); }
+  catch (error) {
+    log.warn('hook.agent.mapping-invalid', error.message, { agentName });
+    return { additionalContext: `Singularity Flow did not activate a prompt pack because ${error.message} Fix '${AGENT_MAPPING_PATH}', then start the Copilot agent again.` };
+  }
+  const agent = resolution.agent;
   if (!agent) {
     log.debug('hook.agent.unmapped', 'Copilot agent has no matching Flow prompt pack', { agentName });
     return {};
@@ -72,7 +79,7 @@ export async function copilotAgentStartHook(root, payload = {}) {
   if (status && ['local-only', 'ready'].includes(status.status)) {
     await setAgentSession(root, agent);
     log.info('hook.agent.mapped', 'Copilot agent mapped to Flow prompt pack', {
-      agentName, promptPack: agent.id, status: status.status, scope: agent.scope
+      agentName, promptPack: agent.id, mapping: resolution.source, status: status.status, scope: agent.scope
     });
     return {};
   }
@@ -82,10 +89,10 @@ export async function copilotAgentStartHook(root, payload = {}) {
       ? `singularity-flow prompt-packs sync ${agent.id}`
       : `singularity-flow prompt-packs lock ${agent.id}`;
   log.warn('hook.agent.trust-required', 'Copilot agent was not mapped because its prompt pack is not ready', {
-    agentName, promptPack: agent.id, status: status?.status ?? 'unknown', command
+    agentName, promptPack: agent.id, mapping: resolution.source, status: status?.status ?? 'unknown', command
   });
   return {
-    additionalContext: `Copilot agent '${agentName}' matches Singularity Flow prompt pack '${agent.id}', but Flow did not activate it because its trust state is ${status?.status ?? 'unknown'}. Ask the contributor to review and run '${command}'. Never confirm first trust, update hashes, or overwrite remote content automatically.`
+    additionalContext: `Copilot agent '${agentName}' resolves to Singularity Flow prompt pack '${agent.id}', but Flow did not activate it because its trust state is ${status?.status ?? 'unknown'}. Ask the contributor to review and run '${command}'. Never confirm first trust, update hashes, or overwrite remote content automatically.`
   };
 }
 

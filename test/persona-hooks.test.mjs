@@ -37,6 +37,34 @@ test('Copilot custom agents automatically activate an exact ready Flow prompt pa
   assert.equal(session.workId, 'HOOK-1');
 });
 
+test('Copilot custom agents use an explicit mapping without changing work item or working lens', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-mapped-hook-'));
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'agent-mappings.yml'), 'version: 1\nmappings:\n  enterprise-delivery: sflow-workflow\n');
+  await setPersonaSession(root, definition, 'User <user@example.com>', 'developer', 'HOOK-1');
+  assert.deepEqual(await copilotAgentStartHook(root, {
+    sessionId: 'copilot-agent-session', agentName: 'enterprise-delivery'
+  }), {});
+  const session = await loadSession(root);
+  assert.equal(session.agent, 'sflow-workflow');
+  assert.equal(session.persona, 'developer');
+  assert.equal(session.workId, 'HOOK-1');
+});
+
+test('an invalid explicit Copilot agent mapping reports the configuration error and changes no session state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-invalid-map-'));
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'agent-mappings.yml'), 'version: 1\nmappings:\n  enterprise-delivery: missing-pack\n');
+  await setPersonaSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1');
+  const result = await copilotAgentStartHook(root, { agentName: 'enterprise-delivery' });
+  assert.match(result.additionalContext, /maps to unknown prompt pack 'missing-pack'/);
+  assert.match(result.additionalContext, /singularity\/agent-mappings\.yml/);
+  const session = await loadSession(root);
+  assert.equal(session.agent, undefined);
+  assert.equal(session.persona, 'architect');
+  assert.equal(session.workId, 'HOOK-1');
+});
+
 test('Copilot agents with untrusted remote dependencies are not activated automatically', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-trust-'));
   await mkdir(path.join(root, '.github', 'agents'), { recursive: true });

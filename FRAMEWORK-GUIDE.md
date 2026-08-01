@@ -779,12 +779,18 @@ are cached under `.git/singularity-flow/`. Remote content cannot silently change
 an active generation. Prompt-pack skills are scoped context resources, not
 global slash commands or human identities.
 
-Copilot custom agents map automatically when their exact agent name matches a
-discovered prompt-pack ID. The plugin's nonblocking `subagentStart` hook records
-that pack in the machine-local session while preserving the work item and
-working lens. Local-only packs and already locked, verified cache entries can be
-activated automatically. First trust, hash updates, and network synchronization
-remain explicit contributor actions; unmatched agents are ignored.
+Copilot custom agents map automatically through
+`singularity/agent-mappings.yml`. Each key is the Copilot custom-agent ID and
+each value is a discovered Flow prompt-pack ID. If no explicit entry exists,
+the exact same-name match remains the fallback. Run
+`singularity-flow prompt-packs mappings` to inspect the effective table.
+
+The plugin's nonblocking `subagentStart` hook records the resolved pack in the
+machine-local session while preserving the work item and working lens.
+Local-only packs and already locked, verified cache entries can be activated
+automatically. First trust, hash updates, and network synchronization remain
+explicit contributor actions; unmatched agents are ignored. Mapping never
+changes human identity or approval authority.
 
 ## 25. Security and integrity
 

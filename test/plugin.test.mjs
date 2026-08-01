@@ -123,6 +123,9 @@ test('Epic command parity skills cover navigation, review decisions, checks, dri
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, pattern, `${name} must route to its real CLI command`);
   }
+  const promptPacks = await readFile(path.join(pluginRoot, 'skills', 'sflow-prompt-packs', 'SKILL.md'), 'utf8');
+  assert.match(promptPacks, /singularity-flow prompt-packs mappings/);
+  assert.match(promptPacks, /singularity\/agent-mappings\.yml/);
 });
 
 test('Epic Story decisions use exact-packet Copilot selection receipts', async () => {

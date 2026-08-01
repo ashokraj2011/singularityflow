@@ -32,6 +32,7 @@ const INITIALIZATION_MAPPINGS = [
   ['workflow.yml', WORKFLOW_PATH],
   ['portfolio.yml', 'singularity/portfolio.yml'],
   ['capabilities.yml', 'singularity/capabilities.yml'],
+  ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['artifacts', 'singularity/templates'],
   ['personas', 'singularity/personas'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],

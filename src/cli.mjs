@@ -153,7 +153,8 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
   listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRepositoryDefaults, workspaceStatus
+  stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteDefaults, workspaceRepositoryDefaults,
+  workspaceStatus
 } from './workspace.mjs';
 import {
   activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
@@ -380,7 +381,7 @@ Usage:
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
   singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
     --repository ID=URL [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
-  singularity-flow workspace inspect <DIRECTORY> [--json]
+  singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
@@ -3330,10 +3331,18 @@ async function workspaceCommand(positionals, options) {
   if (subcommand === 'inspect') {
     // What a workspace would record for this checkout, read from the checkout. Lets any surface
     // offer "add the repository I already have" without reimplementing how those values are found.
-    const directory = requirePositional(positionals, 2, 'repository directory');
-    const defaults = await workspaceRepositoryDefaults(directory);
+    // A URL is inspected over the network; a directory is read from the checkout. Both answer the
+    // same question — what a workspace would record for this repository.
+    const target = requirePositional(positionals, 2, 'repository URL or directory');
+    const remote = /^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(target);
+    const defaults = remote
+      ? await workspaceRemoteDefaults(target, { stateBranch: optionString(options, 'state-branch', 'state') })
+      : await workspaceRepositoryDefaults(target);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(defaults, null, 2));
-    console.log(`${defaults.id}\n  path:   ${defaults.localPath}\n  origin: ${defaults.url}\n  branch: ${defaults.defaultBranch}`);
+    console.log(`${defaults.id}`);
+    if (defaults.localPath) console.log(`  path:   ${defaults.localPath}`);
+    console.log(`  origin: ${defaults.url}\n  branch: ${defaults.defaultBranch}`);
+    if (remote) console.log(`  ${defaults.stateBranch}: ${defaults.hasStateBranch ? 'present' : 'not created yet'}`);
     return;
   }
   if (subcommand === 'update') {

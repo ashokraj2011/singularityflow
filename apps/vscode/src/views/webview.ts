@@ -62,9 +62,9 @@ export const STYLE = `
     max-width: 62rem;
   }
 
-  h1 { font-size: 1.45rem; font-weight: 600; margin: 1.5rem 0 .25rem; letter-spacing: -.01em; }
+  h1 { font-size: 1.45rem; font-weight: 600; margin: 1.25rem 0 .2rem; letter-spacing: -.01em; }
   h2 { font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em;
-       color: var(--sf-dim); margin: 2.25rem 0 .75rem; }
+       color: var(--sf-dim); margin: 1.6rem 0 .5rem; }
   h3 { font-size: .95rem; font-weight: 600; margin: 1rem 0 .35rem; }
   p { margin: .4rem 0; }
   .meta { color: var(--sf-dim); margin: 0 0 .25rem; }
@@ -72,7 +72,7 @@ export const STYLE = `
   .question { color: var(--sf-dim); margin: -.35rem 0 .75rem; }
   .ok-text { color: var(--sf-ok); }
 
-  section { border-top: var(--sf-border); padding-top: .25rem; }
+  section { border-top: var(--sf-border); padding-top: .1rem; padding-bottom: .35rem; }
   header, section.next, section.plain { border: 0; }
 
   /* Cards carry a single decision each, so the eye can move between them without re-reading. */

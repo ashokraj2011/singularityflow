@@ -366,6 +366,49 @@ export async function workspaceRepositoryDefaults(repository) {
   };
 }
 
+/**
+ * Everything a workspace needs to know about a repository it does not have yet.
+ *
+ * Asking for a checkout first is backwards: the repositories a team governs are named by URL long
+ * before anyone clones them, and requiring a local copy makes the first step of setting up a
+ * workspace "go and clone three things by hand". `git ls-remote` answers both questions the form
+ * needs — what the default branch is, and whether the workflow state branch already exists — over
+ * the network without fetching a single object.
+ *
+ * The state branch matters at this moment because it decides whether this repository is joining a
+ * workspace that already records governance history, or starting one.
+ */
+export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {}) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A repository URL is required.');
+  if (!/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(remote) && !remote.startsWith('/')) {
+    throw new SingularityFlowError(`'${remote}' is not a clone URL. Use https://, git@, ssh:// or an absolute path.`);
+  }
+
+  const head = run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true });
+  if (head.status !== 0) {
+    throw new SingularityFlowError(`Cannot reach '${remote}': ${(head.stderr || head.stdout).trim().split('\n')[0]}`);
+  }
+  const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(head.stdout);
+  const defaultBranch = symref?.[1] ?? 'main';
+
+  const state = run('git', ['ls-remote', '--heads', remote, stateBranch], { allowFailure: true });
+  const hasStateBranch = state.status === 0 && Boolean(state.stdout.trim());
+
+  // The last path segment, minus a .git suffix, made safe the same way a local folder name is.
+  const id = remote
+    .replace(/\.git$/, '')
+    .replace(/\/+$/, '')
+    .split(/[/:]/)
+    .pop()
+    ?.normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'repository';
+
+  return { id, url: remote, defaultBranch, hasStateBranch, stateBranch, localPath: null, required: true };
+}
+
 export function previewWorkspaceConfiguration({
   baseDirectory, id, name, repositories, leadRepository
 }) {

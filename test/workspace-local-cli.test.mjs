@@ -134,3 +134,46 @@ test('a folder that cannot join a workspace says so while you are choosing', asy
   assert.notEqual(inner.status, 0);
   assert.match(inner.stderr, /repository root instead of a nested folder|not a safe Git repository/);
 });
+
+test('a repository can be inspected by URL, without cloning it first', async () => {
+  // Requiring a checkout first is backwards: the repositories a team governs are named by URL long
+  // before anyone clones them. ls-remote answers both questions the form needs over the network.
+  const { source, env } = await environment();
+  const inspected = JSON.parse(cli(['workspace', 'inspect', `file://${source}`, '--json'], env).stdout);
+  assert.equal(inspected.url, `file://${source}`);
+  assert.equal(inspected.defaultBranch, 'main', 'read from the remote HEAD, not assumed');
+  assert.equal(inspected.localPath, null, 'nothing was cloned to answer this');
+  assert.equal(inspected.hasStateBranch, false, 'this remote has no workflow state branch yet');
+  assert.equal(inspected.id, 'source', 'the identifier comes from the last path segment');
+});
+
+test('inspection reports whether the workflow state branch already exists', async () => {
+  // Whether a repository is joining a workspace that already records governance history, or
+  // starting one, is decided at this moment and is worth showing while somebody is adding it.
+  const { base, source, env } = await environment();
+  const work = path.join(base, 'seed-state');
+  run('git', ['clone', '-q', source, work], { cwd: base });
+  run('git', ['checkout', '-q', '--orphan', 'state'], { cwd: work });
+  spawnSync('git', ['rm', '-rqf', '.'], { cwd: work });
+  await writeFile(path.join(work, 'README.md'), '# ledger\n');
+  run('git', ['add', '-A'], { cwd: work });
+  run('git', ['commit', '-qm', 'state'], { cwd: work });
+  run('git', ['push', '-q', source, 'state'], { cwd: work });
+
+  const inspected = JSON.parse(cli(['workspace', 'inspect', `file://${source}`, '--json'], env).stdout);
+  assert.equal(inspected.hasStateBranch, true);
+  assert.equal(inspected.stateBranch, 'state');
+});
+
+test('a URL that cannot be reached is refused while it is being typed', async () => {
+  const { base, env } = await environment();
+  const missing = cli(['workspace', 'inspect', `file://${path.join(base, 'no-such-repo.git')}`, '--json'],
+    env, { allowFailure: true });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /Cannot reach/);
+
+  // A bare word is not a URL, so it is read as a path — and refused as one.
+  const nonsense = cli(['workspace', 'inspect', 'not-a-url', '--json'], env, { allowFailure: true });
+  assert.notEqual(nonsense.status, 0);
+  assert.match(nonsense.stderr, /is not available|not a safe Git repository|is not a clone URL/);
+});

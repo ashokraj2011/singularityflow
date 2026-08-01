@@ -17,6 +17,7 @@ import {
   createInitiative, initiativeDir, loadInitiative, saveInitiative
 } from '../src/initiative-state.mjs';
 import { deriveInitiativeReport } from '../src/initiative-report.mjs';
+import { initiativeImpact } from '../src/initiative-impact.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -456,4 +457,27 @@ test('breakdown review can probe participating repositories without materializin
   assert.equal(review.epics, 1);
   assert.equal(review.repositories.api.reachable, true);
   assert.equal(review.repositories.mobile.reachable, true);
+});
+
+test('computed impact reads a real Epic from disk, including its cross-repository order', async () => {
+  // End to end against the same fixture the rest of this file uses: two repositories, and a mobile
+  // Story that depends on an API Story. Nothing here asserts what the impact map claims — the point
+  // is that the answer is derived from the plan before any map is consulted.
+  const { root } = await repository();
+  const impact = await initiativeImpact(root, 'INIT-MULTI');
+
+  assert.equal(impact.initiativeId, 'INIT-MULTI');
+  assert.equal(impact.storyCount, 2);
+  assert.deepEqual(impact.repositories.map((entry) => entry.id), ['api', 'mobile']);
+
+  assert.equal(impact.crossRepository.length, 1);
+  assert.equal(impact.crossRepository[0].from, 'api', 'the API Story is depended on, so it lands first');
+  assert.equal(impact.crossRepository[0].to, 'mobile');
+
+  // This Epic has published no impact map, which is reported as nothing to compare rather than
+  // as agreement — the distinction the old empty-map shortcut collapsed.
+  assert.equal(impact.reconciliation.compared, false);
+  assert.deepEqual(impact.reconciliation.unclaimed, ['api', 'mobile']);
+  // initiative-lite declares no impact-analysis output, so there is no cone to report.
+  assert.equal(impact.invalidates, undefined);
 });

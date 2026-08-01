@@ -80,6 +80,11 @@
         "icon": "$(git-pull-request)"
       },
       {
+        "command": "singularityFlow.openImpact",
+        "title": "Singularity Flow: Planning and Impact",
+        "icon": "$(graph)"
+      },
+      {
         "command": "singularityFlow.addSource",
         "title": "Singularity Flow: Pin a Source",
         "icon": "$(new-file)"
@@ -141,19 +146,24 @@
           "group": "navigation@2"
         },
         {
-          "command": "singularityFlow.openJourney",
+          "command": "singularityFlow.openImpact",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@3"
         },
         {
-          "command": "singularityFlow.openReconciliation",
+          "command": "singularityFlow.openJourney",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@4"
         },
         {
-          "command": "singularityFlow.refresh",
+          "command": "singularityFlow.openReconciliation",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@5"
+        },
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@6"
         }
       ],
       "view/item/context": [

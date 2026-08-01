@@ -39,7 +39,7 @@ export function renderDirectSkill(source, sourceName) {
     throw new SingularityFlowError(`Skill ${sourceName} does not contain valid YAML frontmatter.`);
   }
   const insertAt = frontmatterEnd + 4;
-  return `${directCommands.slice(0, insertAt)}\n${MANAGED_MARKER}\n${directCommands.slice(insertAt).replace(/^\n+/, '')}`;
+  return `${directCommands.slice(0, insertAt)}\n${MANAGED_MARKER}${directCommands.slice(insertAt)}`;
 }
 
 function sourceSkills(sourceRoot) {

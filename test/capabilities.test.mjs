@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  activeCapabilityLeases, capabilityPath, foldCapabilityPolicy, resolveCapabilityPolicy,
-  resolveEffectiveCapabilityPolicy, validateCapabilities
+  activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities
 } from '../src/capabilities.mjs';
 
 test('capability policy fold only permits equal or stricter child constraints', () => {
@@ -128,4 +127,106 @@ test('break-glass leases relax policy outside the monotone fold and expire or re
   }, grant], {
     at: new Date('2029-01-01T00:00:00.000Z')
   }).length, 0);
+});
+
+test('a capability that names a repository is the leaf that ships; one that does not is a grouping', () => {
+  // Inferred from the presence of a repository rather than a separate flag, so the two can never
+  // disagree about which a capability is.
+  const definition = validateCapabilities({
+    version: 1,
+    capabilities: {
+      commerce: { kind: 'portfolio', parent: null },
+      payments: { kind: 'product', parent: 'commerce' },
+      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' }
+    }
+  }, { repositories: { api: {} } });
+
+  const rows = flattenCapabilityTree(capabilityTree(definition));
+  assert.deepEqual(rows.map((row) => [row.id, row.delivery]), [
+    ['commerce', false], ['payments', false], ['payments-api', true]
+  ]);
+});
+
+test('a capability cannot both ship and contain', () => {
+  // A grouping delegates; a leaf delivers. Something claiming to do both makes "what does this ship"
+  // unanswerable, which is the question the tree exists to answer.
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: {
+      payments: { kind: 'product', parent: null, repository: 'api' },
+      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' }
+    }
+  }, { repositories: { api: {} } }), /delivers from a repository, so it cannot also contain/);
+});
+
+test('a delivery capability must name a repository the portfolio declares', () => {
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { ghost: { kind: 'service', parent: null, repository: 'not-configured' } }
+  }, { repositories: { api: {} } }), /which the portfolio does not declare/);
+
+  // Without a portfolio it validates, so a map can be drafted before the repositories exist.
+  assert.ok(validateCapabilities({
+    version: 1,
+    capabilities: { ghost: { kind: 'service', parent: null, repository: 'not-configured' } }
+  }));
+});
+
+test('Jira and teams belong to the capability, not to the workspace', () => {
+  // A workspace is a local convenience — a directory of checkouts. Which board tracks a capability
+  // and who runs it are true regardless of who has cloned what.
+  const definition = validateCapabilities({
+    version: 1,
+    capabilities: {
+      payments: {
+        kind: 'product', parent: null,
+        jira: { projectKey: 'PAY', board: 'Payments board' },
+        teams: ['Payments squad', 'Platform']
+      }
+    }
+  });
+  const [payments] = capabilityTree(definition);
+  assert.deepEqual(payments.jira, { projectKey: 'PAY', board: 'Payments board' });
+  assert.deepEqual(payments.teams, ['Payments squad', 'Platform']);
+
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'product', parent: null, jira: { projectKey: 42 } } }
+  }), /jira\.projectKey must be text/);
+
+  // Team lists are trimmed and de-duplicated rather than rejected, which is the convention `owns`
+  // already follows: a repeated name is a typo, not a decision worth failing a build over.
+  const [tidied] = capabilityTree(validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'product', parent: null, teams: [' Platform ', 'Platform'] } }
+  }));
+  assert.deepEqual(tidied.teams, ['Platform']);
+
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'product', parent: null, teams: ['ok', ''] } }
+  }), /must be an array of non-empty strings/);
+});
+
+test('what a capability ships, and which capability ships a repository', () => {
+  const definition = validateCapabilities({
+    version: 1,
+    capabilities: {
+      commerce: { kind: 'portfolio', parent: null },
+      payments: { kind: 'product', parent: 'commerce' },
+      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' },
+      storefront: { kind: 'product', parent: 'commerce' },
+      'storefront-web': { kind: 'service', parent: 'storefront', repository: 'web' }
+    }
+  }, { repositories: { api: {}, web: {} } });
+
+  assert.deepEqual(capabilityDeliveries(definition, 'commerce').map((entry) => entry.repository), ['api', 'web']);
+  assert.deepEqual(capabilityDeliveries(definition, 'payments').map((entry) => entry.repository), ['api']);
+  assert.deepEqual(capabilityDeliveries(definition, 'payments-api').map((entry) => entry.repository), ['api'],
+    'a leaf ships itself');
+  assert.throws(() => capabilityDeliveries(definition, 'nowhere'), /Unknown capability/);
+
+  assert.deepEqual(capabilityForRepository(definition, 'web'),
+    { id: 'storefront-web', name: 'storefront-web', ancestors: ['commerce', 'storefront'] });
+  assert.equal(capabilityForRepository(definition, 'unclaimed'), null);
 });

@@ -75,12 +75,12 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   execute(root, ['initiative', 'evidence', 'add', 'business-case-approved', '--assurance', 'human-approved', '--path', 'approval.md']);
   execute(root, ['initiative', 'evidence', 'add', 'scope-agreed', '--assurance', 'human-approved', '--path', 'approval.md']);
 
-  const blocked = execute(root, ['initiative', 'approve', 'phase'], { allowFailure: true, confirm: 'define:phase' });
+  const blocked = execute(root, ['initiative', 'approve', 'phase', '--acknowledge-self-approval'], { allowFailure: true, confirm: 'define:phase' });
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr, /business-case has 0\/1 approvals/);
-  const outputApproval = execute(root, ['initiative', 'approve', 'business-case'], { confirm: 'define:business-case' });
+  const outputApproval = execute(root, ['initiative', 'approve', 'business-case', '--acknowledge-self-approval'], { confirm: 'define:business-case' });
   assert.match(`${outputApproval.stdout}\n${outputApproval.stderr}`, /self-approval/);
-  const phaseApproval = execute(root, ['initiative', 'approve', 'phase'], { confirm: 'define:phase' });
+  const phaseApproval = execute(root, ['initiative', 'approve', 'phase', '--acknowledge-self-approval'], { confirm: 'define:phase' });
   assert.match(phaseApproval.stdout, /Current phase: plan/);
 
   const status = JSON.parse(execute(root, ['initiative', 'status', '--json']).stdout);
@@ -113,7 +113,10 @@ test('initiative Copilot selection receipts preserve explicit profile and person
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
 });
 
-test('Epic Planning approval is reserved for exact business review in the desktop UI', async () => {
+test('Epic Planning approval is an explicit business review, available outside the desktop', async () => {
+  // Planning approval used to throw "must be reviewed and approved in the Singularity Flow desktop
+  // UI", so the plan could not be approved without Electron at all. It is available here now, but the
+  // guard the desktop applied travels with it: approving your own plan requires saying so.
   const root = await repository();
   execute(root, ['initiative', 'start', 'EPIC-UI', '--title', 'UI approval boundary'], {
     profile: 'epic-planning'
@@ -133,14 +136,14 @@ test('Epic Planning approval is reserved for exact business review in the deskto
     confirm: 'epic-planning:phase'
   });
   assert.notEqual(direct.status, 0);
-  assert.match(direct.stderr, /must be reviewed and approved in the Singularity Flow desktop UI/);
+  assert.doesNotMatch(direct.stderr, /desktop UI/, 'planning approval is no longer desktop-only');
 
   const alias = execute(root, ['epic', 'planning', 'approve', '--epic', 'EPIC-UI'], {
     allowFailure: true,
     confirm: 'epic-planning:phase'
   });
   assert.notEqual(alias.status, 0);
-  assert.match(alias.stderr, /must be reviewed and approved in the Singularity Flow desktop UI/);
+  assert.doesNotMatch(alias.stderr, /desktop UI/);
 });
 
 test('initiative phase generation enforces repository world-model composition for Copilot', async () => {

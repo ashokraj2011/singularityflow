@@ -12,7 +12,7 @@ import {
 } from './initiative-graph.mjs';
 export { initiativeMilestoneReadiness } from './initiative-milestones.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, snapshot, writeJson, writeText
 } from './util.mjs';
 
 function safeId(value, label) {
@@ -512,13 +512,17 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
     path.posix.join(path.posix.dirname(indexOutput.path), specification.path),
     { label: `Story specification '${story.planId}'`, mustExist: true, type: 'file' }
   );
+  // Phase output paths are relative to the initiative directory; the Story specification was already
+  // resolved to a repository-relative path above. Resolving the first four from the repository root
+  // is why Story context has never materialized — every one of them reported "does not exist".
   const sources = [
-    { id: 'requirements', output: requirements.outputs['requirements-specification'] },
-    { id: 'traceability', output: requirements.outputs['requirements-traceability'] },
-    { id: 'impact-analysis', output: requirements.outputs['impact-analysis'] },
-    { id: 'parent-specification', output: planning.outputs['parent-specification'] },
+    { id: 'requirements', initiativeRelative: true, output: requirements.outputs['requirements-specification'] },
+    { id: 'traceability', initiativeRelative: true, output: requirements.outputs['requirements-traceability'] },
+    { id: 'impact-analysis', initiativeRelative: true, output: requirements.outputs['impact-analysis'] },
+    { id: 'parent-specification', initiativeRelative: true, output: planning.outputs['parent-specification'] },
     {
       id: 'story-specification',
+      initiativeRelative: false,
       output: {
         path: specificationFile.relative,
         sha256: specification.sha256,
@@ -529,11 +533,17 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
   const contextRoot = path.posix.join('singularity', 'story-context', story.workId);
   const records = [];
   for (const item of sources) {
-    const source = await secureRepositoryPath(root, item.output.path, {
-      label: `Governed Story context '${item.id}'`,
-      mustExist: true,
-      type: 'file'
-    });
+    const source = item.initiativeRelative
+      ? await secureInitiativePath(root, portfolio, initiative.initiative.id, item.output.path, {
+        label: `Governed Story context '${item.id}'`,
+        mustExist: true,
+        type: 'file'
+      })
+      : await secureRepositoryPath(root, item.output.path, {
+        label: `Governed Story context '${item.id}'`,
+        mustExist: true,
+        type: 'file'
+      });
     const current = await snapshot(source.absolute);
     if (current.sha256 !== item.output.sha256) {
       throw new SingularityFlowError(`Governed Story context '${item.id}' changed after approval.`);

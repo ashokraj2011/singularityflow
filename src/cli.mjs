@@ -112,6 +112,7 @@ import {
   readInitiativeRecords, registerInitiativeEvidence
 } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
+import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import {
   initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, sameRepositoryRemote,
   syncInitiativeRepositories
@@ -355,6 +356,7 @@ Usage:
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]
   singularity-flow epic merge-plan [--epic EPIC-KEY]
+  singularity-flow epic impact [--epic EPIC-KEY] [--json] [--markdown]
   singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json] [--confirm EPIC-KEY]
   singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic review-choice begin approve|reject <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
@@ -4022,6 +4024,52 @@ async function epicCommand(positionals, options) {
     console.log(`Lineage: ${initiativeId} → ${result.story.planId ?? result.story.id} → ${result.story.jiraKey ?? 'not created'} → ${result.submittedBranch}`);
     console.log(`Exact source commit: ${result.packet.sourceCommit}`);
     process.stdout.write(`\n${result.review.markdown}`);
+    return;
+  }
+  if (subcommand === 'impact') {
+    const root = repoRoot();
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const impact = await initiativeImpact(root, initiativeId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(impact, null, 2));
+    if (optionBoolean(options, 'markdown')) return console.log(impactDocument(impact));
+
+    console.log(`Computed impact for ${impact.initiativeId} — ${impact.storyCount} ${impact.storyCount === 1 ? 'Story' : 'Stories'} across ${impact.repositories.length} ${impact.repositories.length === 1 ? 'repository' : 'repositories'}\n`);
+    console.log(table(impact.repositories.map((repository) => ({
+      repository: `${repository.id}${repository.lead ? ' (lead)' : ''}`,
+      stories: String(repository.storyCount),
+      blocking: String(repository.blockingStoryCount),
+      model: repository.worldModel.present ? (repository.worldModel.views.join(', ') || 'present') : 'none',
+      claimed: repository.claimed ? 'yes' : 'no'
+    })), [
+      { key: 'repository', label: 'REPOSITORY' }, { key: 'stories', label: 'STORIES' },
+      { key: 'blocking', label: 'BLOCKING' }, { key: 'model', label: 'WORLD MODEL' },
+      { key: 'claimed', label: 'IN MAP' }
+    ]));
+
+    if (impact.crossRepository.length) {
+      console.log('\nCross-repository dependencies:');
+      for (const edge of impact.crossRepository) {
+        console.log(`  ${edge.from} must land before ${edge.to} (${edge.via.map((via) => `${via.story} → ${via.dependsOn}`).join(', ')})`);
+      }
+    } else {
+      console.log('\nNo Story depends on a Story in another repository.');
+    }
+
+    const findings = impactFindings(impact);
+    if (!impact.reconciliation.compared) {
+      console.log('\nNo impact map has been published yet, so there is nothing to reconcile against.');
+    } else if (!findings.length) {
+      console.log('\nThe published impact map agrees with the Story plan.');
+    } else {
+      console.log('\nThe published impact map disagrees with the Story plan:');
+      for (const finding of findings) console.log(`  - ${finding}`);
+      if (impact.invalidates?.length) {
+        console.log(`\nCorrecting it would invalidate ${impact.invalidates.length} downstream ${impact.invalidates.length === 1 ? 'node' : 'nodes'}: ${impact.invalidates.join(', ')}`);
+      }
+    }
+    if (impact.reconciliation.missingWorldModel.length) {
+      console.log(`\nNo committed world model: ${impact.reconciliation.missingWorldModel.join(', ')}`);
+    }
     return;
   }
   if (subcommand === 'merge-plan') {

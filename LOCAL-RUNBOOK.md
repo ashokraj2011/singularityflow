@@ -2,6 +2,12 @@
 
 The complete lifecycle without a Jira connection: workspace, initialization, repository grounding, manual Story intake, the phase loop, and completion.
 
+Examples below retain the established `/sflow-*` spelling where historical
+screens or notes use it. After `singularity-flow plugin install`, use the shorter
+direct personal aliases instead: `/sf-init`, `/sf-session`, `/sf-phase`,
+`/sf-submit`, and `/sf-approve`. Both spellings execute the same complete skill
+contract; `/sf-*` does not require the `singularity-flow` plugin namespace.
+
 [HOW-TO.md](HOW-TO.md) is the general walkthrough and assumes a Jira-backed intake in places. This document covers the Git-only path end to end, plus two things documented nowhere else: which commands require an interactive terminal, and why `finalize` does not apply to a standalone work item.
 
 ---

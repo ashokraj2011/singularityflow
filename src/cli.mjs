@@ -284,7 +284,7 @@ Usage:
   singularity-flow jira priority <WORK-ID> --to NAME|ID --confirm <WORK-ID> [--json]
   singularity-flow jira sprint <WORK-ID> --to SPRINT-ID --confirm <WORK-ID> [--json]
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
-  singularity-flow plugin install
+  singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
   singularity-flow plugin uninstall | list | path
   singularity-flow desktop snapshot [WORK-ID] --json
   singularity-flow desktop validate --json

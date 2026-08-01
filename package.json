@@ -1,7 +1,7 @@
 {
   "name": "singularity-flow",
   "version": "0.9.0",
-  "description": "Singularity Flow: collision-safe sflow-* Copilot skills with YAML-configured work profiles, working lenses, human approval authorities, templates, Git state transfer, and deterministic governance.",
+  "description": "Singularity Flow: direct sf-* Copilot skills with YAML-configured work profiles, working lenses, human approval authorities, templates, Git state transfer, and deterministic governance.",
   "type": "module",
   "bin": {
     "singularity-flow": "bin/singularity-flow.mjs",

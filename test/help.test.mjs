@@ -33,6 +33,18 @@ test('help loader returns the full manual or one focused topic', async () => {
   await assert.rejects(() => loadHelpDocument('does-not-exist'), /Available topics:/);
 });
 
+test('user documentation advertises current Copilot skill discovery and qualified invocation syntax', async () => {
+  const documents = await Promise.all(
+    ['README.md', 'HELP.md', 'HOW-TO.md'].map(async (file) => [file, await readFile(path.join(root, file), 'utf8')])
+  );
+  for (const [file, content] of documents) {
+    assert.doesNotMatch(content, /copilot skill list/, `${file} must use the current Copilot resource-list command`);
+    assert.doesNotMatch(content, /\/singularity-flow:sflow-/, `${file} must not advertise the obsolete colon-qualified syntax`);
+  }
+  assert.match(documents.find(([file]) => file === 'README.md')[1], /\/singularity-flow\/sflow-/);
+  assert.match(documents.find(([file]) => file === 'README.md')[1], /copilot plugins list --kind skill/);
+});
+
 test('desktop imports the canonical help manual and exposes searchable help navigation', async () => {
   const app = await readFile(path.join(root, 'apps/desktop/src/App.jsx'), 'utf8');
   const desktopPackage = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'));

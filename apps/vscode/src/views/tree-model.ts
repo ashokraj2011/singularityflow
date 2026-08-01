@@ -224,10 +224,75 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }, configuration];
+    }, worldModelNode(snapshot), configuration];
   }
 
-  return [initiativeNode(initiative), configuration];
+  return [initiativeNode(initiative), worldModelNode(snapshot), configuration];
+}
+
+/**
+ * The world model: what grounding has to draw on, and whether it is current.
+ *
+ * Kept at the root rather than under an Epic because a model belongs to the repository, and every
+ * Epic on every branch grounds against the same one. Its absence is the state worth naming — a
+ * repository with no model grounds prompts on nothing, and that is invisible until the answers are
+ * wrong.
+ */
+function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
+  const model = snapshot.worldModel;
+  const views = model?.views ?? [];
+  const built = Boolean(model?.generatedAt);
+
+  const children: TreeNode[] = [];
+  if (model?.rebuildReason) {
+    children.push({
+      kind: 'action',
+      id: 'wm:rebuild',
+      label: model.rebuildReason,
+      description: 'rebuild',
+      icon: 'warning',
+      command: ['wm', 'build'],
+      contextValue: 'sflow.action'
+    });
+  } else if (!built) {
+    children.push({
+      kind: 'action',
+      id: 'wm:build',
+      label: 'Build the world model',
+      description: 'wm build',
+      tooltip: 'Reads the repository and writes the views that ground every governed prompt.',
+      icon: 'play-circle',
+      command: ['wm', 'build'],
+      contextValue: 'sflow.action'
+    });
+  }
+
+  children.push(...views.map((view) => ({
+    kind: 'artifact' as const,
+    id: `wm:view:${view.id}`,
+    label: view.id,
+    description: view.references.length ? `${view.references.length} references` : 'no references',
+    icon: 'symbol-structure',
+    path: `${model?.root ?? 'singularity/world-model'}/views/${view.id}.md`,
+    contextValue: 'sflow.config'
+  })));
+
+  return {
+    kind: 'group',
+    id: 'world-model',
+    label: 'World model',
+    description: built
+      ? `${views.length} ${views.length === 1 ? 'view' : 'views'}`
+      : 'not built',
+    icon: 'globe',
+    tooltip: built
+      ? `Generated ${model?.generatedAt}. Every governed prompt is grounded against these views.`
+      : 'Nothing has been generated. Governed prompts have no repository knowledge to draw on.',
+    contextValue: 'sflow.worldmodel',
+    children: children.length ? children : [{
+      kind: 'message', id: 'wm:empty', label: 'No views declared', icon: 'blank'
+    }]
+  };
 }
 
 /**
@@ -469,6 +534,9 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         description: String(source.provider ?? ''),
         tooltip: `${String(source.sourceId ?? '')}\nsha256 ${String(source.sha256 ?? 'unknown')}`,
         icon: 'file-symlink-file',
+        // Only a locally-provided source has its bytes in the repository; anything else lives in
+        // corporate storage and has no path here to open.
+        ...(source.cachePath ? { path: String(source.cachePath) } : {}),
         contextValue: 'sflow.source'
       }))
       : [{

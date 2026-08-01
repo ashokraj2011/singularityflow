@@ -19,6 +19,7 @@ import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
 import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
 import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
+import { ImpactPanel } from './views/impact.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -399,6 +400,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('singularityFlow.openImpact',
+      () => ImpactPanel.show(context, store, client)),
     vscode.commands.registerCommand('singularityFlow.openStories',
       () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); })),
     vscode.commands.registerCommand('singularityFlow.openApprovals',

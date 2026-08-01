@@ -320,8 +320,9 @@ test('a repository with no Epic at all offers the command that starts one', () =
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
-  // The Epic and the repository's configuration, which is present regardless of what is checked out.
-  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'configuration']);
+  // The Epic, plus the two things that belong to the repository rather than to any Epic.
+  assert.deepEqual(tree.map((node) => node.id),
+    ['initiative:INIT-MULTI', 'world-model', 'configuration']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -1125,4 +1126,54 @@ test('an Epic with no Story plan says what planning would produce', () => {
   const stories = buildStories(unplanned);
   assert.match(stories.empty, /decomposes it into Stories, one per repository/);
   assert.equal(stories.initiativeId, 'INIT-MULTI', 'and still says which Epic it is talking about');
+});
+
+test('the world model is shown at the root, and its absence is named', () => {
+  // A model belongs to the repository, not to an Epic: every Epic on every branch grounds against
+  // the same one. Its absence is invisible until the answers are wrong.
+  const unbuilt = find(buildTree(snapshot), 'world-model');
+  assert.equal(unbuilt.description, 'not built');
+  assert.match(unbuilt.tooltip, /no repository knowledge to draw on/);
+  assert.deepEqual(unbuilt.children[0].command, ['wm', 'build'], 'and it offers to build one');
+
+  const built = structuredClone(snapshot);
+  built.worldModel = {
+    root: 'singularity/world-model', generatedAt: '2026-08-01T00:00:00Z', rebuildReason: null,
+    views: [{ id: 'business', references: ['a', 'b'] }, { id: 'data', references: [] }]
+  };
+  const node = find(buildTree(built), 'world-model');
+  assert.equal(node.description, '2 views');
+  assert.equal(node.children[0].path, 'singularity/world-model/views/business.md');
+  assert.equal(node.children[1].description, 'no references');
+});
+
+test('a stale world model offers the rebuild the engine asked for, in its own words', () => {
+  const stale = structuredClone(snapshot);
+  stale.worldModel = {
+    root: 'singularity/world-model', generatedAt: '2026-07-01T00:00:00Z',
+    rebuildReason: 'The repository changed after the model was generated.', views: []
+  };
+  const node = find(buildTree(stale), 'world-model');
+  assert.equal(node.children[0].label, 'The repository changed after the model was generated.');
+  assert.deepEqual(node.children[0].command, ['wm', 'build']);
+});
+
+test('the world model is reachable even with no Epic checked out', () => {
+  const tree = buildTree({ initiative: null, initiatives: [], workItems: [], worldModel: { root: 'w', generatedAt: null, rebuildReason: null, views: [] } });
+  assert.ok(find(tree, 'world-model'), 'grounding does not depend on an Epic');
+  assert.ok(find(tree, 'configuration'));
+});
+
+test('a locally pinned source can be opened; a remote one has no path to open', () => {
+  const pinned = structuredClone(snapshot);
+  pinned.initiative.sources = {
+    version: 1, initiativeId: 'INIT-MULTI',
+    sources: [
+      { sourceId: 'SRC-LOCAL', name: 'brief.md', provider: 'local', sha256: 'a'.repeat(64), cachePath: 'singularity/initiatives/INIT-MULTI/sources/blobs/aa/brief.md' },
+      { sourceId: 'SRC-REMOTE', name: 'spec.pdf', provider: 'sharepoint', sha256: 'b'.repeat(64) }
+    ]
+  };
+  const sources = find(buildTree(pinned), 'sources');
+  assert.equal(sources.children[0].path, 'singularity/initiatives/INIT-MULTI/sources/blobs/aa/brief.md');
+  assert.equal(sources.children[1].path, undefined, 'its bytes live in corporate storage');
 });

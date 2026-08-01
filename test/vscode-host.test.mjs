@@ -309,8 +309,9 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'configuration'],
-    'the Epic, plus the repository configuration that is present either way');
+  assert.deepEqual(roots.map((node) => node.id),
+    ['initiative:INIT-CHECKOUT', 'world-model', 'configuration'],
+    'the Epic, plus the things that belong to the repository rather than to any Epic');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
   // And the editor-facing mapping produces a usable TreeItem.
@@ -814,4 +815,18 @@ test('the Stories panel opens and offers the push once a plan exists', async (t)
   // The demo Epic has a two-repository plan with a real dependency.
   assert.match(panel.webview.html, /SFLOW-DEMO-API|API-1|STORY-001|Stories/);
   assert.match(panel.webview.html, /Push these Stories|Merge order|repository/);
+});
+
+test('the planning and impact panel computes from the plan, not from the map', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openImpact')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.impact');
+  assert.ok(panel, 'an impact panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.match(panel.webview.html, /Planning and impact/);
+  // It renders synchronously before the subprocess answers, rather than showing a blank page.
+  assert.match(panel.webview.html, /Computing impact|Reconciliation|No Epic/);
 });

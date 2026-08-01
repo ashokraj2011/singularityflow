@@ -320,7 +320,8 @@ test('a repository with no Epic at all offers the command that starts one', () =
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
-  assert.equal(tree.length, 1);
+  // The Epic and the repository's configuration, which is present regardless of what is checked out.
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'configuration']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -758,4 +759,40 @@ test('an empty repository offers to start an Epic rather than describing the com
   const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.equal(node.contextValue, 'sflow.start');
   assert.doesNotMatch(node.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
+});
+
+test('configuration is shown whether or not an Epic is checked out', () => {
+  // The lifecycle, the approvers and the lenses are properties of the repository, not of an Epic.
+  // A newcomer's problem is not editing these files but knowing they exist and where.
+  const withEpic = buildTree(snapshot);
+  const withoutEpic = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  for (const tree of [withEpic, withoutEpic]) {
+    const configuration = find(tree, 'configuration');
+    assert.ok(configuration, 'configuration is always reachable');
+    assert.deepEqual(configuration.children.map((child) => child.id),
+      ['config:workflow', 'config:portfolio', 'config:personas']);
+  }
+});
+
+test('the configuration node says whether workflow progress is recorded, and where', () => {
+  const off = find(buildTree(snapshot), 'configuration');
+  assert.equal(off.description, 'no state branch');
+  assert.match(off.tooltip, /No append-only workflow ledger/);
+
+  const on = structuredClone(snapshot);
+  on.definition = { ...(on.definition ?? {}), ledger: { enabled: true, branch: 'state' } };
+  const node = find(buildTree(on), 'configuration');
+  assert.equal(node.description, 'state on state');
+  assert.match(node.tooltip, /orphan branch 'state'/);
+});
+
+test('each working lens is openable as the file that defines it', () => {
+  const withLenses = structuredClone(snapshot);
+  withLenses.definition = {
+    personas: { 'product-owner': { label: 'Product owner' }, developer: { label: 'Developer' } }
+  };
+  const lenses = find(buildTree(withLenses), 'config:personas');
+  assert.equal(lenses.description, '2');
+  assert.deepEqual(lenses.children.map((child) => child.label), ['Product owner', 'Developer']);
+  assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
 });

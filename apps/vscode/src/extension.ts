@@ -11,6 +11,7 @@ import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
+import { createWorkspace, enableStateLedger } from './workspace.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
@@ -35,6 +36,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       treeDataProvider: provider
     }));
   };
+
+  /**
+   * Create a workspace, then offer its append-only state branch and open the lead repository.
+   *
+   * Registered before any early return: this is the command for when there is no repository to
+   * serve yet, which is precisely when activation stops early.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', async () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return void vscode.window.showErrorMessage((error as Error).message);
+    }
+
+    const created = await createWorkspace(location, output);
+    if (!created) return;
+
+    const branch = await vscode.window.showInputBox({
+      title: 'Workflow state branch',
+      prompt: 'An orphan branch recording what happens to each work item. Leave empty to skip.',
+      value: 'state',
+      ignoreFocusOut: true
+    });
+    if (branch?.trim()) await enableStateLedger(location, created.leadDirectory, branch.trim(), output);
+
+    const open = await vscode.window.showInformationMessage(
+      `Workspace created with ${created.lead} as lead.`,
+      'Open lead repository', 'Open workspace folder');
+    const target = open === 'Open lead repository' ? created.leadDirectory
+      : open === 'Open workspace folder' ? created.directory
+        : null;
+    if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: true });
+  }));
+
+  /** Diagnostics, as the CLI reports them. */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) return void vscode.window.showWarningMessage('Open a repository first.');
+    try {
+      const report = await new SingularityFlowClient({
+        location: resolveCli({ extensionPath: context.extensionPath }),
+        repository: folder.uri.fsPath,
+        onOutput: (text) => output.append(text)
+      }).runText(['doctor']);
+      const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch (error) {
+      void vscode.window.showErrorMessage((error as Error).message);
+    }
+  }));
 
   // Offered from the uninitialized state, so a folder that is not yet a Flow repository can become
   // one without leaving the editor. Registered before any early return, since that is exactly when

@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +34,7 @@ const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs')
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], pickedFile: null };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -75,6 +75,7 @@ function stubVscode() {
         return item;
       },
       showErrorMessage: async (message) => { registered.errors.push(message); },
+    showInformationMessage: async (message) => { registered.infos.push(message); return undefined; },
       showWarningMessage: async (message) => { registered.warnings.push(message); },
       showTextDocument: async () => ({}),
       setStatusBarMessage: () => ({ dispose() {} }),
@@ -92,6 +93,7 @@ function stubVscode() {
   registered.selfApprovalAnswer = undefined;
   registered.pickedLens = 'first';
   registered.pickedFile = null;
+  registered.pickedFolder = null;
   registered.answers = [];
   api.window.showInputBox = async (options) => {
     registered.inputBoxes.push(options);
@@ -100,7 +102,8 @@ function stubVscode() {
   };
   api.window.showOpenDialog = async (options) => {
     registered.openDialogs.push(options);
-    return registered.pickedFile ? [{ fsPath: registered.pickedFile }] : undefined;
+    const picked = options?.canSelectFolders ? registered.pickedFolder : registered.pickedFile;
+    return picked ? [{ fsPath: picked }] : undefined;
   };
   api.window.showQuickPick = async (items, options) => {
     registered.quickPicks.push({ items, options });
@@ -233,7 +236,8 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.equal(roots.length, 1, `expected one Epic, got ${JSON.stringify(roots.map((n) => n.label))}`);
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'configuration'],
+    'the Epic, plus the repository configuration that is present either way');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
   // And the editor-facing mapping produces a usable TreeItem.
@@ -638,4 +642,72 @@ test('starting an Epic before any approver is named says so first, and offers th
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
   assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
+});
+
+test('creating a workspace is possible before any repository is open', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The command for when there is nothing to serve yet, which is exactly when activation stops
+  // early. Registering it after those returns would make it unreachable when it is most needed.
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  for (const id of ['singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.doctor']) {
+    assert.ok(registered.commands.has(id), `${id} is reachable with no repository open`);
+  }
+});
+
+test('a workspace is created with its repositories, lead, and orphan state branch', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-'));
+  // Two local repositories to clone from, so this needs no network.
+  const origins = {};
+  for (const name of ['alpha', 'beta']) {
+    const work = path.join(base, `${name}-src`);
+    await mkdir(work);
+    run('git', ['init', '-q', '-b', 'main', work], { cwd: base });
+    run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: work });
+    run('git', ['config', 'user.email', EMAIL], { cwd: work });
+    await writeFile(path.join(work, 'README.md'), `# ${name}\n`);
+    run('git', ['add', '-A'], { cwd: work });
+    run('git', ['commit', '-qm', 'init'], { cwd: work });
+    const bare = path.join(base, `${name}.git`);
+    await mkdir(bare);
+    run('git', ['init', '-q', '-b', 'main', '--bare', bare], { cwd: base });
+    run('git', ['push', '-q', bare, 'main'], { cwd: work });
+    origins[name] = bare;
+  }
+
+  // Isolate the workspace registry: without this the CLI writes into the real
+  // ~/.singularity-flow/workspaces.json, and a test has no business registering anything there.
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(base, 'registry.json');
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(base, 'active.json');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  registered.pickedFolder = path.join(base, 'workspaces');
+  await mkdir(registered.pickedFolder, { recursive: true });
+  // Where to create, the id, the name, then repository URLs and ids until an empty URL finishes.
+  registered.answers = ['platform', 'Platform workspace',
+    origins.alpha, 'alpha', origins.beta, 'beta', '', 'state'];
+
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  assert.deepEqual(registered.errors, []);
+
+  // The engine derives the directory from the identifier and the name, so it is discovered rather
+  // than reconstructed — reconstructing it here is exactly the mistake this test caught.
+  const [entry] = await readdir(registered.pickedFolder);
+  const directory = path.join(registered.pickedFolder, entry);
+  assert.match(entry, /^platform/, `expected a platform workspace, found ${entry}`);
+  const manifest = JSON.parse(await readFile(path.join(directory, 'workspace.json'), 'utf8'));
+  assert.equal(manifest.leadRepository ?? manifest.lead, 'alpha', 'the chosen lead is recorded');
+  assert.deepEqual(Object.keys(manifest.repositories).sort(), ['alpha', 'beta']);
+
+  // Both repositories are really cloned, not merely registered.
+  for (const id of ['alpha', 'beta']) {
+    assert.ok(existsSync(path.join(directory, 'repos', id, '.git')), `${id} was cloned`);
+  }
 });

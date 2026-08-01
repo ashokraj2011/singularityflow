@@ -206,6 +206,7 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
   }
 
+  const configuration = configurationNode(snapshot);
   const initiative = snapshot.initiative;
   if (!initiative) {
     const available = snapshot.initiatives?.length ?? 0;
@@ -223,10 +224,55 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }];
+    }, configuration];
   }
 
-  return [initiativeNode(initiative)];
+  return [initiativeNode(initiative), configuration];
+}
+
+/**
+ * The repository's own configuration: what the lifecycle is, who may approve, and the lenses work
+ * is done under. These are files, and the editor is good at files — the value here is knowing they
+ * exist and where, which is exactly what a newcomer does not.
+ */
+function configurationNode(snapshot: DesktopSnapshot): TreeNode {
+  const personas = Object.entries(snapshot.definition?.personas ?? {});
+  const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
+  return {
+    kind: 'group',
+    id: 'configuration',
+    label: 'Configuration',
+    icon: 'settings-gear',
+    description: ledger?.enabled ? `state on ${ledger.branch ?? 'ledger'}` : 'no state branch',
+    tooltip: ledger?.enabled
+      ? `Workflow progress is recorded on the orphan branch '${ledger.branch}'.`
+      : 'No append-only workflow ledger is enabled for this repository.',
+    children: [
+      {
+        kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
+        description: 'phases, lenses, grounding', icon: 'symbol-namespace',
+        path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'
+      },
+      {
+        kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml',
+        description: 'profiles, approvers, repositories', icon: 'organization',
+        path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
+      },
+      {
+        kind: 'group', id: 'config:personas', label: 'Working lenses',
+        description: personas.length ? `${personas.length}` : 'none', icon: 'person',
+        children: personas.map(([id, persona]) => ({
+          kind: 'artifact' as const,
+          id: `persona:${id}`,
+          label: persona?.label ?? id,
+          description: id,
+          icon: 'person',
+          path: `singularity/personas/${id}.md`,
+          contextValue: 'sflow.config'
+        }))
+      }
+    ]
+  };
 }
 
 /** The approve command for a pack, or null when it is not yet complete. */

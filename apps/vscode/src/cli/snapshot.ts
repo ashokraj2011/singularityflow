@@ -207,8 +207,11 @@ export interface DesktopSnapshot {
    */
   definition?: {
     personas?: Record<string, { label?: string; description?: string }>;
+    /** Whether workflow progress is recorded on an orphan branch, and which one. */
+    ledger?: { enabled?: boolean; branch?: string };
     [key: string]: unknown;
   };
+  definitionPath?: string;
   session?: { persona?: string; workId?: string | null } | null;
   diagnostics?: unknown;
   [key: string]: unknown;

@@ -55,6 +55,11 @@
     },
     "commands": [
       {
+        "command": "singularityFlow.createWorkspace",
+        "title": "Singularity Flow: Create a Workspace",
+        "icon": "$(root-folder)"
+      },
+      {
         "command": "singularityFlow.init",
         "title": "Singularity Flow: Initialize This Repository",
         "icon": "$(add)"
@@ -101,10 +106,20 @@
       {
         "command": "singularityFlow.showImpact",
         "title": "Singularity Flow: Show Computed Impact"
+      },
+      {
+        "command": "singularityFlow.doctor",
+        "title": "Singularity Flow: Diagnostics",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "singularityFlow.createWorkspace",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@0"
+        },
         {
           "command": "singularityFlow.openJourney",
           "when": "view == singularityFlow.lifecycle",

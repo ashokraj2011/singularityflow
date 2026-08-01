@@ -6,7 +6,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  loadPortfolio, resolveInitiativeProfile, validatePortfolio,
+  loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution, validatePortfolio,
   validatePortfolioWorldModelViews
 } from '../src/initiative-config.mjs';
 import {
@@ -364,4 +364,29 @@ test('initiative start requires configured local authority membership', async ()
   assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main');
   run('git', ['switch', '-c', 'INIT-EMPTY'], { cwd: root });
   await assert.rejects(() => createInitiative(root, { id: 'INIT-EMPTY', profile: 'initiative-lite' }), /require at least one local Git identity/);
+});
+
+test('artifact packs are pinned into the resolution and covered by its hash', async () => {
+  // Packs were validated and resolved but then dropped when the resolution was pinned, so the seven
+  // PDLC packs reached no consumer at all and their approval chains never ran. Worse, leaving them
+  // out of the canonical hash meant a portfolio edit could redefine the artifact set a governance
+  // body had already signed off on, without the Epic's pinned resolution registering any change.
+  const root = await repository();
+  const portfolio = await loadPortfolio(root);
+  const resolved = resolveInitiativeProfile(portfolio, 'enterprise-delivery');
+  const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
+
+  assert.equal(resolution.packs.length, 7, 'every PDLC pack survives into the pinned resolution');
+  const pack = resolution.packs.find((entry) => entry.id === 'validation-release-readiness');
+  assert.ok(pack, 'the cross-phase pack is present');
+  const phases = new Set(pack.members.map((member) => member.split('/')[0]));
+  assert.ok(phases.size > 1, 'a pack spans phases, which is why it cannot live under one');
+
+  // The hash must move when a pack changes, or the immutability guarantee does not cover packs.
+  const edited = structuredClone(portfolio);
+  edited.initiativeProfiles['enterprise-delivery'].packs[0].members.pop();
+  const after = await snapshotInitiativeResolution(
+    root, edited, resolveInitiativeProfile(edited, 'enterprise-delivery'));
+  assert.notEqual(after.resolutionSha256, resolution.resolutionSha256,
+    'changing a pack changes the resolution hash');
 });

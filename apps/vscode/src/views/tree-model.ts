@@ -41,23 +41,33 @@ export interface TreeNode {
   contextValue?: string;
 }
 
-const PHASE_ICON: Record<PhaseStatus, string> = {
+const PHASE_ICON: Record<string, string> = {
   approved: 'pass-filled',
   awaiting_approval: 'clock',
   in_progress: 'circle-large-outline',
   rejected: 'error',
   stale: 'warning',
-  pending: 'circle-outline'
+  not_started: 'circle-outline'
 };
 
-const PHASE_DESCRIPTION: Record<PhaseStatus, string> = {
+const PHASE_DESCRIPTION: Record<string, string> = {
   approved: 'approved',
   awaiting_approval: 'awaiting approval',
   in_progress: 'in progress',
   rejected: 'rejected',
   stale: 'stale — an upstream artifact changed',
-  pending: 'not started'
+  not_started: 'not started'
 };
+
+/**
+ * Render a status the engine owns, without ever rendering nothing.
+ *
+ * A status this file has not seen becomes a readable label rather than a blank: the engine may add
+ * one, and a phase with no icon and no description reads as a phase with nothing happening in it.
+ */
+const phaseIcon = (status: PhaseStatus): string => PHASE_ICON[status] ?? 'circle-outline';
+const phaseDescription = (status: PhaseStatus): string =>
+  PHASE_DESCRIPTION[status] ?? String(status).replace(/_/g, ' ');
 
 function artifactNode(output: InitiativeOutput, phaseId: string): TreeNode {
   const pinned = output.status === 'approved' && Boolean(output.sha256);
@@ -87,10 +97,10 @@ function phaseNode(phase: ReturnType<typeof phasesInOrder>[number]): TreeNode {
     id: `phase:${phase.id}`,
     label: phase.label,
     description: phase.current
-      ? `${PHASE_DESCRIPTION[phase.status]} · current`
-      : PHASE_DESCRIPTION[phase.status],
+      ? `${phaseDescription(phase.status)} · current`
+      : phaseDescription(phase.status),
     tooltip: `${authored} of ${phase.outputs.length} artifacts generated, ${required} required.`,
-    icon: PHASE_ICON[phase.status],
+    icon: phaseIcon(phase.status),
     contextValue: phase.current ? 'sflow.phase.current' : 'sflow.phase',
     children: phase.outputs
       .slice()

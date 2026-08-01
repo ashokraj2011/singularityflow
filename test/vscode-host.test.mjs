@@ -34,7 +34,7 @@ const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs')
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [] };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], pickedFile: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -91,9 +91,16 @@ function stubVscode() {
   registered.typed = null;
   registered.selfApprovalAnswer = undefined;
   registered.pickedLens = 'first';
+  registered.pickedFile = null;
+  registered.answers = [];
   api.window.showInputBox = async (options) => {
     registered.inputBoxes.push(options);
-    return registered.typed;
+    // A scripted queue answers a sequence of prompts; `typed` answers a single one.
+    return registered.answers.length ? registered.answers.shift() : registered.typed;
+  };
+  api.window.showOpenDialog = async (options) => {
+    registered.openDialogs.push(options);
+    return registered.pickedFile ? [{ fsPath: registered.pickedFile }] : undefined;
   };
   api.window.showQuickPick = async (items, options) => {
     registered.quickPicks.push({ items, options });
@@ -457,4 +464,65 @@ test('the reconciliation panel opens under the same CSP as the journey', async (
   }
   assert.match(html, /nothing to compare/);
   assert.doesNotMatch(html, /levels have drifted/);
+});
+
+test('a placeholder in a suggested action opens a file picker instead of running literally', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  // The bug this closes: the sources step suggests `--file <PATH>`, and running it verbatim failed
+  // on a file literally named "<PATH>".
+  const { root, registered } = await activated();
+  const brief = path.join(root, 'brief.md');
+  await writeFile(brief, '# Brief\n\n- REQ-001 Something is required.\n');
+  registered.pickedFile = brief;
+
+  await registered.commands.get('singularityFlow.runAction')({
+    kind: 'action',
+    command: ['epic', 'sources', 'add', '--epic', 'INIT-CHECKOUT', '--file', '<PATH>']
+  });
+
+  assert.equal(registered.openDialogs.length, 1, 'a file picker was opened for the placeholder');
+  assert.match(registered.openDialogs[0].title, /--file/);
+  assert.deepEqual(registered.errors, [], 'and the command then ran without complaint');
+
+  // The source really is pinned now, with the picked file's bytes.
+  const listed = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'epic', 'sources', 'list'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner' } });
+  assert.match(listed.stdout, /brief\.md/);
+  assert.match(listed.stdout, /local/);
+});
+
+test('declining the file picker runs nothing', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  const { root, registered } = await activated();
+  registered.pickedFile = null; // the person dismissed the dialog
+
+  await registered.commands.get('singularityFlow.runAction')({
+    kind: 'action',
+    command: ['epic', 'sources', 'add', '--epic', 'INIT-CHECKOUT', '--file', '<PATH>']
+  });
+  assert.equal(registered.openDialogs.length, 1);
+  assert.deepEqual(registered.errors, [], 'declining is a decision, not a failure');
+
+  const listed = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'epic', 'sources', 'list'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner' } });
+  assert.doesNotMatch(listed.stdout, /brief\.md/, 'nothing was pinned');
+});
+
+test('pinning a source from the editor puts it in the tree', async (t) => {
+  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  const { root, registered } = await activated();
+  const brief = path.join(root, 'research.md');
+  await writeFile(brief, '# Research\n');
+  registered.pickedFile = brief;
+
+  await registered.commands.get('singularityFlow.addSource')();
+  assert.deepEqual(registered.errors, []);
+
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const roots = provider.getChildren();
+  const sources = provider.getChildren(roots[0]).find((node) => node.id === 'sources');
+  assert.equal(sources.description, '1');
+  assert.equal(provider.getChildren(sources)[0].label, 'research.md');
 });

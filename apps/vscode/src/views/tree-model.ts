@@ -20,7 +20,7 @@ import {
 
 export type NodeKind =
   | 'message' | 'initiative' | 'phase' | 'pack' | 'artifact'
-  | 'group' | 'repository' | 'story' | 'action';
+  | 'group' | 'repository' | 'story' | 'action' | 'source';
 
 export interface TreeNode {
   kind: NodeKind;
@@ -198,8 +198,11 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       description: available ? `${available} available` : undefined,
       icon: 'info',
       tooltip: available
-        ? 'Check out an Epic branch, or start one with: singularity-flow epic start'
-        : 'Start one with: singularity-flow epic start --local --title … --description … --goal …'
+        ? 'Check out an Epic branch, or start a new one.'
+        : 'Nothing has been started here yet.',
+      // The one thing to do from an empty repository, offered rather than described. A tree that
+      // explains a command you must retype into a terminal is a worse tree than one with a button.
+      contextValue: 'sflow.start'
     }];
   }
 
@@ -301,6 +304,37 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       }))
     });
   }
+
+  const sources = (initiative.sources?.sources ?? []) as Array<Record<string, unknown>>;
+  children.push({
+    kind: 'group',
+    id: 'sources',
+    label: 'Pinned sources',
+    description: sources.length ? `${sources.length}` : 'none pinned',
+    icon: 'references',
+    // Everything a requirement cites has to appear here, so an empty list is a finding rather than
+    // an absence — and this is the node that offers to fix it.
+    tooltip: sources.length
+      ? 'Requirements may cite only these.'
+      : 'Requirements have no cited source to rest on. Pin the brief, research, or designs.',
+    contextValue: 'sflow.sources',
+    children: sources.length
+      ? sources.map((source) => ({
+        kind: 'source' as const,
+        id: `source:${String(source.sourceId ?? source.id ?? '')}`,
+        label: String(source.name ?? source.sourceId ?? 'unnamed source'),
+        description: String(source.provider ?? ''),
+        tooltip: `${String(source.sourceId ?? '')}\nsha256 ${String(source.sha256 ?? 'unknown')}`,
+        icon: 'file-symlink-file',
+        contextValue: 'sflow.source'
+      }))
+      : [{
+        kind: 'message' as const,
+        id: 'sources-empty',
+        label: 'Nothing is pinned yet',
+        icon: 'warning'
+      }]
+  });
 
   if (repositories.length) {
     children.push({

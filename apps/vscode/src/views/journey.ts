@@ -66,10 +66,11 @@ function bodyHtml(journey: Journey): string {
       journey.blockers.map((blocker) => `<li>${escape(blocker)}</li>`).join('')}</ul></section>`
     : '<section><h2>Gate</h2><p class="ok-text">Every requirement of this phase is satisfied.</p></section>';
 
-  const sources = journey.sources.length
+  const sources = `${journey.sources.length
     ? `<ul class="sources">${journey.sources.map((source) => `
         <li>${escape(source.name)} <code>${escape((source.sha256 ?? '').slice(0, 12))}</code></li>`).join('')}</ul>`
-    : '<p class="muted">Nothing is pinned. Requirements have no cited source to rest on.</p>';
+    : '<p class="muted">Nothing is pinned. Requirements have no cited source to rest on.</p>'}
+    <p><button data-pin="source">Pin a source</button></p>`;
 
   const stories = journey.repositories.length
     ? journey.repositories.map((repository) => `
@@ -108,19 +109,21 @@ function bodyHtml(journey: Journey): string {
 const SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-open],[data-approve],[data-run]');
+    const target = event.target.closest('[data-open],[data-approve],[data-run],[data-pin]');
     if (!target) return;
     event.preventDefault();
     if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
+    else if (target.dataset.pin) vscode.postMessage({ type: 'pin' });
   });
 `;
 
 export type JourneyMessage =
   | { type: 'open'; outputId: string }
   | { type: 'approve'; outputId: string }
-  | { type: 'run' };
+  | { type: 'run' }
+  | { type: 'pin' };
 
 export class JourneyPanel {
   private static current: JourneyPanel | null = null;
@@ -144,6 +147,7 @@ export class JourneyPanel {
       // against the snapshot rather than used as a path.
       const message = raw as { type?: unknown; id?: unknown };
       if (message?.type === 'run') return onMessage({ type: 'run' });
+      if (message?.type === 'pin') return onMessage({ type: 'pin' });
       if (typeof message?.id !== 'string') return;
       if (message.type === 'open') return onMessage({ type: 'open', outputId: message.id });
       if (message.type === 'approve') return onMessage({ type: 'approve', outputId: message.id });

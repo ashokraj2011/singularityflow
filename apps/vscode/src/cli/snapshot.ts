@@ -212,6 +212,16 @@ export interface DesktopSnapshot {
     [key: string]: unknown;
   };
   definitionPath?: string;
+  /**
+   * The editable file sets: artifact templates, working-lens prompts, repository skills and prompt
+   * packs. They arrive with their contents, but the extension only reads their paths — editing
+   * happens in ordinary editor tabs, against the files on disk.
+   */
+  templates?: Array<{ path: string; name: string; bytes?: number }>;
+  personaPrompts?: Array<{ path: string; name: string; bytes?: number }>;
+  repositorySkills?: Array<{ path: string; name: string; bytes?: number }>;
+  agents?: Array<{ id: string; scope: string; path: string; editable?: boolean }>;
+  agentMappings?: { path: string; exists: boolean };
   session?: { persona?: string; workId?: string | null } | null;
   diagnostics?: unknown;
   [key: string]: unknown;

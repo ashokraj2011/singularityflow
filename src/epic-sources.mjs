@@ -6,6 +6,9 @@ import { identity } from './git.mjs';
 import { downloadJiraAttachment, uploadJiraAttachment } from './jira.mjs';
 import { loadInitiative, saveInitiative, secureInitiativePath } from './initiative-state.mjs';
 import {
+  extractSourceText, isTextualSource, renderSourceRendition, TEXT_RENDITION_SUFFIX
+} from './source-text.mjs';
+import {
   commandExists, nowIso, posix, run, SingularityFlowError, snapshot, writeAtomic, writeJson, writeText
 } from './util.mjs';
 
@@ -577,6 +580,19 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
             actualSha256 = (await snapshot(cachePath)).sha256;
           }
           await writeText(`${cachePath}.sha256`, `${actualSha256}  ${record.filename}`);
+          // Copilot receives a filesystem path and reads it as UTF-8, so a pinned DOCX or XLSX would
+          // arrive as mojibake. Derive the text once, here, beside the cached bytes; the composer
+          // notices the rendition and points at it instead. Never fatal — a source without one is
+          // declared unreadable in the governed context rather than silently handed over.
+          if (!isTextualSource(record.mimeType, record.name ?? record.filename)) {
+            try {
+              const bytes = await readFile(cachePath);
+              const rendition = extractSourceText(bytes, record.mimeType);
+              if (rendition.status === 'extracted') {
+                await writeText(`${cachePath}${TEXT_RENDITION_SUFFIX}`, renderSourceRendition(record, rendition.text));
+              }
+            } catch { /* The pinned bytes remain the evidence; a rendition is a convenience. */ }
+          }
         } finally {
           await rm(temporary, { force: true }).catch(() => {});
         }

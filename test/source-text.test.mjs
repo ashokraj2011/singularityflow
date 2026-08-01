@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
-import { extractSourceText } from '../apps/desktop/electron/source-text.mjs';
+import { extractSourceText } from '../src/source-text.mjs';
 
 /**
  * Build a real ZIP container so the reader is exercised against the format, not a mock.

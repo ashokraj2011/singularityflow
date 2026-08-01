@@ -243,7 +243,10 @@ test('restart returns an Epic to its first phase without touching its branch or 
   const firstPhase = authored.phaseOrder[0];
   assert.ok(Object.values(authored.phases[firstPhase].outputs).some((output) => output.sha256), 'the first attempt produced something');
 
-  const restarted = execute(root, ['initiative', 'restart', 'INIT-AGAIN', '--reason', 'Wrong scope; starting over.'], { confirm: 'INIT-AGAIN' });
+  // Confirmed with the public --confirm escape rather than the test-only environment variable, so
+  // this exercises the same path a GUI takes instead of a backdoor only the suite can reach.
+  const restarted = execute(root, ['initiative', 'restart', 'INIT-AGAIN',
+    '--reason', 'Wrong scope; starting over.', '--confirm', 'INIT-AGAIN']);
   assert.match(restarted.stdout, /INIT-AGAIN restarted at/);
   assert.match(restarted.stdout, /Epic branch and sources kept, Story-branch world models unchanged/);
 
@@ -265,4 +268,58 @@ test('restart returns an Epic to its first phase without touching its branch or 
   assert.equal(event.event, 'initiative_restarted');
   assert.match(event.detail, /Wrong scope/);
   assert.match(event.detail, /artifacts? discarded/);
+});
+
+test('a destructive initiative action refuses the wrong --confirm value and names both', async () => {
+  // The escape must not become a way to confirm something you did not read. The flag has to carry
+  // the exact identifier, and a mismatch has to say what was expected and what arrived.
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-GUARD', '--title', 'Guarded']);
+  const refused = execute(root, ['initiative', 'restart', 'INIT-GUARD',
+    '--reason', 'Testing the guard.', '--confirm', 'INIT-WRONG'], { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /requires exact confirmation 'INIT-GUARD'/);
+  assert.match(refused.stderr, /--confirm received 'INIT-WRONG'/);
+
+  // And the state is untouched: the guard fires before anything is discarded.
+  const state = JSON.parse(await readFile(path.join(root, 'singularity/initiatives/INIT-GUARD/state.json'), 'utf8'));
+  assert.ok(!state.history.some((entry) => entry.event === 'initiative_restarted'));
+});
+
+test('without a terminal and without --confirm, the refusal names the escape', async () => {
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-HINT', '--title', 'Hinted']);
+  // No SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM, no TTY: previously a dead end with no way forward.
+  const refused = spawnSync(process.execPath, [bin, 'initiative', 'restart', 'INIT-HINT', '--reason', 'r'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: actor } });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /pass --confirm INIT-HINT/);
+});
+
+test('a local Epic can choose its working lens with --persona, and an unknown lens is refused', async () => {
+  // The Jira route answers this prompt from a selection receipt, but a local Epic's identifier is
+  // minted by the reservation inside the command, so there is nothing for a receipt to bind to. These
+  // run without SINGULARITY_FLOW_TEST_SELECTION on purpose: the point is that the public flag works,
+  // not that the suite's backdoor does.
+  const root = await repository();
+  const bare = (args) => spawnSync(process.execPath, [bin, ...args],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: actor } });
+  const local = ['epic', 'start', '--local', '--title', 'Local Epic',
+    '--description', 'Described', '--goal', 'A goal'];
+
+  const stranded = bare(local);
+  assert.notEqual(stranded.status, 0);
+  assert.match(stranded.stderr, /Selecting a working lens requires an interactive terminal/);
+  assert.match(stranded.stderr, /Pass --persona <id> to choose one without a terminal\./,
+    'the dead end must name its own way out');
+
+  const unknown = bare([...local, '--persona', 'not-a-lens']);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /Unknown working lens 'not-a-lens'/);
+
+  const started = bare([...local, '--persona', 'product-owner']);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  // The session lives under .git, not in the tree, so read it from there.
+  const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
+  assert.equal(session.persona, 'product-owner', 'the flag is what actually selected the lens');
 });

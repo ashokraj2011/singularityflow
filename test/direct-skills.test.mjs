@@ -22,12 +22,19 @@ test('direct skill names shorten sflow-* to sf-*', () => {
 });
 
 test('direct skill rendering preserves the full contract while changing slash references', () => {
-  const source = `---\nname: sflow-submit\ndescription: Submit\n---\n# Submit\nUse /sflow-approve after publishing.\n`;
+  const source = `---\nname: sflow-submit\ndescription: Submit\n---\n\n# Submit\nUse /sflow-approve after publishing.\n`;
   const rendered = renderDirectSkill(source, 'sflow-submit');
   assert.match(rendered, /^name: sf-submit$/m);
   assert.match(rendered, /Use \/sf-approve after publishing/);
   assert.ok(isManagedDirectSkill(rendered));
   assert.doesNotMatch(rendered, /name: sflow-submit/);
+  assert.equal(
+    rendered
+      .replace(/^name: sf-submit$/m, 'name: sflow-submit')
+      .replaceAll('/sf-', '/sflow-')
+      .replace('<!-- managed-by: singularity-flow direct-skill-alias -->\n', ''),
+    source
+  );
 });
 
 test('direct skills install as personal bare-command aliases and update only managed copies', async () => {
@@ -37,6 +44,16 @@ test('direct skills install as personal bare-command aliases and update only man
   const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'));
   assert.equal(result.installed.length, sourceEntries.length);
   assert.ok(result.installed.includes('sf-submit'));
+  for (const entry of sourceEntries) {
+    const directName = entry.name.replace(/^sflow-/, 'sf-');
+    const source = await readFile(path.join(sourceRoot, entry.name, 'SKILL.md'), 'utf8');
+    const direct = await readFile(path.join(targetRoot, directName, 'SKILL.md'), 'utf8');
+    const normalized = direct
+      .replace(new RegExp(`^name: ${directName}$`, 'm'), `name: ${entry.name}`)
+      .replaceAll('/sf-', '/sflow-')
+      .replace('<!-- managed-by: singularity-flow direct-skill-alias -->\n', '');
+    assert.equal(normalized, source, `${directName} must preserve the complete source contract`);
+  }
   const directSubmit = await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8');
   const sourceSubmit = await readFile(path.join(sourceRoot, 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(directSubmit, /^name: sf-submit$/m);

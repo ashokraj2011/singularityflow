@@ -19,25 +19,19 @@ import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
 } from './util.mjs';
 import { contextBoundaryHandoff } from './context-policy.mjs';
+import { harvestInitiativeKnowledge } from './knowledge.mjs';
+// Imported for use here and re-exported so every existing caller keeps importing them from this
+// module. The definitions moved to records.mjs so knowledge.mjs can hash a record without importing
+// this one — that cycle is what stopped the approval path from harvesting knowledge. See records.mjs.
+import { canonicalJson, recordSha256 } from './records.mjs';
+
+export { canonicalJson, recordSha256 };
 
 const RECORD_CATEGORIES = new Set(['evidence', 'approvals', 'invalidations']);
 
 function actorEmail(actor) { return actor?.email?.trim().toLowerCase() ?? null; }
 function actorName(actor) { return actor?.name ?? actorEmail(actor) ?? 'unknown'; }
 
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
-  return value;
-}
-
-export function canonicalJson(value) {
-  return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
-}
-
-export function recordSha256(value) {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex');
-}
 
 async function recordDirectory(root, portfolio, initiativeId, category) {
   if (!RECORD_CATEGORIES.has(category)) throw new SingularityFlowError(`Unsupported initiative record category '${category}'.`);
@@ -854,6 +848,24 @@ export async function approveInitiative(root, {
     detail: `${target.type}/${target.id} ${reached ? 'threshold reached' : 'approval recorded'}`
   });
   await saveInitiative(root, portfolio, initiative);
+
+  // Approval is the moment an artifact's claims become citable, so it is the moment its decisions,
+  // learnings and open uncertainties are worth keeping. Harvesting only when somebody remembered to
+  // run `knowledge harvest` meant the store stayed empty in every real Epic, and the feed-forward
+  // into later phases had nothing to feed.
+  //
+  // Deliberately non-fatal: an approval that has already been recorded and saved must not be
+  // reported as failed because extracting knowledge from it went wrong. The reason is returned so a
+  // caller can surface it rather than swallow it.
+  let knowledge = null;
+  if (reached) {
+    try {
+      knowledge = await harvestInitiativeKnowledge(root, portfolio, initiative, { phaseId: selectedPhase });
+    } catch (error) {
+      knowledge = { harvested: [], skipped: 0, error: error.message };
+    }
+  }
+
   const contextBoundary = reached && target.type === 'phase'
     ? contextBoundaryHandoff(initiative.resolution.contextPolicy, selectedPhase, {
       nextPhase: initiative.currentPhase,
@@ -861,7 +873,7 @@ export async function approveInitiative(root, {
       complete: initiative.status === 'complete'
     })
     : null;
-  return { portfolio, initiative, approval: appended, reached, selfApproval, next: initiative.currentPhase, contextBoundary };
+  return { portfolio, initiative, approval: appended, reached, selfApproval, next: initiative.currentPhase, contextBoundary, knowledge };
 }
 
 export async function initiativeEvidenceStatus(root, initiativeId, phaseId = null, { now = new Date() } = {}) {

@@ -1,0 +1,95 @@
+{
+  "name": "singularity-flow-vscode",
+  "displayName": "Singularity Flow",
+  "version": "0.9.0",
+  "private": true,
+  "description": "Run the Product Development Lifecycle from the editor: initiatives, stage gates, artifact packs, Stories, and reconciliation.",
+  "author": "Ashok Raj",
+  "license": "MIT",
+  "type": "module",
+  "publisher": "singularityflow",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "workspaceContains:singularity/workflow.yml"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Singularity Flow",
+      "properties": {
+        "singularityFlow.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the singularity-flow CLI entry point. Leave empty to use the bundled CLI, then the one on PATH."
+        },
+        "singularityFlow.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "Node executable used to run the CLI. Leave empty to use the Node running the extension host."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "singularityFlow",
+          "title": "Singularity Flow",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "singularityFlow": [
+        {
+          "id": "singularityFlow.lifecycle",
+          "name": "Lifecycle"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "singularityFlow.refresh",
+        "title": "Singularity Flow: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "singularityFlow.openJourney",
+        "title": "Singularity Flow: Open Journey"
+      },
+      {
+        "command": "singularityFlow.openArtifact",
+        "title": "Singularity Flow: Open Artifact"
+      },
+      {
+        "command": "singularityFlow.showImpact",
+        "title": "Singularity Flow: Show Computed Impact"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.6.0"
+  }
+}

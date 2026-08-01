@@ -39,12 +39,14 @@
     "LICENSE"
   ],
   "workspaces": [
-    "apps/desktop"
+    "apps/desktop",
+    "apps/vscode"
   ],
   "scripts": {
     "test": "npm run test:all",
     "test:cli": "node scripts/run-test-suite.mjs cli",
     "test:desktop": "node scripts/run-test-suite.mjs desktop",
+    "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-suite.mjs all",
     "check": "node scripts/check.mjs",
     "codeowners:generate": "node scripts/generate-codeowners.mjs --write",
@@ -63,7 +65,10 @@
     "desktop:package:win": "node scripts/desktop-release.mjs package --platform win",
     "desktop:verify": "node scripts/desktop-release.mjs verify",
     "desktop:release:preflight": "node scripts/desktop-release.mjs preflight",
-    "desktop:publish:artifactory": "node scripts/desktop-release.mjs publish-artifactory"
+    "desktop:publish:artifactory": "node scripts/desktop-release.mjs publish-artifactory",
+    "vscode:build": "npm run build --workspace singularity-flow-vscode",
+    "vscode:watch": "npm run watch --workspace singularity-flow-vscode",
+    "vscode:typecheck": "npm run typecheck --workspace singularity-flow-vscode"
   },
   "engines": {
     "node": ">=20"

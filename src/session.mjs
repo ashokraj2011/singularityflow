@@ -30,7 +30,11 @@ async function writeLocalJson(file, value) {
   return value;
 }
 
-async function choose(label, entries, { selection = null } = {}) {
+/**
+ * @param {string|null} nonInteractiveHint Names the escape a caller offers, so a surface that cannot
+ *   reach a terminal is told how to answer instead of only being told that it failed to.
+ */
+async function choose(label, entries, { selection = null, nonInteractiveHint = null } = {}) {
   if (selection != null) {
     if (!entries.some(([id]) => id === selection)) throw new SingularityFlowError(`Unknown ${label} '${selection}'.`);
     return selection;
@@ -47,7 +51,9 @@ async function choose(label, entries, { selection = null } = {}) {
         ?? (label === 'intake source' ? 'manual' : undefined);
       if (entries.some(([id]) => id === selected)) return selected;
     }
-    throw new SingularityFlowError(`Selecting a ${label} requires an interactive terminal.`);
+    throw new SingularityFlowError(
+      `Selecting a ${label} requires an interactive terminal.${nonInteractiveHint ? ` ${nonInteractiveHint}` : ''}`
+    );
   }
   const io = readline.createInterface({ input, output });
   try {
@@ -71,11 +77,11 @@ export async function selectIntakeSource(options = {}) {
   ], options);
 }
 
-export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null, selection = null } = {}) {
+export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null, selection = null, nonInteractiveHint = null } = {}) {
   const allowed = allowedPersonas ? new Set(allowedPersonas) : null;
   const entries = Object.entries(definition.personas).filter(([id]) => !allowed || allowed.has(id));
   if (!entries.length) throw new SingularityFlowError('No configured working lens is available for this action.');
-  const persona = await choose('working lens', entries, { selection });
+  const persona = await choose('working lens', entries, { selection, nonInteractiveHint });
   return setPersonaSession(root, definition, actor, persona, workId);
 }
 

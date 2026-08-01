@@ -304,7 +304,7 @@ Usage:
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT] [--selection-receipt TOKEN]
   singularity-flow initiative resume <INIT-ID> [--fetch]
-  singularity-flow initiative restart <INIT-ID> [--reason TEXT]
+  singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
   singularity-flow knowledge show <SHA256> [--json]
   singularity-flow knowledge record <decision|learning|uncertainty|result> --title TEXT [--detail TEXT] [--tags a,b]
@@ -326,16 +326,16 @@ Usage:
   singularity-flow initiative approve <OUTPUT|CHECK|phase> [--selection-receipt TOKEN]
   singularity-flow initiative reject <OUTPUT|CHECK|phase> --reason TEXT
   singularity-flow initiative breakdown [--probe] [--json]
-  singularity-flow initiative materialize [--dry-run]
+  singularity-flow initiative materialize [--dry-run] [--confirm INIT-ID]
   singularity-flow initiative jira-adopt EPIC-KEY [--repository JIRA-KEY=REPO] [--dry-run]
   singularity-flow initiative jira-plan
-  singularity-flow initiative jira-apply --plan SHA256
+  singularity-flow initiative jira-apply --plan SHA256 [--confirm INIT-ID]
   singularity-flow initiative sync
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
   singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
-  singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT
+  singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT [--persona ID]
   singularity-flow epic sources [list|add|note|answer|verify|materialize] [--epic EPIC-KEY]
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
     [--text TEXT | --text-file FILE]
@@ -351,11 +351,11 @@ Usage:
     metadata <PLAN-ID> list|set|remove|clear [KEY] [VALUE]
     tasks <PLAN-ID> list|add|update|remove [TASK-ID] [--title TEXT] [--description TEXT]
   singularity-flow epic jira preview|apply [--epic EPIC-KEY] [--plan SHA256]
-  singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256]  Deprecated mapping target
+  singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256] [--confirm EPIC-KEY]  Deprecated mapping target
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]
   singularity-flow epic merge-plan [--epic EPIC-KEY]
-  singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json]
+  singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json] [--confirm EPIC-KEY]
   singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic review-choice begin approve|reject <STORY-KEY> [--epic EPIC-KEY] [--packet SHA256]
   singularity-flow epic review-choice answer <TOKEN> <CHOICE> <ID>
@@ -2165,10 +2165,22 @@ async function chooseInitiativeProfile(portfolio, selection = null) {
   } finally { io.close(); }
 }
 
-async function confirmInitiativeExact(prompt, expected) {
+// Exact confirmation exists so a destructive initiative action is never taken by accident, not so it
+// can only be taken from a terminal. A GUI cannot type into stdin, and the desktop app already passes
+// the confirmation as a parameter over IPC, so `--confirm` is the same contract for every other
+// surface — and matches how `workspace create|archive|update` already take it. The value must still
+// be exact; supplying the wrong one fails loudly rather than falling back to a prompt.
+async function confirmInitiativeExact(prompt, expected, options = null) {
+  const supplied = options ? optionString(options, 'confirm') : undefined;
+  if (supplied !== undefined) {
+    if (supplied !== expected) {
+      throw new SingularityFlowError(`This action requires exact confirmation '${expected}'; --confirm received '${supplied}'.`);
+    }
+    return true;
+  }
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM === expected) return true;
-    throw new SingularityFlowError(`This initiative action requires interactive exact confirmation '${expected}' or a Copilot selection receipt.`);
+    throw new SingularityFlowError(`This initiative action requires exact confirmation '${expected}'. Run it in a terminal, or pass --confirm ${expected}.`);
   }
   const io = readline.createInterface({ input, output });
   try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
@@ -2402,7 +2414,8 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'restart') {
     const confirmed = await confirmInitiativeExact(
       `Restarting ${initiativeId} returns it to its first phase and discards this attempt's artifacts. The branch, Epic identity, and pinned sources are kept; Story-branch world models are not changed.`,
-      initiativeId
+      initiativeId,
+      options
     );
     if (!confirmed) throw new SingularityFlowError('Restart was not confirmed.');
     const session = await loadSession(root, { required: false });
@@ -2697,7 +2710,7 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'jira-apply') {
     const planSha256 = optionString(options, 'plan');
     if (!planSha256) throw new SingularityFlowError('jira-apply requires --plan with the exact reviewed write-plan SHA-256.');
-    if (!(await confirmInitiativeExact(`Apply reviewed Jira plan ${planSha256} for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Jira apply cancelled.');
+    if (!(await confirmInitiativeExact(`Apply reviewed Jira plan ${planSha256} for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Jira apply cancelled.');
     const result = await applyJiraWritePlan(root, initiativeId, {
       planSha256,
       confirmation: initiativeId,
@@ -2715,7 +2728,7 @@ async function initiativeCommand(positionals, options) {
       else console.log(`Would materialize ${preview.review.stories.length} stories across ${Object.keys(preview.review.repositories).length} repositories.`);
       return;
     }
-    if (!(await confirmInitiativeExact(`Materialize every reviewed repository story for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Initiative materialization cancelled.');
+    if (!(await confirmInitiativeExact(`Materialize every reviewed repository story for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Initiative materialization cancelled.');
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     const fresh = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
@@ -3402,7 +3415,15 @@ async function epicCommand(positionals, options) {
           base: optionString(options, 'base', config.defaultBaseBranch),
           actor
         });
-      const selectedPersona = await selectPersona(root, config, actor, reservation.id);
+      // The Jira route answers this prompt from a selection receipt, but a receipt is bound to an
+      // identifier that already exists and a local Epic's identifier is minted by the reservation
+      // above — so there is nothing to bind to until the command is already running. `--persona`
+      // carries the human's choice instead, exactly as `--profile` already does on this same route.
+      // A lens is prompt context, not identity or approval authority, so nothing is weakened.
+      const selectedPersona = await selectPersona(root, config, actor, reservation.id, {
+        selection: optionString(options, 'persona') ?? null,
+        nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+      });
       const source = {
         type: 'manual',
         id: reservation.id,
@@ -3773,7 +3794,7 @@ async function epicCommand(positionals, options) {
         console.log(`${preview.stories.length} local Story branches are ready to materialize across ${Object.keys(preview.repositories).length} repositories.`);
         return;
       }
-      if (!(await confirmInitiativeExact(`Start ${preview.stories.length} local Stories and canonical Git branches for ${initiativeId}?`, initiativeId))) {
+      if (!(await confirmInitiativeExact(`Start ${preview.stories.length} local Stories and canonical Git branches for ${initiativeId}?`, initiativeId, options))) {
         throw new SingularityFlowError('Local Story creation cancelled.');
       }
       await registerInitiativeEvidence(root, {
@@ -3823,7 +3844,7 @@ async function epicCommand(positionals, options) {
       console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
       return;
     }
-    if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId))) throw new SingularityFlowError('Epic Story creation cancelled.');
+    if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Epic Story creation cancelled.');
     const applied = await applyJiraWritePlan(root, initiativeId, {
       planSha256,
       confirmation: initiativeId,
@@ -3878,7 +3899,7 @@ async function epicCommand(positionals, options) {
       readiness.stories.forEach((story) => console.log(`${story.ready ? '✓' : story.blocking ? '!' : '○'} ${story.workId} · ${story.status}${story.problems.length ? ` · ${story.problems.join('; ')}` : ''}`));
       return;
     }
-    if (!(await confirmInitiativeExact(`Mark Epic ${initiativeId} complete against the exact Story review and conformance hashes?`, initiativeId))) {
+    if (!(await confirmInitiativeExact(`Mark Epic ${initiativeId} complete against the exact Story review and conformance hashes?`, initiativeId, options))) {
       throw new SingularityFlowError('Epic completion cancelled.');
     }
     const synchronized = await syncInitiativeRepositories(root, initiativeId);

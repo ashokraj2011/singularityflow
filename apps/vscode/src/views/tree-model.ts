@@ -334,7 +334,7 @@ function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
     id: `wm:view:${view.id}`,
     label: view.id,
     description: view.references.length ? `${view.references.length} references` : 'no references',
-    icon: 'symbol-structure',
+    icon: 'milestone',
     path: `${model?.root ?? 'singularity/world-model'}/views/${view.id}.md`,
     contextValue: 'sflow.config'
   })));
@@ -346,7 +346,7 @@ function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
     description: built
       ? `${views.length} ${views.length === 1 ? 'view' : 'views'}`
       : 'not built',
-    icon: 'globe',
+    icon: 'book',
     tooltip: built
       ? `Generated ${model?.generatedAt}. Every governed prompt is grounded against these views.`
       : 'Nothing has been generated. Governed prompts have no repository knowledge to draw on.',
@@ -377,7 +377,7 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
   const sets: Array<{ id: string; label: string; icon: string; files: Array<{ path: string; name: string }> }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
     { id: 'prompts', label: 'Lens prompts', icon: 'comment-discussion', files: snapshot.personaPrompts ?? [] },
-    { id: 'skills', label: 'Prompt packs', icon: 'library', files: snapshot.repositorySkills ?? [] }
+    { id: 'skills', label: 'Prompt packs', icon: 'book', files: snapshot.repositorySkills ?? [] }
   ];
 
   const nodes: TreeNode[] = sets.map((set) => ({
@@ -453,7 +453,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
     children: [
       {
         kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
-        description: 'phases, lenses, grounding', icon: 'symbol-namespace',
+        description: 'phases, lenses, grounding', icon: 'layers',
         path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'
       },
       {
@@ -464,7 +464,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       ...fileSetNodes(snapshot),
       {
         kind: 'group', id: 'config:personas', label: 'Working lenses',
-        description: personas.length ? `${personas.length}` : 'none', icon: 'person',
+        description: personas.length ? `${personas.length}` : 'none', icon: 'eye',
         children: personas.map(([id, persona]) => ({
           kind: 'artifact' as const,
           id: `persona:${id}`,
@@ -531,7 +531,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         kind: 'message' as const,
         id: `gate-error:${index}`,
         label: message,
-        icon: 'circle-slash'
+        icon: 'circle-large-outline'
       }))
     });
   }
@@ -551,13 +551,13 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       id: 'packs',
       label: 'Artifact packs',
       description: `${packs.filter((pack) => pack.members.every((member) => member.authored)).length}/${packs.length} complete`,
-      icon: 'package',
+      icon: 'archive',
       children: packs.map((pack) => ({
         kind: 'pack' as const,
         id: `pack:${pack.id}`,
         label: pack.label,
         description: `${pack.members.filter((member) => member.authored).length}/${pack.members.length}`,
-        icon: 'package',
+        icon: 'archive',
         // A pack is approvable once every member exists; that is what makes it a reviewable unit
         // rather than a folder.
         ...(packApproval(state.phaseOrder, state.initiative.id, pack) ?? {}),

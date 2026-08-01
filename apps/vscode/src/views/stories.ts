@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { buildStories, type StoryView, type Stories } from './stories-model.ts';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATE_PILL: Record<string, { className: string; label: string }> = {
@@ -25,7 +25,7 @@ function storyHtml(story: StoryView): string {
   return `
   <article class="card ${story.state === 'blocked' ? 'blocked' : story.state === 'planned' ? '' : 'others'}">
     <div class="card-head">
-      <h3>${escape(story.workId)}</h3>
+      <h3>${icon('story')}${escape(story.workId)}</h3>
       <span class="pill ${pill?.className ?? ''}">${escape(pill?.label ?? '')}</span>
       <span class="grow"></span>
       ${story.blocking ? '' : '<span class="muted">non-blocking</span>'}
@@ -70,7 +70,7 @@ function bodyHtml(stories: Stories): string {
   const repositories = stories.groups.length;
   return `
   <header>
-    <h1>Stories</h1>
+    <h1>${icon('story', { size: 20 })}Stories</h1>
     <p class="meta">
       ${escape(stories.title)} · ${stories.planned} ${stories.planned === 1 ? 'Story' : 'Stories'}
       across ${repositories} ${repositories === 1 ? 'repository' : 'repositories'} ·
@@ -80,7 +80,7 @@ function bodyHtml(stories: Stories): string {
 
   ${stories.order.length > 1 ? `
   <section class="plain">
-    <h2>Merge order</h2>
+    <h2>${icon('merge')}Merge order</h2>
     <p class="question">Derived from the dependencies the plan declares; this is the sequence the repositories must land in.</p>
     <ul class="chain">${stories.order.map((planId) => `<li>${escape(planId)}</li>`).join('')}</ul>
   </section>` : ''}
@@ -93,7 +93,7 @@ function bodyHtml(stories: Stories): string {
 
   ${stories.groups.map((group) => `
   <section>
-    <h2>${escape(group.repository)} <span class="muted">${group.stories.length}</span></h2>
+    <h2>${icon('repository')}${escape(group.repository)} <span class="muted">&nbsp;${group.stories.length}</span></h2>
     ${group.stories.map(storyHtml).join('')}
   </section>`).join('')}`;
 }

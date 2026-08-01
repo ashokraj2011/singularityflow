@@ -8,7 +8,7 @@
 import {
   capabilityDetail, flattenCapabilities, formatPolicyValue, parentChoices
 } from './capability-model.ts';
-import { escape } from './webview.ts';
+import { escape, icon } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
@@ -30,8 +30,8 @@ function treeHtml(tree: CapabilityNode[], selected: string | null): string {
             <a href="#" data-select="${escape(row.id)}">${escape(row.name)}</a>
           </td>
           <td class="muted">${escape(row.kind)}</td>
-          <td>${row.repository ? `<code>${escape(row.repository)}</code>` : '<span class="muted">—</span>'}</td>
-          <td class="muted">${escape(row.jira?.projectKey ?? '—')}</td>
+          <td>${row.repository ? `${icon('repository')}<code>${escape(row.repository)}</code>` : '<span class="muted">—</span>'}</td>
+          <td class="muted">${row.jira?.projectKey ? `${icon('tracker')}${escape(row.jira.projectKey)}` : '—'}</td>
           <td class="muted">${escape((row.teams ?? []).join(', ') || '—')}</td>
         </tr>`).join('')}</tbody>
     </table>`;
@@ -77,7 +77,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   return `
   <div class="card-head">
     <h3>${escape(detail.name)}</h3>
-    <span class="pill ${detail.delivery ? 'ok' : ''}">${detail.delivery ? 'delivers' : 'groups'}</span>
+    <span class="pill ${detail.delivery ? 'ok' : ''}">${icon(detail.delivery ? 'repository' : 'capability')}${detail.delivery ? 'delivers' : 'groups'}</span>
     <span class="grow"></span>
     <span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span>
   </div>
@@ -97,13 +97,13 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     grouping. Naming a repository is refused while this capability still contains others, and the
     repository has to be one the portfolio declares.</p>
 
-  <h2>Jira</h2>
+  <h2>${icon('tracker')}Jira</h2>
   <p>
     <label>Project <input type="text" value="${escape(detail.jira?.projectKey ?? '')}" data-field="jira.projectKey" size="14"></label>
     <label>Board <input type="text" value="${escape(detail.jira?.board ?? '')}" data-field="jira.board"></label>
   </p>
 
-  <h2>Teams</h2>
+  <h2>${icon('teams')}Teams</h2>
   <p><input type="text" value="${escape(detail.teams.join(', '))}" data-field="teams"
       placeholder="comma separated" size="42"></p>
 
@@ -113,7 +113,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     <button class="link" data-remove="${escape(detail.id)}">Remove</button>
   </p>
 
-  <h2>Policy</h2>
+  <h2>${icon('policy')}Policy</h2>
   ${overridden.length ? `
     <p class="blockers">${overridden.length === 1
     ? 'One value declared here is'
@@ -136,7 +136,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
        <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>.</p>`}
 
   ${detail.ships.length ? `
-  <h2>Ships from</h2>
+  <h2>${icon('repository')}Ships from</h2>
   <table>
     <thead><tr><th>Capability</th><th>Repository</th></tr></thead>
     <tbody>${detail.ships.map((ship) => `
@@ -153,7 +153,7 @@ export function bodyHtml(
 ): string {
   return `
   <header>
-    <h1>Capabilities</h1>
+    <h1>${icon('capability', { size: 20 })}Capabilities</h1>
     <p class="meta">What this organisation builds, as a tree of any depth. Jira and teams belong to a
       capability rather than to a workspace: they stay true regardless of who has cloned what.</p>
   </header>

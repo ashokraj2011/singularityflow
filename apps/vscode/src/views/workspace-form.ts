@@ -14,7 +14,7 @@
  * failure. In that case the form falls back to naming repositories by URL, and says that describing
  * capabilities is the thing to do next.
  */
-import { escape } from './webview.ts';
+import { escape, icon } from './webview.ts';
 
 export interface FormRepository {
   id: string;
@@ -225,8 +225,8 @@ function leadHtml(form: WorkspaceForm): string {
       <code>${escape(form.lead.url)}</code>
       <span class="muted">→ ${escape(form.lead.id)} · ${escape(form.lead.defaultBranch)}</span>
       ${form.lead.hasStateBranch
-    ? `<span class="pill ok">${escape(form.lead.stateBranch)}</span>`
-    : `<span class="muted">no ${escape(form.lead.stateBranch)} branch yet</span>`}
+    ? `<span class="pill ok">${icon('branch')}${escape(form.lead.stateBranch)}</span>`
+    : `<span class="muted">${icon('branch')}no ${escape(form.lead.stateBranch)} branch yet</span>`}
       <button class="link" data-clear="lead">Change</button>
     </p>
     ${form.lead.hasStateBranch
@@ -238,7 +238,7 @@ function leadHtml(form: WorkspaceForm): string {
     <p>
       <label>Clone URL <input type="text" value="${escape(form.leadDraft)}" data-draft="lead" size="46"
         placeholder="https://github.com/org/platform.git"${form.adding ? ' disabled' : ''}></label>
-      <button data-read="lead"${form.adding || !form.leadDraft.trim() ? ' disabled' : ''}>
+      <button class="secondary" data-read="lead"${form.adding || !form.leadDraft.trim() ? ' disabled' : ''}>
         ${form.adding ? 'Reading…' : 'Read its capability map'}
       </button>
     </p>
@@ -270,7 +270,7 @@ function capabilityHtml(form: WorkspaceForm): string {
           <td style="padding-left:${capability.depth * 1.2}rem">${escape(capability.name)}
             ${inherited ? '<span class="muted">included by its parent</span>' : ''}</td>
           <td>${capability.repository
-      ? `<code>${escape(capability.repository)}</code>${capability.url ? '' : ' <span class="pill bad">no clone URL</span>'}`
+      ? `${icon('repository')}<code>${escape(capability.repository)}</code>${capability.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`
       : '<span class="muted">—</span>'}</td>
         </tr>`;
   }).join('')}</tbody>
@@ -288,7 +288,7 @@ function repositoryRows(form: WorkspaceForm): string {
   const derived = hasCapabilityMap(form);
   return repositories.map((repository) => `
     <tr>
-      <td>${repository.id === form.lead?.id ? '<span class="pill ok">lead</span>' : ''}</td>
+      <td>${repository.id === form.lead?.id ? `<span class="pill ok">${icon('repository')}lead</span>` : ''}</td>
       <td>${derived
     ? escape(repository.id)
     : `<input type="text" value="${escape(repository.id)}" data-id="${escape(repository.id)}" size="18">`}</td>
@@ -322,7 +322,7 @@ function addRepositoryHtml(form: WorkspaceForm): string {
     ? `<strong>${urls.length} URLs given</strong> — each is added under the identifier read from its own URL.`
     : 'Paste several URLs separated by spaces to add them at once.'}</span></p>
     <p class="card-foot">
-      <button data-add="repository"${form.adding || !urls.length ? ' disabled' : ''}>
+      <button class="secondary" data-add="repository"${form.adding || !urls.length ? ' disabled' : ''}>
         ${form.adding ? 'Reading the remote…' : several ? `Add ${urls.length} repositories` : 'Add repository'}
       </button>
     </p>
@@ -335,13 +335,13 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   const blocked = uncloneable(form);
   return `
   <header>
-    <h1>New workspace</h1>
+    <h1>${icon('workspace', { size: 20 })}New workspace</h1>
     <p class="meta">The capabilities a team works on together, and the directory they work in. The
       repositories follow: a capability that ships is the thing that names one.</p>
   </header>
 
   <section class="plain">
-    <h2>Working directory</h2>
+    <h2>${icon('directory')}Working directory</h2>
     <p>
       <button class="secondary" data-choose="base">Choose folder…</button>
       ${form.base ? `<code>${escape(form.base)}</code>` : '<span class="muted">Not chosen</span>'}
@@ -349,7 +349,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   </section>
 
   <section>
-    <h2>Identity</h2>
+    <h2>${icon('workspace')}Identity</h2>
     <p>
       <label>Identifier <input type="text" value="${escape(form.id)}" data-field="id" placeholder="checkout-platform"></label>
     </p>
@@ -359,19 +359,19 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   </section>
 
   <section>
-    <h2>Lead repository</h2>
+    <h2>${icon('repository')}Lead repository</h2>
     <p class="question">It holds the capability map and the governed state branch, so it is named
       first and everything else is read from it.</p>
     ${leadHtml(form)}
   </section>
 
   <section>
-    <h2>Capabilities</h2>
+    <h2>${icon('capability')}Capabilities</h2>
     ${capabilityHtml(form)}
   </section>
 
   <section>
-    <h2>Repositories</h2>
+    <h2>${icon('git')}Repositories</h2>
     <p class="question">${hasCapabilityMap(form)
     ? 'What the chosen capabilities deliver from. Cloned when the workspace is created.'
     : 'Named directly, because this lead repository has no capability map yet.'}</p>
@@ -387,8 +387,8 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 
   <section>
     ${problems.length
-    ? `<h2>Before this can be created</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-    : `<h2>Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} will be cloned into <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, with <code>${escape(form.lead?.id ?? '')}</code> as lead.</p>`}
+    ? `<h2>${icon('bad')}Before this can be created</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
+    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} will be cloned into <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, with <code>${escape(form.lead?.id ?? '')}</code> as lead.</p>`}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-submit="create" ${problems.length || form.busy ? 'disabled' : ''}>

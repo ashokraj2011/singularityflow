@@ -10,7 +10,7 @@
  */
 import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
@@ -68,12 +68,12 @@ function cardHtml(approval: PendingApproval): string {
 
 function groupHtml(title: string, approvals: PendingApproval[]): string {
   if (!approvals.length) return '';
-  return `<section><h2>${escape(title)}</h2>${approvals.map(cardHtml).join('')}</section>`;
+  return `<section><h2>${icon('approval')}${escape(title)}</h2>${approvals.map(cardHtml).join('')}</section>`;
 }
 
 function bodyHtml(approvals: Approvals): string {
   if (approvals.empty) {
-    return `<header><h1>Approvals</h1></header>
+    return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
       <div class="empty"><p>${escape(approvals.empty)}</p></div>`;
   }
 
@@ -83,7 +83,7 @@ function bodyHtml(approvals: Approvals): string {
 
   return `
   <header>
-    <h1>Approvals</h1>
+    <h1>${icon('approval', { size: 20 })}Approvals</h1>
     <p class="meta">
       ${escape(approvals.initiativeId)} ·
       ${yours.length ? `<strong>${yours.length} waiting for you</strong>` : 'nothing waiting for you'}
@@ -97,7 +97,7 @@ function bodyHtml(approvals: Approvals): string {
 
   ${approvals.obstacles.length ? `
   <section>
-    <h2>Before this phase can close</h2>
+    <h2>${icon('gate')}Before this phase can close</h2>
     <ul class="blockers">${approvals.obstacles.map((obstacle) => `<li>${escape(obstacle)}</li>`).join('')}</ul>
   </section>` : ''}`;
 }

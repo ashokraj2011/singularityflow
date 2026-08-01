@@ -964,7 +964,7 @@ test('the form renders each repository with what was read from its remote', () =
   const html = workspaceFormHtml(form);
   assert.match(html, /https:\/\/example\.com\/api\.git/);
   assert.match(html, /trunk/);
-  assert.match(html, /<span class="pill ok">state<\/span>/, 'the state branch is already there');
+  assert.match(html, /<span class="pill ok">[\s\S]*?state<\/span>/, 'the state branch is already there');
   assert.match(html, /<button data-submit="create" >/);
 });
 
@@ -988,7 +988,7 @@ test('a repository is added by a form on the page, not by a prompt over it', () 
   assert.match(html, /Add a repository/);
   assert.match(html, /data-draft="url"/);
   assert.match(html, /data-draft="id"/);
-  assert.match(html, /<button data-add="repository" disabled>/);
+  assert.match(html, /<button class="secondary" data-add="repository" disabled>/);
   assert.match(html, /read from the URL/, 'the identifier is optional and says why');
 });
 
@@ -996,7 +996,7 @@ test('the add button counts the URLs actually given', () => {
   const base = { ...EMPTY_FORM, lead: repository('platform') };
   const one = { ...base, draft: { ...EMPTY_DRAFT, url: ' https://example.com/api.git ' } };
   assert.deepEqual(draftUrls(one.draft), ['https://example.com/api.git']);
-  assert.match(workspaceFormHtml(one), /<button data-add="repository">\s*Add repository/);
+  assert.match(workspaceFormHtml(one), /<button class="secondary" data-add="repository">\s*Add repository/);
 
   // Several at once is the case the identifier field cannot serve, so it is disabled and the form
   // says what will happen instead of silently naming three repositories one thing.
@@ -1014,7 +1014,7 @@ test('while a remote is being read the form says so and refuses a second read', 
   const form = { ...EMPTY_FORM, adding: true, leadDraft: 'https://example.com/platform.git' };
   const html = workspaceFormHtml(form);
   assert.match(html, /Reading…/);
-  assert.match(html, /<button data-read="lead" disabled>/);
+  assert.match(html, /<button class="secondary" data-read="lead" disabled>/);
   assert.match(html, /data-draft="lead"[\s\S]{0,120}disabled/);
 });
 
@@ -1529,3 +1529,55 @@ test('a capability that ships is rendered as one whatever its kind says', () => 
   assert.equal(flattenCapabilities(withMap.capabilityMap.capabilities).length, 2);
 });
 
+
+const { icon, STYLE } = await import(source('views/webview.ts'));
+
+test('icons are inline paths, so no font has to be let through the CSP', () => {
+  // A codicon font would need a font-src in a policy that currently allows nothing at all. These
+  // inherit currentColor instead, which is also why they follow status colours and disabled states.
+  const rendered = icon('repository');
+  assert.match(rendered, /^<svg class="ico"/);
+  assert.match(rendered, /stroke="currentColor"/);
+  assert.doesNotMatch(rendered, /fill="[^n]/, 'stroked, not filled, so weight matches the text');
+  assert.match(icon('capability', { size: 20 }), /width="20" height="20"/);
+
+  // A name nobody drew costs the reader nothing rather than rendering an empty box.
+  assert.equal(icon('no-such-icon'), '');
+});
+
+test('every domain noun has an icon, so nothing falls back to a bare label', () => {
+  for (const name of [
+    'git', 'repository', 'branch', 'commit', 'merge', 'code',
+    'capability', 'directory', 'workspace', 'teams',
+    'approval', 'policy', 'gate', 'epic', 'story', 'tracker', 'document', 'impact',
+    'ok', 'wait', 'bad'
+  ]) {
+    assert.notEqual(icon(name), '', `${name} has no icon`);
+  }
+});
+
+test('exactly one filled button per page, so the consequential action is findable', () => {
+  // Three competing primaries is what the last visual pass was about. A filled button means "this
+  // commits something"; everything else is outlined or plain.
+  const pages = [
+    workspaceFormHtml(withMap(['payments'])),
+    workspaceFormHtml(EMPTY_FORM),
+    capabilitiesHtml(capabilityFixture, 'payments', null, null)
+  ];
+  for (const html of pages) {
+    const filled = [...html.matchAll(/<button(?![^>]*class=)[^>]*>/g)];
+    assert.ok(filled.length <= 1, `${filled.length} filled buttons: ${filled.map((m) => m[0]).join(' ')}`);
+  }
+});
+
+test('the accent is defined for both themes and never hard-codes the surface', () => {
+  // The editor's tokens carry background and foreground so the panel stays right in light, dark and
+  // high-contrast; only the accent is ours. A literal surface colour here would break one of them.
+  assert.match(STYLE, /--sf-accent:/);
+  assert.match(STYLE, /@media \(prefers-color-scheme: dark\)[\s\S]*--sf-accent:/);
+  assert.match(STYLE, /background: var\(--vscode-input-background\)/);
+  assert.match(STYLE, /color: var\(--vscode-foreground\)/);
+  assert.doesNotMatch(STYLE, /background:\s*#(fff|ffffff|000|000000)\b/i);
+  // Pill-shaped, which is the shape the whole language is built on.
+  assert.match(STYLE, /button \{[\s\S]*?border-radius: 999px/);
+});

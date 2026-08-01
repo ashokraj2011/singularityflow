@@ -70,6 +70,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.openApprovals",
+        "title": "Singularity Flow: Approvals",
+        "icon": "$(verified)"
+      },
+      {
         "command": "singularityFlow.addSource",
         "title": "Singularity Flow: Pin a Source",
         "icon": "$(new-file)"
@@ -121,19 +126,24 @@
           "group": "navigation@0"
         },
         {
-          "command": "singularityFlow.openJourney",
+          "command": "singularityFlow.openApprovals",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@1"
         },
         {
+          "command": "singularityFlow.openJourney",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@3"
+        },
+        {
           "command": "singularityFlow.openReconciliation",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@2"
+          "group": "navigation@4"
         },
         {
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@3"
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [

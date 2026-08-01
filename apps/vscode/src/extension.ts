@@ -17,6 +17,7 @@ import { WorkspacePanel } from './views/workspace-panel.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
+import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -323,7 +324,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (ran) await store.refresh();
   };
 
+  /**
+   * Acting on an approval card.
+   *
+   * The page names a card; which approval that is was resolved from the snapshot before this runs,
+   * so the subject and the confirmation string come from governed state rather than the page.
+   */
+  const onApprovalsMessage = async (message: ApprovalsMessage): Promise<void> => {
+    const { approval } = message;
+    const initiative = store.current.snapshot?.initiative;
+    if (message.type === 'open') {
+      const output = initiative?.state.phases[approval.phase]?.outputs?.[approval.subject];
+      if (output) {
+        await openArtifact(repository, {
+          kind: 'artifact', id: approval.id, label: approval.label, path: output.path
+        });
+      }
+      return;
+    }
+    if (message.type === 'approve') {
+      return runNode({
+        kind: 'action', id: approval.id, label: approval.label,
+        approve: {
+          initiativeId: initiative?.state.initiative.id ?? '',
+          subject: approval.subject,
+          expected: approval.expected,
+          summary: `Approve ${approval.label}`
+        }
+      });
+    }
+    // Rejecting needs a reason: an invalidation nobody can explain is worse than none at all.
+    const reason = await vscode.window.showInputBox({
+      title: `Reject ${approval.label}`,
+      prompt: 'Why is this being sent back? Recorded with the decision.',
+      ignoreFocusOut: true,
+      validateInput: (value) => (value.trim() ? null : 'A reason is required.')
+    });
+    if (!reason?.trim()) return;
+    await runNode({
+      kind: 'action', id: approval.id, label: approval.label,
+      command: ['initiative', 'reject', approval.subject, '--reason', reason.trim()]
+    });
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('singularityFlow.openApprovals',
+      () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); })),
     vscode.commands.registerCommand('singularityFlow.startEpic', startEpic),
     vscode.commands.registerCommand('singularityFlow.addSource', addSource),
     vscode.commands.registerCommand('singularityFlow.refresh', () => store.refresh()),

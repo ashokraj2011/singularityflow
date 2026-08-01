@@ -15,7 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,6 +31,57 @@ const EMAIL = 'initiative.owner@example.com';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
+
+
+/**
+ * The bundle these tests load must match the sources they are testing.
+ *
+ * dist/ is not in Git, so a fresh clone has no bundle and a clone that pulled new sources has an old
+ * one. An old one is the dangerous case: the tests ran happily against it and failed with assertions
+ * about missing tree nodes and unregistered commands, which describe the bundle rather than the bug.
+ *
+ * So: build it when esbuild is available, and otherwise refuse to pretend. `reason` is non-null only
+ * when the bundle cannot be made current, and every test reports that reason rather than skipping in
+ * silence.
+ */
+function bundleState() {
+  const extensionRoot = path.join(packageRoot, 'apps', 'vscode');
+  const newestSource = (directory) => {
+    let newest = 0;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      newest = Math.max(newest, entry.isDirectory() ? newestSource(target) : statSync(target).mtimeMs);
+    }
+    return newest;
+  };
+
+  const sources = newestSource(path.join(extensionRoot, 'src'));
+  const built = existsSync(bundle) ? statSync(bundle).mtimeMs : 0;
+  if (built > sources) return { reason: null };
+
+  const esbuild = path.join(extensionRoot, 'node_modules', '.bin', 'esbuild');
+  if (!existsSync(esbuild)) {
+    return {
+      reason: built
+        ? 'apps/vscode/dist/extension.cjs is older than its sources and esbuild is not installed. Run: npm install && npm run vscode:build'
+        : 'apps/vscode/dist/extension.cjs is not built and esbuild is not installed. Run: npm install && npm run vscode:build'
+    };
+  }
+  const build = spawnSync(process.execPath, [path.join(extensionRoot, 'esbuild.mjs')], {
+    cwd: extensionRoot, encoding: 'utf8'
+  });
+  if (build.status !== 0) return { reason: `The extension bundle failed to build: ${build.stderr.trim()}` };
+  return { reason: null };
+}
+
+const BUNDLE = bundleState();
+
+/** Every test in this file needs a current bundle; none of them may quietly run without one. */
+function requireBundle(t) {
+  if (!BUNDLE.reason) return true;
+  t.skip(BUNDLE.reason);
+  return false;
+}
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
@@ -213,10 +264,7 @@ function context() {
 }
 
 test('the built extension activates against a real repository and populates the tree', async (t) => {
-  if (!existsSync(bundle)) {
-    t.skip('apps/vscode/dist/extension.cjs is not built; run npm run vscode:build');
-    return;
-  }
+  if (!requireBundle(t)) return;
   const root = await demoRepository();
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
@@ -278,7 +326,7 @@ test('the built extension activates against a real repository and populates the 
 });
 
 test('a folder that is not a Singularity Flow repository still gets a provider that says so', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // This test previously asserted that NO tree was registered, which is exactly what made VS Code
   // report "There is no data provider registered that can provide view data" — an error about the
   // extension's internals, shown instead of anything about the reader's repository.
@@ -304,7 +352,7 @@ test('a folder that is not a Singularity Flow repository still gets a provider t
 });
 
 test('a window with no folder open explains that, rather than showing no provider', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);
@@ -316,7 +364,7 @@ test('a window with no folder open explains that, rather than showing no provide
 });
 
 test('the view activates on being opened, not only when a workflow file happens to exist', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // Without onView, opening the view in any other folder never activates the extension at all, and
   // the contributed view sits there with nothing behind it.
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
@@ -326,7 +374,7 @@ test('the view activates on being opened, not only when a workflow file happens 
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const root = await demoRepository();
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
@@ -350,7 +398,7 @@ async function activated() {
 }
 
 test('the journey panel opens with a strict CSP and no remote origins', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const { registered } = await activated();
   await registered.commands.get('singularityFlow.openJourney')();
 
@@ -372,7 +420,7 @@ test('the journey panel opens with a strict CSP and no remote origins', async (t
 });
 
 test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The whole point of the B5 escapes was that a GUI *can* answer these prompts, not that it may
   // skip them. If this ever passes without a human typing the string, the guard is gone.
   const { registered } = await activated();
@@ -398,7 +446,7 @@ test('approving from the editor still demands the exact confirmation a terminal 
 });
 
 test('a self-approval is refused by the engine and re-asked as an explicit acknowledgement', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The engine refuses rather than silently recording a non-independent approval. The editor must
   // surface that refusal as a decision, not paper over it by always passing the flag.
   const { root, registered } = await activated();
@@ -434,7 +482,7 @@ test('a self-approval is refused by the engine and re-asked as an explicit ackno
 });
 
 test('a confirmed and acknowledged approval actually lands, and the views refresh', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The mirror of the previous test: proving it refuses is only half the claim. This proves the
   // editor can complete a governed approval, and that what it recorded is a real approval.
   const { root, registered } = await activated();
@@ -476,7 +524,7 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
 });
 
 test('the reconciliation panel opens under the same CSP as the journey', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // One shared implementation of the security posture, so a second panel cannot quietly relax it.
   const { registered } = await activated();
   await registered.commands.get('singularityFlow.openReconciliation')();
@@ -503,7 +551,7 @@ test('the reconciliation panel opens under the same CSP as the journey', async (
 });
 
 test('a placeholder in a suggested action opens a file picker instead of running literally', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The bug this closes: the sources step suggests `--file <PATH>`, and running it verbatim failed
   // on a file literally named "<PATH>".
   const { root, registered } = await activated();
@@ -529,7 +577,7 @@ test('a placeholder in a suggested action opens a file picker instead of running
 });
 
 test('declining the file picker runs nothing', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   registered.pickedFile = null; // the person dismissed the dialog
 
@@ -547,7 +595,7 @@ test('declining the file picker runs nothing', async (t) => {
 });
 
 test('pinning a source from the editor puts it in the tree', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   const brief = path.join(root, 'research.md');
   await writeFile(brief, '# Research\n');
@@ -564,7 +612,7 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
 });
 
 test('an Epic can be started and its first source pinned entirely from the editor', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // Intake end to end through the extension's own commands: the two steps that had no command at
   // all until now. A repository initialized but with no Epic is where a real user starts.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-'));
@@ -617,7 +665,7 @@ test('an Epic can be started and its first source pinned entirely from the edito
 });
 
 test('starting an Epic before any approver is named says so first, and offers the file to fix', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The engine refuses this, correctly. What it must not do is refuse *after* five questions with a
   // message naming a YAML key — the precondition is knowable before anything is asked.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-noapprover-'));
@@ -645,7 +693,7 @@ test('starting an Epic before any approver is named says so first, and offers th
 });
 
 test('creating a workspace is possible before any repository is open', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   // The command for when there is nothing to serve yet, which is exactly when activation stops
   // early. Registering it after those returns would make it unreachable when it is most needed.
   const { api, registered } = stubVscode();
@@ -659,7 +707,7 @@ test('creating a workspace is possible before any repository is open', async (t)
 });
 
 test('a workspace is created with its repositories, lead, and orphan state branch', async (t) => {
-  if (!existsSync(bundle)) { t.skip('bundle not built'); return; }
+  if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-'));
   // Two local repositories to clone from, so this needs no network.
   const origins = {};

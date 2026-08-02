@@ -1581,3 +1581,14 @@ test('a window with nothing open can govern a repository from scratch', async (t
   assert.match(readFileSync(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /acme-platform/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
+
+test('the loaded build identifies itself, because the version cannot', async (t) => {
+  if (!requireBundle(t)) return;
+  // The extension's version does not change between development reinstalls, so neither VS Code, the
+  // person reloading, nor whoever is helping them can tell two builds apart — which turns "did the
+  // fix land?" into guesswork on both sides.
+  const { registered } = await activated();
+  const stamp = registered.output.find((line) => String(line).startsWith('Singularity Flow — build '));
+  assert.ok(stamp, 'the build stamp is the first thing in the output channel');
+  assert.match(stamp, /build [0-9a-f]{7}(\+local)? \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z/);
+});

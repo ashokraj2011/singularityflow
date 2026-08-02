@@ -27,7 +27,7 @@ import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-pane
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { capabilityArgv } from './views/capability-model.ts';
-import { unavailableTree, type TreeNode } from './views/tree-model.ts';
+import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import {
   buildCapabilityTree, buildRemoteCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf,
@@ -120,9 +120,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void showMappedOrganisation();
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
-    context.subscriptions.push(provider);
+    const configuration = new LifecycleTreeProvider(null, [{
+      kind: 'message', id: 'configuration:unavailable', label: 'Configuration is unavailable',
+      description: 'open a governed workspace', tooltip: detail, icon: 'info',
+      runCommand: 'singularityFlow.openWorkspaces'
+    }]);
+    context.subscriptions.push(provider, configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
       treeDataProvider: provider
+    }), vscode.window.createTreeView('singularityFlow.configuration', {
+      treeDataProvider: configuration
     }));
   };
 
@@ -168,13 +175,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
-      const open = await vscode.window.showInformationMessage(
-        `Workspace created with ${created.lead} as lead.`,
-        'Open lead repository', 'Open workspace folder');
-      const target = open === 'Open lead repository' ? created.leadDirectory
-        : open === 'Open workspace folder' ? created.directory
-          : null;
-      if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: false });
+      void vscode.window.showInformationMessage(
+        `Workspace created. Switching to ${created.lead} in this window.`);
+      await switchWorkspace(created.directory, created.leadDirectory, created.lead);
     }, async () => {
       // The form's own way out of the empty case: with no organisation mapped there is nothing to
       // choose from, and mapping one is the step that was missed rather than a different task.
@@ -251,10 +254,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.commands.executeCommand('singularityFlow.createWorkspace');
         return null;
       }
-      if (message.type === 'open') {
-        await vscode.commands.executeCommand('vscode.openFolder',
-          vscode.Uri.file(message.row.leadRepositoryPath || message.row.directory),
-          { forceNewWindow: false });
+      if (message.type === 'switch') {
+        await switchWorkspace(
+          message.row.directory,
+          message.row.leadRepositoryPath || message.row.directory,
+          message.row.name
+        );
         return null;
       }
       if (message.type === 'forget') {
@@ -280,7 +285,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     WorkspacesPanel.show(context, await list(), list, async (message) => {
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
-      if (message.type !== 'open') void refreshWorkspaceTree();
+      if (message.type !== 'switch') void refreshWorkspaceTree();
       return failure;
     });
   }));
@@ -303,14 +308,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspaceTree.replace(buildWorkspaceTree([]));
     }
   };
+  /**
+   * Make one workspace current and load its lead repository in this VS Code window.
+   *
+   * The built-in command takes a boolean as its second argument. Passing an object made that object
+   * truthy on VS Code versions that implement the documented boolean signature, which opened an
+   * unwanted second window. `false` means replace/reload this window everywhere.
+   */
+  async function switchWorkspace(target: string, leadPath: string, name: string): Promise<void> {
+    try {
+      const client = new SingularityFlowClient({
+        location: resolveCli({ extensionPath: context.extensionPath }),
+        repository: process.cwd(),
+        onOutput: (text) => output.append(text)
+      });
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Switching to ${name}` },
+        () => client.run(['workspace', 'use', target, '--json'])
+      );
+      await refreshWorkspaceTree();
+      const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (open && path.resolve(open) === path.resolve(leadPath)) {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      } else {
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(leadPath), false);
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
+    }
+  }
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.switchWorkspace',
+    async (node?: TreeNode) => {
+      const workspacePath = workspacePathOf(node) ?? node?.path;
+      if (typeof workspacePath !== 'string' || !workspacePath) return;
+      await switchWorkspace(workspacePath, node?.openPath ?? workspacePath, node?.label ?? workspacePath);
+    }));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspace',
     async (node?: TreeNode) => {
-      // The lead repository, not the workspace directory: that is where the capability map, the
-      // governed state branch and every command's configuration live.
-      const target = node?.openPath ?? workspacePathOf(node);
-      if (!target) return;
-      await vscode.commands.executeCommand('vscode.openFolder',
-        vscode.Uri.file(target), { forceNewWindow: false });
+      await vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
     }));
   /**
    * Choose the workspace to work in.
@@ -325,26 +360,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.useWorkspace',
     async (node?: TreeNode) => {
-      const target = workspacePathOf(node) ?? node?.path;
-      if (typeof target !== 'string' || !target) return;
-      try {
-        const client = new SingularityFlowClient({
-          location: resolveCli({ extensionPath: context.extensionPath }),
-          repository: process.cwd(),
-          onOutput: (text) => output.append(text)
-        });
-        const chosen = await client.run<{ workspace?: { name?: string } }>(
-          ['workspace', 'use', target, '--json']);
-        await refreshWorkspaceTree();
-        const name = chosen.workspace?.name ?? target;
-        const reload = await vscode.window.showInformationMessage(
-          `Working in ${name}.`,
-          { detail: 'Every screen is scoped to this workspace once the window reloads.', modal: false },
-          'Reload window');
-        if (reload === 'Reload window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
-      } catch (error) {
-        void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
-      }
+      await vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
     }));
 
   void refreshWorkspaceTree();
@@ -468,9 +484,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(new ConfigurationValidator(client, repository));
 
   const tree = new LifecycleTreeProvider(store);
-  context.subscriptions.push(tree);
+  const configurationTree = new LifecycleTreeProvider(store, [], buildConfigurationTree);
+  context.subscriptions.push(tree, configurationTree);
   context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
     treeDataProvider: tree,
+    showCollapseAll: true
+  }), vscode.window.createTreeView('singularityFlow.configuration', {
+    treeDataProvider: configurationTree,
     showCollapseAll: true
   }));
 

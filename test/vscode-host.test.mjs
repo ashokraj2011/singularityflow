@@ -340,10 +340,16 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id),
-    ['initiative:INIT-CHECKOUT', 'workflows', 'configuration'],
-    'the Epic, plus the things that belong to the repository rather than to any Epic');
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT'],
+    'Lifecycle contains the active work and intake, not repository settings');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
+
+  const configuration = registered.trees.get('singularityFlow.configuration');
+  assert.ok(configuration, 'repository settings have a dedicated Configuration view');
+  const configurationRoots = configuration.treeDataProvider.getChildren();
+  assert.deepEqual(configurationRoots.map((node) => node.id), ['configuration']);
+  assert.ok(configuration.treeDataProvider.getChildren(configurationRoots[0])
+    .some((node) => node.id === 'config:agents'), 'agents are discoverable under Configuration');
 
   // And the editor-facing mapping produces a usable TreeItem.
   const item = provider.getTreeItem(roots[0]);
@@ -1488,7 +1494,7 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
 
   // Real phases from this repository's own portfolio.
-  assert.match(panel.webview.html, /Lifecycle designer/);
+  assert.match(panel.webview.html, /Workflow designer/);
   assert.match(panel.webview.html, /data-profile-pick/);
   assert.match(panel.webview.html, /Intake|Discover/);
 
@@ -1590,11 +1596,11 @@ test('opening a workspace replaces the current window rather than scattering new
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
   });
-  await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
+  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');
   assert.ok(folder, 'a folder was opened');
-  assert.equal(folder.args[1].forceNewWindow, false);
+  assert.equal(folder.args[1], false, 'the documented boolean signature reuses this window');
   // The lead repository, which is where everything the extension reads actually lives.
   assert.match(folder.args[0].fsPath, /workspaces\/commerce\/repos\/platform$/);
 });

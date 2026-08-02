@@ -153,7 +153,7 @@ export function designerHtml(
 ): string {
   return `
   <header>
-    <h1>${icon('gate', { size: 20 })}Lifecycle designer</h1>
+    <h1>${icon('gate', { size: 20 })}Workflow designer</h1>
     <p class="meta">The phases a profile runs, the artifacts each produces, and the templates they
       start from. An Epic pins all of this when it starts, so an edit here reaches the next Epic —
       not the ones already running.</p>

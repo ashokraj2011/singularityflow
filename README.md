@@ -173,7 +173,17 @@ Workspace setup does not require Jira. See [WORKSPACES.md](WORKSPACES.md).
 
 The editor extension has the same two screens: **Map a Capability** and **New
 Workspace**. Both work from a window with no repository open, which is the state
-anybody starting out is in.
+anybody starting out is in. The Workspaces view has one **Switch** action: it
+makes that workspace active and loads its lead repository in the current VS Code
+window. There is no separate “select, then open” step and it does not create a
+second editor window.
+
+The VS Code sidebar deliberately separates work from setup. **Lifecycle** is the
+intake and delivery view: start work, pin sources, inspect phase artifacts, run
+the next action, and make approval decisions. **Configuration** contains the
+world model, workflow definitions, `workflow.yml`, `portfolio.yml`, artifact
+templates, lens prompts, prompt packs, agents, agent mappings, and working
+lenses. Its toolbar opens the **Workflow designer**, diagnostics, and refresh.
 
 From Copilot, `/sflow-workspaces` lists saved contexts and `/sflow-workspace`
 selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`

@@ -18,6 +18,7 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.lifecycle",
+    "onView:singularityFlow.configuration",
     "onView:singularityFlow.capabilities",
     "onView:singularityFlow.workspaces",
     "workspaceContains:singularity/workflow.yml",
@@ -59,6 +60,10 @@
           "name": "Lifecycle"
         },
         {
+          "id": "singularityFlow.configuration",
+          "name": "Configuration"
+        },
+        {
           "id": "singularityFlow.capabilities",
           "name": "Capabilities"
         }
@@ -97,7 +102,7 @@
       },
       {
         "command": "singularityFlow.openDesigner",
-        "title": "Singularity Flow: Lifecycle Designer",
+        "title": "Singularity Flow: Workflow Designer",
         "icon": "$(symbol-structure)"
       },
       {
@@ -174,6 +179,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "singularityFlow.switchWorkspace",
+        "title": "Singularity Flow: Switch to This Workspace",
+        "icon": "$(arrow-swap)"
+      },
+      {
         "command": "singularityFlow.openWorkspace",
         "title": "Singularity Flow: Open This Workspace",
         "icon": "$(folder-opened)"
@@ -195,16 +205,6 @@
           "command": "singularityFlow.openDashboard",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@2"
-        },
-        {
-          "command": "singularityFlow.openCapabilities",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.createWorkspace",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "9_setup@0"
         },
         {
           "command": "singularityFlow.openApprovals",
@@ -237,11 +237,6 @@
           "group": "navigation@9"
         },
         {
-          "command": "singularityFlow.openWorkspaces",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "9_setup@1"
-        },
-        {
           "command": "singularityFlow.addCapability",
           "when": "view == singularityFlow.capabilities",
           "group": "navigation@0"
@@ -263,8 +258,18 @@
         },
         {
           "command": "singularityFlow.openDesigner",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@8"
+          "when": "view == singularityFlow.configuration",
+          "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.doctor",
+          "when": "view == singularityFlow.configuration",
+          "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.configuration",
+          "group": "navigation@9"
         },
         {
           "command": "singularityFlow.mapCapability",
@@ -319,14 +324,14 @@
           "group": "inline"
         },
         {
-          "command": "singularityFlow.openWorkspace",
+          "command": "singularityFlow.switchWorkspace",
           "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active)?$/",
           "group": "inline"
         },
         {
-          "command": "singularityFlow.useWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace",
-          "group": "inline@0"
+          "command": "singularityFlow.runAction",
+          "when": "view == singularityFlow.configuration && viewItem == sflow.action",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -348,6 +353,10 @@
         },
         {
           "command": "singularityFlow.openWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.useWorkspace",
           "when": "false"
         }
       ]

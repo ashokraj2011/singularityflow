@@ -21,6 +21,8 @@ export interface WorkspaceCreated {
   directory: string;
   lead: string;
   leadDirectory: string;
+  /** The branch the form asked for, or null when it asked for none. */
+  stateBranch: string | null;
 }
 
 export class WorkspacePanel {
@@ -101,13 +103,17 @@ export class WorkspacePanel {
         const client = new SingularityFlowClient({
           location: this.location, repository: this.form.base ?? process.cwd(), onOutput: () => {}
         });
-        const defaults = await client.run<FormRepository>(['workspace', 'inspect', url, '--json']);
+        const stateBranch = this.form.stateBranch.trim();
+        const defaults = await client.run<FormRepository>([
+          'workspace', 'inspect', url, '--json',
+          ...(stateBranch ? ['--state-branch', stateBranch] : [])
+        ]);
         added.push({
           id: defaults.id,
           url: defaults.url,
           defaultBranch: defaults.defaultBranch,
           hasStateBranch: Boolean(defaults.hasStateBranch),
-          stateBranch: defaults.stateBranch ?? 'state'
+          stateBranch: defaults.stateBranch ?? stateBranch ?? 'state'
         });
       } catch (error) {
         failures.push((error as Error).message);
@@ -218,6 +224,7 @@ export class WorkspacePanel {
     // changes — a repository added or removed — not when a character is.
     if (message.type === 'draft' && typeof message.value === 'string') {
       if (message.field === 'lead') this.form.leadDraft = message.value;
+      else if (message.field === 'state-branch') this.form.stateBranch = message.value;
       else if (message.field === 'url' || message.field === 'id') this.form.draft[message.field] = message.value;
       return;
     }
@@ -296,7 +303,10 @@ export class WorkspacePanel {
       if (!directory) throw new Error('The workspace was created but its directory was not reported.');
       const lead = result.workspace?.leadRepository ?? this.form.lead?.id ?? '';
       this.panel.dispose();
-      await this.onCreated({ directory, lead, leadDirectory: `${directory}/repos/${lead}` });
+      await this.onCreated({
+        directory, lead, leadDirectory: `${directory}/repos/${lead}`,
+        stateBranch: this.form.stateBranch.trim() || null
+      });
     } catch (error) {
       this.update({ busy: false, error: (error as Error).message });
     }

@@ -675,12 +675,27 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.match(provider.getChildren()[0].label, /No Epic has been started/);
   assert.equal(provider.getChildren()[0].contextValue, 'sflow.start');
 
-  // Start an Epic: title, description, goal, then profile and working lens.
-  registered.answers = ['One-tap checkout', 'Reduce checkout to a single tap', 'Lift completion to 80%'];
+  // Start an Epic. Everything it needs is on one form, so nothing is asked through a prompt and
+  // every answer stays visible and correctable until the Epic is actually started.
   await registered.commands.get('singularityFlow.startEpic')();
+  const epicPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.startEpic');
+  assert.ok(epicPanel, 'a start-an-Epic panel was created');
+  assert.match(epicPanel.webview.html, /default-src 'none'/);
+  // The profiles came from this repository, with the phases each one runs.
+  assert.match(epicPanel.webview.html, /data-choose-profile="epic-planning"/);
+  assert.match(epicPanel.webview.html, /epic-intake/);
+
+  await epicPanel.post({ type: 'field', field: 'title', value: 'One-tap checkout' });
+  await epicPanel.post({ type: 'field', field: 'description', value: 'Reduce checkout to a single tap' });
+  await epicPanel.post({ type: 'field', field: 'goal', value: 'Lift completion to 80%' });
+  await epicPanel.post({ type: 'profile', id: 'epic-planning' });
+  await epicPanel.post({ type: 'field', field: 'lens', value: 'developer' });
+  await epicPanel.post({ type: 'start' });
+  await until(() => (provider.getChildren()[0]?.kind === 'initiative' ? true : null));
+
   assert.deepEqual(registered.errors, [], 'starting an Epic raised no error');
-  assert.equal(registered.inputBoxes.length, 3, 'each answer was asked for, none guessed');
-  assert.equal(registered.quickPicks.length, 2, 'profile and working lens both chosen');
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+  assert.equal(registered.quickPicks.length, 0, 'nothing was asked through a picker');
 
   const roots = provider.getChildren();
   assert.equal(roots[0].kind, 'initiative', `expected an Epic, got ${roots[0].label}`);
@@ -1082,4 +1097,41 @@ test('a lead repository that has not described what it builds still makes a work
   const failed = await until(() => (panel.webview.html.includes('Reading…') ? null : panel.webview.html));
   assert.match(failed, /absent/);
   assert.equal(registered.warnings.length, 0, 'reported on the form rather than over it');
+});
+
+test('creating a workspace asks nothing through a prompt, including the state branch', async (t) => {
+  if (!requireBundle(t)) return;
+  // The state branch used to be an input box that opened after the panel had closed. Everything the
+  // form needs is now on the form, so a whole workspace can be described without a single prompt —
+  // which is also what makes any of it correctable before it is committed to.
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+
+  assert.match(panel.webview.html, /Workflow state branch/);
+  assert.match(panel.webview.html, /data-draft="state-branch"/);
+
+  // Rename it before the lead is read, so the inspection looks for the branch actually asked for.
+  await panel.post({ type: 'draft', field: 'state-branch', value: 'governance' });
+  await panel.post({ type: 'draft', field: 'lead', value: org.lead });
+  await panel.post({ type: 'read-lead' });
+  await until(() => (panel.webview.html.includes('Commerce') ? panel.webview.html : null));
+
+  assert.match(panel.webview.html, /value="governance"/, 'the name survived reading the lead');
+  assert.doesNotMatch(panel.webview.html, /already on the lead/, 'this remote has no such branch');
+
+  registered.pickedFolder = org.base;
+  await panel.post({ type: 'choose', what: 'base' });
+  await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
+  await panel.post({ type: 'capability', id: 'payments', selected: true });
+  await settle();
+  assert.match(panel.webview.html, /<button data-submit="create" >/);
+
+  // Not one input box, from opening the panel to being ready to create.
+  assert.equal(registered.inputBoxes.length, 0,
+    `asked ${registered.inputBoxes.length} prompts: ${registered.inputBoxes.map((box) => box.title).join(', ')}`);
 });

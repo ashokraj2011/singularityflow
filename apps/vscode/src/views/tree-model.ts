@@ -204,6 +204,12 @@ export function unavailableTree(
       // can do needs a repository, so the two ways to get one are the only useful rows here — and
       // both work from a window with nothing open, which is exactly where this state occurs.
       {
+        kind: 'action', id: 'unavailable:bootstrap',
+        label: 'Govern a repository', description: 'start here',
+        tooltip: 'Clone a repository, write its governed configuration, and create the state branch.',
+        icon: 'rocket', runCommand: 'singularityFlow.bootstrap'
+      },
+      {
         kind: 'action', id: 'unavailable:workspaces', label: 'Find a workspace you already have',
         icon: 'root-folder', runCommand: 'singularityFlow.openWorkspaces'
       },

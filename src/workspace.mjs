@@ -402,7 +402,7 @@ export async function workspaceRepositoryDefaults(repository) {
  * right often enough to hide the times it is wrong — and a workspace cloned on the wrong branch is a
  * confusing thing to debug — so the branches that do exist are consulted first.
  */
-function remoteDefaultBranch(remote, symrefOutput) {
+export function remoteDefaultBranch(remote, symrefOutput) {
   const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
   if (symref?.[1]) return symref[1];
 
@@ -452,8 +452,10 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
 
   // The last path segment, minus a .git suffix, made safe the same way a local folder name is.
   const id = remote
-    .replace(/\.git$/, '')
+    // Trailing slashes first: a URL written `…/platform.git/` ends in a slash, so `.git$` does not
+    // match and the suffix survives into the identifier.
     .replace(/\/+$/, '')
+    .replace(/\.git$/, '')
     .split(/[/:]/)
     .pop()
     ?.normalize('NFKD')

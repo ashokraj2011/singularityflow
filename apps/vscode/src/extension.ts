@@ -25,6 +25,7 @@ import { EpicPanel } from './views/epic-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
+import { BootstrapPanel, type Bootstrapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
@@ -89,10 +90,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (handler) return handler(...args);
       void vscode.window.showWarningMessage(
         `Singularity Flow: ${unavailableReason}`,
-        'Find a workspace', 'Create a workspace'
+        'Govern a repository', 'Find a workspace'
       ).then((chosen) => {
+        if (chosen === 'Govern a repository') return vscode.commands.executeCommand('singularityFlow.bootstrap');
         if (chosen === 'Find a workspace') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
-        if (chosen === 'Create a workspace') return vscode.commands.executeCommand('singularityFlow.createWorkspace');
         return undefined;
       });
       return undefined;
@@ -142,6 +143,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : open === 'Open workspace folder' ? created.directory
           : null;
       if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: false });
+    });
+  }));
+
+  /**
+   * Govern a repository that has never heard of Singularity Flow.
+   *
+   * Registered before any early return, and it has to be: this is the command that produces the
+   * thing every other command needs, so requiring one would be the whole chicken-and-egg problem
+   * written into the extension.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.bootstrap', () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return void vscode.window.showErrorMessage((error as Error).message);
+    }
+    BootstrapPanel.show(context, async (argv) => {
+      output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+      try {
+        // Run from wherever the CLI is rooted: there is no repository yet, which is the point.
+        const result = await new SingularityFlowClient({
+          location, repository: process.cwd(), onOutput: (text) => output.append(text)
+        }).run<Bootstrapped>(argv);
+        return { result, error: null };
+      } catch (error) {
+        output.appendLine(`  failed: ${(error as Error).message}`);
+        return { result: null, error: (error as Error).message };
+      }
+    }, async (result) => {
+      void refreshWorkspaceTree();
+      const open = await vscode.window.showInformationMessage(
+        `${result.repositoryId} is now governed, with ${result.capability} as its root capability.`,
+        'Open it');
+      if (open === 'Open it') {
+        await vscode.commands.executeCommand('vscode.openFolder',
+          vscode.Uri.file(result.root), { forceNewWindow: false });
+      }
     });
   }));
 

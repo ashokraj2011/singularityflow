@@ -171,6 +171,7 @@ import {
   flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
   validateCapabilities
 } from './capabilities.mjs';
+import { bootstrapRepository } from './bootstrap.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 
 const VERSION = '0.9.0';
@@ -209,6 +210,9 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 Usage:
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
+  singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind TEXT]
+    [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
+    [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
@@ -2381,6 +2385,58 @@ async function capabilityCommand(positionals, options) {
   const deliveries = rows.filter((row) => row.delivery);
   const repositories = new Set(deliveries.map((row) => row.repository));
   console.log(`\n${rows.length} capabilities, ${deliveries.length} delivering from ${repositories.size} ${repositories.size === 1 ? 'repository' : 'repositories'}.`);
+}
+
+/**
+ * Govern a repository that has never heard of Singularity Flow.
+ *
+ * The one operation that cannot assume a governed repository, because it is the one that makes one.
+ * Everything else in this CLI runs inside a repository; this runs from anywhere and produces one.
+ */
+async function bootstrapCommand(positionals, options) {
+  const url = requirePositional(positionals, 1, 'repository URL');
+  const capabilityId = optionString(options, 'capability');
+  if (!capabilityId) {
+    throw new SingularityFlowError(
+      'bootstrap requires --capability ID: the top-level thing this organisation builds, which the '
+      + 'lead repository holds the map of.');
+  }
+  // Read raw, because this flag is both a switch and a value: `--no-state-branch` turns it off,
+  // `--state-branch governance` renames it, and neither optionBoolean nor optionString alone can
+  // see both — optionBoolean refuses a string, which is what a named branch is.
+  const rawStateBranch = options['state-branch'];
+  const stateBranch = rawStateBranch === false
+    ? null
+    : (typeof rawStateBranch === 'string' && rawStateBranch.trim() ? rawStateBranch.trim() : 'state');
+
+  const result = await bootstrapRepository(url, {
+    capabilityId,
+    capabilityName: optionString(options, 'name'),
+    kind: optionString(options, 'kind', 'portfolio'),
+    jiraProject: optionString(options, 'jira-project'),
+    teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean),
+    into: optionString(options, 'into'),
+    base: optionString(options, 'base'),
+    stateBranch,
+    push: optionBoolean(options, 'push', true)
+  });
+
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  console.log(`${result.cloned ? 'Cloned' : 'Adopted'} ${result.url} at ${result.root}.`);
+  console.log(`  repository   ${result.repositoryId} on ${result.branch}`);
+  console.log(`  capability   ${result.capability}`);
+  if (result.stateBranch) {
+    console.log(`  state branch ${result.stateBranch} ${result.ledgerCreated ? 'created' : 'already existed'}`);
+  }
+  if (result.commit) console.log(`  commit       ${result.commit.slice(0, 8)}`);
+  if (result.published.error) {
+    console.log(`\nCommitted locally but the push failed: ${result.published.error}`);
+    console.log('Push when you have access; nothing is lost.');
+  } else if (result.published.branch) {
+    console.log('\nPushed. Open this directory to start.');
+  } else {
+    console.log('\nNot pushed. Open this directory to start.');
+  }
 }
 
 async function knowledgeCommand(positionals, options) {
@@ -4711,7 +4767,8 @@ async function dispatch(command, positionals, options) {
     epic: () => epicCommand(positionals, options),
     story: () => storyCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),
-    hook: () => hookCommand(positionals)
+    hook: () => hookCommand(positionals),
+    bootstrap: () => bootstrapCommand(positionals, options)
   });
   try {
     return handlers[canonicalCommand(command)]();

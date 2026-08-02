@@ -71,6 +71,11 @@
         "icon": "$(list-unordered)"
       },
       {
+        "command": "singularityFlow.bootstrap",
+        "title": "Singularity Flow: Govern a Repository",
+        "icon": "$(rocket)"
+      },
+      {
         "command": "singularityFlow.createWorkspace",
         "title": "Singularity Flow: Create a Workspace",
         "icon": "$(root-folder)"
@@ -250,6 +255,11 @@
           "command": "singularityFlow.openDesigner",
           "when": "view == singularityFlow.lifecycle",
           "group": "9_setup@2"
+        },
+        {
+          "command": "singularityFlow.bootstrap",
+          "when": "view == singularityFlow.capabilities",
+          "group": "9_setup@0"
         }
       ],
       "view/item/context": [

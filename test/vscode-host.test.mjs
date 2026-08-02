@@ -1457,3 +1457,68 @@ test('a folder that is not a Flow repository also offers to become one', async (
     ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.init'],
     'initializing is only offered where there is a folder to initialize');
 });
+
+test('opening a workspace replaces the current window rather than scattering new ones', async (t) => {
+  if (!requireBundle(t)) return;
+  // "Open this workspace" means go there, which is what VS Code's own Open Folder does. Forcing a
+  // new window every time left a person with windows they did not ask for and had to close.
+  const org = await organisation();
+  const registryFile = path.join(org.base, 'registry.json');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--no-clone'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+  });
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const opened = [];
+  api.commands.executeCommand = async (command, ...args) => { opened.push({ command, args }); };
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const rows = await until(() => {
+    const nodes = provider.getChildren();
+    return nodes[0]?.label === 'commerce' ? nodes : null;
+  });
+  await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
+
+  const folder = opened.find((entry) => entry.command === 'vscode.openFolder');
+  assert.ok(folder, 'a folder was opened');
+  assert.equal(folder.args[1].forceNewWindow, false);
+  // The lead repository, which is where everything the extension reads actually lives.
+  assert.match(folder.args[0].fsPath, /workspaces\/commerce\/repos\/platform$/);
+});
+
+test('opening a workspace directory says what it is and offers the repository inside it', async (t) => {
+  if (!requireBundle(t)) return;
+  // Opening the workspace folder from a file manager is the obvious thing to do, and it is not a
+  // repository — but it knows exactly where the one somebody wanted is.
+  const org = await organisation();
+  const workspaces = path.join(org.base, 'workspaces');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'platform', '--repository', `platform=${org.lead}`,
+    '--confirm', 'commerce', '--no-clone'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(org.base, 'r.json') }
+  });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: path.join(workspaces, 'commerce') } }];
+  // The manifest is read through the editor's own file system, so the stub has to serve it.
+  api.workspace.fs.readFile = async (uri) => readFileSync(uri.fsPath);
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const [explanation] = provider.getChildren();
+  assert.match(explanation.label, /workspace directory, not a repository/);
+  const rows = provider.getChildren(explanation);
+  const lead = rows.find((row) => row.id === 'unavailable:lead');
+  assert.ok(lead, 'the lead repository is offered');
+  assert.match(lead.openPath, /commerce\/repos\/platform$/);
+  assert.equal(lead.runCommand, 'singularityFlow.openWorkspace');
+});

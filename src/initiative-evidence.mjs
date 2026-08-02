@@ -640,6 +640,83 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   return validateImpactMap(portfolio, manifest, impact, { mode });
 }
 
+/**
+ * A published Story plan has to contain Stories.
+ *
+ * The template calls itself machine-validated and lists the rules — every entry titled, every
+ * `repository` declared in the portfolio, `dependsOn` acyclic and internal. Nothing enforced any of
+ * them, so an unfilled template published cleanly: seven governed phases, every pack approved by
+ * three separate authorities, and `initiative breakdown` reporting zero epics and zero stories. The
+ * governance was real and it was guarding an empty file.
+ */
+async function verifyInitiativeStoryPlan(root, portfolio, initiative, phaseId) {
+  const definition = phaseDefinition(initiative, phaseId).outputs.find((output) => output.id === 'story-plan');
+  if (!definition) return { errors: [], warnings: [] };
+  const output = initiative.phases[phaseId].outputs[definition.id];
+  if (!output?.path) return { errors: [], warnings: [] };
+  const target = await secureInitiativePath(root, portfolio, initiative.initiative.id, output.path, {
+    label: `Initiative output '${phaseId}/${output.id}'`,
+    type: 'file'
+  });
+  if (!target.exists) return { errors: [], warnings: [] };
+
+  let plan;
+  try { plan = YAML.parse(await readFile(target.absolute, 'utf8')) ?? {}; }
+  catch (error) { return { errors: [`story plan ${output.path} is not valid YAML: ${error.message}`], warnings: [] }; }
+
+  const errors = [];
+  const epics = Array.isArray(plan.epics) ? plan.epics : [];
+  if (!epics.length) errors.push(`story plan ${output.path} declares no epics`);
+
+  const planIds = new Set();
+  const dependencies = new Map();
+  for (const [index, epic] of epics.entries()) {
+    const epicId = epic?.planId ?? epic?.id ?? `epic ${index + 1}`;
+    if (!String(epic?.title ?? '').trim()) errors.push(`story plan epic '${epicId}' has no title`);
+    const stories = Array.isArray(epic?.stories) ? epic.stories : [];
+    if (!stories.length) errors.push(`story plan epic '${epicId}' has no stories`);
+    for (const [position, story] of stories.entries()) {
+      const storyId = story?.planId ?? story?.id ?? `story ${position + 1} of ${epicId}`;
+      if (!String(story?.title ?? '').trim()) errors.push(`story plan story '${storyId}' has no title`);
+      if (planIds.has(storyId)) errors.push(`story plan reuses plan id '${storyId}'`);
+      planIds.add(storyId);
+      // A repository is what a Story ships from, so it has to be one the portfolio declares —
+      // otherwise materialization has nowhere to create the branch.
+      const repository = story?.repository;
+      if (repository && !portfolio.repositories?.[repository]) {
+        errors.push(`story '${storyId}' names repository '${repository}', which the portfolio does not declare`);
+      }
+      dependencies.set(storyId, Array.isArray(story?.dependsOn) ? story.dependsOn : []);
+    }
+  }
+
+  for (const [storyId, dependsOn] of dependencies) {
+    for (const other of dependsOn) {
+      if (!planIds.has(other)) errors.push(`story '${storyId}' depends on '${other}', which is not in this plan`);
+    }
+  }
+  // The dependency graph becomes the merge order, so a cycle there is a plan that can never be
+  // integrated — better said now than discovered during delivery.
+  const visiting = new Set();
+  const done = new Set();
+  const walk = (id, trail) => {
+    if (done.has(id)) return;
+    if (visiting.has(id)) {
+      errors.push(`story plan dependencies form a cycle: ${[...trail, id].join(' -> ')}`);
+      return;
+    }
+    visiting.add(id);
+    for (const other of dependencies.get(id) ?? []) {
+      if (planIds.has(other)) walk(other, [...trail, id]);
+    }
+    visiting.delete(id);
+    done.add(id);
+  };
+  for (const id of planIds) walk(id, []);
+
+  return { errors: [...new Set(errors)], warnings: [] };
+}
+
 function declaresCheck(initiative, phaseId, checkId) {
   return phaseDefinition(initiative, phaseId).checklist.some((check) => check.id === checkId);
 }
@@ -691,6 +768,9 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   const impact = await verifyInitiativeImpactMap(root, portfolio, initiative, phaseId);
   if (impact.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' impact map is not grounded:\n- ${impact.errors.join('\n- ')}`);
   impact.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+
+  const plan = await verifyInitiativeStoryPlan(root, portfolio, initiative, phaseId);
+  if (plan.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' story plan cannot be materialized:\n- ${plan.errors.join('\n- ')}`);
 
   // Traceability is a publication gate, not a CLI courtesy. It used to live in the CLI's publish
   // command, so publishing from the desktop skipped both the check and the evidence it produces —

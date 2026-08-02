@@ -248,3 +248,31 @@ test('evidence is refused at an assurance tier the check cannot accept', async (
   // A waiver is a decision about the check rather than evidence for it, so it stays exempt.
   assert.match(source, /if \(!decision && !check\.acceptedAssurance/);
 });
+
+/**
+ * A published Story plan has to contain Stories.
+ *
+ * The plan template calls itself machine-validated and lists its rules; nothing enforced any of
+ * them. The lifecycle walk published the unfilled template — every title empty — through seven
+ * governed phases with every artifact pack signed off by three separate authorities, and
+ * `initiative breakdown` then reported zero epics and zero stories. The governance was real and it
+ * was guarding an empty file.
+ */
+test('the story plan is validated, so an unfilled template cannot be published', async () => {
+  const source = await readFile(new URL('../src/initiative-evidence.mjs', import.meta.url), 'utf8');
+
+  assert.match(source, /async function verifyInitiativeStoryPlan\(/);
+  // Wired into publication, beside the impact map, rather than left as a function nobody calls —
+  // which is the shape of the bug it exists to prevent.
+  assert.match(source, /const plan = await verifyInitiativeStoryPlan\(root, portfolio, initiative, phaseId\);/);
+  assert.match(source, /story plan cannot be materialized/);
+
+  // Each rule the template promises.
+  assert.match(source, /declares no epics/);
+  assert.match(source, /has no title/);
+  assert.match(source, /has no stories/);
+  assert.match(source, /reuses plan id/);
+  assert.match(source, /which the portfolio does not declare/);
+  assert.match(source, /which is not in this plan/);
+  assert.match(source, /dependencies form a cycle/);
+});

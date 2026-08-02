@@ -169,6 +169,9 @@ export function intakeCommand(form: IntakeForm): string[] {
       args.push('--title', form.title.trim(), '--description', form.description.trim());
     }
     if (form.profile) args.push('--profile', form.profile);
+    // The lens is offered for an Initiative, so it has to be passed for one. Collecting a choice and
+    // dropping it is how a form comes to look like it does nothing.
+    if (form.lens) args.push('--persona', form.lens);
     return args;
   }
 

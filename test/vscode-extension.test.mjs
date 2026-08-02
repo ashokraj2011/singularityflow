@@ -1646,6 +1646,25 @@ test('an Initiative without a tracker is described here and started from that', 
   ]);
 });
 
+test('every shape that offers a working lens actually passes it', () => {
+  // The form offered a lens for an Initiative and dropped it on the way to the command, which is
+  // how a control comes to look decorative. It is also why `initiative start` needed a --persona
+  // flag at all: without one there was nothing to pass it to.
+  for (const shape of ['initiative', 'epic']) {
+    const form = intake({
+      shape, tracker: 'none', id: 'x', title: 'A', description: 'B', goal: 'C',
+      profile: 'epic-planning', lens: 'architect'
+    });
+    assert.deepEqual(intakeProblems(form), [], shape);
+    assert.match(intakeCommand(form).join(' '), /--persona architect/, shape);
+    assert.match(intakeHtml(form), /data-field="lens"/, shape);
+  }
+  // A Story takes no lens, so it offers none and passes none.
+  const story = intake({ shape: 'story', tracker: 'none', id: 'x', title: 'A', description: 'B' });
+  assert.doesNotMatch(intakeHtml(story), /data-field="lens"/);
+  assert.doesNotMatch(intakeCommand(story).join(' '), /--persona/);
+});
+
 test('an Initiative with a tracker is fetched by key, and nothing else is asked', () => {
   const form = intake({
     shape: 'initiative', tracker: 'jira', jiraConfigured: true, key: 'PAY-17',

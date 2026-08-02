@@ -185,8 +185,10 @@ function stubVscode() {
     registered.quickPicks.push({ items, options });
     return registered.pickedLens === null ? undefined : (items[0] ?? undefined);
   };
+  registered.warningActions = [];
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
+    registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
     return registered.selfApprovalAnswer;
   };
   api.window.createWebviewPanel = (id, title, column, options) => {
@@ -1410,4 +1412,48 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.match(text, /## Open questions/);
   assert.match(text, /\{\{inputs\}\}/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('a window with nothing open offers the two ways to get a repository', async (t) => {
+  if (!requireBundle(t)) return;
+  // Everything Singularity Flow does needs a repository, so a state that explains that and offers
+  // nothing is a dead end — and it is the state a person is in the first time they open the editor.
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const [explanation] = provider.getChildren();
+  const rows = provider.getChildren(explanation);
+  const actions = rows.filter((row) => row.runCommand);
+  assert.deepEqual(actions.map((row) => row.runCommand),
+    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
+  // Both work from a window with nothing open, which is exactly where this state occurs.
+  for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
+
+  // Clicking a row runs its command rather than trying to open it as an artifact.
+  const item = provider.getTreeItem(actions[0]);
+  assert.equal(item.command.command, 'singularityFlow.openWorkspaces');
+
+  // And a repository command names the ways forward rather than only what is wrong.
+  await registered.commands.get('singularityFlow.openDesigner')();
+  await settle();
+  assert.match(registered.warnings.at(-1) ?? '', /Singularity Flow: /);
+  assert.deepEqual(registered.warningActions.at(-1), ['Find a workspace', 'Create a workspace']);
+});
+
+test('a folder that is not a Flow repository also offers to become one', async (t) => {
+  if (!requireBundle(t)) return;
+  const plain = await mkdtemp(path.join(os.tmpdir(), 'sflow-plain-'));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: plain } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const rows = provider.getChildren(provider.getChildren()[0]);
+  assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
+    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.init'],
+    'initializing is only offered where there is a folder to initialize');
 });

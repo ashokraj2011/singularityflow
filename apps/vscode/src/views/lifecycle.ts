@@ -51,7 +51,9 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     if (node.tooltip) item.tooltip = node.tooltip;
     if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
     if (node.contextValue) item.contextValue = node.contextValue;
-    if (node.path) {
+    if (node.runCommand) {
+      item.command = { command: node.runCommand, title: node.label, arguments: [node] };
+    } else if (node.path) {
       item.command = {
         command: 'singularityFlow.openArtifact',
         title: 'Open artifact',

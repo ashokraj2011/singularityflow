@@ -408,8 +408,10 @@ test('the view activates on being opened, not only when a workflow file happens 
   // the contributed view sits there with nothing behind it.
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(manifest.activationEvents.includes('onView:singularityFlow.lifecycle'));
-  assert.equal(manifest.contributes.views.singularityFlow[0].id, 'singularityFlow.lifecycle',
+  assert.ok(manifest.contributes.views.singularityFlow.some((view) => view.id === 'singularityFlow.lifecycle'),
     'the activation event names the view that is actually contributed');
+  // Workspaces leads: work happens in one, and everything else is scoped to it.
+  assert.equal(manifest.contributes.views.singularityFlow[0].id, 'singularityFlow.workspaces');
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {
@@ -1499,13 +1501,13 @@ test('a window with nothing open offers the two ways to get a repository', async
   // Governing one is first: it is the only one of the three that works when nothing has been
   // governed yet, and that is the state anybody seeing this is in.
   assert.deepEqual(actions.map((row) => row.runCommand),
-    ['singularityFlow.mapCapability', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
+    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability']);
   // Both work from a window with nothing open, which is exactly where this state occurs.
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
 
   // Clicking a row runs its command rather than trying to open it as an artifact.
   const item = provider.getTreeItem(actions[0]);
-  assert.equal(item.command.command, 'singularityFlow.mapCapability');
+  assert.equal(item.command.command, 'singularityFlow.openWorkspaces');
 
   // And a repository command names the ways forward rather than only what is wrong.
   await registered.commands.get('singularityFlow.openDesigner')();
@@ -1525,7 +1527,7 @@ test('a folder that is not a Flow repository also offers to become one', async (
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = provider.getChildren(provider.getChildren()[0]);
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
-    ['singularityFlow.mapCapability', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace',
+    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability',
       'singularityFlow.init'],
     'initializing is only offered where there is a folder to initialize');
 });
@@ -1626,7 +1628,10 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   // when nothing has been mapped yet.
   const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = lifecycle.getChildren(lifecycle.getChildren()[0]);
-  assert.equal(rows.filter((row) => row.runCommand)[0].runCommand, 'singularityFlow.mapCapability');
+  // Choosing a workspace leads; mapping a capability is the row for when there is nothing to make
+  // a workspace out of yet.
+  assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand).slice(0, 3),
+    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability']);
 
   await registered.commands.get('singularityFlow.mapCapability')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');

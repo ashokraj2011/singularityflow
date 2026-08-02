@@ -51,16 +51,16 @@
     "views": {
       "singularityFlow": [
         {
+          "id": "singularityFlow.workspaces",
+          "name": "Workspaces"
+        },
+        {
           "id": "singularityFlow.lifecycle",
           "name": "Lifecycle"
         },
         {
           "id": "singularityFlow.capabilities",
           "name": "Capabilities"
-        },
-        {
-          "id": "singularityFlow.workspaces",
-          "name": "Workspaces"
         }
       ]
     },
@@ -177,6 +177,11 @@
         "command": "singularityFlow.openWorkspace",
         "title": "Singularity Flow: Open This Workspace",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "singularityFlow.useWorkspace",
+        "title": "Singularity Flow: Work in This Workspace",
+        "icon": "$(check)"
       }
     ],
     "menus": {
@@ -315,8 +320,13 @@
         },
         {
           "command": "singularityFlow.openWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace",
+          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active)?$/",
           "group": "inline"
+        },
+        {
+          "command": "singularityFlow.useWorkspace",
+          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace",
+          "group": "inline@0"
         }
       ],
       "commandPalette": [

@@ -560,6 +560,19 @@ view, and the evidence ledger exist on disk.
 `;
 }
 
+/**
+ * Changes that are genuinely outside the builder's own workspace.
+ *
+ * The checkpoint lives under the world-model output directory — inside the tree both isolation
+ * guards watch — so a resumable parallel build trips them by doing what it is designed to do. Both
+ * guards share this one definition, because fixing only the first meant discovery passed and
+ * synthesis then failed on the identical file, twenty minutes later.
+ */
+function outsideBuilderScratch(changes, config) {
+  const scratch = `${config.outputDir}/.checkpoints`;
+  return changes.filter((entry) => !String(entry).includes(scratch));
+}
+
 async function build(root, config, options) {
   const cacheRoot = path.join(gitDir(root), 'singularity-flow');
   await mkdir(cacheRoot, { recursive: true });
@@ -631,9 +644,7 @@ async function build(root, config, options) {
     // default, tripped its own isolation check by doing the thing it is designed to do, while
     // `--no-parallel` worked because it never creates a checkpoint at all. Reading the model
     // already skips `.checkpoints` for the same reason: it is not repository content.
-    const builderScratch = `${config.outputDir}/.checkpoints`;
-    const discoveryChanges = changedSnapshotPaths(before, afterDiscovery)
-      .filter((entry) => !String(entry).includes(builderScratch));
+    const discoveryChanges = outsideBuilderScratch(changedSnapshotPaths(before, afterDiscovery), config);
     if (head(analysisRoot) !== sourceCommit) discoveryChanges.push('Git history (discovery worker created a commit)');
     if (discoveryChanges.length) {
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
@@ -646,7 +657,7 @@ async function build(root, config, options) {
     if (result.status !== 0) throw new SingularityFlowError(`World-model builder exited with status ${result.status}.`);
     const draftManifestPath = path.join(staging, 'manifest.json');
     const after = await repositoryContentSnapshot(analysisRoot);
-    const unexpected = changedSnapshotPaths(before, after);
+    const unexpected = outsideBuilderScratch(changedSnapshotPaths(before, after), config);
     if (head(analysisRoot) !== sourceCommit) unexpected.push('Git history (builder created a commit)');
     if (unexpected.length) throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
     const phase = optionString(options, 'phase');

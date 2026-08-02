@@ -310,6 +310,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand('vscode.openFolder',
         vscode.Uri.file(target), { forceNewWindow: false });
     }));
+  /**
+   * Choose the workspace to work in.
+   *
+   * This is the act everything else hangs off: the capabilities being worked on, the repositories
+   * they ship from, the governed state, and which repository every screen operates against. It is
+   * recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
+   *
+   * The window reloads afterwards. Activation resolves the governed repository once and hands it to
+   * every screen; re-pointing all of them at a different repository in place would be a second,
+   * partial implementation of activation, and the kind that goes out of step.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.useWorkspace',
+    async (node?: TreeNode) => {
+      const target = workspacePathOf(node) ?? node?.path;
+      if (typeof target !== 'string' || !target) return;
+      try {
+        const client = new SingularityFlowClient({
+          location: resolveCli({ extensionPath: context.extensionPath }),
+          repository: process.cwd(),
+          onOutput: (text) => output.append(text)
+        });
+        const chosen = await client.run<{ workspace?: { name?: string } }>(
+          ['workspace', 'use', target, '--json']);
+        await refreshWorkspaceTree();
+        const name = chosen.workspace?.name ?? target;
+        const reload = await vscode.window.showInformationMessage(
+          `Working in ${name}.`,
+          { detail: 'Every screen is scoped to this workspace once the window reloads.', modal: false },
+          'Reload window');
+        if (reload === 'Reload window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
+      }
+    }));
+
   void refreshWorkspaceTree();
 
   /** Diagnostics, as the CLI reports them. */
@@ -361,6 +396,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
   // and when it was not the open folder that has to be visible rather than inferred.
   output.appendLine(`Governed repository: ${repository} (${origin})`);
+  // Named in the status bar too: which workspace you are in is the one piece of context every
+  // screen shares, and inferring it from a folder path in a title bar is not the same as being told.
+  const workspaceLabel = origin.startsWith('the lead repository of your active workspace, ')
+    ? origin.slice('the lead repository of your active workspace, '.length)
+    : null;
 
   const settings = vscode.workspace.getConfiguration('singularityFlow');
   let client: SingularityFlowClient;
@@ -407,7 +447,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
     if (state.error) { status.text = '$(error) Singularity Flow'; status.tooltip = state.error.message; status.show(); return; }
     const initiative = state.snapshot?.initiative;
-    if (!initiative) { status.text = '$(rocket) No work'; status.tooltip = 'Nothing governed is checked out on this branch.'; status.show(); return; }
+    const where = workspaceLabel ? `${workspaceLabel} · ` : '';
+    if (!initiative) {
+      status.text = `$(rocket) ${where}No work`;
+      status.tooltip = workspaceLabel
+        ? `Working in ${workspaceLabel}. Nothing governed is checked out on this branch.`
+        : 'Nothing governed is checked out on this branch.';
+      status.show();
+      return;
+    }
     const phase = initiative.state.currentPhase ?? 'complete';
     status.text = `$(rocket) ${initiative.state.initiative.id} · ${phase}`;
     status.tooltip = initiative.nextActions?.[0]?.reason ?? 'Singularity Flow';
@@ -773,8 +821,14 @@ async function resolveGovernedRepository(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
 ): Promise<Resolved> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
+  // The active workspace leads. Choosing one is an explicit act — it says which capabilities are
+  // being worked on and where — and everything else in the product is scoped by it, so it cannot be
+  // a fallback for whatever folder happens to be open. The open folder answers only when no
+  // workspace has been chosen.
+  const active = await activeWorkspaceLead(context, output);
+  if (active) return active;
 
+  const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder) {
     try {
       return { repository: await validateRepositoryDirectory(folder.uri.fsPath), origin: 'the open folder' };
@@ -789,10 +843,8 @@ async function resolveGovernedRepository(
             repository: await validateRepositoryDirectory(lead),
             origin: 'the lead repository of the workspace directory you have open'
           };
-        } catch { /* falls through to the active workspace, then to the explanation below */ }
+        } catch { /* falls through to the explanation below */ }
       }
-      const active = await activeWorkspaceLead(context, output);
-      if (active) return active;
       return {
         label: 'Not a Singularity Flow repository',
         reason: (error as Error).message,
@@ -801,11 +853,9 @@ async function resolveGovernedRepository(
     }
   }
 
-  const active = await activeWorkspaceLead(context, output);
-  if (active) return active;
   return {
     label: 'No workspace is active',
-    reason: 'Create a workspace, or open one you already have. Its lead repository is what the rest of this works on.'
+    reason: 'Choose a workspace to work in, or create one. Everything else is scoped to it.'
   };
 }
 

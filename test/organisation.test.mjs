@@ -344,8 +344,12 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
   // The checkpoint genuinely lives under the output directory, which is why the exclusion is needed
   // rather than merely convenient.
   assert.match(source, /const checkpointRoot = path\.join\(outputDirectory, '\.checkpoints'\)/);
-  assert.match(source, /const builderScratch = `\$\{config\.outputDir\}\/\.checkpoints`/);
-  assert.match(source, /\.filter\(\(entry\) => !String\(entry\)\.includes\(builderScratch\)\)/);
+  assert.match(source, /const scratch = `\$\{config\.outputDir\}\/\.checkpoints`/);
+  // Both guards share one definition. Fixing only the discovery one meant discovery passed and
+  // synthesis then failed on the identical file, twenty minutes and 48 AI credits later.
+  const guarded = [...source.matchAll(/outsideBuilderScratch\(changedSnapshotPaths/g)];
+  assert.equal(guarded.length, 2, 'both the discovery and the synthesis guard use it');
+  assert.match(source, /World-model builder modified files outside its isolated output directory/);
 
   // Reading the model already treats .checkpoints as builder-internal; the two agree now.
   const grounding = await readFile(new URL('../src/grounding.mjs', import.meta.url), 'utf8');
@@ -353,4 +357,60 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
 
   // The guard itself stays: anything else a worker touches is still an escape.
   assert.match(source, /World-model discovery workers modified files outside their isolated packets/);
+});
+
+/**
+ * The workspace is the context everything else hangs off.
+ *
+ * Work happens in a workspace: it says which capabilities are being worked on and where. So it is
+ * the first thing chosen and the first view in the container, and the governed repository is
+ * resolved from it before the open folder is even consulted. It used to be the last view, below the
+ * things that depend on it, and a fallback for whatever folder happened to be open.
+ */
+test('choosing a workspace is what scopes the rest', async () => {
+  const manifest = JSON.parse(await readFile(
+    new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
+  const views = manifest.contributes.views.singularityFlow.map((view) => view.id);
+  assert.equal(views[0], 'singularityFlow.workspaces', 'workspaces lead');
+
+  // Choosing one is an action on the row, and it is the CLI's own machine-wide selection so the
+  // terminal and the editor agree about where you are.
+  const commands = manifest.contributes.commands.map((entry) => entry.command);
+  assert.ok(commands.includes('singularityFlow.useWorkspace'));
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /\['workspace', 'use', target, '--json'\]/);
+
+  // Resolution consults the active workspace before the open folder, not after it.
+  const active = extension.indexOf('const active = await activeWorkspaceLead(context, output);');
+  const folder = extension.indexOf('const folder = vscode.workspace.workspaceFolders?.[0];',
+    extension.indexOf('async function resolveGovernedRepository'));
+  assert.ok(active > 0 && folder > active, 'the active workspace is consulted first');
+
+  // And the empty state leads with choosing one rather than with anything else.
+  const tree = await readFile(new URL('../apps/vscode/src/views/tree-model.ts', import.meta.url), 'utf8');
+  assert.match(tree, /label: 'Choose a workspace to work in', description: 'start here'/);
+});
+
+/**
+ * Exactly one workspace is the one being worked in.
+ *
+ * The registry de-duplicates by path, so creating the same `--id` in two directories keeps both
+ * entries with that id. `workspace list` matched the active selection on id alone and marked every
+ * one of them — four rows all reading "working here", which is the one question that column exists
+ * to answer. The selection records the path too, so matching on both is exact.
+ */
+test('the active workspace is matched on identifier and path, not identifier alone', async () => {
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  assert.match(cli, /workspace\.id === active\?\.workspaceId/);
+  assert.match(cli, /path\.resolve\(workspace\.path\) === path\.resolve\(active\.workspacePath\)/);
+
+  // A registry that already holds duplicate ids is shown rather than silently tolerated: every
+  // lookup by id is ambiguous, including `workspace use`.
+  const model = await readFile(
+    new URL('../apps/vscode/src/views/workspaces-model.ts', import.meta.url), 'utf8');
+  assert.match(model, /sharesId: \(ids\.get\(\(entry\.id \?\? ''\)\.toLowerCase\(\)\) \?\? 0\) > 1/);
+  const trees = await readFile(
+    new URL('../apps/vscode/src/views/navigation-trees.ts', import.meta.url), 'utf8');
+  assert.match(trees, /shares the id \$\{row\.id\}/);
+  assert.match(trees, /row\.collides \|\| row\.sharesId \? 'warning'/);
 });

@@ -30,6 +30,13 @@ export interface WorkspaceRow extends WorkspaceEntry {
   archived: boolean;
   /** True when another row occupies the same directory — which the engine forbids. */
   collides: boolean;
+  /**
+   * True when another row carries the same identifier.
+   *
+   * The registry de-duplicates by path, so creating the same `--id` in two directories keeps both.
+   * Every lookup by id is then ambiguous — including `workspace use` — so it is worth seeing.
+   */
+  sharesId: boolean;
 }
 
 /**
@@ -41,9 +48,12 @@ export interface WorkspaceRow extends WorkspaceEntry {
  */
 export function workspaceRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
   const counts = new Map<string, number>();
+  const ids = new Map<string, number>();
   for (const entry of entries) {
     const key = entry.path.toLowerCase();
     counts.set(key, (counts.get(key) ?? 0) + 1);
+    const id = (entry.id ?? '').toLowerCase();
+    if (id) ids.set(id, (ids.get(id) ?? 0) + 1);
   }
   return entries.map((entry) => ({
     ...entry,
@@ -51,7 +61,8 @@ export function workspaceRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
     // `repos/<id>` is the layout every workspace uses, so the lead's identifier is its last segment.
     lead: (entry.leadRepositoryPath ?? '').split('/').filter(Boolean).at(-1) ?? '',
     archived: Boolean(entry.archivedAt),
-    collides: (counts.get(entry.path.toLowerCase()) ?? 0) > 1
+    collides: (counts.get(entry.path.toLowerCase()) ?? 0) > 1,
+    sharesId: (ids.get((entry.id ?? '').toLowerCase()) ?? 0) > 1
   }));
 }
 

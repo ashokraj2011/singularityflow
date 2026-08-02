@@ -39,12 +39,18 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     kind: 'group' as const,
     id: `workspace:${row.path}`,
     label: row.name,
-    description: row.collides ? 'shares a directory' : row.active ? 'active' : undefined,
+    // "working here" rather than "active": it says what the state means for the reader rather than
+    // naming the flag that holds it.
+    description: row.collides ? 'shares a directory'
+      : row.sharesId ? `shares the id ${row.id}`
+        : row.active ? 'working here' : undefined,
     tooltip: row.collides
       ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
-      : row.directory,
-    icon: row.collides ? 'warning' : row.active ? 'check' : 'root-folder',
-    contextValue: 'sflow.workspace',
+      : `${row.directory}\n\n${row.active
+        ? 'Every screen is scoped to this workspace.'
+        : 'Choose this workspace to scope every screen to it.'}`,
+    icon: row.collides || row.sharesId ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
+    contextValue: row.active ? 'sflow.workspace.active' : 'sflow.workspace',
     // Carried so the commands acting on this row never have to re-read the registry to find out
     // which one was clicked. Opening a workspace means opening its lead repository: that is where
     // the map, the governed state and every command's configuration live.

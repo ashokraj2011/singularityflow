@@ -1876,16 +1876,22 @@ test('workspaces are a tree, with the working directory where it can be compared
   // one is only checkable by eye if they sit in the same place on every row.
   const [commerce, payments] = buildWorkspaceTree(REGISTRY);
   assert.equal(commerce.label, 'commerce');
-  assert.equal(commerce.description, 'active');
-  assert.equal(commerce.tooltip, '/work/commerce');
-  assert.equal(commerce.contextValue, 'sflow.workspace');
+  assert.equal(commerce.description, 'working here');
+  // The directory leads the tooltip, then what choosing this workspace means.
+  assert.match(commerce.tooltip, /^\/work\/commerce\n/);
+  assert.match(commerce.tooltip, /scoped to this workspace/);
+  assert.equal(commerce.contextValue, 'sflow.workspace.active',
+    'the one being worked in is distinguishable to a menu, not just to a reader');
   assert.equal(commerce.path, '/work/commerce');
   // Opening a workspace means opening its lead repository: that is where the map, the governed
   // state and every command's configuration live.
   assert.equal(commerce.openPath, '/work/commerce/repos/platform');
   assert.deepEqual(commerce.children.map((child) => child.label),
     ['/work/commerce', 'platform']);
-  assert.equal(payments.description, undefined, 'only one workspace is active');
+  assert.equal(payments.description, undefined, 'only one workspace is being worked in');
+  // The one being worked in is distinguishable to a menu, not just to a reader.
+  assert.equal(commerce.contextValue, 'sflow.workspace.active');
+  assert.equal(payments.contextValue, 'sflow.workspace');
 });
 
 test('a workspace sharing a directory with another is marked in the tree', () => {

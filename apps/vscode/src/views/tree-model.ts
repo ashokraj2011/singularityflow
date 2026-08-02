@@ -200,23 +200,26 @@ export function unavailableTree(
     ...(contextValue ? { contextValue } : {}),
     children: [
       { kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' },
-      // A state that explains itself and offers nothing is a dead end. Everything Singularity Flow
-      // can do needs a repository, so the two ways to get one are the only useful rows here — and
-      // both work from a window with nothing open, which is exactly where this state occurs.
+      // A state that explains itself and offers nothing is a dead end. Work happens in a workspace,
+      // so choosing one leads — and every row here works from a window with nothing open, which is
+      // exactly where this state occurs.
       {
-        kind: 'action', id: 'unavailable:bootstrap',
-        label: 'Map a capability', description: 'start here',
-        tooltip: 'Describe what this organisation builds and which repository each part ships from. '
-          + 'Nothing is checked out.',
-        icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
-      },
-      {
-        kind: 'action', id: 'unavailable:workspaces', label: 'Find a workspace you already have',
+        kind: 'action', id: 'unavailable:workspaces',
+        label: 'Choose a workspace to work in', description: 'start here',
+        tooltip: 'A workspace is the capabilities being worked on and the directory they are worked '
+          + 'in. Everything else is scoped to it.',
         icon: 'root-folder', runCommand: 'singularityFlow.openWorkspaces'
       },
       {
         kind: 'action', id: 'unavailable:create', label: 'Create a workspace',
         icon: 'add', runCommand: 'singularityFlow.createWorkspace'
+      },
+      {
+        kind: 'action', id: 'unavailable:bootstrap',
+        label: 'Map a capability',
+        tooltip: 'Describe what this organisation builds and which repository each part ships from. '
+          + 'Nothing is checked out. Do this first if there is nothing to build a workspace from.',
+        icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
       },
       ...(leadRepository ? [{
         kind: 'action' as const, id: 'unavailable:lead',

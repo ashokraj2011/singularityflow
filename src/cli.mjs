@@ -178,7 +178,7 @@ import {
 import { bootstrapRepository } from './bootstrap.mjs';
 import {
   capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation,
-  initializeWorkspaceState, listLeadRepositories, mapCapability,
+  initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap,
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
@@ -2634,10 +2634,19 @@ async function capabilityCommand(positionals, options) {
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
     const result = await editCapability(root, id, capabilityChanges(options), { mode: subcommandForWrite, portfolio });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    return console.log(result.removed
+    // The governed copy, on the branch a rebase of the code cannot rewrite. Best effort: the file is
+    // already saved, and a repository not using the state branch is not an error.
+    const state = await publishCapabilityMap(root, { message: `${result.removed ? 'Remove' : 'Save'} capability ${id}` });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, state }, null, 2));
+    console.log(result.removed
       ? `Removed capability ${id} from ${result.path}.`
       : `Saved capability ${id} to ${result.path}.`);
+    if (state.published) return console.log(`  published to the ${state.branch} branch at ${state.commit.slice(0, 8)}.`);
+    // Unchanged is its own outcome. Reporting "not published, because it is already there" reads as
+    // a failure to somebody scanning output for problems, and it is the commonest result of all.
+    return console.log(state.branch
+      ? `  the ${state.branch} branch already has this.`
+      : `  not published to the state branch: ${state.reason}.`);
   }
 
   const definition = await loadCapabilities(root);

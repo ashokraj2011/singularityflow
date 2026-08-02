@@ -1,4 +1,4 @@
-import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -18,6 +18,7 @@ import { renderAgentSkills } from './agents.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, pendingPublicationPath, saveWorkflow } from './state.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
+import { publishToStateBranch } from './ledger.mjs';
 import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
@@ -186,6 +187,47 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
     throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run git push after fixing remote access.`);
   }
   return { commit, pushed: true, changed: staged };
+}
+
+/**
+ * Put the built model on the orphan state branch too, which is where every reader looks first.
+ *
+ * `resolveWorldModelSource` prefers the state-branch copy over the working tree's, for a good
+ * reason: the working tree holds whatever the last local build left behind, and a rebase of the
+ * code can rewrite the commit a branch copy sits on. Nothing had ever written that copy, so the
+ * preference was inert and every read fell through to the working tree.
+ *
+ * Best effort, and deliberately after the branch publish rather than instead of it. The model is
+ * already committed by the time this runs; a repository not using the state branch, or a remote
+ * that cannot be reached, is worth reporting and is not worth failing a build over.
+ */
+async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
+  const ledger = config.definition?.ledger ?? null;
+  if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
+  const directory = path.join(root, config.outputDir);
+  if (!existsSync(path.join(directory, 'manifest.json'))) {
+    return { published: false, reason: 'there is no built model to publish' };
+  }
+
+  const files = {};
+  const collect = async (from, relative = '') => {
+    for (const entry of await readdir(from, { withFileTypes: true })) {
+      const at = relative ? posix(path.join(relative, entry.name)) : entry.name;
+      if (entry.isDirectory()) await collect(path.join(from, entry.name), at);
+      else if (entry.isFile()) files[posix(path.join(config.outputDir, at))] = await readFile(path.join(from, entry.name));
+    }
+  };
+  try {
+    await collect(directory);
+    const source = sourceHash.replace(/^sha256:/, '').slice(0, 12);
+    const result = await publishToStateBranch(root, ledger, files, `[world-model][source:${source}] ${phase}`);
+    // A rebuild that produced the same model is unchanged rather than failed, and saying otherwise
+    // would make an ordinary no-op read as a problem.
+    if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
+    return { published: true, branch: result.branch, commit: result.commit };
+  } catch (error) {
+    return { published: false, reason: error.message };
+  }
 }
 
 function requestedViews(config, options) {
@@ -737,6 +779,16 @@ async function build(root, config, options) {
     const local = optionBoolean(options, 'local');
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
+    // The governed copy, which is the one every reader prefers. Not attempted for --local: that
+    // says explicitly that nothing should leave this machine yet.
+    if (!local) {
+      const governed = await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository');
+      console.log(governed.published
+        ? `  published to the ${governed.branch} branch at ${governed.commit.slice(0, 10)}.`
+        : governed.branch
+          ? `  the ${governed.branch} branch already has this model.`
+          : `  not published to the state branch: ${governed.reason}.`);
+    }
   } catch (error) {
     if (checkpoint) {
       const completed = views.filter((view) => checkpoint.state.views[view]?.status === 'completed');

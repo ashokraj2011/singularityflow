@@ -463,6 +463,83 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
   throw lastError;
 }
 
+/**
+ * Put a governed file on the orphan state branch, beside the ledger.
+ *
+ * Two readers already prefer the state-branch copy of something over the working tree's — the world
+ * model in `resolveWorldModelSource`, the capability map in every command that reads the lead — and
+ * neither had a writer. Preferring a copy nothing writes is the same as not preferring it: every
+ * read fell through to the working tree, which holds whatever the last local build left behind.
+ *
+ * The state branch is right for this and the working tree is not. A rebase of the code cannot
+ * rewrite an orphan branch, so the governed copy of what an organisation builds and what its model
+ * says survives history being rewritten underneath it. This is deliberately not a ledger event:
+ * these are files with a current value, not acts with an order, and putting them in the append-only
+ * entry chain would make "what does it say now" a replay.
+ *
+ * Written through an isolated worktree for the same reason the reader extracts rather than checks
+ * out — nobody's working tree moves because something was published from it.
+ *
+ * @param files a map of state-branch-relative path to contents; identical contents commit nothing.
+ */
+export async function publishToStateBranch(root, rawConfig, files, message) {
+  const config = normalizeLedgerConfig(rawConfig);
+  const entries = Object.entries(files ?? {}).filter(([file]) => file);
+  if (!entries.length) return { branch: config.branch, commit: null, changed: false, published: [] };
+  for (const [file] of entries) {
+    // A path that climbs out of the branch would write into whatever the temporary worktree's
+    // parent happens to be, which on this path is a directory in the system temp folder.
+    if (path.isAbsolute(file) || path.normalize(file).split(path.sep).includes('..')) {
+      throw new SingularityFlowError(`A state-branch path must stay inside the branch: ${file}`);
+    }
+  }
+
+  ensureRemoteBranchFetched(root, config);
+  let ref = ledgerHead(root, config);
+  if (!ref) {
+    await initializeLedger(root, config);
+    ensureRemoteBranchFetched(root, config);
+    ref = ledgerHead(root, config);
+  }
+  const expectedRemoteSha = refExists(root, remoteRef(config))
+    ? git(root, ['rev-parse', remoteRef(config)]).stdout.trim()
+    : null;
+
+  return temporaryWorktree(root, ref, async (worktree) => {
+    for (const [file, contents] of entries) {
+      const target = path.join(worktree, file);
+      await ensureDir(path.dirname(target));
+      await writeAtomic(target, contents);
+    }
+    git(worktree, ['add', '--', ...entries.map(([file]) => file)]);
+    // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
+    // capability edit, and most edits change one file out of several.
+    if (!git(worktree, ['diff', '--cached', '--name-only']).stdout.trim()) {
+      return { branch: config.branch, commit: null, changed: false, published: [] };
+    }
+    const actor = identity(root);
+    git(worktree, ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
+      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+      ...commitArgs(config, message)]);
+    const commit = git(worktree, ['rev-parse', 'HEAD']).stdout.trim();
+    if (hasRemote(root, config.remote)) {
+      const pushed = pushLedger(worktree, config, expectedRemoteSha);
+      if (pushed.status !== 0) {
+        throw new SingularityFlowError(
+          `Unable to publish to the ${config.branch} branch: ${(pushed.stderr || pushed.stdout).trim()}`);
+      }
+      // The local branch follows what was just published. Readers name the branch plainly —
+      // `git rev-parse state:singularity/world-model` — so a push that left the local ref behind
+      // means the machine that did the publishing is the one that cannot see it. Allowed to fail:
+      // if the branch is checked out somewhere, the remote ref still answers.
+      git(root, ['update-ref', localRef(config), commit], { allowFailure: true });
+    } else {
+      git(root, ['update-ref', localRef(config), commit, git(root, ['rev-parse', ref]).stdout.trim()]);
+    }
+    return { branch: config.branch, commit, changed: true, published: entries.map(([file]) => file) };
+  });
+}
+
 function localOutbox(root) {
   return path.join(gitDir(root), 'singularity-flow', 'ledger-outbox');
 }

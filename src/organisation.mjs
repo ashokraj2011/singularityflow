@@ -25,9 +25,9 @@ import {
 } from './capabilities.mjs';
 import { atomicJson, remoteDefaultBranch } from './workspace.mjs';
 import { identity } from './git.mjs';
-import { initializeDefinition } from './config.mjs';
+import { initializeDefinition, loadDefinition } from './config.mjs';
 import { describeRepository, enableLedger, repositoryIdFromUrl } from './bootstrap.mjs';
-import { initializeLedger } from './ledger.mjs';
+import { initializeLedger, publishToStateBranch } from './ledger.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 
@@ -186,8 +186,8 @@ export async function mapCapability(leadUrl, {
       const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root }).stdout.trim();
       await initializeDefinition(root);
       await describeRepository(root, repositoryIdFromUrl(leadUrl), leadUrl, branch, identity(root));
-      // The orphan branch is named in the definition now and created when a workspace is
-      // initialised, which is the point at which there is a checkout to create it from.
+      // The orphan branch is named in the definition here; publishing the map below is what
+      // actually creates it, so the governed copy exists from the moment there is a map.
       await enableLedger(root, 'state');
     }
 
@@ -251,12 +251,46 @@ export async function mapCapability(leadUrl, {
       : null;
     validateCapabilities(document.toJS(), portfolio);
     await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+    const state = await publishCapabilityMap(root, { message: `Map capability ${capabilityId}` });
 
     return {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
-      parent: parent || null
+      parent: parent || null, state
     };
   });
+}
+
+/**
+ * Put the capability map on the orphan state branch as well as the branch it was edited on.
+ *
+ * Two copies, deliberately. The branch copy is the one a person edits and reviews, and it is the
+ * one a force-push or a rebase can rewrite. The state-branch copy has no shared ancestry with any
+ * code branch, so it survives the history being rewritten underneath it — and it is readable from
+ * the remote without a checkout, which is what the readiness probe and every organisation-level
+ * read already do.
+ *
+ * Best effort on purpose. The map has already been written and pushed by the time this runs; a
+ * repository with no state branch, or an unreachable remote, is a reason to say so and not a reason
+ * to fail an edit that has already happened. The caller reports what came back.
+ */
+export async function publishCapabilityMap(root, { message = 'Publish the capability map' } = {}) {
+  const file = path.join(root, CAPABILITIES_PATH);
+  if (!existsSync(file)) return { published: false, reason: 'there is no capability map to publish' };
+  const definition = await loadDefinition(root).catch(() => null);
+  const ledger = definition?.ledger ?? null;
+  // `enabled: false` is a decision this repository made, not a fault: it says the state branch is
+  // not in use here, and publishing to a branch nobody reads would be noise.
+  if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
+  try {
+    const result = await publishToStateBranch(
+      root, ledger, { [CAPABILITIES_PATH]: await readFile(file, 'utf8') }, message);
+    // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
+    // branch already agreed with is the ordinary case, not a problem to explain.
+    if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
+    return { published: true, branch: result.branch, commit: result.commit };
+  } catch (error) {
+    return { published: false, reason: error.message };
+  }
 }
 
 /**
@@ -280,7 +314,8 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
     // editCapability validates before it writes, so a refused edit leaves the map exactly as it
     // was — which matters more here than usual, because this checkout is about to be pushed.
     const result = await editCapability(root, capabilityId, changes, { mode: 'set', portfolio });
-    return { capabilityId, changed: result?.changed ?? true };
+    const state = await publishCapabilityMap(root, { message: `Update capability ${capabilityId}` });
+    return { capabilityId, changed: result?.changed ?? true, state };
   });
 }
 

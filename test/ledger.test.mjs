@@ -16,6 +16,7 @@ import {
   ledgerShow,
   ledgerStatus,
   persistLedgerIntent,
+  publishToStateBranch,
   reconcileLedger,
   sha256,
   verifyLedger
@@ -180,4 +181,57 @@ test('a fresh machine reconciles durable intents discovered on remote work branc
   assert.equal(result.failed.length, 0);
   assert.equal(result.appended[0].eventId, intent.eventId);
   assert.equal((await ledgerStatus(fresh, enabled)).pending.length, 0);
+});
+
+test('a governed file can be published to the state branch, and republishing the same bytes is a no-op', async () => {
+  // The state-branch copy is the one `resolveWorldModelSource` and every organisation-level read
+  // prefer. Nothing wrote it until now, which made the preference inert.
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+
+  const first = await publishToStateBranch(root, enabled, {
+    'singularity/capabilities.yml': 'version: 1\ncapabilities: {}\n'
+  }, 'Publish the capability map');
+  assert.equal(first.changed, true);
+  assert.equal(first.branch, 'singularity/ledger');
+  assert.deepEqual(first.published, ['singularity/capabilities.yml']);
+
+  // Readable from the branch without a checkout, which is how the readers reach it.
+  const shown = run('git', ['show', `${enabled.branch}:singularity/capabilities.yml`], { cwd: root }).stdout;
+  assert.match(shown, /^version: 1$/m);
+  // And it did not touch the working tree it was published from.
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+
+  // Publishing runs on every capability edit and most edits change one file out of several, so
+  // identical bytes must not leave an empty commit behind.
+  const again = await publishToStateBranch(root, enabled, {
+    'singularity/capabilities.yml': 'version: 1\ncapabilities: {}\n'
+  }, 'Publish the capability map');
+  assert.equal(again.changed, false);
+  assert.equal(again.commit, null);
+
+  const changed = await publishToStateBranch(root, enabled, {
+    'singularity/capabilities.yml': 'version: 1\ncapabilities: { commerce: { name: Commerce } }\n'
+  }, 'Update capability commerce');
+  assert.equal(changed.changed, true);
+  assert.notEqual(changed.commit, first.commit);
+});
+
+test('a state-branch path that climbs out of the branch is refused', async () => {
+  // The files are written into a temporary worktree, so `..` writes into the system temp folder.
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, { '../escape.yml': 'x' }, 'Escape'),
+    /must stay inside the branch/);
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, { '/etc/passwd': 'x' }, 'Escape'),
+    /must stay inside the branch/);
+});
+
+test('publishing nothing does nothing', async () => {
+  const { root } = await repository();
+  const result = await publishToStateBranch(root, enabled, {}, 'Nothing');
+  assert.equal(result.changed, false);
+  assert.deepEqual(result.published, []);
 });

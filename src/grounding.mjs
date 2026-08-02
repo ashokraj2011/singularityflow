@@ -242,11 +242,18 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
   const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
   if (!branch) return { directory: worktree, source: 'worktree', branch: null };
 
-  // `rev-parse <branch>:<dir>` names the tree; absent means the branch has no model, which is the
-  // ordinary state of a repository whose model has only ever been built locally.
-  const tree = run('git', ['rev-parse', `${branch}:${config.outputDir}`], { cwd: root, allowFailure: true });
-  if (tree.status !== 0) return { directory: worktree, source: 'worktree', branch };
-  const treeSha = tree.stdout.trim();
+  // `rev-parse <ref>:<dir>` names the tree; absent from both refs means the branch has no model,
+  // which is the ordinary state of a repository whose model has only ever been built locally.
+  //
+  // The remote ref is tried first, and it is not redundant: a fresh clone has fetched the state
+  // branch without creating a local branch for it, so naming the branch plainly finds nothing on
+  // exactly the machines that have never published. Same precedence the ledger itself resolves by.
+  const treeOn = (ref) => {
+    const found = run('git', ['rev-parse', `${ref}:${config.outputDir}`], { cwd: root, allowFailure: true });
+    return found.status === 0 ? found.stdout.trim() : null;
+  };
+  const treeSha = treeOn(`refs/remotes/origin/${branch}`) ?? treeOn(branch);
+  if (!treeSha) return { directory: worktree, source: 'worktree', branch };
 
   const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha.slice(0, 16)}`);
   if (!existsSync(path.join(cached, 'manifest.json'))) {

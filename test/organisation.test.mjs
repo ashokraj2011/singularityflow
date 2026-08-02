@@ -17,7 +17,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
 import {
-  initializeWorkspaceState, mapCapability, readOrganisation, resolveWorkspacePlan
+  editCapabilityInOrganisation, initializeWorkspaceState, mapCapability, readOrganisation,
+  resolveWorkspacePlan
 } from '../src/organisation.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
@@ -588,4 +589,84 @@ test('an initiative can enter its lifecycle at a later phase', async () => {
   const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
   assert.match(cli, /skipped: '–'/);
   assert.match(cli, /\[--start-phase ID\]/);
+});
+
+test('the capability map is published to the state branch as well as the branch it was edited on', async () => {
+  // Two copies on purpose. The branch copy is the one a person reviews and the one a force-push can
+  // rewrite; the state-branch copy is an orphan, so it survives the history being rewritten under
+  // it. Every organisation-level read prefers the second — and nothing wrote it until now.
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+
+  // The first map governs the repository, which names the state branch — so the governed copy
+  // exists from the moment there is a map to govern, rather than from the first workspace.
+  const mapped = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'portfolio'
+  });
+  assert.equal(mapped.state.published, true);
+  assert.equal(mapped.state.branch, 'state');
+
+  const lead = path.join(org.base, 'lead');
+  run('git', ['clone', '-q', org.platform, lead], { cwd: org.base });
+  run('git', ['config', 'user.email', 'a@b.com'], { cwd: lead });
+  run('git', ['config', 'user.name', 'A B'], { cwd: lead });
+
+  const edited = await editCapabilityInOrganisation(org.platform, 'commerce', { name: 'Commerce platform' });
+  assert.equal(edited.state.published, true);
+  assert.equal(edited.state.branch, 'state');
+
+  // Readable straight from the remote, with no checkout — which is how the readers reach it.
+  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: lead });
+  const published = run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout;
+  assert.match(published, /Commerce platform/);
+
+  // And the ordinary branch still has it: the state branch is the governed copy, not the only one.
+  run('git', ['fetch', '-q', 'origin'], { cwd: lead });
+  assert.match(run('git', ['show', 'origin/main:singularity/capabilities.yml'], { cwd: lead }).stdout,
+    /Commerce platform/);
+});
+
+test('a published world model is the one that gets read, including from a clone that only fetched', async () => {
+  // Closing the loop the other way round. The reader preferred the state branch and nothing wrote
+  // it, so the preference never fired; this asserts that what the publisher produces is what the
+  // reader accepts, rather than testing a branch built by hand in the test.
+  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
+  const { publishToStateBranch } = await import('../src/ledger.mjs');
+  const org = await remotes('api');
+  const repo = path.join(org.base, 'work');
+  run('git', ['clone', '-q', org.api, repo], { cwd: org.base });
+  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
+  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
+
+  const outputDir = 'singularity/world-model';
+  const ledger = { enabled: true, branch: 'state', remote: 'origin' };
+  await mkdir(path.join(repo, outputDir, 'core'), { recursive: true });
+  await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
+  await writeFile(path.join(repo, outputDir, 'core', 'summary.md'), 'from the working tree\n');
+
+  const published = await publishToStateBranch(repo, ledger, {
+    [`${outputDir}/manifest.json`]: '{"schema_version":1}',
+    [`${outputDir}/core/summary.md`]: 'from the state branch\n'
+  }, '[world-model] repository');
+  assert.equal(published.changed, true);
+
+  const summary = async (found) =>
+    (await readFile(path.join(found.directory, 'core', 'summary.md'), 'utf8')).trim();
+
+  // On the machine that published it. The push updates the remote, so a local ref left behind here
+  // would mean the publisher is the one party that cannot see what it just published.
+  const here = await resolveWorldModelSource(repo, { outputDir, ledger });
+  assert.equal(here.source, 'state-branch');
+  assert.equal(await summary(here), 'from the state branch');
+
+  // And on a clone that has fetched the branch without checking it out — which is every machine
+  // that has never published. Naming the branch plainly finds nothing there.
+  const fresh = path.join(org.base, 'fresh');
+  run('git', ['clone', '-q', org.api, fresh], { cwd: org.base });
+  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: fresh });
+  assert.equal(run('git', ['rev-parse', '--verify', 'refs/heads/state'], { cwd: fresh, allowFailure: true }).status,
+    128, 'no local branch, which is the case this covers');
+  const elsewhere = await resolveWorldModelSource(fresh, { outputDir, ledger });
+  assert.equal(elsewhere.source, 'state-branch');
+  assert.equal(await summary(elsewhere), 'from the state branch');
 });

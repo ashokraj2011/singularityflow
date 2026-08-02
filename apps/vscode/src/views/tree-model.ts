@@ -205,9 +205,10 @@ export function unavailableTree(
       // both work from a window with nothing open, which is exactly where this state occurs.
       {
         kind: 'action', id: 'unavailable:bootstrap',
-        label: 'Govern a repository', description: 'start here',
-        tooltip: 'Clone a repository, write its governed configuration, and create the state branch.',
-        icon: 'rocket', runCommand: 'singularityFlow.bootstrap'
+        label: 'Map a capability', description: 'start here',
+        tooltip: 'Describe what this organisation builds and which repository each part ships from. '
+          + 'Nothing is checked out.',
+        icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
       },
       {
         kind: 'action', id: 'unavailable:workspaces', label: 'Find a workspace you already have',

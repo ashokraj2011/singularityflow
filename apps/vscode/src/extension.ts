@@ -12,7 +12,6 @@ import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
-import { enableStateLedger } from './workspace.ts';
 import { WorkspacePanel } from './views/workspace-panel.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
@@ -25,7 +24,7 @@ import { EpicPanel } from './views/epic-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
-import { BootstrapPanel, type Bootstrapped } from './views/bootstrap-panel.ts';
+import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
@@ -96,9 +95,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (handler) return handler(...args);
       void vscode.window.showWarningMessage(
         `Singularity Flow: ${unavailableReason}`,
-        'Govern a repository', 'Find a workspace'
+        'Map a capability', 'Find a workspace'
       ).then((chosen) => {
-        if (chosen === 'Govern a repository') return vscode.commands.executeCommand('singularityFlow.bootstrap');
+        if (chosen === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
         if (chosen === 'Find a workspace') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
         return undefined;
       });
@@ -137,11 +136,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     WorkspacePanel.show(context, location, output, async (created) => {
-      // Asked on the form, not after it. A prompt that appears once the panel has closed asks about
-      // a decision the person has already finished making, and cannot be corrected without starting
-      // the whole workspace again.
-      if (created.stateBranch) await enableStateLedger(location, created.leadDirectory, created.stateBranch, output);
-
+      // The state branch is not created here. `workspace create` does it, in the repository the lead
+      // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
+      // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
       const open = await vscode.window.showInformationMessage(
         `Workspace created with ${created.lead} as lead.`,
         'Open lead repository', 'Open workspace folder');
@@ -149,6 +146,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : open === 'Open workspace folder' ? created.directory
           : null;
       if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: false });
+    }, async () => {
+      // The form's own way out of the empty case: with no organisation mapped there is nothing to
+      // choose from, and mapping one is the step that was missed rather than a different task.
+      await vscode.commands.executeCommand('singularityFlow.mapCapability');
     });
   }));
 
@@ -159,34 +160,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * thing every other command needs, so requiring one would be the whole chicken-and-egg problem
    * written into the extension.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.bootstrap', () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.mapCapability', async () => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
     } catch (error) {
       return void vscode.window.showErrorMessage((error as Error).message);
     }
-    BootstrapPanel.show(context, async (argv) => {
+    // Run from wherever the CLI is rooted: describing what an organisation builds is not work done
+    // inside a checkout, and requiring one was the circular dependency this breaks.
+    const registry = new SingularityFlowClient({
+      location, repository: process.cwd(), onOutput: (text) => output.append(text)
+    });
+    const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
       output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
       try {
-        // Run from wherever the CLI is rooted: there is no repository yet, which is the point.
-        const result = await new SingularityFlowClient({
-          location, repository: process.cwd(), onOutput: (text) => output.append(text)
-        }).run<Bootstrapped>(argv);
-        return { result, error: null };
+        return { result: await registry.run<unknown>(argv), error: null };
       } catch (error) {
         output.appendLine(`  failed: ${(error as Error).message}`);
         return { result: null, error: (error as Error).message };
       }
-    }, async (result) => {
-      void refreshWorkspaceTree();
-      const open = await vscode.window.showInformationMessage(
-        `${result.repositoryId} is now governed, with ${result.capability} as its root capability.`,
-        'Open it');
-      if (open === 'Open it') {
-        await vscode.commands.executeCommand('vscode.openFolder',
-          vscode.Uri.file(result.root), { forceNewWindow: false });
-      }
+    };
+
+    const leads = await registry
+      .run<Array<{ url: string }>>(['capability', 'leads', '--json'])
+      .catch(() => []);
+
+    BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
+      void vscode.window.showInformationMessage(
+        `${mapped.capabilityId} is mapped${mapped.repositoryId ? ` to ${mapped.repositoryId}` : ''}. `
+        + 'Create a workspace on it to work in it.', 'Create a workspace')
+        .then((chosen) => (chosen
+          ? vscode.commands.executeCommand('singularityFlow.createWorkspace')
+          : undefined));
     });
   }));
 

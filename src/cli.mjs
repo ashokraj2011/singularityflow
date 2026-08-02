@@ -172,6 +172,10 @@ import {
   validateCapabilities
 } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
+import {
+  initializeWorkspaceState, listLeadRepositories, mapCapability, readOrganisation,
+  rememberLeadRepository, resolveWorkspacePlan
+} from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 
 const VERSION = '0.9.0';
@@ -390,8 +394,11 @@ Usage:
   singularity-flow finalize [--json]
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
     --repository ID=URL [--repository ID=URL] [--confirm KEY] [--no-clone]
-  singularity-flow workspace create --local --id ID [--name TEXT] --lead REPOSITORY
-    --repository ID=URL [--capability ID] [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+  singularity-flow workspace create --local --id ID [--name TEXT]
+    --organisation LEAD-URL --capability ID [--capability ID] [--lead-capability ID]
+    [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
+  singularity-flow workspace create --local --id ID --lead REPOSITORY --repository ID=URL
+    [--base DIRECTORY] [--confirm ID] [--no-clone]        (no capability map yet)
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow workspace capabilities <LEAD-URL> [--json]
   singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]
@@ -402,6 +409,10 @@ Usage:
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
     [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
+  singularity-flow capability map <CAPABILITY-ID> --repository URL [--lead URL] [--name TEXT]
+    [--kind TEXT] [--parent ID] [--jira-project KEY] [--teams A,B] [--json]
+  singularity-flow capability organisation [LEAD-URL] [--json]
+  singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
@@ -2323,9 +2334,59 @@ function capabilityChanges(options) {
  * to see. `capability show --json` reports both.
  */
 async function capabilityCommand(positionals, options) {
+  const subcommandForWrite = positionals[1];
+
+  // Mapping and reading happen against a lead repository rather than a checkout, so they run from
+  // anywhere — including a window with nothing open, which is where somebody describing what their
+  // organisation builds actually is.
+  if (subcommandForWrite === 'map') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) {
+      throw new SingularityFlowError(
+        'No lead repository is known. Pass --lead <URL>, or govern one first with '
+        + 'singularity-flow bootstrap.');
+    }
+    const mapped = await mapCapability(leadUrl, {
+      capabilityId: requirePositional(positionals, 2, 'capability ID'),
+      name: optionString(options, 'name'),
+      kind: optionString(options, 'kind', 'service'),
+      parent: optionString(options, 'parent'),
+      repositoryUrl: optionString(options, 'repository'),
+      jiraProject: optionString(options, 'jira-project'),
+      teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
+    });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...mapped }, null, 2));
+    console.log(`Mapped ${mapped.capabilityId}${mapped.repositoryId ? ` to ${mapped.repositoryId}` : ''} in ${leadUrl}.`);
+    if (mapped.commit) console.log(`  pushed ${mapped.commit.slice(0, 8)} to ${mapped.branch}`);
+    return;
+  }
+
+  if (subcommandForWrite === 'organisation') {
+    const leadUrl = optionString(options, 'lead')
+      ?? positionals[2] ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass one, or govern one first.');
+    const organisation = await readOrganisation(leadUrl);
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(organisation, null, 2));
+    if (!organisation.governed) return console.log(`${leadUrl} holds no capability map.`);
+    for (const row of flattenCapabilityTree(organisation.capabilities)) {
+      console.log(`${'  '.repeat(row.depth)}${row.name}${row.repository ? `  \u2192 ${row.repository}` : ''}`);
+    }
+    return;
+  }
+
+  if (subcommandForWrite === 'leads') {
+    const leads = await listLeadRepositories();
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(leads, null, 2));
+    if (!leads.length) return console.log('No lead repository is known yet.');
+    for (const lead of leads) console.log(`  ${lead.url}`);
+    return;
+  }
+
+  // Everything below edits the map in the repository you are standing in, so it needs one.
   const root = repoRoot();
   const portfolio = await loadPortfolio(root, { required: false });
-  const subcommandForWrite = positionals[1];
 
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
@@ -3412,18 +3473,34 @@ async function workspaceCommand(positionals, options) {
       if (!workspaceId) throw new SingularityFlowError('workspace create --local requires --id.');
       const localUrls = optionMap(optionStrings(options, 'repository'), '--repository');
       const localBranches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');
+      // A workspace is capabilities and a working directory. When an organisation is named, the
+      // repositories are what those capabilities deliver from — derived rather than listed, because
+      // listing them again is a second place for the same fact to be wrong. Naming repositories
+      // directly stays supported for a repository that has no capability map yet.
+      const organisationUrl = optionString(options, 'organisation');
+      const chosen = optionStrings(options, 'capability');
+      let derived = null;
+      if (organisationUrl) {
+        derived = resolveWorkspacePlan(await readOrganisation(organisationUrl), {
+          capabilities: chosen,
+          leadCapability: optionString(options, 'lead-capability')
+        });
+        await rememberLeadRepository(organisationUrl);
+      }
+
       const localInput = {
         baseDirectory: optionString(options, 'base', process.env.SINGULARITY_FLOW_WORKSPACE_ROOT || path.join(os.homedir(), 'Singularity Workspaces')),
         id: workspaceId,
         name: optionString(options, 'name') ?? workspaceId,
-        leadRepository: optionString(options, 'lead'),
-        capabilities: optionStrings(options, 'capability'),
-        repositories: Object.fromEntries(Object.entries(localUrls).map(([id, url]) => [id, {
-          url,
-          defaultBranch: localBranches[id] ?? 'main',
-          required: true,
-          path: `repos/${id}`
-        }]))
+        leadRepository: derived?.leadRepository ?? optionString(options, 'lead'),
+        capabilities: derived?.capabilities ?? chosen,
+        repositories: derived?.repositories
+          ?? Object.fromEntries(Object.entries(localUrls).map(([id, url]) => [id, {
+            url,
+            defaultBranch: localBranches[id] ?? 'main',
+            required: true,
+            path: `repos/${id}`
+          }]))
       };
       if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(previewWorkspaceConfiguration(localInput), null, 2));
       const localResult = await createWorkspaceConfiguration(localInput, {
@@ -3431,8 +3508,31 @@ async function workspaceCommand(positionals, options) {
         clone: optionBoolean(options, 'clone', true)
       });
       await rememberWorkspace(registry, localResult.workspace, localResult.status);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(localResult, null, 2));
+
+      // Initialising the workspace is what creates the governed state branch, in the repository the
+      // lead capability ships from. Done here rather than by whoever called this, so the CLI and the
+      // editor cannot drift into creating it in different places — or, as the editor did, quietly
+      // skipping it for a repository that was not governed yet.
+      let state = null;
+      if (optionBoolean(options, 'clone', true) && localResult.workspace.leadRepository) {
+        const leadPath = localResult.workspace.repositories?.[localResult.workspace.leadRepository]?.path
+          ?? `repos/${localResult.workspace.leadRepository}`;
+        try {
+          state = await initializeWorkspaceState(path.join(localResult.workspace.path, leadPath), {
+            branch: optionString(options, 'state-branch', 'state')
+          });
+        } catch (error) {
+          // A workspace that exists with no state branch is recoverable; refusing to report the
+          // workspace that was just cloned is not.
+          state = { error: error.message };
+        }
+      }
+
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...localResult, state }, null, 2));
       console.log(`Workspace ${localResult.created ? 'created' : 'resumed'} at ${localResult.workspace.path}.`);
+      if (state?.error) console.log(`  the ${optionString(options, 'state-branch', 'state')} branch was not created: ${state.error}`);
+      else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
+      else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
       return renderWorkspaceStatus(localResult.status);
     }
     const jiraKey = optionString(options, 'jira');

@@ -57,7 +57,7 @@ export function repositoryIdFromUrl(url) {
  * explaining each setting, and a YAML round trip would throw all of it away on the very first
  * thing anybody does to the file.
  */
-async function describeRepository(root, repositoryId, url, defaultBranch, actor) {
+export async function describeRepository(root, repositoryId, url, defaultBranch, actor) {
   const file = path.join(root, 'singularity/portfolio.yml');
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
 
@@ -121,7 +121,7 @@ async function describeCapability(root, { capabilityId, capabilityName, kind, ji
 }
 
 /** Turn the ledger on in the workflow definition, so the orphan branch is actually written to. */
-async function enableLedger(root, branch) {
+export async function enableLedger(root, branch) {
   const file = path.join(root, 'singularity/workflow.yml');
   const text = await readFile(file, 'utf8');
   const block = `ledger:\n  enabled: true\n  branch: ${branch}\n  remote: origin\n`;

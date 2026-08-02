@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -413,4 +413,53 @@ test('the active workspace is matched on identifier and path, not identifier alo
     new URL('../apps/vscode/src/views/navigation-trees.ts', import.meta.url), 'utf8');
   assert.match(trees, /shares the id \$\{row\.id\}/);
   assert.match(trees, /row\.collides \|\| row\.sharesId \? 'warning'/);
+});
+
+/**
+ * A world model may live on the state branch, in the working tree, or in both.
+ *
+ * The state branch wins. It is the governed copy — written deliberately, and never rewritten by a
+ * rebase of the code — whereas a working tree holds whatever the last local build happened to
+ * leave. Reading whichever was checked out is how two people on the same commit ground a phase
+ * differently and never find out.
+ */
+test('the state branch world model takes precedence over the working tree', async () => {
+  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-'));
+  const repo = path.join(base, 'repo');
+  run('git', ['init', '-q', '-b', 'main', repo], { cwd: base });
+  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
+  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
+
+  const outputDir = 'singularity/world-model';
+  const write = async (text) => {
+    await mkdir(path.join(repo, outputDir, 'core'), { recursive: true });
+    await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
+    await writeFile(path.join(repo, outputDir, 'core', 'summary.md'), text);
+    run('git', ['add', '-A'], { cwd: repo });
+    run('git', ['commit', '-qm', 'model'], { cwd: repo });
+  };
+  await write('from the working tree\n');
+  run('git', ['checkout', '-q', '--orphan', 'state'], { cwd: repo });
+  run('git', ['rm', '-rqf', '.'], { cwd: repo, allowFailure: true });
+  await write('from the state branch\n');
+  run('git', ['checkout', '-q', 'main'], { cwd: repo });
+
+  const summary = async (found) =>
+    (await readFile(path.join(found.directory, 'core', 'summary.md'), 'utf8')).trim();
+
+  const governed = await resolveWorldModelSource(repo, { outputDir, ledger: { branch: 'state' } });
+  assert.equal(governed.source, 'state-branch');
+  assert.equal(await summary(governed), 'from the state branch');
+
+  // A branch that carries no model is the ordinary state of a repository built only locally, so it
+  // falls back rather than failing.
+  const absent = await resolveWorldModelSource(repo, { outputDir, ledger: { branch: 'nowhere' } });
+  assert.equal(absent.source, 'worktree');
+  assert.equal(await summary(absent), 'from the working tree');
+
+  // And with no branch configured at all, the working tree is simply the answer.
+  const plain = await resolveWorldModelSource(repo, { outputDir });
+  assert.equal(plain.source, 'worktree');
+  assert.equal(await summary(plain), 'from the working tree');
 });

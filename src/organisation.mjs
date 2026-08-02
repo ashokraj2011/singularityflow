@@ -159,8 +159,13 @@ export async function mapCapability(leadUrl, {
   capabilityId,
   name = null,
   kind = 'service',
+  type = null,
   parent = null,
   repositoryUrl = null,
+  repositoryUrls = [],
+  leadRepositoryUrl = null,
+  documentation = {},
+  resources = {},
   jiraProject = null,
   teams = []
 } = {}) {
@@ -173,6 +178,7 @@ export async function mapCapability(leadUrl, {
     // circular dependency: to map a capability you needed a map, and the only way to get a map was
     // to map a capability. Governing here costs one extra write on exactly one operation — the
     // first — and every later map finds the file already there.
+    assertGovernanceVisible(root);
     const governed = existsSync(path.join(root, CAPABILITIES_PATH));
     if (!governed) {
       const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root }).stdout.trim();
@@ -183,20 +189,32 @@ export async function mapCapability(leadUrl, {
       await enableLedger(root, 'state');
     }
 
-    // The repository, if one was given, declared in the portfolio so the capability may name it.
-    let repositoryId = null;
-    if (repositoryUrl) {
-      repositoryId = repositoryIdOf(repositoryUrl);
-      const branch = remoteDefaultBranch(
-        repositoryUrl,
-        run('git', ['ls-remote', '--symref', repositoryUrl, 'HEAD'], { allowFailure: true }).stdout
-      );
+    // Every repository this capability ships from, declared in the portfolio so the capability may
+    // name them. A capability commonly has one; a product with a web app and a service has two.
+    const urls = [...new Set([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls])];
+    const repositoryIds = [];
+    if (urls.length) {
       const file = path.join(root, PORTFOLIO_PATH);
       const portfolio = YAML.parseDocument(await readFile(file, 'utf8'));
-      portfolio.setIn(['repositories', repositoryId], portfolio.createNode({
-        url: repositoryUrl, defaultBranch: branch, required: true
-      }));
+      for (const url of urls) {
+        const id = repositoryIdOf(url);
+        repositoryIds.push(id);
+        const branch = remoteDefaultBranch(
+          url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout);
+        portfolio.setIn(['repositories', id], portfolio.createNode({
+          url, defaultBranch: branch, required: true
+        }));
+      }
       await writeFile(file, portfolio.toString({ flowCollectionPadding: false }), 'utf8');
+    }
+    const repositoryId = repositoryIds[0] ?? null;
+    // The lead is where this capability's governed state and world model live, so with more than
+    // one repository it has to be said rather than inferred from the order they were typed in.
+    const leadRepositoryId = leadRepositoryUrl ? repositoryIdOf(leadRepositoryUrl)
+      : repositoryIds.length === 1 ? repositoryIds[0] : null;
+    if (leadRepositoryId && !repositoryIds.includes(leadRepositoryId)) {
+      throw new SingularityFlowError(
+        `The lead repository must be one of this capability's repositories; '${leadRepositoryId}' is not among ${repositoryIds.join(', ') || 'any'}.`);
     }
 
     const file = path.join(root, CAPABILITIES_PATH);
@@ -210,8 +228,17 @@ export async function mapCapability(leadUrl, {
     const set = (key, value) => document.setIn(['capabilities', capabilityId, ...key.split('.')], value);
     set('name', name ?? capabilityId);
     set('kind', kind);
+    if (type) set('type', type);
     set('parent', parent || null);
-    if (repositoryId) set('repository', repositoryId);
+    // One repository is written as the shorthand every existing map already uses; several are
+    // written as the list, with the lead named.
+    if (repositoryIds.length === 1) set('repository', repositoryIds[0]);
+    else if (repositoryIds.length > 1) {
+      set('repositories', repositoryIds);
+      if (leadRepositoryId) set('leadRepository', leadRepositoryId);
+    }
+    if (Object.keys(documentation).length) set('documentation', documentation);
+    if (Object.keys(resources).length) set('resources', resources);
     if (jiraProject) set('jira.projectKey', jiraProject);
     if (teams.length) set('teams', teams);
 
@@ -223,7 +250,10 @@ export async function mapCapability(leadUrl, {
     validateCapabilities(document.toJS(), portfolio);
     await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
 
-    return { capabilityId, repositoryId, parent: parent || null };
+    return {
+      capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
+      parent: parent || null
+    };
   });
 }
 
@@ -240,6 +270,28 @@ export function repositoryIdOf(url) {
     .toLowerCase();
   if (!id) throw new SingularityFlowError(`Cannot derive a repository identifier from '${url}'.`);
   return id;
+}
+
+/**
+ * Refuse to govern a repository that ignores the folder the governance lives in.
+ *
+ * `singularity/` is deliberately visible — it is the product's whole premise that the state is
+ * readable in the repository rather than hidden in a dotfile. A `.gitignore` that excludes it, or
+ * excludes something inside it, makes every governed write a no-op that reports success: the file
+ * is written, `git add` silently skips it, and the commit lands without it. That is a very quiet
+ * way to lose an audit trail, so it is checked rather than hoped for.
+ */
+export function assertGovernanceVisible(root, paths = [CAPABILITIES_PATH, PORTFOLIO_PATH, 'singularity/workflow.yml']) {
+  const ignored = [];
+  for (const relative of paths) {
+    const result = run('git', ['check-ignore', '-q', '--', relative], { cwd: root, allowFailure: true });
+    // 0 means ignored, 1 means not ignored, anything else means git could not tell us.
+    if (result.status === 0) ignored.push(relative);
+  }
+  if (!ignored.length) return { visible: true, ignored: [] };
+  throw new SingularityFlowError(
+    `Git is ignoring ${ignored.join(', ')}, so governed writes would be silently dropped. `
+    + 'Remove the matching .gitignore rule: singularity/ is meant to be visible and committed.');
 }
 
 /**

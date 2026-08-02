@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
 import { exists, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 
@@ -224,10 +225,47 @@ export async function worldModelFreshness(root, config, manifest) {
 
 function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' '); }
 
+/**
+ * Where this repository's world model actually is.
+ *
+ * A model may live on the orphan state branch, in the working tree, or in both. The state branch
+ * wins: it is the governed copy, written deliberately and never rewritten by a rebase of the code,
+ * whereas a working tree holds whatever the last local build left behind. Reading whichever was
+ * checked out is how two people on the same commit ground a phase differently.
+ *
+ * The branch copy is materialized into a temporary directory so every reader downstream keeps
+ * taking a plain directory and none of them has to learn about Git. It is cached by tree hash, so
+ * repeated reads of an unchanged model cost one `rev-parse`.
+ */
+export async function resolveWorldModelSource(root, config, { stateBranch = null } = {}) {
+  const worktree = path.join(root, config.outputDir);
+  const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
+  if (!branch) return { directory: worktree, source: 'worktree', branch: null };
+
+  // `rev-parse <branch>:<dir>` names the tree; absent means the branch has no model, which is the
+  // ordinary state of a repository whose model has only ever been built locally.
+  const tree = run('git', ['rev-parse', `${branch}:${config.outputDir}`], { cwd: root, allowFailure: true });
+  if (tree.status !== 0) return { directory: worktree, source: 'worktree', branch };
+  const treeSha = tree.stdout.trim();
+
+  const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha.slice(0, 16)}`);
+  if (!existsSync(path.join(cached, 'manifest.json'))) {
+    await mkdir(cached, { recursive: true });
+    // Extracted rather than checked out: a checkout would move the working tree out from under
+    // whoever is using it, to read something they did not ask to switch to.
+    const extracted = run('bash', ['-c',
+      `git archive ${treeSha} | tar -x -C ${JSON.stringify(cached)}`], { cwd: root, allowFailure: true });
+    if (extracted.status !== 0) return { directory: worktree, source: 'worktree', branch };
+  }
+  return { directory: cached, source: 'state-branch', branch };
+}
+
 export async function resolveWorldModelContext(root, config, phase, { task = null, evidence = false, includePersonaPrompt = false } = {}) {
   const phaseConfig = config.phases?.[phase];
   if (!phaseConfig) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
-  const directory = path.join(root, config.outputDir);
+  // The state branch wins where it has a model; the working tree answers otherwise.
+  const located = await resolveWorldModelSource(root, config);
+  const directory = located.directory;
   const { manifest } = await validateWorldModelDirectory(directory, { requiredViews: phaseConfig.views ?? [], requireEvidence: evidence || phaseConfig.evidence || config.context?.includeEvidence });
   const freshness = await worldModelFreshness(root, config, manifest);
   const selected = [];

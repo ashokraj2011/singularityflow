@@ -167,6 +167,7 @@ import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
 import {
+  CAPABILITY_TYPES,
   CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability,
   flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
   validateCapabilities
@@ -413,9 +414,11 @@ Usage:
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
     [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
-  singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL] [--name TEXT]
-    [--kind TEXT] [--parent ID] [--jira-project KEY] [--teams A,B] [--json]
-    (--repository names what it ships from; omit it for a capability that groups others)
+  singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
+    [--kind TEXT] [--type tech|business] [--parent ID] [--lead-repository URL]
+    [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
+    (--repository is repeatable; omit it for a capability that groups others. --lead-repository
+     says which one holds the governed state when there are several.)
   singularity-flow capability organisation [LEAD-URL] [--json]
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
@@ -2389,18 +2392,33 @@ async function capabilityCommand(positionals, options) {
         'No lead repository is known. Pass --lead <URL>, or govern one first with '
         + 'singularity-flow bootstrap.');
     }
+    const type = optionString(options, 'type');
+    if (type && !CAPABILITY_TYPES.includes(type)) {
+      throw new SingularityFlowError(`--type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
+    }
     const mapped = await mapCapability(leadUrl, {
       capabilityId: requirePositional(positionals, 2, 'capability ID'),
       name: optionString(options, 'name'),
       kind: optionString(options, 'kind', 'service'),
+      type,
       parent: optionString(options, 'parent'),
-      repositoryUrl: optionString(options, 'repository'),
+      // Repeatable: a capability may ship from several repositories, and --lead-repository says
+      // which of them holds its governed state.
+      repositoryUrls: optionStrings(options, 'repository'),
+      leadRepositoryUrl: optionString(options, 'lead-repository'),
+      // Free-form key/value, because every organisation names its documentation and its
+      // infrastructure differently. `--doc confluence=<url>`, `--resource aws=<arn>`.
+      documentation: optionMap(optionStrings(options, 'doc'), 'Capability documentation'),
+      resources: optionMap(optionStrings(options, 'resource'), 'Capability resources'),
       jiraProject: optionString(options, 'jira-project'),
       teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...mapped }, null, 2));
-    console.log(`Mapped ${mapped.capabilityId}${mapped.repositoryId ? ` to ${mapped.repositoryId}` : ''} in ${leadUrl}.`);
+    const ships = mapped.repositoryIds?.length
+      ? ` to ${mapped.repositoryIds.join(', ')}${mapped.leadRepositoryId && mapped.repositoryIds.length > 1 ? ` (lead ${mapped.leadRepositoryId})` : ''}`
+      : '';
+    console.log(`Mapped ${mapped.capabilityId}${ships} in ${leadUrl}.`);
     if (mapped.commit) console.log(`  pushed ${mapped.commit.slice(0, 8)} to ${mapped.branch}`);
     return;
   }

@@ -124,17 +124,78 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
  * a capability and who runs it are properties of the capability itself, true regardless of who has
  * cloned what.
  */
+/**
+ * What a capability is, as opposed to where it sits.
+ *
+ * Hard-coded on purpose. `kind` is the organisation's own vocabulary and grows with it; this is a
+ * closed pair, because the whole value of it is that every capability answers the same question the
+ * same way.
+ */
+export const CAPABILITY_TYPES = Object.freeze(['tech', 'business']);
+
+/**
+ * Every repository a capability ships from.
+ *
+ * `repository` is the single-repository shorthand and stays valid — most capabilities have one, and
+ * making them all write a list would be noise. `repositories` is the list form. Both read the same.
+ */
+export function capabilityRepositories(capability) {
+  const listed = Array.isArray(capability?.repositories) ? capability.repositories : [];
+  const single = capability?.repository != null ? [capability.repository] : [];
+  return [...new Set([...single, ...listed])];
+}
+
+/** The repository holding this capability's governed state: the declared lead, or its only one. */
+export function capabilityLeadRepository(capability) {
+  const repositories = capabilityRepositories(capability);
+  if (capability?.leadRepository) return capability.leadRepository;
+  return repositories.length === 1 ? repositories[0] : null;
+}
+
 function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
-  if (capability.repository != null) {
-    if (typeof capability.repository !== 'string' || !capability.repository.trim()) {
+  // Tech or business, and nothing else. `kind` says where a capability sits in the hierarchy —
+  // portfolio, domain, product, service — which is a different question from whether the thing
+  // being described is software or the business it serves. Two axes, so two fields, and this one is
+  // a closed vocabulary because a tree where half the leaves say "technical" and half say "tech" is
+  // a tree nobody can filter.
+  if (capability.type != null && !CAPABILITY_TYPES.includes(capability.type)) {
+    throw new SingularityFlowError(
+      `Capability '${id}'.type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
+  }
+
+  // A capability may ship from several repositories and still contain other capabilities. Both were
+  // forbidden: one repository each, and naming one made the capability a leaf. Neither holds — a
+  // product with a web app and a service is one capability with two repositories, and it may still
+  // group the capabilities beneath it.
+  const repositories = capabilityRepositories(capability);
+  for (const repository of repositories) {
+    if (typeof repository !== 'string' || !repository.trim()) {
       throw new SingularityFlowError(`Capability '${id}' repository must be a repository identifier.`);
     }
-    if (portfolio && !portfolio.repositories?.[capability.repository]) {
-      throw new SingularityFlowError(`Capability '${id}' delivers from repository '${capability.repository}', which the portfolio does not declare.`);
+    if (portfolio && !portfolio.repositories?.[repository]) {
+      throw new SingularityFlowError(`Capability '${id}' ships from repository '${repository}', which the portfolio does not declare.`);
     }
-    const children = Object.entries(capabilities).filter(([, other]) => other.parent === id);
-    if (children.length) {
-      throw new SingularityFlowError(`Capability '${id}' delivers from a repository, so it cannot also contain ${children.map(([child]) => `'${child}'`).join(', ')}.`);
+  }
+  if (new Set(repositories).size !== repositories.length) {
+    throw new SingularityFlowError(`Capability '${id}' names the same repository more than once.`);
+  }
+  // One lead per capability: it is where that capability's governed state and world model live, so
+  // "which one" cannot be left to whichever happens to be listed first.
+  if (capability.leadRepository != null) {
+    if (!repositories.includes(capability.leadRepository)) {
+      throw new SingularityFlowError(
+        `Capability '${id}' leads with '${capability.leadRepository}', which is not one of its repositories.`);
+    }
+  }
+
+  for (const field of ['documentation', 'resources']) {
+    if (capability[field] == null) continue;
+    object(capability[field], `Capability '${id}'.${field}`);
+    for (const [key, value] of Object.entries(capability[field])) {
+      if (typeof value !== 'string' || !value.trim()) {
+        throw new SingularityFlowError(
+          `Capability '${id}'.${field}.${key} must be text — a URL, a page reference or an identifier.`);
+      }
     }
   }
 
@@ -342,9 +403,19 @@ export function capabilityTree(definition) {
       id,
       name: capability.name ?? id,
       kind: capability.kind,
-      // Inferred, never declared separately: a capability that ships names a repository.
-      delivery: Boolean(capability.repository),
-      repository: capability.repository ?? null,
+      // Tech or business. Absent on capabilities mapped before the field existed, and that is a
+      // fact about them rather than a default to invent.
+      type: capability.type ?? null,
+      // Inferred, never declared separately: a capability that ships names a repository. It may
+      // ship from several and still contain other capabilities.
+      delivery: capabilityRepositories(capability).length > 0,
+      // `repository` stays the first one so every existing reader keeps working; `repositories` is
+      // the whole list and `leadRepository` says which holds the governed state.
+      repository: capabilityRepositories(capability)[0] ?? null,
+      repositories: capabilityRepositories(capability),
+      leadRepository: capabilityLeadRepository(capability),
+      documentation: capability.documentation ?? {},
+      resources: capability.resources ?? {},
       jira: capability.jira ?? null,
       // Normalized here rather than stored back: uniqueStrings trims and de-duplicates, which is the
       // convention `owns` already follows, and the reader should see the tidied list.
@@ -373,12 +444,15 @@ export function capabilityDeliveries(definition, capabilityId) {
   }
   return rows
     .filter((row) => row.delivery && (row.id === capabilityId || row.ancestors.includes(capabilityId)))
-    .map((row) => ({ id: row.id, name: row.name, repository: row.repository }));
+    .map((row) => ({
+      id: row.id, name: row.name, repository: row.repository, repositories: row.repositories
+    }));
 }
 
 /** Which capability delivers a repository, and the chain of groupings above it. */
 export function capabilityForRepository(definition, repositoryId) {
+  // Matched against every repository the capability ships from, not only its first.
   const row = flattenCapabilityTree(capabilityTree(definition))
-    .find((entry) => entry.repository === repositoryId);
+    .find((entry) => entry.repositories.includes(repositoryId));
   return row ? { id: row.id, name: row.name, ancestors: row.ancestors } : null;
 }

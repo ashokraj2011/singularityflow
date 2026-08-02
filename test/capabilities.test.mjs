@@ -151,16 +151,75 @@ test('a capability that names a repository is the leaf that ships; one that does
   ]);
 });
 
-test('a capability cannot both ship and contain', () => {
-  // A grouping delegates; a leaf delivers. Something claiming to do both makes "what does this ship"
-  // unanswerable, which is the question the tree exists to answer.
+test('a capability may ship and contain, and may ship from several repositories', () => {
+  // Both were forbidden. Neither holds: a product with a web app and a service is one capability
+  // with two repositories, and it may still group the capabilities beneath it.
+  const definition = {
+    version: 1,
+    capabilities: {
+      payments: {
+        kind: 'product', type: 'tech', parent: null,
+        repositories: ['api', 'web'], leadRepository: 'api'
+      },
+      'payments-api': { kind: 'service', type: 'tech', parent: 'payments', repository: 'api' }
+    }
+  };
+  const portfolio = { repositories: { api: {}, web: {} } };
+  validateCapabilities(definition, portfolio);
+
+  const [root] = capabilityTree(definition);
+  assert.deepEqual(root.repositories, ['api', 'web']);
+  assert.equal(root.leadRepository, 'api', 'one lead holds the governed state');
+  assert.equal(root.delivery, true);
+  assert.deepEqual(root.children.map((child) => child.id), ['payments-api']);
+});
+
+test('the lead repository must be one the capability actually ships from', () => {
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: {
-      payments: { kind: 'product', parent: null, repository: 'api' },
-      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' }
+      payments: { kind: 'product', parent: null, repositories: ['api'], leadRepository: 'web' }
     }
-  }, { repositories: { api: {} } }), /delivers from a repository, so it cannot also contain/);
+  }, { repositories: { api: {}, web: {} } }), /leads with 'web', which is not one of its repositories/);
+});
+
+test('a capability is tech or business, and nothing else', () => {
+  // A closed pair is the whole point: a tree where half the leaves say "technical" and half say
+  // "tech" is a tree nobody can filter.
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'product', type: 'technical', parent: null } }
+  }), /type must be one of: tech, business/);
+
+  for (const type of ['tech', 'business']) {
+    validateCapabilities({
+      version: 1, capabilities: { payments: { kind: 'product', type, parent: null } }
+    });
+  }
+});
+
+test('documentation and resources are free-form links, checked only for being text', () => {
+  // Every organisation names these differently, so the keys are theirs; what cannot vary is that a
+  // link is something you can follow.
+  const definition = {
+    version: 1,
+    capabilities: {
+      payments: {
+        kind: 'product', type: 'business', parent: null,
+        documentation: { confluence: 'https://wiki.example/payments', runbook: 'docs/runbook.md' },
+        resources: { aws: 'arn:aws:iam::1234:role/payments', dashboard: 'https://grafana/payments' }
+      }
+    }
+  };
+  validateCapabilities(definition);
+  const [root] = capabilityTree(definition);
+  assert.equal(root.documentation.confluence, 'https://wiki.example/payments');
+  assert.equal(root.resources.aws, 'arn:aws:iam::1234:role/payments');
+
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'product', parent: null, documentation: { confluence: 42 } } }
+  }), /documentation\.confluence must be text/);
 });
 
 test('a delivery capability must name a repository the portfolio declares', () => {
@@ -283,11 +342,11 @@ test('a refused capability edit leaves the file exactly as it was', async () => 
     ].join('\n');
     await writeFile(path.join(root, CAPABILITIES_PATH), original, 'utf8');
 
-    // A capability that ships cannot also contain, and the refusal has to happen before the write —
-    // a map that is briefly invalid on disk is a map something else can read while it is invalid.
+    // The refusal has to happen before the write — a map that is briefly invalid on disk is a map
+    // something else can read while it is invalid.
     await assert.rejects(
-      () => editCapability(root, 'commerce', { repository: 'api' }, { portfolio: { repositories: { api: {} } } }),
-      /cannot also contain 'payments'/);
+      () => editCapability(root, 'commerce', { repository: 'nowhere' }, { portfolio: { repositories: { api: {} } } }),
+      /which the portfolio does not declare/);
     assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
 
     await assert.rejects(

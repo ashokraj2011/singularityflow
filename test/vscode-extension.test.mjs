@@ -1914,11 +1914,12 @@ test('the page carries the directories it needs to answer without a round trip',
 const { buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
-test('workspaces are a tree, with the working directory where it can be compared', () => {
-  // The directory is what distinguishes two rows at a glance, and the rule that no two may share
-  // one is only checkable by eye if they sit in the same place on every row.
+test('workspaces are direct one-click selectors with their repository context in the tooltip', () => {
+  // A workspace is the scope selector for every other view. It must not masquerade as an
+  // expandable folder whose label click only changes expansion state.
   const [commerce, payments] = buildWorkspaceTree(REGISTRY);
   assert.equal(commerce.label, 'commerce');
+  assert.equal(commerce.kind, 'action');
   assert.equal(commerce.description, 'working here');
   assert.equal(commerce.runCommand, 'singularityFlow.switchWorkspace', 'selecting it performs the switch');
   // The directory leads the tooltip, then what choosing this workspace means.
@@ -1930,8 +1931,8 @@ test('workspaces are a tree, with the working directory where it can be compared
   // Opening a workspace means opening its lead repository: that is where the map, the governed
   // state and every command's configuration live.
   assert.equal(commerce.openPath, '/work/commerce/repos/platform');
-  assert.deepEqual(commerce.children.map((child) => child.label),
-    ['/work/commerce', 'platform']);
+  assert.equal(commerce.children, undefined, 'there is no disclosure chevron competing with selection');
+  assert.match(commerce.tooltip, /Lead repository: platform/);
   assert.equal(payments.description, undefined, 'only one workspace is being worked in');
   // The one being worked in is distinguishable to a menu, not just to a reader.
   assert.equal(commerce.contextValue, 'sflow.workspace.active');

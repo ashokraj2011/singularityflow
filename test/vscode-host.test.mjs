@@ -427,7 +427,16 @@ test('a window with nothing open and no active workspace says which of the two t
 
   const view = registered.trees.get('singularityFlow.lifecycle');
   assert.ok(view, 'the view always has a provider');
-  assert.match(view.treeDataProvider.getChildren()[0].label, /No workspace is active/);
+  const [noWorkspaceNode] = view.treeDataProvider.getChildren();
+  assert.match(noWorkspaceNode.label, /No workspace is active/);
+  assert.equal(view.treeDataProvider.getTreeItem(noWorkspaceNode).collapsibleState,
+    api.TreeItemCollapsibleState.Expanded, 'the available actions are visible without another click');
+
+  const [configuration] = registered.trees.get('singularityFlow.configuration')
+    .treeDataProvider.getChildren();
+  assert.match(configuration.label, /Choose a workspace/);
+  assert.equal(registered.trees.get('singularityFlow.configuration').treeDataProvider
+    .getTreeItem(configuration).command.command, 'singularityFlow.openWorkspaces');
 });
 
 test('the view activates on being opened, not only when a workflow file happens to exist', async (t) => {
@@ -1596,6 +1605,11 @@ test('opening a workspace replaces the current window rather than scattering new
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
   });
+  const item = provider.getTreeItem(rows[0]);
+  assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None,
+    'a workspace is a choice, not an expandable folder');
+  assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
+    'clicking the visible workspace row performs the switch');
   await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');

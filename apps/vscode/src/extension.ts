@@ -39,8 +39,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * with no provider makes VS Code report that no data provider is registered, which describes the
    * extension's internals and nothing about the repository the reader has open.
    */
+  /**
+   * The commands that need a repository behind them.
+   *
+   * Every one of these is contributed in package.json, so the command palette offers all of them
+   * whatever state the window is in. They used to be registered after activation had decided it
+   * had a repository — which meant that in a window without one, the palette advertised eleven
+   * commands that did not exist, and running one reported "command not found". That describes the
+   * extension's internals and nothing about the folder the reader has open.
+   *
+   * So they are registered here, unconditionally, and dispatch through `handlers`. Until a
+   * repository is available the handler is missing and the command says why, in the same words the
+   * view is showing.
+   */
+  const REPOSITORY_COMMANDS = [
+    'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
+    'singularityFlow.openApprovals', 'singularityFlow.startEpic', 'singularityFlow.addSource',
+    'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
+    'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
+    'singularityFlow.showImpact'
+  ];
+  const handlers = new Map<string, (...args: never[]) => unknown>();
+  let unavailableReason = 'Open the repository that contains singularity/workflow.yml.';
+  for (const id of REPOSITORY_COMMANDS) {
+    context.subscriptions.push(vscode.commands.registerCommand(id, (...args: never[]) => {
+      const handler = handlers.get(id);
+      if (handler) return handler(...args);
+      void vscode.window.showWarningMessage(`Singularity Flow: ${unavailableReason}`);
+      return undefined;
+    }));
+  }
+
   const unavailable = (label: string, detail: string, contextValue?: string): void => {
     output.appendLine(`${label} — ${detail}`);
+    // The same sentence the view is showing, so a command and the tree never disagree about why
+    // there is nothing to act on.
+    unavailableReason = detail;
     const provider = new LifecycleTreeProvider(null, unavailableTree(label, detail, contextValue));
     context.subscriptions.push(provider);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
@@ -482,25 +516,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.settled(message.type === 'remove' ? '' : message.id);
   };
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('singularityFlow.openCapabilities',
-      () => CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); })),
-    vscode.commands.registerCommand('singularityFlow.openImpact',
-      () => ImpactPanel.show(context, store, client)),
-    vscode.commands.registerCommand('singularityFlow.openStories',
-      () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); })),
-    vscode.commands.registerCommand('singularityFlow.openApprovals',
-      () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); })),
-    vscode.commands.registerCommand('singularityFlow.startEpic', startEpic),
-    vscode.commands.registerCommand('singularityFlow.addSource', addSource),
-    vscode.commands.registerCommand('singularityFlow.refresh', () => store.refresh()),
-    vscode.commands.registerCommand('singularityFlow.openArtifact', (node?: TreeNode) => openArtifact(repository, node)),
-    vscode.commands.registerCommand('singularityFlow.runAction', runNode),
-    vscode.commands.registerCommand('singularityFlow.approve', runNode),
-    vscode.commands.registerCommand('singularityFlow.openJourney', () => JourneyPanel.show(context, store, onJourneyMessage)),
-    vscode.commands.registerCommand('singularityFlow.openReconciliation', () => ReconciliationPanel.show(context, store, client)),
-    vscode.commands.registerCommand('singularityFlow.showImpact', () => showImpact(client, output))
-  );
+  // The commands themselves were registered at activation; this is what they do once there is a
+  // repository to do it against.
+  const registered: Record<string, (...args: never[]) => unknown> = {
+    'singularityFlow.openCapabilities':
+      () => CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); }),
+    'singularityFlow.openImpact': () => ImpactPanel.show(context, store, client),
+    'singularityFlow.openStories':
+      () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); }),
+    'singularityFlow.openApprovals':
+      () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
+    'singularityFlow.startEpic': startEpic,
+    'singularityFlow.addSource': addSource,
+    'singularityFlow.refresh': () => store.refresh(),
+    'singularityFlow.openArtifact': ((node?: TreeNode) => openArtifact(repository, node)) as never,
+    'singularityFlow.runAction': runNode as never,
+    'singularityFlow.approve': runNode as never,
+    'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
+    'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
+    'singularityFlow.showImpact': () => showImpact(client, output)
+  };
+  for (const [id, handler] of Object.entries(registered)) handlers.set(id, handler);
+  // A contributed command with no handler here would be one the palette offers and nothing answers.
+  const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
+  if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
 
   await store.refresh();
 }

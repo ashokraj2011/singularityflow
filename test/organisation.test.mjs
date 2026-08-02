@@ -224,3 +224,27 @@ test('no governed command is reachable only from a terminal', async () => {
   });
   assert.deepEqual(ignored, [], `confirmInitiativeExact ignoring --confirm at line(s) ${ignored.join(', ')}`);
 });
+
+/**
+ * Evidence that cannot satisfy the check it is filed against.
+ *
+ * A checklist item states which assurance tiers can satisfy it. Recording evidence at any other
+ * tier used to succeed: it was stored, listed as active, and permanently inert — the check stayed
+ * missing and nothing said why. Found by walking the lifecycle, where a driver filed the same
+ * useless attestation thirty times before anyone noticed.
+ */
+test('evidence is refused at an assurance tier the check cannot accept', async () => {
+  const { registerInitiativeEvidence } = await import('../src/initiative-evidence.mjs');
+  assert.equal(typeof registerInitiativeEvidence, 'function');
+
+  // The rule itself, stated where the reader of this file can check it against the engine.
+  const source = await readFile(new URL('../src/initiative-evidence.mjs', import.meta.url), 'utf8');
+  assert.match(source, /check\.acceptedAssurance\.includes\(assurance\)/,
+    'the accepted tiers are checked before the evidence is written');
+  assert.match(source, /cannot be satisfied by \$\{assurance\} evidence/,
+    'and the refusal names the tier that was offered');
+  assert.match(source, /It accepts: \$\{check\.acceptedAssurance\.join\(', '\)\}/,
+    'and the tiers that would work');
+  // A waiver is a decision about the check rather than evidence for it, so it stays exempt.
+  assert.match(source, /if \(!decision && !check\.acceptedAssurance/);
+});

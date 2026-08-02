@@ -205,17 +205,22 @@ test('phase bundles pin required milestones without churning on later child prog
   assert.notEqual(regressed.sha256, original.sha256);
 });
 
-test('presence-only evidence does not satisfy a human-approved Must check', async () => {
+test('presence-only evidence is refused for a human-approved Must check', async () => {
+  // It used to be accepted and then ignored: stored, listed as active, and unable to satisfy the
+  // check it was filed against, with nothing saying why. The protection is the same, moved to the
+  // moment of the mistake and given a sentence that names the tiers that would work.
   const root = await repository();
   await publishInitiativePhase(root, 'INIT-EVIDENCE', 'define');
   await writeFile(path.join(root, 'evidence.md'), '# Exists\n');
-  await registerInitiativeEvidence(root, {
+  await assert.rejects(() => registerInitiativeEvidence(root, {
     initiativeId: 'INIT-EVIDENCE',
     phaseId: 'define',
     checkId: 'business-case-approved',
     assurance: 'presence-only',
     source: { path: 'evidence.md' }
-  });
+  }), /cannot be satisfied by presence-only evidence.*accepts: .*human-approved/s);
+
+  // And the check is still missing, because nothing was written.
   const { portfolio, initiative } = await loadInitiative(root, 'INIT-EVIDENCE');
   const gate = await evaluateInitiativePhase(root, portfolio, initiative, 'define');
   assert.match(gate.errors.join('\n'), /business-case-approved is missing/);

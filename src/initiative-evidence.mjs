@@ -193,6 +193,16 @@ export async function registerInitiativeEvidence(root, {
   if (!['not_applicable', 'waived', null].includes(decision)) throw new SingularityFlowError('Evidence decision must be not_applicable or waived.');
   if (decision && check.requirement !== 'conditional') throw new SingularityFlowError(`Only conditional checklist items can be marked ${decision}.`);
   if (decision && assurance !== 'human-approved') throw new SingularityFlowError(`${decision} decisions require human-approved assurance.`);
+  // A check states which assurance tiers can satisfy it, and evidence at any other tier can never
+  // do so. Recording it anyway produced evidence that is stored, listed as active, and permanently
+  // inert — the check stays missing and nothing says why. Refusing here is the difference between
+  // an afternoon and a sentence. A waiver is exempt: it is a decision about the check rather than
+  // evidence for it.
+  if (!decision && !check.acceptedAssurance.includes(assurance)) {
+    throw new SingularityFlowError(
+      `'${phaseId}/${checkId}' cannot be satisfied by ${assurance} evidence. `
+      + `It accepts: ${check.acceptedAssurance.join(', ')}.`);
+  }
   const actor = identity(root);
   if (!actorEmail(actor)) throw new SingularityFlowError('Initiative evidence requires a configured local Git email.');
   if (assurance === 'human-approved' || decision) {

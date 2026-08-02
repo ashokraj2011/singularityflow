@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -191,4 +191,36 @@ test('initialising a workspace creates the orphan state branch, and checks befor
   const second = await initializeWorkspaceState(work);
   assert.equal(second.governed, true);
   assert.equal(second.existed, true);
+});
+
+/**
+ * Every governed action must be runnable without a terminal.
+ *
+ * A lens is prompt context — not identity, not approval authority — so asking for it interactively
+ * is a convenience, and making it mandatory turned seven commands into things only a human at a TTY
+ * could run. That is what made them unreachable from the editor, which is the surface this product
+ * is being built on.
+ */
+test('no governed command is reachable only from a terminal', async () => {
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  const lines = cli.split('\n');
+
+  const missing = [];
+  lines.forEach((line, index) => {
+    if (!line.includes('selectPersona(')) return;
+    // The escape is on the options object, within a few lines of the call.
+    const block = lines.slice(index, index + 8).join('\n');
+    if (!/options, 'persona'/.test(block)) missing.push(index + 1);
+  });
+  assert.deepEqual(missing, [], `selectPersona with no --persona escape at line(s) ${missing.join(', ')}`);
+
+  // The same for the exact-confirmation guard: its refusal names --confirm as the way through, and
+  // a call site that does not pass its options makes that instruction a lie.
+  const ignored = [];
+  lines.forEach((line, index) => {
+    if (!line.includes('confirmInitiativeExact(') || line.includes('async function')) return;
+    const block = lines.slice(index, index + 6).join('\n');
+    if (!/\boptions\b/.test(block)) ignored.push(index + 1);
+  });
+  assert.deepEqual(ignored, [], `confirmInitiativeExact ignoring --confirm at line(s) ${ignored.join(', ')}`);
 });

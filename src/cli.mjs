@@ -320,7 +320,8 @@ Usage:
   singularity-flow desktop session <PERSONA> [--work-id ID] --json
   singularity-flow initiative profiles [--json]
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
-  singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT] [--selection-receipt TOKEN]
+  singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT]
+    [--profile ID] [--persona ID] [--selection-receipt TOKEN]
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
@@ -592,7 +593,10 @@ async function startCommand(positionals, options) {
     ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
   ];
   const workType = await selectWorkType(config, { selection: receipt?.answers['workflow-template'] ?? null });
-  const selectedPersona = await selectPersona(root, config, actionActor(root), id, { selection: receipt?.answers.persona ?? null });
+  const selectedPersona = await selectPersona(root, config, actionActor(root), id, {
+    selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
+    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+  });
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
   const explicitBase = optionString(options, 'base');
@@ -700,7 +704,10 @@ async function resumeCommand(positionals, options) {
   checkout(root, resolved.branch, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, resolved.workId);
-  const session = await selectPersona(root, config, actionActor(root), resolved.workId);
+  const session = await selectPersona(root, config, actionActor(root), resolved.workId, {
+    selection: optionString(options, 'persona') ?? null,
+    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+  });
   summary(workflow);
   console.log(`Active working lens: ${session.persona}`);
   const active = currentPhase(workflow);
@@ -710,14 +717,17 @@ async function resumeCommand(positionals, options) {
   }
 }
 
-async function personaCommand(positionals) {
+async function personaCommand(positionals, options = {}) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, positionals[1]);
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
-  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id);
+  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
+    selection: optionString(options, 'persona') ?? null,
+    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+  });
   console.log(`Active working lens: ${config.personas[session.persona].label} (${session.persona})`);
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
@@ -1292,7 +1302,8 @@ async function decisionWorkflow(positionals, options, action) {
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
   const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
-    selection: receipt?.answers.persona ?? null
+    selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
+    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
   });
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
     override.actor = session.actor;
@@ -2601,7 +2612,14 @@ async function initiativeCommand(positionals, options) {
       choiceSets
     }) : null;
     const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile'] ?? optionString(options, 'profile'));
-    const selectedPersona = await selectPersona(root, config, actionActor(root), initiativeId, { selection: receipt?.answers.persona ?? null });
+    // `--persona` carries the human's choice when there is no terminal to ask in, exactly as
+    // `--profile` already does on this same route and as `epic start --local` already does. Without
+    // it, starting an Initiative was possible only from a TTY — which made the editor's intake
+    // screen offer a lens it could never pass on.
+    const selectedPersona = await selectPersona(root, config, actionActor(root), initiativeId, {
+      selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
+      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+    });
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const source = optionBoolean(options, 'jira')
       ? await getIssue(initiativeId)
@@ -2652,7 +2670,10 @@ async function initiativeCommand(positionals, options) {
     if (branch(root) !== initiativeId) assertClean(root);
     checkout(root, initiativeId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
     const loaded = await loadInitiative(root, initiativeId);
-    const session = await selectPersona(root, config, actionActor(root), initiativeId);
+    const session = await selectPersona(root, config, actionActor(root), initiativeId, {
+      selection: optionString(options, 'persona') ?? null,
+      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+    });
     console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with working lens ${session.persona}.`);
     console.log(initiativeFlowText(initiativeProgress(loaded.initiative)));
     return;
@@ -2899,8 +2920,11 @@ async function initiativeCommand(positionals, options) {
       choiceSets,
       context: { phase: phaseId, subject, bundleSha256: bundle.sha256 }
     }) : null;
-    const session = await selectPersona(root, config, actionActor(root), initiativeId, { selection: receipt?.answers.persona ?? null });
-    if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected))) throw new SingularityFlowError('Initiative approval cancelled.');
+    const session = await selectPersona(root, config, actionActor(root), initiativeId, {
+      selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
+      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+    });
+    if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected, options))) throw new SingularityFlowError('Initiative approval cancelled.');
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const result = await approveInitiative(root, { initiativeId, phaseId, subject, persona: session.persona, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
     // Knowledge harvested by this approval is committed with it. Two commits would let one land
@@ -4346,7 +4370,8 @@ async function epicCommand(positionals, options) {
         : null;
       if (!receipt && !(await confirmInitiativeExact(
         `${decision === 'approve' ? 'Approve' : 'Reject'} exact Story packet ${packetSha256}?`,
-        definition.confirmation
+        definition.confirmation,
+        options
       ))) {
         throw new SingularityFlowError(`Epic Story ${decision} cancelled.`);
       }
@@ -4665,7 +4690,10 @@ async function storyFetchCommand(positionals, options) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
     const actor = identity(target);
-    const persona = await selectPersona(target, config, actor, storyKey);
+    const persona = await selectPersona(target, config, actor, storyKey, {
+      selection: optionString(options, 'persona') ?? null,
+      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+    });
     workflow = await createWorkflow(target, config, {
       id: storyKey,
       title: issue.title || seed.story.title || storyKey,
@@ -4822,7 +4850,7 @@ async function dispatch(command, positionals, options) {
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),
-    lens: () => personaCommand(positionals),
+    lens: () => personaCommand(positionals, options),
     session: () => sessionCommand(positionals, options),
     inbox: () => inboxCommand(options),
     finalize: () => finalizeCommand(options),

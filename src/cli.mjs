@@ -137,7 +137,7 @@ import {
 } from './epic-sources.mjs';
 import {
   adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES,
-  splitEpicStory, updateEpicStory, verifyEpicPlanningPackage
+  addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage
 } from './epic-lifecycle.mjs';
 import {
   attachStoryBranch, createStoryBranch, createStoryReviewPacket, finalizeStoryDelivery,
@@ -363,7 +363,10 @@ Usage:
     Approving the Story plan is an explicit business review: it needs the exact
     "<phase>:<subject>" confirmation, and --acknowledge-self-approval when you
     generated any of its outputs yourself.
-  singularity-flow epic stories list|show|update|split|adopt|validate|metadata|tasks
+  singularity-flow epic stories list|show|add|update|split|adopt|validate|metadata|tasks
+    add --title TEXT --repository ID [--description TEXT] [--specification TEXT]
+      [--requirements REQ-nnn,...] [--acceptance-criteria AC-nnn,...] [--depends-on PLAN-ID,...]
+      [--epic-plan-id ID]                                (the only way in without a tracker)
     update <PLAN-ID> [--metadata KEY=VALUE]... [--tasks-file FILE]
     split <PLAN-ID> [--title TEXT] [--repository ID] [--metadata KEY=VALUE]...
     adopt <JIRA-KEY> --repository ID --requirements REQ-nnn --acceptance-criteria AC-nnn
@@ -580,11 +583,34 @@ async function startCommand(positionals, options) {
   const declaredSource = jira ? 'jira' : hasManualInput ? 'manual' : null;
   const receiptSource = receipt?.answers['intake-source'] ?? null;
   if (declaredSource && receiptSource && declaredSource !== receiptSource) throw new SingularityFlowError(`Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
-  const sourceMode = declaredSource ?? await selectIntakeSource({ selection: receiptSource });
+  // A materialized Story arrives on a branch carrying its own governed seed — the requirements, the
+  // specification and the traceability are already pinned there. Asking where the work came from is
+  // asking a question the branch has already answered, and asking it interactively made starting a
+  // materialized Story impossible without a terminal.
+  const seeded = existsSync(path.join(root, 'singularity', 'seeds', `${id}.yml`));
+  const sourceMode = declaredSource
+    ?? receiptSource
+    ?? (seeded ? 'manual' : null)
+    ?? await selectIntakeSource({
+      selection: null,
+      nonInteractiveHint: 'Pass --jira, or --title with --description, to say where the work came from.'
+    });
+  // A governed seed already carries the title, the description and the acceptance criteria the
+  // manual prompts ask for — they were written during planning and hash-pinned onto this branch.
+  // Asking again invites a second, divergent answer to a question already settled.
+  const seed = seeded && !storyFile && !title && !description && !acceptanceCriteria
+    ? YAML.parse(await readFile(path.join(root, 'singularity', 'seeds', `${id}.yml`), 'utf8'))?.story ?? null
+    : null;
   const manual = sourceMode === 'manual'
-    ? (storyFile || title || description || acceptanceCriteria
-        ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
-        : await promptManualStory(id))
+    ? (seed
+        ? await loadManualStory(id, {
+          title: seed.title ?? id,
+          description: seed.description ?? '',
+          acceptanceCriteria: (seed.acceptanceCriteria ?? []).join('\n')
+        })
+        : storyFile || title || description || acceptanceCriteria
+          ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
+          : await promptManualStory(id))
     : null;
   let source = sourceMode === 'jira' ? await getIssue(id) : manual.source;
   const supportingDocuments = [
@@ -592,7 +618,12 @@ async function startCommand(positionals, options) {
     ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
     ...explicitUrls.map((url) => ({ type: 'url', url, label: null, kind: null }))
   ];
-  const workType = await selectWorkType(config, { selection: receipt?.answers['workflow-template'] ?? null });
+  // The seed's `suggestedWorkType` is the planning phase's answer to this question, so it is used
+  // rather than asked again. `--work-type` covers the unseeded case without a terminal.
+  const workType = await selectWorkType(config, {
+    selection: receipt?.answers['workflow-template'] ?? optionString(options, 'work-type') ?? seed?.suggestedWorkType ?? null,
+    nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
+  });
   const selectedPersona = await selectPersona(root, config, actionActor(root), id, {
     selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
     nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
@@ -4120,6 +4151,23 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
       console.log(`${operation === 'remove' ? 'Removed' : operation === 'add' ? 'Added' : 'Updated'} task ${taskId} on ${planId}; Planning approval was invalidated.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      return;
+    }
+    if (action === 'add') {
+      const changes = await storyMutationOptions(options);
+      const added = await addEpicStory(root, initiativeId, {
+        ...changes,
+        epicPlanId: optionString(options, 'epic-plan-id')
+      });
+      const publication = await commitInitiativeChange(
+        root,
+        added.portfolio,
+        added.initiative,
+        `[${initiativeId}][epic:story] add ${added.story.planId}`
+      );
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: added.story, publication }, null, 2));
+      console.log(`Added ${added.story.planId}: ${added.story.title} (${added.story.repository}).`);
       console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
       return;
     }

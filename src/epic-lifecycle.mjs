@@ -276,6 +276,84 @@ export async function updateEpicStory(root, initiativeId, planId, changes = {}) 
   };
 }
 
+/**
+ * Add a planned Story to an Epic that has none.
+ *
+ * The plan could only ever be grown, never started. `adopt` needs a Jira key, `split` needs a Story
+ * to split, and the `story-plan.yml` artifact is written *from* the breakdown rather than read into
+ * it — so hand-authoring it is overwritten. An Epic with no tracker therefore had no way to reach
+ * its first Story, and the whole no-Jira path stopped at planning.
+ *
+ * The Epic is created on demand for the same reason: a plan with no epic in it is the state every
+ * new Epic starts in, not an error to report back to somebody who has just asked for a Story.
+ */
+export async function addEpicStory(root, initiativeId, story = {}) {
+  const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+  assertStoryPlanningEditable(initiative);
+  const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
+
+  const title = String(story.title ?? '').trim();
+  if (!title) throw new SingularityFlowError('A planned Story requires --title.');
+  const repository = String(story.repository ?? '').trim();
+  if (!repository) throw new SingularityFlowError('A planned Story requires --repository.');
+  if (!portfolio.repositories?.[repository]) {
+    throw new SingularityFlowError(
+      `'${repository}' is not declared in singularity/portfolio.yml, so there is nowhere to create the Story branch.`);
+  }
+
+  let epic = story.epicPlanId
+    ? breakdown.epics.find((entry) => (entry.planId ?? entry.id) === story.epicPlanId)
+    : breakdown.epics[0];
+  if (story.epicPlanId && !epic) {
+    throw new SingularityFlowError(`Epic '${initiativeId}' has no planned epic '${story.epicPlanId}'.`);
+  }
+  if (!epic) {
+    epic = {
+      id: 'EPIC-001',
+      planId: 'EPIC-001',
+      title: initiative.initiative.title ?? initiativeId,
+      description: '',
+      acceptanceCriteria: [],
+      stories: []
+    };
+    breakdown.epics.push(epic);
+  }
+
+  const planId = nextStoryPlanId(breakdown);
+  const added = {
+    id: planId,
+    planId,
+    workId: planId,
+    title,
+    description: story.description ?? '',
+    specification: story.specification ?? '',
+    repository,
+    suggestedWorkType: story.suggestedWorkType ?? null,
+    requirements: story.requirements ?? [],
+    acceptanceCriteria: story.acceptanceCriteria ?? [],
+    dependsOn: story.dependsOn ?? [],
+    consumesContracts: story.consumesContracts ?? [],
+    blocking: story.blocking ?? true,
+    metadata: story.metadata ?? {},
+    tasks: story.tasks ?? [],
+    jiraKey: null,
+    initialJiraKey: null,
+    jiraAliases: [],
+    jiraIssueId: null,
+    epicKey: null,
+    parentMode: 'managed',
+    idAuthority: null
+  };
+  epic.stories.push(added);
+  breakdown.stories.push(added);
+
+  const saved = await persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
+    event: 'epic_story_added',
+    detail: `${planId}: ${title}`
+  });
+  return { ...saved, story: saved.breakdown.stories.find((entry) => entry.planId === planId) };
+}
+
 export async function splitEpicStory(root, initiativeId, sourcePlanId, changes = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   assertStoryPlanningEditable(initiative);

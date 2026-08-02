@@ -276,3 +276,54 @@ test('the story plan is validated, so an unfilled template cannot be published',
   assert.match(source, /which is not in this plan/);
   assert.match(source, /dependencies form a cycle/);
 });
+
+/**
+ * Starting a materialized Story asks nothing a terminal is needed for.
+ *
+ * A materialized Story arrives on a branch carrying a governed seed: the title, the description,
+ * the acceptance criteria and the suggested work type were all decided during planning and
+ * hash-pinned there. `start` asked for every one of them again, interactively, so the last leg of
+ * the no-Jira path — plan, materialize, work, merge — could not be reached from any GUI at all.
+ * Asking twice also invites a second, divergent answer to a settled question.
+ */
+test('a seeded Story supplies its own intake, work type and lens', async () => {
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+
+  // The seed is read, and it decides the intake source rather than a prompt.
+  assert.match(cli, /const seeded = existsSync\(path\.join\(root, 'singularity', 'seeds', `\$\{id\}\.yml`\)\)/);
+  assert.match(cli, /\?\? \(seeded \? 'manual' : null\)/);
+  // Its content answers the manual questions.
+  assert.match(cli, /title: seed\.title \?\? id/);
+  assert.match(cli, /acceptanceCriteria: \(seed\.acceptanceCriteria \?\? \[\]\)\.join/);
+  // And its suggested work type answers the template question.
+  assert.match(cli, /seed\?\.suggestedWorkType \?\? null/);
+
+  // Every remaining interactive selection on this path names a flag that avoids it.
+  for (const hint of [
+    /Pass --jira, or --title with --description/,
+    /Pass --work-type <id> to choose one without a terminal/,
+    /Pass --persona <id> to choose one without a terminal/
+  ]) assert.match(cli, hint);
+});
+
+/**
+ * A no-tracker Epic can reach its first Story.
+ *
+ * The plan could only be grown, never started: `adopt` needs a Jira key, `split` needs a Story to
+ * split, and the `story-plan.yml` artifact is written *from* the breakdown rather than read into
+ * it, so hand-authoring it is overwritten. Planning was therefore a dead end for every Epic without
+ * a tracker — which is half the paths the product offers.
+ */
+test('epic stories add creates the first planned Story without a tracker', async () => {
+  const lifecycle = await readFile(new URL('../src/epic-lifecycle.mjs', import.meta.url), 'utf8');
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+
+  assert.match(lifecycle, /export async function addEpicStory\(/);
+  // The epic is created on demand: a plan with no epic is where every new Epic starts.
+  assert.match(lifecycle, /breakdown\.epics\.push\(epic\)/);
+  // A Story ships from a declared repository, or materialization has nowhere to put the branch.
+  assert.match(lifecycle, /is not declared in singularity\/portfolio\.yml/);
+  // Wired into the CLI, and documented in the usage where the other subcommands are.
+  assert.match(cli, /if \(action === 'add'\) \{/);
+  assert.match(cli, /list\|show\|add\|update\|split\|adopt/);
+});

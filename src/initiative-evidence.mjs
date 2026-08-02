@@ -686,7 +686,12 @@ async function verifyInitiativeStoryPlan(root, portfolio, initiative, phaseId) {
       if (repository && !portfolio.repositories?.[repository]) {
         errors.push(`story '${storyId}' names repository '${repository}', which the portfolio does not declare`);
       }
-      dependencies.set(storyId, Array.isArray(story?.dependsOn) ? story.dependsOn : []);
+      // A dependency is written as a plan id in the template and normalized to
+      // `{ story, requiredPhase }` in the breakdown, so both forms are read here.
+      const dependsOn = (Array.isArray(story?.dependsOn) ? story.dependsOn : [])
+        .map((entry) => (typeof entry === 'string' ? entry : entry?.story ?? entry?.planId))
+        .filter(Boolean);
+      dependencies.set(storyId, dependsOn);
     }
   }
 

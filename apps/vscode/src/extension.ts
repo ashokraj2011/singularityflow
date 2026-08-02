@@ -99,13 +99,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }));
   }
 
-  const unavailable = (label: string, detail: string, contextValue?: string): void => {
+  const unavailable = (
+    label: string, detail: string, contextValue?: string, leadRepository?: string | null
+  ): void => {
     output.appendLine(`${label} — ${detail}`);
     // The same sentence the view is showing, so a command and the tree never disagree about why
     // there is nothing to act on.
     unavailableReason = detail;
     capabilityTree.replace(buildCapabilityTree(null, detail));
-    const provider = new LifecycleTreeProvider(null, unavailableTree(label, detail, contextValue));
+    const provider = new LifecycleTreeProvider(null,
+      unavailableTree(label, detail, contextValue, leadRepository));
     context.subscriptions.push(provider);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
       treeDataProvider: provider
@@ -138,7 +141,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = open === 'Open lead repository' ? created.leadDirectory
         : open === 'Open workspace folder' ? created.directory
           : null;
-      if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: true });
+      if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: false });
     });
   }));
 
@@ -171,7 +174,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (message.type === 'open') {
         await vscode.commands.executeCommand('vscode.openFolder',
           vscode.Uri.file(message.row.leadRepositoryPath || message.row.directory),
-          { forceNewWindow: true });
+          { forceNewWindow: false });
         return null;
       }
       if (message.type === 'forget') {
@@ -227,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = node?.openPath ?? workspacePathOf(node);
       if (!target) return;
       await vscode.commands.executeCommand('vscode.openFolder',
-        vscode.Uri.file(target), { forceNewWindow: true });
+        vscode.Uri.file(target), { forceNewWindow: false });
     }));
   void refreshWorkspaceTree();
 
@@ -282,6 +285,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     repository = await validateRepositoryDirectory(folder.uri.fsPath);
   } catch (error) {
+    // A workspace directory holds repos/, documents/ and workspace.json — it is not itself a
+    // repository, but opening it is the obvious thing to do from a file manager, and it knows
+    // exactly where the repository someone wanted is.
+    const lead = await workspaceLeadDirectory(folder.uri.fsPath);
+    if (lead) {
+      return unavailable('This is a workspace directory, not a repository',
+        `Its lead repository is ${lead}, which is where the capability map and the governed state live.`,
+        'sflow.workspace-directory', lead);
+    }
     // Not a Singularity Flow repository is an ordinary state for a folder to be in. It is said in
     // the view, where the person is looking, and the view offers to initialize one.
     return unavailable('Not a Singularity Flow repository',
@@ -687,6 +699,29 @@ async function showImpact(client: SingularityFlowClient, output: vscode.OutputCh
       }
     }
   );
+}
+
+/**
+ * The lead repository of a workspace directory, or null when this is not one.
+ *
+ * Read through the editor's own file system rather than the CLI: this runs on a path the CLI has
+ * already refused to treat as a repository, so there is nothing to run a command in.
+ */
+async function workspaceLeadDirectory(folder: string): Promise<string | null> {
+  try {
+    const manifest = vscode.Uri.file(path.join(folder, 'workspace.json'));
+    const text = Buffer.from(await vscode.workspace.fs.readFile(manifest)).toString('utf8');
+    const workspace = JSON.parse(text) as {
+      leadRepository?: string;
+      repositories?: Record<string, { path?: string }>;
+    };
+    const lead = workspace.leadRepository;
+    if (!lead) return null;
+    const relative = workspace.repositories?.[lead]?.path ?? `repos/${lead}`;
+    return path.join(folder, relative);
+  } catch {
+    return null;
+  }
 }
 
 export function deactivate(): void { /* Every disposable is registered on the context. */ }

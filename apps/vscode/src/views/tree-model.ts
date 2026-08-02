@@ -184,7 +184,13 @@ function storyNode(story: BreakdownStory): TreeNode {
  * Returning early from activation and leaving the view unprovided is what produced that, so every
  * such path now registers a provider that says what is wrong and what would fix it.
  */
-export function unavailableTree(label: string, detail: string, contextValue?: string): TreeNode[] {
+export function unavailableTree(
+  label: string,
+  detail: string,
+  contextValue?: string,
+  /** A lead repository to offer, when this folder turns out to be a workspace directory. */
+  leadRepository?: string | null
+): TreeNode[] {
   return [{
     kind: 'message',
     id: 'unavailable',
@@ -205,6 +211,12 @@ export function unavailableTree(label: string, detail: string, contextValue?: st
         kind: 'action', id: 'unavailable:create', label: 'Create a workspace',
         icon: 'add', runCommand: 'singularityFlow.createWorkspace'
       },
+      ...(leadRepository ? [{
+        kind: 'action' as const, id: 'unavailable:lead',
+        label: 'Open this workspace\'s lead repository',
+        description: leadRepository.split('/').at(-1),
+        icon: 'repo', openPath: leadRepository, runCommand: 'singularityFlow.openWorkspace'
+      }] : []),
       ...(contextValue === 'sflow.uninitialized' ? [{
         kind: 'action' as const, id: 'unavailable:init',
         label: 'Initialize Singularity Flow in this folder',

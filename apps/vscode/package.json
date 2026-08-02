@@ -18,7 +18,10 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.lifecycle",
-    "workspaceContains:singularity/workflow.yml"
+    "onView:singularityFlow.capabilities",
+    "onView:singularityFlow.workspaces",
+    "workspaceContains:singularity/workflow.yml",
+    "workspaceContains:workspace.json"
   ],
   "contributes": {
     "configuration": {

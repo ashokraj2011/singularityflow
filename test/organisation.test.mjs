@@ -559,3 +559,33 @@ test('a grouping composes its world model from the capabilities beneath it', asy
 
   assert.throws(() => composeCapabilityWorldModel(organisation, 'nope', readiness), /Unknown capability/);
 });
+
+/**
+ * Work does not always begin at the beginning.
+ *
+ * An Initiative whose discovery happened elsewhere — in a document, in another tool, last quarter —
+ * should enter at the stage it has actually reached. The alternative is faking the earlier phases
+ * to get past them, which puts approvals in the record that nobody gave.
+ *
+ * So the phases before the entry point are marked skipped, never approved, and they carry the
+ * reason. A gate that never happened must never look like one that did.
+ */
+test('an initiative can enter its lifecycle at a later phase', async () => {
+  const source = await readFile(new URL('../src/initiative-state.mjs', import.meta.url), 'utf8');
+
+  // Skipped, with a reason, and explicitly not approved.
+  assert.match(source, /phase\.status = 'skipped';/);
+  assert.match(source, /phase\.skippedReason = `Initiative entered the lifecycle at \$\{entryPhase\}\.`/);
+  assert.doesNotMatch(source, /phase\.status = 'approved';\s*\n\s*phase\.skipped/);
+  // The entry point drives both the current phase and the opening history entry, so the record says
+  // where it began rather than implying the first phase.
+  assert.match(source, /currentPhase: entryPhase,/);
+  assert.match(source, /skipping \$\{skipped\.join\(', '\)\}/);
+  // An unknown phase is refused with the ones that exist, rather than silently starting at the top.
+  assert.match(source, /has no phase '\$\{startPhase\}'\. Its phases are:/);
+
+  // And a skipped phase reads differently from a completed one.
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  assert.match(cli, /skipped: '–'/);
+  assert.match(cli, /\[--start-phase ID\]/);
+});

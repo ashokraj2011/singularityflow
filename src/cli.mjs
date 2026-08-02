@@ -323,7 +323,8 @@ Usage:
   singularity-flow initiative profiles [--json]
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT]
-    [--profile ID] [--persona ID] [--selection-receipt TOKEN]
+    [--profile ID] [--persona ID] [--start-phase ID] [--selection-receipt TOKEN]
+    (--start-phase enters at a later stage; the phases before it are recorded as skipped)
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
@@ -2280,7 +2281,13 @@ async function confirmInitiativeExact(prompt, expected, options = null) {
 }
 
 function initiativeFlowText(progress) {
-  const symbols = { approved: '✓', in_progress: '●', awaiting_approval: '◆', stale: '!', not_started: '○' };
+  // A skipped phase is not an unknown one. It reads as a dash rather than a tick precisely because
+  // it was never approved — an Initiative that entered the lifecycle late must not look like one
+  // that went through the stages before it.
+  const symbols = {
+    approved: '✓', in_progress: '●', awaiting_approval: '◆', stale: '!', not_started: '○',
+    skipped: '–'
+  };
   return progress.phases.map((phase) => `[${symbols[phase.status] ?? '?'} ${phase.label}]`).join(' → ');
 }
 
@@ -2762,6 +2769,9 @@ async function initiativeCommand(positionals, options) {
       : { type: 'manual', id: initiativeId, title: optionString(options, 'title', initiativeId), description: optionString(options, 'description', '') };
     checkout(root, initiativeId, { base: optionString(options, 'base', config.defaultBaseBranch), fetch: optionBoolean(options, 'fetch') });
     const created = await createInitiative(root, {
+      // Enter the lifecycle where the work actually is. The phases before it are recorded as
+      // skipped rather than approved — an approval that never happened must never look like one.
+      startPhase: optionString(options, 'start-phase'),
       id: initiativeId,
       title: optionString(options, 'title', source.title ?? initiativeId),
       profile,

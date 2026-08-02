@@ -427,7 +427,8 @@ export async function createInitiative(root, {
   profile,
   source = { type: 'manual' },
   persona = null,
-  idAuthority = null
+  idAuthority = null,
+  startPhase = null
 } = {}) {
   validateInitiativeId(id);
   const { portfolio, definition, resolved, actor } = await initiativeStartPreflight(root, {
@@ -463,6 +464,26 @@ export async function createInitiative(root, {
   })).digest('hex');
   const createdAt = nowIso();
   const phases = resolved.phases.map((phase, index) => phaseState(phase, index, createdAt));
+
+  // Work does not always begin at the beginning. An Initiative whose discovery happened elsewhere —
+  // in a document, in another tool, last quarter — should be able to enter at the stage it has
+  // actually reached, rather than having its earlier phases faked to get past them.
+  //
+  // The phases before it are recorded as skipped, not approved. Nothing pretends they were done:
+  // an approval that never happened must never appear to have happened, so they carry a status of
+  // their own and the reason the Initiative started where it did.
+  const entryIndex = startPhase == null ? 0 : phases.findIndex((phase) => phase.id === startPhase);
+  if (entryIndex < 0) {
+    throw new SingularityFlowError(
+      `Profile '${resolved.id}' has no phase '${startPhase}'. Its phases are: ${phases.map((phase) => phase.id).join(', ')}.`);
+  }
+  const entryPhase = phases[entryIndex]?.id ?? null;
+  const skipped = phases.slice(0, entryIndex).map((phase) => phase.id);
+  for (const phase of phases.slice(0, entryIndex)) {
+    phase.status = 'skipped';
+    phase.skippedAt = createdAt;
+    phase.skippedReason = `Initiative entered the lifecycle at ${entryPhase}.`;
+  }
   const initiative = {
     schemaVersion: 1,
     initiative: {
@@ -484,7 +505,7 @@ export async function createInitiative(root, {
         : []
     },
     status: 'in_progress',
-    currentPhase: phases[0]?.id ?? null,
+    currentPhase: entryPhase,
     phaseOrder: phases.map((phase) => phase.id),
     phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
     materialization: { status: 'not_started', attempts: [] },
@@ -500,8 +521,10 @@ export async function createInitiative(root, {
       actor: actorKey(actor),
       persona,
       event: 'initiative_started',
-      phase: phases[0]?.id ?? null,
-      detail: `Created ${resolved.id} initiative`
+      phase: entryPhase,
+      detail: skipped.length
+        ? `Created ${resolved.id} initiative at ${entryPhase}, skipping ${skipped.join(', ')}`
+        : `Created ${resolved.id} initiative`
     }]
   };
   await mkdir(directory.absolute, { recursive: true });

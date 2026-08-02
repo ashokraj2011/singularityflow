@@ -8,7 +8,8 @@ import {
 import { validateImpactMap } from './initiative-repositories.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath, verifyInitiativePhaseInputs
+  initiativeRelative, loadInitiative, saveInitiative, secureInitiativePath,
+  verifyInitiativePhaseInputs
 } from './initiative-state.mjs';
 import {
   initiativeMilestoneReadiness, requiredInitiativeMilestone
@@ -212,11 +213,28 @@ export async function registerInitiativeEvidence(root, {
   const normalizedSource = sourceRecord(root, source);
   let sourceSnapshot = { exists: false, size: 0, sha256: null };
   if (normalizedSource.path) {
-    const sourceFile = await secureRepositoryPath(root, normalizedSource.path, {
-      label: 'Initiative evidence source',
-      mustExist: true,
-      type: 'file'
-    });
+    // Evidence paths are relative to the repository, but `initiative documents` reports them
+    // relative to the initiative — two honest frames for the same file, and copying one into the
+    // other fails with "does not exist" and no hint about which frame was wrong.
+    let sourceFile;
+    try {
+      sourceFile = await secureRepositoryPath(root, normalizedSource.path, {
+        label: 'Initiative evidence source',
+        mustExist: true,
+        type: 'file'
+      });
+    } catch (error) {
+      const withinInitiative = path.join(
+        initiativeRelative(portfolio, initiative.initiative.id), normalizedSource.path);
+      const alternative = await secureRepositoryPath(root, withinInitiative, {
+        label: 'Initiative evidence source', mustExist: true, type: 'file'
+      }).catch(() => null);
+      if (!alternative) throw error;
+      throw new SingularityFlowError(
+        `${error.message} Did you mean '${withinInitiative}'? `
+        + '`initiative documents` reports paths relative to the initiative; `evidence add --path` '
+        + 'takes them relative to the repository.');
+    }
     sourceSnapshot = await snapshot(sourceFile.absolute);
     const originalPath = normalizedSource.path;
     const destination = await secureInitiativePath(

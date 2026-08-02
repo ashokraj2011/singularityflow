@@ -152,7 +152,11 @@ test('initiative phase generation enforces repository world-model composition fo
   const before = git(root, ['rev-parse', 'HEAD']);
   const result = execute(root, ['initiative', 'phase', 'define'], { allowFailure: true });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /wm build --views "business" --focus "initiative phase define"/);
+  // Every view the profile needs, not just this phase's. Building them one phase at a time is the
+  // obvious reading of a per-phase list, and each rebuild re-grounds the phases already approved —
+  // so following the instruction was what made the terminal gate fail at the end.
+  assert.match(result.stderr, /wm build --views "business,[^"]*" --focus "initiative phase define"/);
+  assert.match(result.stderr, /one build serves the whole initiative/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), before);
   assert.equal(git(root, ['status', '--short']), '');
 });

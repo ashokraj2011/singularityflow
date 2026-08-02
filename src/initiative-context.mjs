@@ -200,7 +200,7 @@ async function knowledgeSections(root) {
   return { included, total: ordered.length, truncated, text };
 }
 
-async function repositoryGrounding(root, definition, phase, persona, mode) {
+async function repositoryGrounding(root, definition, phase, persona, mode, profilePhases = []) {
   const warnings = [];
   // Epic planning deliberately runs before repository-specific Story branches exist.
   // In that lifecycle, `off` means "deferred to Story intake", not a degraded prompt,
@@ -264,7 +264,19 @@ async function repositoryGrounding(root, definition, phase, persona, mode) {
     };
   } catch (error) {
     if (mode === 'enforce') {
-      throw new SingularityFlowError(`${error.message} Run singularity-flow wm build --views "${requiredViews.join(',')}" --focus "initiative phase ${phase.id}", then retry.`);
+      // Named for the whole profile, not this phase alone. Building only what one phase needs is
+      // the obvious reading of the old message, and following it phase by phase rebuilt the model
+      // every time — each rebuild changing files that already-approved phases had pinned, so the
+      // terminal gate failed at the end for having followed the instructions.
+      const everyView = unique([
+        ...requiredViews,
+        ...profilePhases.flatMap((entry) => entry.worldModelViews ?? [])
+      ]);
+      const together = everyView.length > requiredViews.length
+        ? ' Every view this profile needs is listed, so one build serves the whole initiative; '
+          + 'building them one phase at a time re-grounds the phases already approved and stales them.'
+        : '';
+      throw new SingularityFlowError(`${error.message} Run singularity-flow wm build --views "${everyView.join(',')}" --focus "initiative phase ${phase.id}", then retry.${together}`);
     }
     warnings.push(`Repository world model unavailable: ${error.message}`);
     return { text: '', files: [], warnings, record: { mode, available: false, requiredViews } };
@@ -330,7 +342,8 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
-  const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode);
+  const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode,
+    Object.values(initiative.resolution?.phases ?? {}));
   const pseudoWorkflow = {
     workItem: { id: initiativeId, workType: `initiative:${initiative.initiative.profile}` },
     currentPhase: phaseId

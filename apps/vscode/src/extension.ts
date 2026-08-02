@@ -22,6 +22,8 @@ import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
 import { EpicPanel } from './views/epic-panel.ts';
+import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
+import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
@@ -74,6 +76,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : null;
       if (target) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), { forceNewWindow: true });
     });
+  }));
+
+  /**
+   * The workspaces on this machine, and the three things you can do to one.
+   *
+   * Registered before any early return, like creating one: a person with no repository open is
+   * exactly the person who needs to find the workspace they already have.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspaces', async () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return void vscode.window.showErrorMessage((error as Error).message);
+    }
+    // The registry is machine-wide, so this runs from wherever the CLI happens to be rooted rather
+    // than from a repository the person may not have open.
+    const registry = new SingularityFlowClient({
+      location, repository: process.cwd(), onOutput: (text) => output.append(text)
+    });
+    const list = (): Promise<WorkspaceEntry[]> =>
+      registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
+
+    const onMessage = async (message: WorkspacesMessage): Promise<string | null> => {
+      if (message.type === 'create') {
+        await vscode.commands.executeCommand('singularityFlow.createWorkspace');
+        return null;
+      }
+      if (message.type === 'open') {
+        await vscode.commands.executeCommand('vscode.openFolder',
+          vscode.Uri.file(message.row.leadRepositoryPath || message.row.directory),
+          { forceNewWindow: true });
+        return null;
+      }
+      if (message.type === 'forget') {
+        const confirmed = await vscode.window.showWarningMessage(
+          `Forget ${message.row.name}?`,
+          { modal: true, detail: `Removes it from the workspace list. ${message.row.directory} is left exactly as it is.` },
+          'Forget');
+        if (confirmed !== 'Forget') return null;
+        message = { type: 'run', command: ['workspace', 'forget', message.row.directory, '--json'], title: 'Forgetting workspace' };
+      }
+      output.appendLine(`\n$ singularity-flow ${message.command.join(' ')}`);
+      try {
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: message.title },
+          () => registry.runText(message.command));
+        return null;
+      } catch (error) {
+        output.appendLine(`  failed: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    };
+
+    WorkspacesPanel.show(context, await list(), list, onMessage);
   }));
 
   /** Diagnostics, as the CLI reports them. */

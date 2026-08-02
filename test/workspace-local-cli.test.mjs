@@ -284,3 +284,128 @@ test('a workspace records the capabilities it is for, not only the repositories 
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /must be lower-case kebab-case/);
 });
+
+test('a workspace can be copied into a different working directory', async () => {
+  // A workspace is local and disposable: the same capabilities and repositories, somewhere else to
+  // work on them. Nothing governed lives in it that a second copy would fork.
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces');
+  cli(['workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', workspaces, '--lead', 'platform', '--repository', `platform=${source}`,
+    '--capability', 'payments', '--capability', 'commerce',
+    '--confirm', 'commerce', '--no-clone'], env);
+
+  const copied = JSON.parse(cli(['workspace', 'duplicate', path.join(workspaces, 'commerce'),
+    '--id', 'commerce-spike', '--no-clone', '--json'], env).stdout);
+
+  assert.equal(copied.workspace.path, path.join(await realpath(workspaces), 'commerce-spike'));
+  assert.deepEqual(copied.workspace.capabilities, ['commerce', 'payments'], 'what it is for comes with it');
+  assert.deepEqual(Object.keys(copied.workspace.repositories), ['platform']);
+  assert.equal(copied.workspace.leadRepository, 'platform');
+  // Named after its identifier, because the identifier is what decides the directory: a copy called
+  // "commerce (copy)" would land in `commerce-spike--commerce-copy` rather than `commerce-spike`.
+  assert.equal(copied.workspace.name, 'commerce-spike');
+
+  // The original is untouched — a copy is not a move.
+  const original = JSON.parse(await readFile(path.join(workspaces, 'commerce/workspace.json'), 'utf8'));
+  assert.deepEqual(original.capabilities, ['commerce', 'payments']);
+  assert.equal(original.name, 'commerce');
+});
+
+test('no two workspaces may share a working directory', async () => {
+  // `workspace create` resumes when it finds the same workspace already there, which is right for
+  // creation and wrong for copying: a duplicate landing on its own source would silently return the
+  // original and report success.
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces');
+  for (const id of ['alpha', 'beta']) {
+    cli(['workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
+      '--lead', 'platform', '--repository', `platform=${source}`, '--confirm', id, '--no-clone'], env);
+  }
+
+  const onItself = cli(['workspace', 'duplicate', path.join(workspaces, 'alpha'),
+    '--id', 'alpha', '--no-clone'], env, { allowFailure: true });
+  assert.notEqual(onItself.status, 0);
+  assert.match(onItself.stderr, /already workspace 'local--alpha'/);
+  assert.match(onItself.stderr, /two workspaces cannot share one/);
+
+  const onSibling = cli(['workspace', 'duplicate', path.join(workspaces, 'alpha'),
+    '--id', 'beta', '--no-clone'], env, { allowFailure: true });
+  assert.notEqual(onSibling.status, 0);
+  assert.match(onSibling.stderr, /already workspace 'local--beta'/);
+
+  // Refused before anything was written: beta is still beta.
+  const beta = JSON.parse(await readFile(path.join(workspaces, 'beta/workspace.json'), 'utf8'));
+  assert.equal(beta.id, 'local--beta');
+
+  // The directory checked is the workspace's own root, not the base above it: a copy lands in a
+  // fresh subdirectory, so a base with other workspaces in it is entirely normal.
+  const elsewhere = path.join(base, 'elsewhere');
+  await mkdir(elsewhere, { recursive: true });
+  await writeFile(path.join(elsewhere, 'unrelated.md'), '# notes\n');
+  const beside = cli(['workspace', 'duplicate', path.join(workspaces, 'alpha'),
+    '--id', 'alpha', '--base', elsewhere, '--no-clone'], env, { allowFailure: true });
+  assert.equal(beside.status, 0, `a free subdirectory is fine: ${beside.stderr}`);
+
+  // But a root that already holds something is refused, because a workspace lays out its own tree
+  // and would otherwise be mixed in with whatever was there.
+  const occupied = path.join(base, 'occupied', 'alpha');
+  await mkdir(occupied, { recursive: true });
+  await writeFile(path.join(occupied, 'notes.md'), '# notes\n');
+  const onOccupied = cli(['workspace', 'duplicate', path.join(workspaces, 'alpha'),
+    '--id', 'alpha', '--base', path.join(base, 'occupied'), '--no-clone'], env, { allowFailure: true });
+  assert.notEqual(onOccupied.status, 0);
+  assert.match(onOccupied.stderr, /not empty/);
+});
+
+test('a copy can be given a different name and a different base', async () => {
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces');
+  const elsewhere = path.join(base, 'elsewhere');
+  cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'platform', '--repository', `platform=${source}`, '--confirm', 'commerce', '--no-clone'], env);
+
+  const copied = JSON.parse(cli(['workspace', 'duplicate', path.join(workspaces, 'commerce'),
+    '--id', 'commerce', '--base', elsewhere, '--name', 'Commerce spike',
+    '--no-clone', '--json'], env).stdout);
+  assert.equal(copied.workspace.name, 'Commerce spike');
+  // The same identifier in a different base is fine — the directory is what must be unique. A name
+  // that differs from the identifier is folded into the directory, which is why a copy left unnamed
+  // is named after its identifier.
+  assert.match(copied.workspace.path, /elsewhere\/commerce--commerce-spike$/);
+
+  // Both are registered, and they are two workspaces rather than one moved.
+  const listed = JSON.parse(cli(['workspace', 'list', '--json'], env).stdout);
+  const paths = listed.map((entry) => entry.path);
+  assert.ok(paths.includes(copied.workspace.path), 'the copy is registered');
+  assert.ok(paths.some((entry) => entry.endsWith('/workspaces/commerce')), 'the original still is');
+  assert.equal(new Set(paths).size, paths.length, 'no two registry entries share a directory');
+});
+
+test('a workspace can be renamed without restating everything about it', async () => {
+  // Renaming is the safest edit there is, and it did not work: `workspace update --name` passed no
+  // repositories to the validator and was refused for having none. An edit changes what it names.
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces');
+  cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'platform', '--repository', `platform=${source}`,
+    '--capability', 'payments', '--confirm', 'commerce', '--no-clone'], env);
+  const workspace = path.join(workspaces, 'commerce');
+
+  cli(['workspace', 'update', workspace, '--name', 'Commerce platform', '--confirm', 'commerce', '--json'], env);
+  let manifest = JSON.parse(await readFile(path.join(workspace, 'workspace.json'), 'utf8'));
+  assert.equal(manifest.name, 'Commerce platform');
+  assert.deepEqual(Object.keys(manifest.repositories), ['platform'], 'untouched');
+  assert.equal(manifest.leadRepository, 'platform', 'untouched');
+  assert.deepEqual(manifest.capabilities, ['payments'], 'untouched');
+
+  // What a workspace is for is a local decision, and it changes as work moves on.
+  cli(['workspace', 'update', workspace, '--capability', 'storefront', '--capability', 'checkout',
+    '--confirm', 'commerce', '--json'], env);
+  manifest = JSON.parse(await readFile(path.join(workspace, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['checkout', 'storefront']);
+  assert.equal(manifest.name, 'Commerce platform', 'untouched');
+
+  // The directory never moves: it was fixed at creation, and moving it is a copy.
+  assert.equal(manifest.path, await realpath(workspace));
+});

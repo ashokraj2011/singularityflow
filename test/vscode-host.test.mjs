@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1134,4 +1134,62 @@ test('creating a workspace asks nothing through a prompt, including the state br
   // Not one input box, from opening the panel to being ready to create.
   assert.equal(registered.inputBoxes.length, 0,
     `asked ${registered.inputBoxes.length} prompts: ${registered.inputBoxes.map((box) => box.title).join(', ')}`);
+});
+
+test('a workspace can be renamed and copied from the editor, and never onto another', async (t) => {
+  if (!requireBundle(t)) return;
+  // A workspace is local and disposable: renaming and copying one are ordinary. What is not
+  // ordinary is two of them in one directory, so the copy is refused before the command runs.
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const cli = (args) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry }
+    });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    return result.stdout;
+  };
+  cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'platform', '--repository', `platform=${org.lead}`,
+    '--capability', 'payments', '--confirm', 'commerce', '--no-clone']);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  // The panel reads the machine-wide registry, so the test's own has to be the one it finds.
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  assert.ok(panel, 'a workspaces panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.match(panel.webview.html, /commerce/);
+
+  const workspaceRoot = path.join(await realpath(workspaces), 'commerce');
+  await panel.post({ type: 'select', path: workspaceRoot });
+  assert.match(panel.webview.html, /Copy this workspace/);
+
+  // Copying onto a directory that is already a workspace is refused without running anything.
+  await panel.post({ type: 'duplicate', path: workspaceRoot, id: 'commerce', base: '' });
+  await settle();
+  assert.match(panel.webview.html, /No two workspaces may share a working directory/);
+
+  // A free directory works, and the copy carries what the workspace is for.
+  await panel.post({ type: 'duplicate', path: workspaceRoot, id: 'commerce-spike', base: '' });
+  const copied = path.join(await realpath(workspaces), 'commerce-spike');
+  await until(() => (existsSync(path.join(copied, 'workspace.json')) ? true : null));
+  const manifest = JSON.parse(readFileSync(path.join(copied, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['payments'], 'what it is for came with it');
+  assert.equal(manifest.leadRepository, 'platform');
+  // Both are listed, on their own directories.
+  await until(() => (panel.webview.html.includes('commerce-spike') ? true : null));
+  assert.doesNotMatch(panel.webview.html, /shared directory/);
+
+  // Renaming is an edit a local thing is allowed to have.
+  await panel.post({ type: 'rename', path: workspaceRoot, name: 'Commerce platform' });
+  await until(() => (panel.webview.html.includes('Commerce platform') ? true : null));
+  assert.match(readFileSync(path.join(workspaceRoot, 'workspace.json'), 'utf8'), /Commerce platform/);
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });

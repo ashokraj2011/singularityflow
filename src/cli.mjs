@@ -153,7 +153,8 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
   listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
   readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities,
+  duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments,
+  updateWorkspaceConfiguration, workspaceRemoteCapabilities,
   workspaceRemoteDefaults,
   workspaceRepositoryDefaults,
   workspaceStatus
@@ -389,13 +390,15 @@ Usage:
     --repository ID=URL [--capability ID] [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow workspace capabilities <LEAD-URL> [--json]
+  singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]
+    [--no-clone] [--json]
   singularity-flow capability [tree] [--json]
   singularity-flow capability show <CAPABILITY-ID> [--json]
   singularity-flow capability of <REPOSITORY-ID> [--json]
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
     [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
-  singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
+  singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
   singularity-flow workspace restore <DIRECTORY> [--json]
@@ -3469,6 +3472,23 @@ async function workspaceCommand(positionals, options) {
     if (remote) console.log(`  ${defaults.stateBranch}: ${defaults.hasStateBranch ? 'present' : 'not created yet'}`);
     return;
   }
+  if (subcommand === 'duplicate') {
+    // A workspace is local and disposable, so copying one is an ordinary thing to want: the same
+    // capabilities and repositories, somewhere else to work on them.
+    const sourcePath = requirePositional(positionals, 2, 'workspace directory');
+    const newId = optionString(options, 'id');
+    if (!newId) throw new SingularityFlowError('workspace duplicate requires --id for the copy.');
+    const copied = await duplicateWorkspaceConfiguration(sourcePath, {
+      id: newId,
+      name: optionString(options, 'name'),
+      baseDirectory: optionString(options, 'base')
+    }, { clone: optionBoolean(options, 'clone', true) });
+    await rememberWorkspace(registry, copied.workspace, copied.status);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
+    console.log(`Workspace ${newId} copied from ${sourcePath} to ${copied.workspace.path}.`);
+    return renderWorkspaceStatus(copied.status);
+  }
+
   if (subcommand === 'capabilities') {
     // What the lead repository says this organisation builds, read before anything is cloned. A
     // workspace is chosen in these terms — the repositories follow from which ones you pick.
@@ -3486,9 +3506,11 @@ async function workspaceCommand(positionals, options) {
   if (subcommand === 'update') {
     const updateUrls = optionMap(optionStrings(options, 'repository'), '--repository');
     const updateBranches = optionMap(optionStrings(options, 'default-branch'), '--default-branch');
+    const updateCapabilities = optionStrings(options, 'capability');
     const updateInput = {
       name: optionString(options, 'name'),
       leadRepository: optionString(options, 'lead'),
+      capabilities: updateCapabilities.length ? updateCapabilities : undefined,
       repositories: Object.keys(updateUrls).length
         ? Object.fromEntries(Object.entries(updateUrls).map(([id, url]) => [id, {
             url,

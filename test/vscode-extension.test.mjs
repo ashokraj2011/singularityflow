@@ -1678,3 +1678,93 @@ test('a refused start is reported on the form that caused it', () => {
   });
   assert.match(epicFormHtml(form), /Working tree is not clean/);
 });
+
+const { duplicateCommand, duplicateDirectory, duplicateProblems, renameCommand, workspaceRows } =
+  await import(source('views/workspaces-model.ts'));
+const { workspacesHtml, EMPTY_DRAFT: EMPTY_COPY } = await import(source('views/workspaces-page.ts'));
+
+const REGISTRY = [
+  { id: 'local--commerce', path: '/work/commerce', name: 'commerce', anchorKey: 'commerce',
+    leadRepositoryPath: '/work/commerce/repos/platform', active: 'yes' },
+  { id: 'local--payments', path: '/work/payments', name: 'payments', anchorKey: 'payments',
+    leadRepositoryPath: '/work/payments/repos/api' }
+];
+
+test('a workspace list shows the working directory, which is what it is really about', () => {
+  const rows = workspaceRows(REGISTRY);
+  assert.deepEqual(rows.map((row) => row.directory), ['/work/commerce', '/work/payments']);
+  assert.deepEqual(rows.map((row) => row.lead), ['platform', 'api']);
+  assert.equal(rows[0].collides, false);
+
+  const html = workspacesHtml(rows, null, EMPTY_COPY, null);
+  assert.match(html, /\/work\/commerce/);
+  assert.match(html, /platform/);
+  assert.match(html, /no two may share a directory/);
+});
+
+test('two workspaces on one directory are marked, because the engine forbids it', () => {
+  // It cannot normally happen — creation refuses it — but a registry is a file on disk that
+  // survives moves, restores and hand edits. Showing it costs less than two workspaces quietly
+  // writing into one tree.
+  const rows = workspaceRows([
+    ...REGISTRY,
+    { id: 'local--commerce-2', path: '/work/commerce', name: 'commerce copy', anchorKey: 'commerce-2' }
+  ]);
+  assert.deepEqual(rows.filter((row) => row.collides).map((row) => row.name),
+    ['commerce', 'commerce copy']);
+  const html = workspacesHtml(rows, null, EMPTY_COPY, null);
+  assert.match(html, /shared directory/);
+  assert.match(html, /2 workspaces share a working directory/);
+});
+
+test('a copy is refused before it runs when its directory is taken', () => {
+  const rows = workspaceRows(REGISTRY);
+  const [commerce] = rows;
+
+  // Copying alongside itself under a name already in use is the mistake worth catching.
+  assert.deepEqual(duplicateDirectory(commerce, 'payments', null), '/work/payments');
+  assert.match(duplicateProblems(commerce, 'payments', null, rows).join(' '),
+    /already workspace 'payments'.*No two workspaces may share a working directory/);
+  assert.match(duplicateProblems(commerce, 'commerce', null, rows).join(' '), /already workspace 'commerce'/);
+
+  // A free directory, and the same identifier somewhere else, are both fine.
+  assert.deepEqual(duplicateProblems(commerce, 'commerce-spike', null, rows), []);
+  assert.deepEqual(duplicateProblems(commerce, 'commerce', '/elsewhere', rows), []);
+  assert.deepEqual(duplicateProblems(commerce, '', null, rows), ['Give the copy an identifier.']);
+  assert.match(duplicateProblems(commerce, 'has spaces', null, rows).join(' '), /letters, numbers/);
+});
+
+test('the copy and rename commands are what the engine expects', () => {
+  const [commerce] = workspaceRows(REGISTRY);
+  assert.deepEqual(duplicateCommand(commerce, ' commerce-spike ', '', ''),
+    ['workspace', 'duplicate', '/work/commerce', '--id', 'commerce-spike', '--json']);
+  assert.deepEqual(duplicateCommand(commerce, 'commerce-spike', '/elsewhere', 'Spike'),
+    ['workspace', 'duplicate', '/work/commerce', '--id', 'commerce-spike', '--json',
+      '--base', '/elsewhere', '--name', 'Spike']);
+  // Renaming carries the exact confirmation the engine demands for an edit.
+  assert.deepEqual(renameCommand(commerce, ' Commerce platform '),
+    ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
+      '--confirm', 'commerce', '--json']);
+});
+
+test('the selected workspace offers rename, copy and forget, and says what each costs', () => {
+  const rows = workspaceRows(REGISTRY);
+  const html = workspacesHtml(rows, '/work/commerce', { ...EMPTY_COPY, id: 'commerce-spike' }, null);
+  assert.match(html, /data-rename="\/work\/commerce"/);
+  assert.match(html, /data-duplicate="\/work\/commerce"/);
+  assert.match(html, /data-forget="\/work\/commerce"/);
+  assert.match(html, /The copy would be created at \/work\/commerce-spike/);
+  assert.match(html, /leaves the directory alone/, 'forgetting is not deleting, and says so');
+  assert.match(html, /working\s*\n?\s*directory is not/, 'renaming does not move anything');
+});
+
+test('the page carries the directories it needs to answer without a round trip', () => {
+  // Re-rendering to answer "is that directory taken" would replace the field being typed into, so
+  // the page is given the list. The panel re-checks it, and the engine refuses regardless.
+  const html = workspacesHtml(workspaceRows(REGISTRY), '/work/commerce', EMPTY_COPY, null);
+  assert.match(html, /data-context="/);
+  assert.match(html, /work\/payments/);
+  // Not a script element: the CSP allows only this render's nonce, and a data block under a strict
+  // policy is not worth depending on.
+  assert.doesNotMatch(html, /<script/);
+});

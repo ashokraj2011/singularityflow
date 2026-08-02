@@ -594,8 +594,14 @@ export async function saveWorkspaceConfiguration(options, { confirmation } = {})
   }
 }
 
-function workspaceUpdateManifest(current, { name, repositories, leadRepository }) {
-  const { normalized, lead } = validateRepositoryPlan(repositories, leadRepository);
+function workspaceUpdateManifest(current, { name, repositories, leadRepository, capabilities }) {
+  // An edit changes what it names and nothing else. Passing the repositories straight through meant
+  // `workspace update --name` reached validateRepositoryPlan with nothing at all and was refused
+  // for having no repositories — so renaming a workspace, the safest edit there is, never worked.
+  const { normalized, lead } = validateRepositoryPlan(
+    repositories ?? current.repositories,
+    leadRepository ?? current.leadRepository
+  );
   const workspaceName = String(name ?? current.name).trim();
   if (!workspaceName) throw new SingularityFlowError('Workspace name is required.');
   for (const [id, repository] of Object.entries(current.repositories)) {
@@ -614,6 +620,7 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository }
     name: workspaceName,
     leadRepository: lead,
     repositories: normalized,
+    capabilities: capabilities ?? current.capabilities ?? [],
     updatedAt: nowIso()
   }, { workspaceRoot: current.path });
 }
@@ -633,6 +640,83 @@ export async function previewWorkspaceUpdate(workspacePath, options) {
       required: repository.required
     }))
   };
+}
+
+/**
+ * Refuse a working directory that another workspace already occupies.
+ *
+ * A workspace is local and disposable — the point of it is the directory you work in — so two of
+ * them sharing one directory is not a conflict to resolve later, it is two sets of governed state
+ * writing over each other. `createWorkspace` resumes when it finds the same workspace already
+ * there, which is right for creation and wrong for copying: a duplicate that lands on its own
+ * source would silently return the original and report success.
+ *
+ * @param exclude a root that is allowed to be occupied, for callers re-saving a workspace in place.
+ */
+export async function assertWorkingDirectoryFree(root, { exclude = null } = {}) {
+  const resolved = path.resolve(root);
+  const canonical = await realpath(resolved).catch(() => resolved);
+  if (exclude) {
+    const other = path.resolve(exclude);
+    if (canonical === (await realpath(other).catch(() => other))) return canonical;
+  }
+  const existing = await readWorkspace(canonical).catch(() => null);
+  if (existing) {
+    throw new SingularityFlowError(
+      `Working directory is already workspace '${existing.id}': ${canonical}. `
+      + 'Choose a different directory; two workspaces cannot share one.');
+  }
+  const entries = await readdir(canonical).catch(() => null);
+  if (entries?.length) {
+    throw new SingularityFlowError(`Working directory is not empty: ${canonical}.`);
+  }
+  return canonical;
+}
+
+/**
+ * Copy a workspace into a new working directory.
+ *
+ * Same capabilities, same repositories, same lead — a different place to work. That is the whole
+ * operation, because a workspace is only a local grouping: nothing governed lives in it that a
+ * second copy would fork. What it must not do is land on the original, which is why the target is
+ * asserted free rather than resumed.
+ */
+export async function duplicateWorkspaceConfiguration(sourcePath, {
+  id, name = null, baseDirectory = null
+}, settings = {}) {
+  const source = await readWorkspace(sourcePath);
+  const workspaceId = safeId(id, 'Workspace ID');
+  const base = baseDirectory ? path.resolve(baseDirectory) : path.dirname(path.resolve(source.path));
+  // The directory a workspace lands in is its identifier — unless its name differs, and then the
+  // name is folded in too. A copy named "<source> (copy)" would therefore land in
+  // `<id>--<source>-copy` rather than `<id>`, which is not where anybody would look for it.
+  // Renaming afterwards moves nothing, so the friendly name is a later decision.
+
+  const preview = previewWorkspaceConfiguration({
+    baseDirectory: base,
+    id: workspaceId,
+    name: name ?? workspaceId,
+    leadRepository: source.leadRepository,
+    capabilities: source.capabilities ?? [],
+    repositories: Object.fromEntries(Object.entries(source.repositories).map(([key, repository]) => [key, {
+      url: repository.url,
+      defaultBranch: repository.defaultBranch,
+      required: repository.required,
+      metadata: repository.metadata,
+      jira: repository.jira,
+      path: repository.path
+    }]))
+  });
+  await assertWorkingDirectoryFree(preview.root);
+
+  return createWorkspaceConfiguration({
+    baseDirectory: base,
+    id: workspaceId,
+    name: name ?? workspaceId,
+    leadRepository: source.leadRepository,
+    capabilities: source.capabilities ?? [],
+    repositories: preview.manifest.repositories
+  }, { ...settings, confirmation: workspaceId });
 }
 
 export async function updateWorkspaceConfiguration(workspacePath, options, { confirmation } = {}) {

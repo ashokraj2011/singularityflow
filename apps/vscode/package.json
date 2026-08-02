@@ -55,6 +55,11 @@
     },
     "commands": [
       {
+        "command": "singularityFlow.openWorkspaces",
+        "title": "Singularity Flow: Workspaces",
+        "icon": "$(list-unordered)"
+      },
+      {
         "command": "singularityFlow.createWorkspace",
         "title": "Singularity Flow: Create a Workspace",
         "icon": "$(root-folder)"
@@ -174,6 +179,11 @@
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@6"
+        },
+        {
+          "command": "singularityFlow.openWorkspaces",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "9_setup@1"
         }
       ],
       "view/item/context": [

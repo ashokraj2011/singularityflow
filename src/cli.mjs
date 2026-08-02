@@ -174,7 +174,8 @@ import {
 } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
 import {
-  editCapabilityInOrganisation, initializeWorkspaceState, listLeadRepositories, mapCapability,
+  capabilityReadiness, editCapabilityInOrganisation, initializeWorkspaceState, listLeadRepositories,
+  mapCapability,
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
@@ -422,7 +423,8 @@ Usage:
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind TEXT]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
-  singularity-flow capability organisation [LEAD-URL] [--json]
+  singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
+    (--readiness asks each remote whether its state branch and world model exist)
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
@@ -2459,15 +2461,33 @@ async function capabilityCommand(positionals, options) {
   }
 
   if (subcommandForWrite === 'organisation') {
+    const withReadiness = optionBoolean(options, 'readiness');
+
     const leadUrl = optionString(options, 'lead')
       ?? positionals[2] ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass one, or govern one first.');
     const organisation = await readOrganisation(leadUrl);
     await rememberLeadRepository(leadUrl);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(organisation, null, 2));
+    // Asked of the remotes, so it costs an ls-remote per repository — worth it on request, not on
+    // every read of the map.
+    const readiness = withReadiness ? await capabilityReadiness(leadUrl) : null;
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify(readiness ? { ...organisation, readiness } : organisation, null, 2));
+    }
     if (!organisation.governed) return console.log(`${leadUrl} holds no capability map.`);
     for (const row of flattenCapabilityTree(organisation.capabilities)) {
-      console.log(`${'  '.repeat(row.depth)}${row.name}${row.repository ? `  \u2192 ${row.repository}` : ''}`);
+      const ships = row.repositories?.length ? `  \u2192 ${row.repositories.join(', ')}` : '';
+      const lead = row.repositories?.length > 1 && row.leadRepository ? ` (lead ${row.leadRepository})` : '';
+      const type = row.type ? ` [${row.type}]` : '';
+      console.log(`${'  '.repeat(row.depth)}${row.name}${type}${ships}${lead}`);
+      // Under each repository, the two things that decide whether it can be worked in.
+      for (const id of readiness ? row.repositories ?? [] : []) {
+        const state = readiness[id];
+        if (!state) continue;
+        console.log(`${'  '.repeat(row.depth + 1)}${id}: `
+          + `${state.hasStateBranch ? `${state.stateBranch} branch` : 'no state branch'}`
+          + ` \u00b7 ${state.worldModel ? `world model on ${state.worldModel}` : 'no world model'}`);
+      }
     }
     return;
   }

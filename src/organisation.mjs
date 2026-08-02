@@ -284,6 +284,48 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
   });
 }
 
+/**
+ * Whether each repository a capability ships from is actually ready to be worked in.
+ *
+ * Two questions, asked of the remote rather than of a clone: does the orphan state branch exist,
+ * and is there a world model. Both are things you otherwise discover at the moment you need them —
+ * a phase that will not ground, a workspace with nowhere to record its governance — and both are
+ * answerable in one `ls-remote` per repository.
+ *
+ * The world model is looked for on the state branch first and the default branch second, in that
+ * order, because that is the order every reader resolves it in.
+ */
+export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outputDir = 'singularity/world-model' } = {}) {
+  const organisation = await readOrganisation(leadUrl);
+  const repositories = organisation.repositories ?? {};
+  const rows = {};
+  for (const [id, declared] of Object.entries(repositories)) {
+    const url = declared?.url;
+    if (!url) continue;
+    const refs = run('git', ['ls-remote', '--heads', url], { allowFailure: true }).stdout;
+    const hasState = refs.includes(`refs/heads/${stateBranch}`);
+    const defaultBranch = declared.defaultBranch ?? 'main';
+    // `ls-tree` on a remote needs a fetch, so the model is probed by asking the remote for the one
+    // path rather than by cloning: cheap, and truthful about what is actually published.
+    const modelOn = (branch) => {
+      if (!refs.includes(`refs/heads/${branch}`)) return false;
+      const probe = run('bash', ['-c',
+        `git archive --remote=${JSON.stringify(url)} ${branch} ${JSON.stringify(`${outputDir}/manifest.json`)} >/dev/null 2>&1`],
+      { allowFailure: true });
+      return probe.status === 0;
+    };
+    const onState = hasState && modelOn(stateBranch);
+    rows[id] = {
+      url,
+      stateBranch: hasState ? stateBranch : null,
+      hasStateBranch: hasState,
+      // Which copy a command would actually read, said plainly rather than left to be worked out.
+      worldModel: onState ? 'state-branch' : modelOn(defaultBranch) ? defaultBranch : null
+    };
+  }
+  return rows;
+}
+
 /** The repository identifier a clone URL implies. */
 export function repositoryIdOf(url) {
   const id = String(url ?? '').trim()

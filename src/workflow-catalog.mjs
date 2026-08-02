@@ -16,12 +16,27 @@ function canonical(value) {
 }
 function stable(value) { return JSON.stringify(canonical(value), null, 2); }
 
+/**
+ * Every workflow this repository runs, plus the packaged ones it could install.
+ *
+ * It used to iterate only the packaged set, so a workflow somebody wrote themselves never appeared
+ * — `workflow create quick-fix` reported success and `workflow list` then did not mention it. A
+ * catalog that omits what you just made is not a catalog of what you have.
+ */
 export async function workflowCatalog(root) {
   const [installed, starter] = await Promise.all([loadDefinition(root), starterDefinition()]);
-  return Object.entries(starter.workTypes).map(([id, profile]) => {
+  const packaged = Object.entries(starter.workTypes).map(([id, profile]) => {
     const current = installed.workTypes[id];
     return { id, label: profile.label, phases: profile.phases, status: !current ? 'available' : stable(current) === stable(profile) ? 'current' : 'customized', installed: Boolean(current) };
   });
+  // Anything defined here that no packaged workflow claims: written by this team, for this
+  // repository, and every bit as real as the ones that shipped with the product.
+  const local = Object.entries(installed.workTypes)
+    .filter(([id]) => !starter.workTypes[id])
+    .map(([id, profile]) => ({
+      id, label: profile.label ?? id, phases: profile.phases ?? [], status: 'local', installed: true
+    }));
+  return [...packaged, ...local];
 }
 
 export async function simulateWorkflow(root, workType = null) {

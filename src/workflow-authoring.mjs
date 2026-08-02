@@ -18,10 +18,93 @@
  * edit anybody made.
  */
 import path from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
+import { WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+
+/**
+ * The two places a workflow can live.
+ *
+ * A workflow is a named, ordered list of phases either way. What differs is which file holds it and
+ * what it governs — a Story or an Initiative — and that is a fact about storage, not about the
+ * thing. So every operation here takes a store and does the same work in it, rather than there
+ * being two vocabularies and two sets of commands as there were before.
+ */
+export const STORES = Object.freeze({
+  story: Object.freeze({
+    governs: 'story',
+    file: WORKFLOW_PATH,
+    workflows: 'workTypes',
+    phases: 'phases',
+    validate: validateDefinition,
+    // A Story phase produces one artifact at a known path; an Initiative phase produces a set of
+    // named outputs. Same idea, genuinely different record, so each store scaffolds its own rather
+    // than one shape being bent to fit both.
+    scaffold: ({ id, label, worldModelViews, agents, approvalAuthorities, approvalMinimum }) => ({
+      label,
+      ...(agents.length ? { agents } : {}),
+      artifact: { path: `artifacts/${id}/${id}.md`, kind: id, minimumBytes: 200 },
+      // A Story phase is invalid without a template, so adding one writes a starter alongside it.
+      // Creating a phase that cannot be run and reporting success is not creating a phase.
+      defaultTemplate: `common/${id}.md`,
+      writeScope: 'artifact-only',
+      ...(worldModelViews.length ? { worldModel: { views: worldModelViews, depth: 'quick' } } : {}),
+      ...(approvalAuthorities.length
+        ? { approval: { authorities: approvalAuthorities, minimum: approvalMinimum } }
+        : {})
+    })
+  }),
+  initiative: Object.freeze({
+    governs: 'initiative',
+    file: PORTFOLIO_PATH,
+    workflows: 'initiativeProfiles',
+    phases: 'initiativePhases',
+    validate: validatePortfolio,
+    scaffold: ({ label, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum }) => ({
+      label,
+      ...(lanes.length ? { lanes } : {}),
+      ...(agents.length ? { agents } : {}),
+      worldModelViews,
+      outputs: [],
+      checklist: [],
+      ...(approvalAuthorities.length
+        ? { bundleApproval: { mode: 'bundle', authorities: approvalAuthorities, minimum: approvalMinimum, allowSelfApproval: true } }
+        : {})
+    })
+  })
+});
+
+function storeFor(governs) {
+  const store = STORES[governs];
+  if (!store) {
+    throw new SingularityFlowError(`A workflow governs 'story' or 'initiative', not '${governs}'.`);
+  }
+  return store;
+}
+
+/**
+ * Which store holds a workflow, or which one a set of phases belongs to.
+ *
+ * Inferred rather than demanded: somebody editing `feature` should not have to know it is a
+ * workType in workflow.yml while `epic-planning` is a profile in portfolio.yml. That distinction is
+ * exactly what this layer exists to hide.
+ */
+async function locate(root, { workflowId = null, phases = [] } = {}) {
+  for (const store of Object.values(STORES)) {
+    const document = await loadIn(root, store).catch(() => null);
+    if (!document) continue;
+    const content = document.document.toJS() ?? {};
+    if (workflowId && content[store.workflows]?.[workflowId]) return store;
+    if (!workflowId && phases.length) {
+      const defined = Object.keys(content[store.phases] ?? {});
+      if (phases.every((phase) => defined.includes(phase))) return store;
+    }
+  }
+  return null;
+}
 
 /** Identifiers are kebab-case throughout this product; a lifecycle is not the place to differ. */
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -32,12 +115,12 @@ function requireId(value, label) {
   return id;
 }
 
-async function loadDocument(root) {
-  const file = path.join(root, PORTFOLIO_PATH);
+async function loadIn(root, store) {
+  const file = path.join(root, store.file);
   let text;
   try { text = await readFile(file, 'utf8'); }
-  catch { throw new SingularityFlowError(`No ${PORTFOLIO_PATH} exists. Run singularity-flow init first.`); }
-  return { file, document: YAML.parseDocument(text) };
+  catch { throw new SingularityFlowError(`No ${store.file} exists. Run singularity-flow init first.`); }
+  return { file, document: YAML.parseDocument(text), store };
 }
 
 /**
@@ -47,8 +130,8 @@ async function loadDocument(root) {
  * another command can load while it is invalid, and the failure then surfaces somewhere unrelated
  * to the edit that caused it.
  */
-async function saveDocument(file, document) {
-  validatePortfolio(document.toJS());
+async function saveIn(file, document, store) {
+  store.validate(document.toJS());
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 }
 
@@ -72,169 +155,213 @@ async function assertAgentsExist(root, agents, phaseId) {
   }
 }
 
-/** Every profile, with the phases it runs — the same view `initiative profiles` reports. */
-export async function listProfiles(root) {
-  const { document } = await loadDocument(root);
-  const portfolio = document.toJS() ?? {};
-  return Object.entries(portfolio.initiativeProfiles ?? {}).map(([id, profile]) => ({
+/**
+ * The starter a new Story phase writes its artifact from.
+ *
+ * Enough structure to be worth opening and not so much that it reads as filled in: a heading, the
+ * question the stage answers, and a note saying it is a starter. A template full of invented
+ * content is worse than an empty one, because somebody will publish it.
+ */
+async function writeStarterTemplate(root, phaseId, label) {
+  const relative = path.join('singularity', 'templates', 'common', `${phaseId}.md`);
+  const file = path.join(root, relative);
+  if (existsSync(file)) return relative;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, [
+    `# ${label}`,
+    '',
+    `A starter for the ${phaseId} phase. Replace this with what the stage actually has to answer;`,
+    'the engine checks that the artifact is at least a couple of hundred bytes, not that it is good.',
+    '',
+    '## What this stage decides',
+    '',
+    '## Evidence',
+    '',
+    '## Open questions',
+    ''
+  ].join('\n'), 'utf8');
+  return relative;
+}
+
+/** Every workflow in a store, with the phases it runs. */
+export async function listWorkflows(root, governs = 'initiative') {
+  const store = storeFor(governs);
+  const { document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
+  return Object.entries(content[store.workflows] ?? {}).map(([id, workflow]) => ({
     id,
-    label: profile?.label ?? id,
-    description: profile?.description ?? '',
-    lifecycleMode: profile?.lifecycleMode ?? null,
-    phases: profile?.phases ?? []
+    label: workflow?.label ?? id,
+    description: workflow?.description ?? '',
+    governs: store.governs,
+    phases: workflow?.phases ?? []
   }));
 }
 
+/** Kept for the Initiative-only callers that predate the store layer. */
+export const listProfiles = (root) => listWorkflows(root, 'initiative');
+
 /**
- * Create a profile from phases that already exist.
+ * Create a workflow from phases that already exist.
  *
- * Refused when a named phase is not defined, because a profile referring to a phase nobody wrote is
- * a lifecycle that stops at that stage — and it stops the first time somebody runs it, not now.
+ * Refused when a named phase is not defined, because a workflow referring to a phase nobody wrote
+ * stops at that stage — and it stops the first time somebody runs it, not now.
  */
-export async function createProfile(root, profileId, {
+/*
+ * `defineWorkflow`, not `createWorkflow`: state.mjs already has the latter and it does something
+ * else — it instantiates a workflow for one work item. This defines the type that instantiation
+ * then follows. Two functions with one name doing different things is how a codebase starts lying
+ * to whoever greps it.
+ */
+export async function defineWorkflow(root, workflowId, {
   label = null,
   description = '',
   phases = [],
-  lifecycleMode = null
+  governs = null
 } = {}) {
-  const id = requireId(profileId, 'A profile identifier');
-  const { file, document } = await loadDocument(root);
-  const portfolio = document.toJS() ?? {};
+  const id = requireId(workflowId, 'A workflow identifier');
+  if (!phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
+  // Inferred from where the phases live, so nobody has to know which file holds which.
+  const store = governs ? storeFor(governs) : (await locate(root, { phases })) ?? STORES.initiative;
+  const { file, document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
 
-  if (portfolio.initiativeProfiles?.[id]) {
-    throw new SingularityFlowError(`Profile '${id}' already exists. Use profile edit to change it.`);
+  if (content[store.workflows]?.[id]) {
+    throw new SingularityFlowError(`Workflow '${id}' already exists. Use workflow edit to change it.`);
   }
-  if (!phases.length) throw new SingularityFlowError('A profile needs at least one phase.');
-  const defined = Object.keys(portfolio.initiativePhases ?? {});
+  const defined = Object.keys(content[store.phases] ?? {});
   const unknown = phases.filter((phase) => !defined.includes(phase));
   if (unknown.length) {
     throw new SingularityFlowError(
-      `Profile '${id}' names ${unknown.length === 1 ? 'a phase that is' : 'phases that are'} not defined: ${unknown.join(', ')}. `
-      + `Create ${unknown.length === 1 ? 'it' : 'them'} first with phase create, or choose from: ${defined.join(', ')}.`);
+      `Workflow '${id}' names ${unknown.length === 1 ? 'a phase that is' : 'phases that are'} not defined for ${store.governs} work: ${unknown.join(', ')}. `
+      + `Add ${unknown.length === 1 ? 'it' : 'them'} with workflow phase add, or choose from: ${defined.join(', ')}.`);
   }
   const duplicated = phases.filter((phase, index) => phases.indexOf(phase) !== index);
   if (duplicated.length) {
-    throw new SingularityFlowError(`Profile '${id}' runs ${[...new Set(duplicated)].join(', ')} more than once.`);
+    throw new SingularityFlowError(`Workflow '${id}' runs ${[...new Set(duplicated)].join(', ')} more than once.`);
   }
 
-  if (!portfolio.initiativeProfiles) document.setIn(['initiativeProfiles'], document.createNode({}));
-  document.setIn(['initiativeProfiles', id], document.createNode({
+  if (!content[store.workflows]) document.setIn([store.workflows], document.createNode({}));
+  document.setIn([store.workflows, id], document.createNode({
     label: label ?? id,
     ...(description ? { description } : {}),
-    ...(lifecycleMode ? { lifecycleMode } : {}),
     phases
   }));
-  await saveDocument(file, document);
-  return { profileId: id, phases, path: PORTFOLIO_PATH };
+  await saveIn(file, document, store);
+  return { workflowId: id, governs: store.governs, phases, path: store.file };
 }
 
 /**
- * Change a profile.
+ * Change a workflow.
  *
  * The phase list is replaced rather than merged: it is an order, and merging two orders has no
  * meaning. Everything else left unnamed is left alone.
  */
-export async function editProfile(root, profileId, changes = {}) {
-  const id = requireId(profileId, 'A profile identifier');
-  const { file, document } = await loadDocument(root);
-  const portfolio = document.toJS() ?? {};
-  const existing = portfolio.initiativeProfiles?.[id];
-  if (!existing) throw new SingularityFlowError(`Unknown profile '${id}'.`);
+export async function editWorkflow(root, workflowId, changes = {}) {
+  const id = requireId(workflowId, 'A workflow identifier');
+  const store = await locate(root, { workflowId: id });
+  if (!store) {
+    // Named in the reader's vocabulary. "Unknown profile" leaked the storage word for a concept
+    // this layer exists to present as one thing.
+    const every = [
+      ...await listWorkflows(root, 'story').catch(() => []),
+      ...await listWorkflows(root, 'initiative').catch(() => [])
+    ];
+    throw new SingularityFlowError(
+      `Unknown workflow '${id}'. This repository runs: ${every.map((entry) => entry.id).join(', ') || 'none'}.`);
+  }
+  const { file, document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
 
   if (changes.phases) {
-    const defined = Object.keys(portfolio.initiativePhases ?? {});
+    if (!changes.phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
+    const defined = Object.keys(content[store.phases] ?? {});
     const unknown = changes.phases.filter((phase) => !defined.includes(phase));
     if (unknown.length) {
-      throw new SingularityFlowError(`Profile '${id}' would name undefined phases: ${unknown.join(', ')}.`);
+      throw new SingularityFlowError(
+        `Workflow '${id}' would name phases that are not defined for ${store.governs} work: ${unknown.join(', ')}.`);
     }
-    if (!changes.phases.length) throw new SingularityFlowError('A profile needs at least one phase.');
-    document.setIn(['initiativeProfiles', id, 'phases'], changes.phases);
+    document.setIn([store.workflows, id, 'phases'], changes.phases);
   }
-  for (const field of ['label', 'description', 'lifecycleMode']) {
+  for (const field of ['label', 'description']) {
     if (changes[field] === undefined) continue;
-    if (changes[field] === '') document.deleteIn(['initiativeProfiles', id, field]);
-    else document.setIn(['initiativeProfiles', id, field], changes[field]);
+    if (changes[field] === '') document.deleteIn([store.workflows, id, field]);
+    else document.setIn([store.workflows, id, field], changes[field]);
   }
-  await saveDocument(file, document);
-  return { profileId: id, path: PORTFOLIO_PATH };
+  await saveIn(file, document, store);
+  return { workflowId: id, governs: store.governs, path: store.file };
 }
 
 /**
- * Create a phase.
+ * Add a phase.
  *
- * Deliberately minimal: a label, the world-model views it needs, its lanes, and the approval that
- * closes it. Outputs and checklists are where the real detail lives and they are left to the file,
- * because a phase with three outputs and a checklist is a paragraph of YAML and a form that
- * pretends otherwise just hides the shape.
+ * Deliberately minimal: a label, the world-model views it needs, its lanes, the agents it expects
+ * and the approval that closes it. Outputs and checklists are where the real detail lives and they
+ * are left to the file, because a phase with three outputs is a paragraph of YAML and a form
+ * pretending otherwise just hides the shape.
  *
- * A new phase runs nowhere until a profile lists it, which is the right default: adding a stage to
- * every lifecycle at once is not what anybody means by "add a stage".
+ * A new phase runs nowhere until a workflow lists it, which is the right default: adding a stage to
+ * every workflow at once is not what anybody means by adding a stage.
  */
-export async function createPhase(root, phaseId, {
+export async function addPhase(root, phaseId, {
   label = null,
   worldModelViews = [],
   lanes = [],
   agents = [],
   approvalAuthorities = [],
-  approvalMinimum = 1
+  approvalMinimum = 1,
+  governs = 'initiative'
 } = {}) {
   const id = requireId(phaseId, 'A phase identifier');
-  const { file, document } = await loadDocument(root);
-  const portfolio = document.toJS() ?? {};
-  if (portfolio.initiativePhases?.[id]) {
-    throw new SingularityFlowError(`Phase '${id}' already exists. Use phase edit to change it.`);
+  const store = storeFor(governs);
+  const { file, document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
+  if (content[store.phases]?.[id]) {
+    throw new SingularityFlowError(`Phase '${id}' already exists. Use workflow phase edit to change it.`);
   }
-  const authorities = Object.keys(portfolio.approvalAuthorities ?? {});
+  const authorities = Object.keys(content.approvalAuthorities ?? {});
   const unknown = approvalAuthorities.filter((authority) => !authorities.includes(authority));
   if (unknown.length) {
     throw new SingularityFlowError(
       `Phase '${id}' names approval ${unknown.length === 1 ? 'authority' : 'authorities'} nobody configured: ${unknown.join(', ')}. `
       + `Configured: ${authorities.join(', ') || 'none'}.`);
   }
-
   await assertAgentsExist(root, agents, id);
 
-  if (!portfolio.initiativePhases) document.setIn(['initiativePhases'], document.createNode({}));
-  document.setIn(['initiativePhases', id], document.createNode({
-    label: label ?? id,
-    ...(lanes.length ? { lanes } : {}),
-    // The agents this stage expects. An agent was only ever chosen by whoever set the session, so a
-    // phase could not say what it needs to be run properly — the knowledge lived in somebody's head
-    // or in a runbook. Declared here it is part of the phase contract, versioned with it.
-    ...(agents.length ? { agents } : {}),
-    // Empty rather than absent: the field is the thing a reader edits next, and an absent key is
-    // harder to find than an empty one.
-    worldModelViews,
-    outputs: [],
-    checklist: [],
-    ...(approvalAuthorities.length
-      ? { bundleApproval: { mode: 'bundle', authorities: approvalAuthorities, minimum: approvalMinimum, allowSelfApproval: true } }
-      : {})
-  }));
-  await saveDocument(file, document);
-  return { phaseId: id, path: PORTFOLIO_PATH, usedBy: [] };
+  if (!content[store.phases]) document.setIn([store.phases], document.createNode({}));
+  // `agents` is on both shapes: the agents a stage expects are part of its contract whatever the
+  // stage governs.
+  document.setIn([store.phases, id], document.createNode(store.scaffold({
+    id, label: label ?? id, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum
+  })));
+  // Written before the phase is saved, because saving validates and the validation requires it.
+  const template = store.governs === 'story'
+    ? await writeStarterTemplate(root, id, label ?? id)
+    : null;
+  await saveIn(file, document, store);
+  return { phaseId: id, governs: store.governs, path: store.file, template, usedBy: [] };
 }
 
-/** Change what a phase declares. Views and lanes are replaced; everything unnamed is left alone. */
-export async function editPhase(root, phaseId, changes = {}) {
+/** Change what a phase declares. Lists are replaced; everything unnamed is left alone. */
+export async function editPhase(root, phaseId, changes = {}, { governs = null } = {}) {
   const id = requireId(phaseId, 'A phase identifier');
-  const { file, document } = await loadDocument(root);
-  const portfolio = document.toJS() ?? {};
-  if (!portfolio.initiativePhases?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
+  const store = governs ? storeFor(governs) : (await locate(root, { phases: [id] })) ?? STORES.initiative;
+  const { file, document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
+  if (!content[store.phases]?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
 
   if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
-  if (changes.label !== undefined) document.setIn(['initiativePhases', id, 'label'], changes.label);
+  if (changes.label !== undefined) document.setIn([store.phases, id, 'label'], changes.label);
   for (const field of ['worldModelViews', 'lanes', 'agents']) {
     if (changes[field] === undefined) continue;
-    if (!changes[field].length) document.deleteIn(['initiativePhases', id, field]);
-    else document.setIn(['initiativePhases', id, field], changes[field]);
+    if (!changes[field].length) document.deleteIn([store.phases, id, field]);
+    else document.setIn([store.phases, id, field], changes[field]);
   }
-  await saveDocument(file, document);
+  await saveIn(file, document, store);
 
-  // Which profiles this reaches, because changing a phase changes every lifecycle that runs it and
+  // Which workflows this reaches, because changing a phase changes every workflow that runs it and
   // that consequence should not have to be worked out from the file.
-  const usedBy = Object.entries(portfolio.initiativeProfiles ?? {})
-    .filter(([, profile]) => (profile?.phases ?? []).includes(id))
-    .map(([profileId]) => profileId);
-  return { phaseId: id, path: PORTFOLIO_PATH, usedBy };
+  const usedBy = Object.entries(content[store.workflows] ?? {})
+    .filter(([, workflow]) => (workflow?.phases ?? []).includes(id))
+    .map(([workflowId]) => workflowId);
+  return { phaseId: id, governs: store.governs, path: store.file, usedBy };
 }

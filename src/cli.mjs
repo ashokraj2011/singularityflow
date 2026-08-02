@@ -4,7 +4,7 @@ import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
 import {
-  createPhase, createProfile, editPhase, editProfile, listProfiles
+  addPhase, defineWorkflow, editPhase, editWorkflow, listProfiles, listWorkflows
 } from './workflow-authoring.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import YAML from 'yaml';
@@ -260,14 +260,16 @@ Usage:
   singularity-flow doctor [WORK-ID] [--offline] [--json]
   singularity-flow review [PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json]                  every workflow, Story and Initiative
-  singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--description TEXT]
+  singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT]
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
-    [--agents a,b] [--authorities group-a,group-b] [--minimum N]
+    [--agents a,b] [--authorities group-a,group-b] [--minimum N] [--governs story|initiative]
     (a phase runs nowhere until a workflow lists it)
   singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b]
-  singularity-flow workflow simulate [TYPE] | diff <TYPE> | add <TYPE> [--dry-run] [--replace]
-    (add installs a packaged workflow; create makes one from phases you choose)
+    (--governs is inferred from where the phases already live, and rarely needed)
+  singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
+    (add and upgrade are the former names and still work)
+  singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
@@ -1679,8 +1681,8 @@ async function workflowCommand(positionals, options) {
     // Initiative workflows are the same shape — a label and an ordered list of phases — and were
     // only ever listed separately because they are stored in a different file under a different
     // name. That is a fact about the storage, not about the thing.
-    const initiatives = (await listProfiles(root).catch(() => []))
-      .map((profile) => ({ ...profile, status: 'current', governs: 'initiative' }));
+    const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
+      .map((workflow) => ({ ...workflow, status: 'current' }));
     const both = [...catalog, ...initiatives];
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(both, null, 2));
     return console.log(table(both.map((item) => ({
@@ -1699,13 +1701,14 @@ async function workflowCommand(positionals, options) {
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);
     if (subcommand === 'create') {
-      const created = await createProfile(root, id, {
+      const created = await defineWorkflow(root, id, {
         label: optionString(options, 'label'),
         description: optionString(options, 'description', ''),
-        phases: list('phases')
+        phases: list('phases'),
+        governs: optionString(options, 'governs')
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
-      console.log(`Created workflow ${created.profileId}: ${created.phases.join(' \u2192 ')}`);
+      console.log(`Created ${created.governs} workflow ${created.workflowId}: ${created.phases.join(' \u2192 ')}`);
       return console.log(`  ${created.path} — commit it to put the workflow under governance.`);
     }
     const changes = {};
@@ -1714,9 +1717,9 @@ async function workflowCommand(positionals, options) {
       if (value != null) changes[field] = value;
     }
     if (optionString(options, 'phases') != null) changes.phases = list('phases');
-    const edited = await editProfile(root, id, changes);
+    const edited = await editWorkflow(root, id, changes);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
-    return console.log(`Updated workflow ${edited.profileId} in ${edited.path}.`);
+    return console.log(`Updated ${edited.governs} workflow ${edited.workflowId} in ${edited.path}.`);
   }
 
   if (subcommand === 'phase') {
@@ -1725,16 +1728,18 @@ async function workflowCommand(positionals, options) {
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);
     if (action === 'add') {
-      const created = await createPhase(root, id, {
+      const created = await addPhase(root, id, {
         label: optionString(options, 'label'),
         worldModelViews: list('views'),
         lanes: list('lanes'),
         agents: list('agents'),
         approvalAuthorities: list('authorities'),
-        approvalMinimum: optionNumber(options, 'minimum') ?? 1
+        approvalMinimum: optionNumber(options, 'minimum') ?? 1,
+        governs: optionString(options, 'governs', 'initiative')
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
-      console.log(`Created phase ${created.phaseId} in ${created.path}.`);
+      console.log(`Created ${created.governs} phase ${created.phaseId} in ${created.path}.`);
+      if (created.template) console.log(`  Starter template: ${created.template}`);
       return console.log('  It runs nowhere until a workflow lists it: singularity-flow workflow edit <ID> --phases a,b,c');
     }
     if (action === 'edit') {
@@ -1743,7 +1748,7 @@ async function workflowCommand(positionals, options) {
       if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
       if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
       if (optionString(options, 'agents') != null) changes.agents = list('agents');
-      const edited = await editPhase(root, id, changes);
+      const edited = await editPhase(root, id, changes, { governs: optionString(options, 'governs') });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
       console.log(`Updated phase ${edited.phaseId} in ${edited.path}.`);
       if (edited.usedBy.length) console.log(`  This changes ${edited.usedBy.join(', ')}, which run it.`);
@@ -1763,7 +1768,9 @@ async function workflowCommand(positionals, options) {
     if (!result.equal) process.stdout.write(`\n--- INSTALLED ---\n${YAML.stringify(result.installed)}\n--- BUNDLED ---\n${YAML.stringify(result.bundled)}`);
     return;
   }
-  if (['add', 'upgrade'].includes(subcommand)) {
+  // `install` is what this does — it copies a packaged workflow into the repository. `add` and
+  // `upgrade` are what it was called, kept working because repositories and scripts use them.
+  if (['install', 'add', 'upgrade'].includes(subcommand)) {
     const id = requirePositional(positionals, 2, 'workflow type');
     const result = await installWorkflow(root, id, { replace: optionBoolean(options, 'replace'), dryRun: optionBoolean(options, 'dry-run') });
     console.log(`${result.dryRun ? 'Would update' : 'Updated'} workflow '${id}':`); result.files.forEach((file) => console.log(`  ${file}`));

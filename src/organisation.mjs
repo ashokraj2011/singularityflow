@@ -326,6 +326,77 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
   return rows;
 }
 
+/**
+ * The world model for a capability, at any level of the tree.
+ *
+ * A capability that ships has one: the model in its lead repository, resolved state-branch-first
+ * like every other read. A capability that groups others has no repository to hold one, so its
+ * model is the union of its children's — composed when asked and stored nowhere.
+ *
+ * Storing it would be the obvious alternative and it is the wrong one. A grouping's model contains
+ * nothing that is not already in its children, so a stored copy is a second thing to build, to
+ * invalidate when a child rebuilds, and to be wrong. Composition cannot go stale, because there is
+ * nothing to go stale.
+ *
+ * Nothing is fetched here. It reports which parts exist and where each comes from, which is what a
+ * reader needs to decide whether to trust the grounding — the parts themselves are resolved by
+ * whoever is about to read them.
+ */
+export function composeCapabilityWorldModel(organisation, capabilityId, readiness = {}) {
+  const rows = flattenTree(organisation.capabilities ?? []);
+  const target = rows.find((row) => row.id === capabilityId);
+  if (!target) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
+
+  const modelFor = (row) => {
+    const lead = row.leadRepository ?? row.repositories?.[0] ?? null;
+    if (!lead) return null;
+    const state = readiness[lead];
+    return {
+      capability: row.id,
+      name: row.name,
+      repository: lead,
+      // Where a reader would actually find it, or null when nobody has built one yet.
+      branch: state?.worldModel ?? null,
+      present: Boolean(state?.worldModel)
+    };
+  };
+
+  if (target.repositories?.length) {
+    const own = modelFor(target);
+    return {
+      capability: capabilityId,
+      name: target.name,
+      composed: false,
+      sources: own ? [own] : [],
+      // A capability that ships from several repositories still has one model: the lead's. The
+      // others are where its code lives, not where its understanding of itself lives.
+      alsoShipsFrom: (target.repositories ?? []).filter((id) => id !== own?.repository)
+    };
+  }
+
+  // Every shipping capability beneath this one, however deep. A grouping of groupings composes
+  // through them without needing a model of its own at each level.
+  const beneath = rows
+    .filter((row) => row.ancestors.includes(capabilityId) && row.repositories?.length)
+    .map(modelFor)
+    .filter(Boolean);
+  return {
+    capability: capabilityId,
+    name: target.name,
+    composed: true,
+    sources: beneath,
+    alsoShipsFrom: []
+  };
+}
+
+/** Depth-first with ancestors, matching what capabilityTree consumers already expect. */
+function flattenTree(nodes, ancestors = []) {
+  return nodes.flatMap((node) => [
+    { ...node, depth: ancestors.length, ancestors },
+    ...flattenTree(node.children ?? [], [...ancestors, node.id])
+  ]);
+}
+
 /** The repository identifier a clone URL implies. */
 export function repositoryIdOf(url) {
   const id = String(url ?? '').trim()

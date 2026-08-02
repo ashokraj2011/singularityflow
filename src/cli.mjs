@@ -174,8 +174,8 @@ import {
 } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
 import {
-  capabilityReadiness, editCapabilityInOrganisation, initializeWorkspaceState, listLeadRepositories,
-  mapCapability,
+  capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation,
+  initializeWorkspaceState, listLeadRepositories, mapCapability,
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
@@ -423,6 +423,8 @@ Usage:
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind TEXT]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
+  singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
+    (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
     (--readiness asks each remote whether its state branch and world model exist)
   singularity-flow capability leads [--json]
@@ -2457,6 +2459,36 @@ async function capabilityCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...edited }, null, 2));
     console.log(`Updated ${id} in ${leadUrl}.`);
     if (edited.commit) console.log(`  pushed ${edited.commit.slice(0, 8)} to ${edited.branch}`);
+    return;
+  }
+
+  if (subcommandForWrite === 'world-model') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const id = requirePositional(positionals, 2, 'capability ID');
+    const organisation = await readOrganisation(leadUrl);
+    const model = composeCapabilityWorldModel(organisation, id, await capabilityReadiness(leadUrl));
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
+
+    console.log(`${model.name} — ${model.composed
+      ? `composed from ${model.sources.length} capabilit${model.sources.length === 1 ? 'y' : 'ies'} beneath it`
+      : 'its own world model'}`);
+    if (!model.sources.length) {
+      console.log('  Nothing beneath it ships, so there is nothing to compose from yet.');
+      return;
+    }
+    for (const source of model.sources) {
+      console.log(`  ${source.name} (${source.repository}): `
+        + `${source.present ? `world model on ${source.branch}` : 'no world model built'}`);
+    }
+    if (model.alsoShipsFrom.length) {
+      console.log(`  also ships from ${model.alsoShipsFrom.join(', ')}, whose code is governed by the lead's model`);
+    }
+    const missing = model.sources.filter((source) => !source.present);
+    if (missing.length) {
+      console.log(`  ${missing.length} of ${model.sources.length} have no world model, so this view is partial.`);
+    }
     return;
   }
 

@@ -502,3 +502,60 @@ test('documentation and resources merge on edit rather than replacing', async ()
   await editCapability(root, 'payments', { documentation: { runbook: '' } });
   assert.equal((await read()).documentation, undefined);
 });
+
+/**
+ * A grouping's world model is composed from its children, and stored nowhere.
+ *
+ * A capability that ships has one: the model in its lead repository. A capability that groups
+ * others has no repository to hold one, so its model is the union of what is beneath it, computed
+ * when asked.
+ *
+ * Storing it would be the obvious alternative and it is the wrong one. A grouping's model contains
+ * nothing that is not already in its children, so a stored copy is a second thing to build, to
+ * invalidate when a child rebuilds, and to be wrong. Composition cannot go stale because there is
+ * nothing to go stale.
+ */
+test('a grouping composes its world model from the capabilities beneath it', async () => {
+  const { composeCapabilityWorldModel } = await import('../src/organisation.mjs');
+  const organisation = {
+    capabilities: [{
+      id: 'commerce', name: 'Commerce', repositories: [], children: [
+        {
+          id: 'payments', name: 'Payments', repositories: ['api', 'web'], leadRepository: 'api',
+          children: [{ id: 'payments-api', name: 'Payments API', repositories: [], children: [] }]
+        },
+        { id: 'storefront', name: 'Storefront', repositories: ['shop'], children: [] },
+        { id: 'research', name: 'Research', repositories: [], children: [] }
+      ]
+    }]
+  };
+  const readiness = {
+    api: { worldModel: 'state-branch' },
+    shop: { worldModel: null },
+    web: { worldModel: 'main' }
+  };
+
+  const commerce = composeCapabilityWorldModel(organisation, 'commerce', readiness);
+  assert.equal(commerce.composed, true);
+  // Every shipping capability beneath it, however deep — and only the shipping ones.
+  assert.deepEqual(commerce.sources.map((source) => source.capability), ['payments', 'storefront']);
+  assert.equal(commerce.sources[0].branch, 'state-branch');
+  // A child with no model built is reported as absent rather than omitted: a partial view that
+  // looks complete is worse than one that says it is partial.
+  assert.equal(commerce.sources[1].present, false);
+
+  // A capability that ships has its lead's model. The other repositories are where its code lives,
+  // not where its understanding of itself lives.
+  const payments = composeCapabilityWorldModel(organisation, 'payments', readiness);
+  assert.equal(payments.composed, false);
+  assert.deepEqual(payments.sources.map((source) => source.repository), ['api']);
+  assert.deepEqual(payments.alsoShipsFrom, ['web']);
+
+  // A grouping with nothing shipping beneath it composes from nothing, which is a state to report
+  // rather than an error.
+  const research = composeCapabilityWorldModel(organisation, 'research', readiness);
+  assert.equal(research.composed, true);
+  assert.deepEqual(research.sources, []);
+
+  assert.throws(() => composeCapabilityWorldModel(organisation, 'nope', readiness), /Unknown capability/);
+});

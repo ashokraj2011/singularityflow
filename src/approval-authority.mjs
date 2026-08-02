@@ -79,7 +79,10 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.minimum must be a positive integer.`);
   }
   const rejectTo = [...new Set(value.rejectTo ?? [phaseId])];
-  return { authorities: authorityIds, minimum, rejectTo };
+  if (value.allowSelfApproval != null && typeof value.allowSelfApproval !== 'boolean') {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.allowSelfApproval must be boolean.`);
+  }
+  return { authorities: authorityIds, minimum, rejectTo, allowSelfApproval: value.allowSelfApproval !== false };
 }
 
 export function matchApprovalAuthority(authorities, policy, actor) {

@@ -108,6 +108,8 @@ export async function buildWorkspaceContext(registryFile, reference, {
     repositoryPath: repository.absolutePath,
     repositoryState: repository.state,
     branch: repository.branch,
+    capabilities: [...(workspace.capabilities ?? [])],
+    repositoryCapabilities: [...(workspace.repositories[repository.id]?.capabilities ?? [])],
     storyId: selectedStoryId,
     selectedAt: new Date().toISOString()
   };

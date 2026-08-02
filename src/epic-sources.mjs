@@ -336,6 +336,10 @@ export async function registerEpicSource(root, {
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const storage = initiative.resolution.storage ?? portfolio.storage;
+  const capabilityMimeTypes = initiative.resolution?.capability?.policy?.allowedMimeTypes;
+  if (capabilityMimeTypes && !capabilityMimeTypes.includes(mimeType)) {
+    throw new SingularityFlowError(`Capability '${initiative.resolution.capability.id}' does not allow MIME type '${mimeType}' for Epic sources.`);
+  }
   const selectedId = providerId ?? storage.defaultProvider;
   const provider = storage.providers?.[selectedId];
   if (!provider) throw new SingularityFlowError(`Unknown or unavailable Epic source provider '${selectedId ?? ''}'.`);

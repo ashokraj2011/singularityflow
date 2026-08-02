@@ -30,11 +30,12 @@ git:
 
 # Optional capability ledger. When enabled, every lifecycle commit carries a
 # durable intent on the work branch and is then appended to the unrelated
-# singularity/ledger orphan branch. A fresh clone can replay missing appends.
+# state orphan branch. A fresh clone can replay missing appends.
 ledger:
   enabled: false
-  branch: singularity/ledger
+  branch: state
   remote: origin
+  publication: warn
   behind: warn
   enforcement: shadow
   signing: off

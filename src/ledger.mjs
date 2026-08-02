@@ -805,17 +805,17 @@ export async function ledgerShow(root, rawConfig, hashOrEventId) {
   });
 }
 
-export async function ledgerStatus(root, rawConfig) {
+export async function ledgerStatus(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!config.enabled) return { enabled: false, config };
-  ensureRemoteBranchFetched(root, config);
+  if (!offline) ensureRemoteBranchFetched(root, config);
   const ref = ledgerHead(root, config);
   const outbox = (await exists(localOutbox(root)))
     ? (await readdir(localOutbox(root))).filter((name) => name.endsWith('.json')).length
     : 0;
   const intents = await allLedgerIntents(root, config);
   if (!ref) return { enabled: true, initialized: false, outbox, durableIntents: intents.length, config };
-  const verification = await verifyLedger(root, config);
+  const verification = await verifyLedger(root, config, { offline });
   const log = await ledgerLog(root, config, { limit: 1000000 });
   const recorded = new Set(log.map((entry) => entry.eventId));
   const pending = [];

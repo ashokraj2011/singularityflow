@@ -19,8 +19,23 @@ import {
   appendLedgerIntent, clearLedgerOutbox, createLedgerIntent, persistLedgerIntent, reconcileLedger, recordLedgerOutbox
 } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import {
+  applyCapabilityPolicyToInitiativeResolution,
+  assertCapabilitySource,
+  capabilityWorldModelGrounding,
+  materializeCapabilityWorldModelPack,
+  resolveLifecycleCapability
+} from './capability-context.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
+
+export function initiativePublicationMode(portfolio, initiative) {
+  const configured = portfolio.git?.publish ?? 'required';
+  const capability = initiative.resolution?.capability?.policy?.gitPublication;
+  if (configured === 'required' || capability === 'required') return 'required';
+  if (capability === 'warn') return 'warn';
+  return configured;
+}
 
 function stableJson(value) {
   if (Array.isArray(value)) return value.map(stableJson);
@@ -382,6 +397,10 @@ function statusMarkdown(initiative) {
   const lines = [
     `# ${initiative.initiative.id} — ${initiative.initiative.title}`, '',
     `- Profile: **${initiative.initiative.profileLabel}**`,
+    ...(initiative.resolution?.capability
+      ? [`- Capability: **${initiative.resolution.capability.name}** (\`${initiative.resolution.capability.id}\`)`,
+        `- Capability map: \`${initiative.resolution.capability.map.sha256}\``]
+      : []),
     `- Branch: \`${initiative.initiative.branch}\``,
     `- Status: **${initiative.status}**`,
     `- Current phase: **${initiative.currentPhase ?? 'complete'}**`,
@@ -428,13 +447,19 @@ export async function createInitiative(root, {
   source = { type: 'manual' },
   persona = null,
   idAuthority = null,
-  startPhase = null
+  startPhase = null,
+  capabilityId = null
 } = {}) {
   validateInitiativeId(id);
-  const { portfolio, definition, resolved, actor } = await initiativeStartPreflight(root, {
+  const preflight = await initiativeStartPreflight(root, {
     profile,
     idAuthority
   });
+  const { portfolio, definition, actor } = preflight;
+  const capability = await resolveLifecycleCapability(root, { capabilityId });
+  assertCapabilitySource(capability, source);
+  const resolved = applyCapabilityPolicyToInitiativeResolution(preflight.resolved, capability);
+  assertAuthorityMembership(resolved);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must exactly match initiative ID ${id}.`);
   const stateFile = await secureInitiativePath(root, portfolio, id, 'state.json', {
     label: `Initiative '${id}' state`
@@ -449,18 +474,32 @@ export async function createInitiative(root, {
   }
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
+  resolution.capability = capability;
   resolution.worldModelTiming = profile === 'epic-planning' ? 'story-intake' : 'initiative';
-  resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
-    ? 'off'
-    : groundingMode(definition);
+  resolution.worldModelGrounding = capabilityWorldModelGrounding(
+    resolution.worldModelTiming === 'story-intake' ? 'off' : groundingMode(definition),
+    capability
+  );
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+  resolution.worldModelStaleness = resolved.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn';
   resolution.ledger = normalizeLedgerConfig(definition.ledger ?? {});
+  if (capability) {
+    await mkdir(directory.absolute, { recursive: true });
+    const context = await materializeCapabilityWorldModelPack(root, capability, {
+      itemDirectory: directory.absolute,
+      itemRelative: initiativeRelative(portfolio, id),
+      views: [...new Set(resolved.phases.flatMap((phase) => phase.worldModelViews ?? []))]
+    });
+    resolution.capability = { ...capability, context };
+  }
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
     worldModelTiming: resolution.worldModelTiming,
     worldModelGrounding: resolution.worldModelGrounding,
     worldModelOutputDir: resolution.worldModelOutputDir,
-    ledger: resolution.ledger
+    worldModelStaleness: resolution.worldModelStaleness,
+    ledger: resolution.ledger,
+    capability: resolution.capability
   })).digest('hex');
   const createdAt = nowIso();
   const phases = resolved.phases.map((phase, index) => phaseState(phase, index, createdAt));
@@ -547,7 +586,12 @@ export async function createInitiative(root, {
       profile: resolution.profile,
       portfolioSha256: resolution.portfolioSha256,
       resolutionSha256: resolution.resolutionSha256,
-      idAuthority: resolution.identity.authority
+      idAuthority: resolution.identity.authority,
+      capability: resolution.capability ? {
+        id: resolution.capability.id,
+        path: resolution.capability.path,
+        mapSha256: resolution.capability.map.sha256
+      } : null
     }
   }));
   await writeText(breakdownPath.absolute, YAML.stringify({
@@ -1129,7 +1173,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
     const phaseId = phaseMatch?.[1] ?? initiative.currentPhase ?? null;
     ledgerIntent = createLedgerIntent({
       eventType,
-      capabilityId: `initiative-${initiative.initiative.id}`,
+      capabilityId: initiative.resolution?.capability?.id ?? `initiative-${initiative.initiative.id}`,
       subject: {
         workId: initiative.initiative.id,
         profile: initiative.initiative.profile,
@@ -1142,14 +1186,16 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
         lifecycleMessage: message,
         configPath: 'singularity/portfolio.yml',
         configSha256: initiative.resolution?.portfolioSha256 ?? null,
-        resolutionSha256: initiative.resolution?.resolutionSha256 ?? null
+        resolutionSha256: initiative.resolution?.resolutionSha256 ?? null,
+        capabilityMapSha256: initiative.resolution?.capability?.map?.sha256 ?? null,
+        capabilityPolicy: initiative.resolution?.capability?.policy ?? null
       }
     });
     ledgerIntentPath = await persistLedgerIntent(root, initiativeRelative(portfolio, initiative.initiative.id), ledgerIntent);
   }
   add(root, [...new Set([initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths, ledgerIntentPath].filter(Boolean))]);
   const sha = commit(root, message);
-  const mode = portfolio.git?.publish ?? 'required';
+  const mode = initiativePublicationMode(portfolio, initiative);
   if (mode === 'off') {
     let ledger = null;
     if (ledgerIntent) {
@@ -1188,11 +1234,14 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
       createdAt: nowIso(),
       error: reason
     });
-    throw new SingularityFlowError(
-      `Initiative commit ${sha.slice(0, 8)} was retained locally but push failed.`
+    const warning = `Initiative commit ${sha.slice(0, 8)} was retained locally but push failed.`
       + `${reason ? ` Git reported: ${reason}` : ''} `
-      + 'Run singularity-flow initiative sync after fixing remote access.'
-    );
+      + 'Run singularity-flow initiative sync after fixing remote access.';
+    if (mode === 'warn') {
+      console.warn(`Warning: ${warning}`);
+      return { sha, pushed: false, replayed, pending: true, warning, ledger: null };
+    }
+    throw new SingularityFlowError(warning);
   }
   const publishedSha = branch(root) === initiative.initiative.branch ? head(root) : sha;
   let ledger = null;

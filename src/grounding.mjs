@@ -394,15 +394,22 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   for (const file of record.files ?? []) {
     if (seen.has(file.path)) problems.push(`grounding composition repeats ${file.path}`);
     seen.add(file.path);
-    if (!file.path?.startsWith(`${posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '')}/`)) problems.push(`grounding composition references a file outside the world model: ${file.path}`);
+    const capabilityFile = file.category === 'capability';
+    const modelRoot = `${posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '')}/`;
+    const capabilityRoot = `${posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'capability-world-model'))}/`;
+    if (capabilityFile ? !file.path?.startsWith(capabilityRoot) : !file.path?.startsWith(modelRoot)) problems.push(`grounding composition references a file outside governed model context: ${file.path}`);
     if (!/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) problems.push(`grounding composition has invalid hash for ${file.path}`);
-    if (!['required', 'rule'].includes(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
+    if (!['required', 'rule', 'capability'].includes(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
     if (!Number.isInteger(file.bytes) || file.bytes < 1 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0 || file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
     if (file.category === 'required' && (file.truncated || file.injectedBytes !== file.bytes)) problems.push(`required grounding was truncated for ${file.path}`);
-    if (record.worldModelCommit && file.path && file.sha256) {
+    if (!capabilityFile && record.worldModelCommit && file.path && file.sha256) {
       const content = run('git', ['show', `${record.worldModelCommit}:${file.path}`], { cwd: root, allowFailure: true });
       if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain ${file.path}`);
       else if (createHash('sha256').update(content.stdout).digest('hex') !== file.sha256) problems.push(`world-model commit hash differs for ${file.path}`);
+    }
+    if (capabilityFile && file.path && file.sha256) {
+      const current = await snapshot(path.join(root, file.path));
+      if (!current.exists || current.sha256 !== file.sha256) problems.push(`capability world-model snapshot hash differs for ${file.path}`);
     }
   }
   let committedManifest = null;

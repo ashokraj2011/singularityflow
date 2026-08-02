@@ -78,6 +78,14 @@ function documentPolicy(workflow, config) {
   return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: ['intake'], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
 }
 
+function assertCapabilityMime(workflow, type, label) {
+  const policy = workflow.resolution?.capability?.policy;
+  if (!policy || !Object.hasOwn(policy, 'allowedMimeTypes')) return;
+  if (!policy.allowedMimeTypes.includes(type)) {
+    throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' does not allow MIME type '${type}' for ${label}.`);
+  }
+}
+
 async function governedDocumentPath(root, config, workflow, record) {
   if (!record.path) throw new SingularityFlowError(`Document '${record.id}' has no repository path.`);
   const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
@@ -121,6 +129,7 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   if (label && fileInputs.length + (url ? 1 : 0) > 1) throw new SingularityFlowError('--label can be used only when uploading one document.');
   for (const input of fileInputs) {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
+    assertCapabilityMime(workflow, mimeType(input.source), input.source);
   }
   const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const manifest = await loadManifest(root, config, workflow); const added = [];
@@ -150,8 +159,8 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   await saveWorkflow(root, config, workflow); return added;
 }
 
-function resolveStorageProvider(config, providerId) {
-  const storage = config.storage;
+function resolveStorageProvider(config, providerId, workflow = null) {
+  const storage = workflow?.resolution?.storage ?? config.storage;
   const selectedId = providerId ?? storage?.defaultProvider ?? null;
   const provider = storage?.providers?.[selectedId];
   if (!provider) throw new SingularityFlowError(`Unknown or unconfigured storage provider '${selectedId ?? ''}'. Declare it under storage.providers in singularity/workflow.yml.`);
@@ -171,7 +180,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
     reason: `Documents may be added only during: ${allowed.join(', ')}. Current phase is '${phase.id}'.`
   });
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
-  const { selectedId, provider } = resolveStorageProvider(config, providerId);
+  const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
   if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
@@ -185,6 +194,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   if (!result?.bytes) throw new SingularityFlowError(`Provider '${selectedId}' returned no bytes for '${remoteRef}'.`);
   if (result.bytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
   const filename = safeName(name ?? headMeta?.name ?? label ?? String(remoteRef));
+  assertCapabilityMime(workflow, result.mimeType ?? headMeta?.mimeType ?? mimeType(filename), remoteRef);
   const manifest = await loadManifest(root, config, workflow);
   const id = nextId(manifest.documents);
   const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, filename);
@@ -204,8 +214,8 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
 }
 
 // Browse a configured storage provider so a picker can list selectable documents.
-export async function listRemoteDocuments(config, { providerId = null, path: subPath = '', runtime = {} } = {}) {
-  const { selectedId, provider } = resolveStorageProvider(config, providerId);
+export async function listRemoteDocuments(config, { providerId = null, path: subPath = '', runtime = {}, workflow = null } = {}) {
+  const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
   if (typeof adapter.list !== 'function') throw new SingularityFlowError(`Storage provider '${selectedId}' (${provider.type}) does not support browsing.`);
   return { providerId: selectedId, providerType: provider.type, entries: await adapter.list({ path: subPath }) };

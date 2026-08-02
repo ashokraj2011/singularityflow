@@ -169,7 +169,8 @@ if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix)
 if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.architect) fail('workflow template must include configurable personas');
 if (workflowTemplate.workItemRoot !== 'singularity/work-items') fail('workflow template must use the visible singularity/work-items root');
 if (workflowTemplate.templatesRoot !== 'singularity/templates' || workflowTemplate.personaPromptsRoot !== 'singularity/personas') fail('workflow template must keep editable resources in the visible singularity folder');
-if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'singularity/ledger') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
+if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
+if (workflowTemplate.ledger?.publication !== 'warn') fail('workflow template must ship warning-only state publication by default.');
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));

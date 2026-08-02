@@ -5,6 +5,7 @@ const ENFORCEMENT_MODES = new Set(['shadow', 'required']);
 const SIGNING_MODES = new Set(['off', 'commit']);
 const TRUST_TIERS = new Set(['T0', 'T1', 'T2', 'T3']);
 const PIN_TRANSPORTS = new Set(['refs', 'branches', 'none']);
+const PUBLICATION_MODES = new Set(['off', 'warn', 'required']);
 
 function string(value, fallback, label) {
   const result = value ?? fallback;
@@ -15,12 +16,12 @@ function string(value, fallback, label) {
 export function normalizeLedgerConfig(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('ledger must be an object.');
   for (const key of Object.keys(value)) {
-    if (!['enabled', 'branch', 'remote', 'behind', 'enforcement', 'signing', 'trustTier', 'maxRetries', 'pinTransport', 'retentionDays'].includes(key)) {
+    if (!['enabled', 'branch', 'remote', 'behind', 'enforcement', 'signing', 'trustTier', 'maxRetries', 'pinTransport', 'retentionDays', 'publication'].includes(key)) {
       throw new SingularityFlowError(`ledger contains unknown field '${key}'.`);
     }
   }
   if (value.enabled != null && typeof value.enabled !== 'boolean') throw new SingularityFlowError('ledger.enabled must be boolean.');
-  const branch = string(value.branch, 'singularity/ledger', 'ledger.branch');
+  const branch = string(value.branch, 'state', 'ledger.branch');
   const remote = string(value.remote, 'origin', 'ledger.remote');
   const behind = value.behind ?? 'warn';
   if (!BEHIND_MODES.has(behind)) throw new SingularityFlowError('ledger.behind must be warn or block.');
@@ -32,6 +33,8 @@ export function normalizeLedgerConfig(value = {}) {
   if (!TRUST_TIERS.has(trustTier)) throw new SingularityFlowError('ledger.trustTier must be T0, T1, T2, or T3.');
   const pinTransport = value.pinTransport ?? 'refs';
   if (!PIN_TRANSPORTS.has(pinTransport)) throw new SingularityFlowError('ledger.pinTransport must be refs, branches, or none.');
+  const publication = value.publication ?? 'warn';
+  if (!PUBLICATION_MODES.has(publication)) throw new SingularityFlowError('ledger.publication must be off, warn, or required.');
   const retentionDays = value.retentionDays ?? 2555;
   if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 36500) {
     throw new SingularityFlowError('ledger.retentionDays must be an integer from 0 through 36500.');
@@ -53,6 +56,7 @@ export function normalizeLedgerConfig(value = {}) {
     trustTier,
     maxRetries,
     pinTransport,
+    publication,
     retentionDays
   };
 }

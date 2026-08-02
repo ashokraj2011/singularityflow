@@ -23,6 +23,7 @@ import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
 import { EpicPanel } from './views/epic-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
+import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
@@ -63,7 +64,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard'
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner'
   ];
   /**
    * The two navigation trees, registered before anything can go wrong.
@@ -597,6 +598,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': () => DashboardPanel.show(context, store),
+    'singularityFlow.openDesigner': () => DesignerPanel.show(context, store, async (message) => {
+      if (message.type === 'open') {
+        await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });
+        return null;
+      }
+      // Written through the engine, which validates before it writes — a template is governed
+      // configuration like any other, and the editor does not get its own way past that.
+      output.appendLine(`\n$ singularity-flow desktop save ${message.path}`);
+      try {
+        await client.runText(['desktop', 'save', message.path], { input: message.content });
+        await store.refresh();
+        return null;
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }),
     // Both open the same screen, positioned: adding lands on the form for a new capability under
     // whatever was clicked, editing lands on the capability itself.
     'singularityFlow.addCapability': ((node?: TreeNode) => {

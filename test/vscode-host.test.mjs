@@ -1369,3 +1369,45 @@ test('the status dashboard opens and reports the repository it is actually in', 
   assert.match(panel.webview.html, /Approvals/);
   assert.match(panel.webview.html, /Governance/);
 });
+
+test('the designer opens, reads the real lifecycle, and creates a template through the engine', async (t) => {
+  if (!requireBundle(t)) return;
+  // The value it adds over the YAML is knowing who is standing on a file. The value it must not
+  // lose is that a template is governed configuration: writing one goes through the engine, which
+  // validates before it writes, rather than the editor writing the file itself.
+  const { root, registered } = await activated();
+  await registered.commands.get('singularityFlow.openDesigner')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.designer');
+  assert.ok(panel, 'a designer panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+
+  // Real phases from this repository's own portfolio.
+  assert.match(panel.webview.html, /Lifecycle designer/);
+  assert.match(panel.webview.html, /data-profile-pick/);
+  assert.match(panel.webview.html, /Intake|Discover/);
+
+  await panel.post({ type: 'tab', tab: 'templates' });
+  assert.match(panel.webview.html, /New template/);
+  assert.match(panel.webview.html, /data-template-filter/);
+
+  // A name the engine would refuse is refused here, before anything is written.
+  await panel.post({ type: 'create-template', name: '../escape.md' });
+  await settle();
+  assert.match(panel.webview.html, /may contain letters, numbers/);
+  assert.equal(existsSync(path.join(root, 'singularity/templates/initiatives/escape.md')), false);
+
+  await panel.post({ type: 'create-template', name: 'release-checklist.md' });
+  // Written beside the templates a profile already points at, not beside whichever file happened to
+  // be first — this repository's templates root holds work-item templates too, and an initiative
+  // artifact written among those is a file nothing can ever reference.
+  const created = path.join(root, 'singularity/templates/initiatives/release-checklist.md');
+  await until(() => (existsSync(created) ? true : null), { attempts: 120 });
+  const text = readFileSync(created, 'utf8');
+  // Written in the shape every other artifact template follows, so it is usable immediately.
+  assert.match(text, /singularity-flow:initiative-metadata/);
+  assert.match(text, /\{\{initiative\.id\}\} — \{\{output\.label\}\}/);
+  assert.match(text, /## Open questions/);
+  assert.match(text, /\{\{inputs\}\}/);
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});

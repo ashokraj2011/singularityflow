@@ -88,6 +88,11 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openDesigner",
+        "title": "Singularity Flow: Lifecycle Designer",
+        "icon": "$(symbol-structure)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"
@@ -237,6 +242,11 @@
           "command": "singularityFlow.openWorkspaces",
           "when": "view == singularityFlow.workspaces",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.openDesigner",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "9_setup@2"
         }
       ],
       "view/item/context": [

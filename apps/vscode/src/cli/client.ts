@@ -89,13 +89,15 @@ export class SingularityFlowClient {
   get repository(): string { return this.options.repository; }
   get location(): CliLocation { return this.options.location; }
 
-  private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true): Promise<T> {
+  private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true,
+    input: string | null = null): Promise<T> {
     return invokeCli<T>({
       executable: this.options.location.executable,
       cli: this.options.location.cli,
       repository: this.options.repository,
       args,
       json,
+      input,
       timeoutMs,
       onOutput: this.options.onOutput,
       signal
@@ -119,9 +121,16 @@ export class SingularityFlowClient {
     return this.invoke<T>(args, this.timeoutFor(args), signal);
   }
 
-  /** For commands that print prose rather than JSON — `--markdown`, reports, `gate --terminal`. */
-  async runText(args: string[], signal?: AbortSignal): Promise<string> {
-    const result = await this.invoke<{ output: string }>(args, this.timeoutFor(args), signal, false);
+  /**
+   * For commands that print prose rather than JSON — `--markdown`, reports, `gate --terminal`.
+   *
+   * `input` is what the command reads from stdin; `desktop save` takes the replacement file that
+   * way, so writing governed configuration goes through the engine's validation like everything
+   * else rather than the editor writing the file itself.
+   */
+  async runText(args: string[], options: { signal?: AbortSignal; input?: string } = {}): Promise<string> {
+    const result = await this.invoke<{ output: string }>(
+      args, this.timeoutFor(args), options.signal, false, options.input ?? null);
     return result.output;
   }
 

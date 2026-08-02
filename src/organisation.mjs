@@ -20,7 +20,9 @@ import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { SingularityFlowError, run, readJson } from './util.mjs';
-import { CAPABILITIES_PATH, validateCapabilities, capabilityTree } from './capabilities.mjs';
+import {
+  CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
+} from './capabilities.mjs';
 import { atomicJson, remoteDefaultBranch } from './workspace.mjs';
 import { identity } from './git.mjs';
 import { initializeDefinition } from './config.mjs';
@@ -254,6 +256,31 @@ export async function mapCapability(leadUrl, {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
       parent: parent || null
     };
+  });
+}
+
+/**
+ * Change a capability that is already on the map, without checking anything out.
+ *
+ * Same borrowed-clone path as mapping one. Requiring a full clone to correct a Confluence link or
+ * add a second repository is exactly why maps go stale: the cost of the edit exceeds the cost of
+ * leaving it wrong.
+ */
+export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}) {
+  if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
+  return withLeadCheckout(leadUrl, `Update capability ${capabilityId}`, async (root) => {
+    assertGovernanceVisible(root);
+    if (!existsSync(path.join(root, CAPABILITIES_PATH))) {
+      throw new SingularityFlowError(
+        `${leadUrl} holds no capability map, so there is nothing to edit. Map a capability first.`);
+    }
+    const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
+      ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8'))
+      : null;
+    // editCapability validates before it writes, so a refused edit leaves the map exactly as it
+    // was — which matters more here than usual, because this checkout is about to be pushed.
+    const result = await editCapability(root, capabilityId, changes, { mode: 'set', portfolio });
+    return { capabilityId, changed: result?.changed ?? true };
   });
 }
 

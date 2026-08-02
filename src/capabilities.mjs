@@ -133,6 +133,9 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
  */
 export const CAPABILITY_TYPES = Object.freeze(['tech', 'business']);
 
+/** Fields that are sets of named links, where an edit changes entries rather than replacing all. */
+const MERGED_MAPS = Object.freeze(['documentation', 'resources']);
+
 /**
  * Every repository a capability ships from.
  *
@@ -294,6 +297,25 @@ export async function editCapability(root, capabilityId, changes = {}, { mode = 
     if (mode === 'add') document.setIn(['capabilities', capabilityId], document.createNode({}));
     for (const [key, value] of Object.entries(changes)) {
       if (value === undefined) continue;
+
+      // `documentation` and `resources` are sets of links, and editing a set means changing the
+      // entries you named — not replacing the set. Adding a runbook should not silently drop the
+      // Confluence page somebody recorded last month. An entry given an empty value is removed,
+      // which is how one is cleared.
+      if (MERGED_MAPS.includes(key) && value && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [entry, link] of Object.entries(value)) {
+          const at = ['capabilities', capabilityId, key, entry];
+          if (link === '' || link == null) document.deleteIn(at);
+          else document.setIn(at, link);
+        }
+        // A map emptied of every entry is an absent map rather than an empty one.
+        const remaining = document.getIn(['capabilities', capabilityId, key]);
+        if (remaining && typeof remaining.toJSON === 'function' && !Object.keys(remaining.toJSON()).length) {
+          document.deleteIn(['capabilities', capabilityId, key]);
+        }
+        continue;
+      }
+
       const empty = value === null || value === '' || (Array.isArray(value) && !value.length);
       // `parent: null` is meaningful — it is the root — so it is written rather than deleted.
       if (empty && !(key === 'parent' && value === null)) document.deleteIn(['capabilities', capabilityId, ...key.split('.')]);

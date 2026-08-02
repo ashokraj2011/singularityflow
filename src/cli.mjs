@@ -174,8 +174,8 @@ import {
 } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
 import {
-  initializeWorkspaceState, listLeadRepositories, mapCapability, readOrganisation,
-  rememberLeadRepository, resolveWorkspacePlan
+  editCapabilityInOrganisation, initializeWorkspaceState, listLeadRepositories, mapCapability,
+  readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 
@@ -419,6 +419,9 @@ Usage:
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable; omit it for a capability that groups others. --lead-repository
      says which one holds the governed state when there are several.)
+  singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind TEXT]
+    [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
+    [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
   singularity-flow capability organisation [LEAD-URL] [--json]
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
@@ -2355,8 +2358,18 @@ function capabilityChanges(options) {
   const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
   put('name', 'name');
   put('kind', 'kind');
+  put('type', 'type');
   put('parent', 'parent', (value) => value || null);
   put('repository', 'repository');
+  // The list form, for a capability shipping from more than one. Empty clears it back to none.
+  put('repositories', 'repositories', list);
+  put('lead-repository', 'leadRepository', (value) => value || null);
+  // Merged rather than replaced: `--doc runbook=...` adds or changes that one key and leaves the
+  // rest, which is what editing a set of links means. Clearing one is `--doc runbook=`.
+  for (const [option, field] of [['doc', 'documentation'], ['resource', 'resources']]) {
+    const pairs = optionStrings(options, option);
+    if (pairs.length) changes[field] = optionMap(pairs, `Capability ${field}`);
+  }
   put('jira-project', 'jira.projectKey');
   put('jira-board', 'jira.board');
   put('jira-component', 'jira.component');
@@ -2420,6 +2433,28 @@ async function capabilityCommand(positionals, options) {
       : '';
     console.log(`Mapped ${mapped.capabilityId}${ships} in ${leadUrl}.`);
     if (mapped.commit) console.log(`  pushed ${mapped.commit.slice(0, 8)} to ${mapped.branch}`);
+    return;
+  }
+
+  if (subcommandForWrite === 'edit') {
+    // Editing reaches the map the same way mapping does: through the lead repository, with nothing
+    // checked out. Requiring a clone to change a capability's Confluence link is the reason the
+    // map went stale in the first place.
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) {
+      throw new SingularityFlowError(
+        'No lead repository is known. Pass --lead <URL>, or map a capability first.');
+    }
+    const id = requirePositional(positionals, 2, 'capability ID');
+    const type = optionString(options, 'type');
+    if (type && !CAPABILITY_TYPES.includes(type)) {
+      throw new SingularityFlowError(`--type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
+    }
+    const edited = await editCapabilityInOrganisation(leadUrl, id, capabilityChanges(options));
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...edited }, null, 2));
+    console.log(`Updated ${id} in ${leadUrl}.`);
+    if (edited.commit) console.log(`  pushed ${edited.commit.slice(0, 8)} to ${edited.branch}`);
     return;
   }
 

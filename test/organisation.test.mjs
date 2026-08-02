@@ -463,3 +463,42 @@ test('the state branch world model takes precedence over the working tree', asyn
   assert.equal(plain.source, 'worktree');
   assert.equal(await summary(plain), 'from the working tree');
 });
+
+/**
+ * Editing a set of links changes the entries you named.
+ *
+ * `documentation` and `resources` are sets, and the first version of this replaced the whole set on
+ * every edit: adding a runbook silently dropped the Confluence page somebody had recorded weeks
+ * earlier, and nothing said so. An entry given an empty value is removed, which is how one is
+ * cleared deliberately rather than by accident.
+ */
+test('documentation and resources merge on edit rather than replacing', async () => {
+  const { editCapability } = await import('../src/capabilities.mjs');
+  const { CAPABILITIES_PATH } = await import('../src/capabilities.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-links-'));
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, CAPABILITIES_PATH), [
+    'version: 1',
+    'capabilities:',
+    '  payments: { kind: product, type: tech, parent: null }',
+    ''
+  ].join('\n'));
+
+  const read = async () => (await import('yaml')).default
+    .parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8')).capabilities.payments;
+
+  await editCapability(root, 'payments', { documentation: { confluence: 'https://wiki/pay' } });
+  await editCapability(root, 'payments', { documentation: { runbook: 'docs/run.md' } });
+  const both = await read();
+  assert.deepEqual(both.documentation, {
+    confluence: 'https://wiki/pay', runbook: 'docs/run.md'
+  }, 'adding one link keeps the others');
+
+  // An empty value clears that entry and only that entry.
+  await editCapability(root, 'payments', { documentation: { confluence: '' } });
+  assert.deepEqual((await read()).documentation, { runbook: 'docs/run.md' });
+
+  // And a map emptied of every entry is absent rather than an empty object.
+  await editCapability(root, 'payments', { documentation: { runbook: '' } });
+  assert.equal((await read()).documentation, undefined);
+});

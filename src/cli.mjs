@@ -2141,7 +2141,10 @@ function initiativeProfileChoices(portfolio) {
   return Object.entries(portfolio.initiativeProfiles).map(([id, profile]) => ({
     id,
     label: profile.label ?? id,
-    description: `${profile.phases.length} governed phases`
+    description: `${profile.phases.length} governed phases`,
+    // The phases themselves, not only how many. Which phases a profile runs is the entire
+    // difference between two profiles, and a count cannot be compared against anything.
+    phases: [...profile.phases]
   }));
 }
 

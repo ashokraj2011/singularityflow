@@ -21,6 +21,8 @@ import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
 import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
+import { EpicPanel } from './views/epic-panel.ts';
+import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 
@@ -59,13 +61,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     WorkspacePanel.show(context, location, output, async (created) => {
-      const branch = await vscode.window.showInputBox({
-        title: 'Workflow state branch',
-        prompt: 'An orphan branch recording what happens to each work item. Leave empty to skip.',
-        value: 'state',
-        ignoreFocusOut: true
-      });
-      if (branch?.trim()) await enableStateLedger(location, created.leadDirectory, branch.trim(), output);
+      // Asked on the form, not after it. A prompt that appears once the panel has closed asks about
+      // a decision the person has already finished making, and cannot be corrected without starting
+      // the whole workspace again.
+      if (created.stateBranch) await enableStateLedger(location, created.leadDirectory, created.stateBranch, output);
 
       const open = await vscode.window.showInformationMessage(
         `Workspace created with ${created.lead} as lead.`,
@@ -271,41 +270,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    const ask = async (title: string, prompt: string): Promise<string | null> => {
-      const value = await vscode.window.showInputBox({ title, prompt, ignoreFocusOut: true,
-        validateInput: (input) => (input.trim() ? null : 'This is required.') });
-      return value?.trim() || null;
-    };
-    const title = await ask('Start an Epic', 'Title');
-    if (!title) return;
-    const description = await ask('Start an Epic', 'What is being asked for?');
-    if (!description) return;
-    const goal = await ask('Start an Epic', 'What outcome would make this a success?');
-    if (!goal) return;
-
-    const profiles = await client.run<Array<{ id: string; label?: string; description?: string }>>(
-      ['initiative', 'profiles', '--json']).catch(() => []);
-    const profile = profiles.length
-      ? await vscode.window.showQuickPick(
-        profiles.map((entry) => ({ label: entry.label ?? entry.id, description: entry.description ?? '', id: entry.id })),
-        { title: 'Delivery profile', placeHolder: 'Which phases this Epic will run', ignoreFocusOut: true })
-      : { id: 'epic-planning' };
-    if (!profile) return;
-
+    // Five prompts in a row, each covering the answer before it, with the one that decides the
+    // Epic's whole lifecycle asked last. It is a form: everything visible at once, everything
+    // correctable, and the profiles shown with the phases that actually distinguish them.
+    const profiles = await client.run<Array<{
+      id: string; label?: string; description?: string; phases?: string[];
+    }>>(['initiative', 'profiles', '--json']).catch(() => []);
     const personas = store.current.snapshot?.definition?.personas ?? {};
-    const lens = await vscode.window.showQuickPick(
-      Object.entries(personas).map(([id, persona]) => ({
-        label: (persona as { label?: string })?.label ?? id, id
-      })),
-      { title: 'Working lens', placeHolder: 'The lens this Epic starts under', ignoreFocusOut: true });
-    if (!lens) return;
 
-    const ran = await runGovernedAction(client, {
-      command: ['epic', 'start', '--local', '--title', title, '--description', description,
-        '--goal', goal, '--profile', profile.id, '--persona', lens.id],
-      title: `Starting ${title}`
-    }, output);
-    if (ran) await store.refresh();
+    EpicPanel.show(context, {
+      profiles: profiles.map((entry) => ({
+        id: entry.id,
+        label: entry.label ?? entry.id,
+        description: entry.description ?? '',
+        phases: entry.phases ?? []
+      })),
+      lenses: Object.entries(personas).map(([id, persona]) => ({
+        label: (persona as { label?: string })?.label ?? id, id
+      }))
+    }, async (form) => {
+      // The refusal comes back to the form rather than to a notification the panel outlives, so it
+      // can be corrected against the fields that caused it.
+      const ran = await runGovernedAction(client, {
+        command: epicCommand(form), title: `Starting ${form.title.trim()}`
+      }, output);
+      if (!ran) return 'The Epic was not started. The output channel has the engine\'s reason.';
+      await store.refresh();
+      return null;
+    });
   };
 
   /**

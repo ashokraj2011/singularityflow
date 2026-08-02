@@ -55,6 +55,14 @@ export interface WorkspaceForm {
   lead: FormRepository | null;
   /** What is typed into the lead field before it has been read. */
   leadDraft: string;
+  /**
+   * The orphan branch recording what happens to each work item. Empty means no ledger.
+   *
+   * Asked here rather than after the workspace exists: it decides what `workspace inspect` looks
+   * for while the lead is being read, and it is the branch this creation will make. A question
+   * asked after the form has closed is a question about a decision already taken.
+   */
+  stateBranch: string;
   /** The lead's capability map; null until it has been read, or when it has none. */
   capabilities: CapabilityChoice[] | null;
   /** Why there is no map, when there is none. */
@@ -74,7 +82,7 @@ export interface WorkspaceForm {
 export const EMPTY_DRAFT: RepositoryDraft = { url: '', id: '', lead: false };
 
 export const EMPTY_FORM: WorkspaceForm = {
-  base: null, id: '', name: '', lead: null, leadDraft: '',
+  base: null, id: '', name: '', lead: null, leadDraft: '', stateBranch: 'state',
   capabilities: null, capabilitiesReason: null, selected: [],
   repositories: [], draft: { ...EMPTY_DRAFT }, adding: false, busy: false, error: null
 };
@@ -229,10 +237,7 @@ function leadHtml(form: WorkspaceForm): string {
     : `<span class="muted">${icon('branch')}no ${escape(form.lead.stateBranch)} branch yet</span>`}
       <button class="link" data-clear="lead">Change</button>
     </p>
-    ${form.lead.hasStateBranch
-    ? ''
-    : `<p class="muted">The orphan <code>${escape(form.lead.stateBranch)}</code> branch that records
-         workflow progress does not exist yet; it is created when this workspace is.</p>`}`;
+    ${stateBranchHtml(form)}`;
   }
   return `
     <p>
@@ -243,7 +248,28 @@ function leadHtml(form: WorkspaceForm): string {
       </button>
     </p>
     <p class="muted">Nothing is cloned. The map and the repository URLs it refers to are read from
-      this remote so the capabilities below can be chosen.</p>`;
+      this remote so the capabilities below can be chosen.</p>
+    ${stateBranchHtml(form)}`;
+}
+
+/**
+ * The workflow state branch, asked while the workspace is being described.
+ *
+ * An orphan branch with no shared ancestry with any code branch, so governance history cannot be
+ * rewritten by a rebase of the work it records. Off unless named, because a branch nobody asked for
+ * appearing in a repository is its own kind of surprise.
+ */
+function stateBranchHtml(form: WorkspaceForm): string {
+  const exists = form.lead?.hasStateBranch && form.lead.stateBranch === form.stateBranch.trim();
+  return `
+    <p>
+      <label>Workflow state branch <input type="text" value="${escape(form.stateBranch)}"
+        data-draft="state-branch" size="18" placeholder="leave empty to skip"></label>
+      ${exists ? `<span class="pill ok">${icon('ok')}already on the lead</span>` : ''}
+    </p>
+    <p class="muted">An orphan branch recording what happens to each work item. It shares no
+      ancestry with any code branch and is never merged into one, so a rebase of the work cannot
+      rewrite the record of it. Created with the workspace; leave the field empty to skip it.</p>`;
 }
 
 function capabilityHtml(form: WorkspaceForm): string {

@@ -968,12 +968,6 @@ test('the form renders each repository with what was read from its remote', () =
   assert.match(html, /<button data-submit="create" >/);
 });
 
-test('a lead with no state branch says the orphan branch is created with the workspace', () => {
-  const form = { ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api') };
-  assert.match(workspaceFormHtml(form), /orphan <code>state<\/code> branch/);
-  assert.match(workspaceFormHtml(form), /created when this workspace is/);
-});
-
 test('a form still missing something disables the button and lists why', () => {
   const html = workspaceFormHtml({ ...EMPTY_FORM, id: 'w' });
   assert.match(html, /Before this can be created/);
@@ -1580,4 +1574,107 @@ test('the accent is defined for both themes and never hard-codes the surface', (
   assert.doesNotMatch(STYLE, /background:\s*#(fff|ffffff|000|000000)\b/i);
   // Pill-shaped, which is the shape the whole language is built on.
   assert.match(STYLE, /button \{[\s\S]*?border-radius: 999px/);
+});
+
+test('the workflow state branch is asked on the form, not after it', () => {
+  // It used to be an input box that appeared once the panel had closed — a question about a decision
+  // the person had already finished making, and one they could not correct without starting the
+  // whole workspace again.
+  const html = workspaceFormHtml(EMPTY_FORM);
+  assert.match(html, /Workflow state branch/);
+  assert.match(html, /data-draft="state-branch"/);
+  assert.match(html, /value="state"/, 'defaulted, because most workspaces want one');
+  assert.match(html, /leave the field empty to skip it/);
+  // It sits with the lead repository, which is the repository that will carry it.
+  assert.ok(html.indexOf('Lead repository') < html.indexOf('Workflow state branch'));
+  assert.ok(html.indexOf('Workflow state branch') < html.indexOf('Capabilities'));
+});
+
+test('a lead that already carries the state branch says so rather than offering to make it', () => {
+  const form = {
+    ...EMPTY_FORM, base: '/work', id: 'w',
+    lead: repository('platform', { hasStateBranch: true, stateBranch: 'state' })
+  };
+  assert.match(workspaceFormHtml(form), /already on the lead/);
+
+  // Asking for a different branch than the one that exists is not "already there".
+  const renamed = { ...form, stateBranch: 'governance' };
+  assert.doesNotMatch(workspaceFormHtml(renamed), /already on the lead/);
+  assert.match(workspaceFormHtml(renamed), /value="governance"/);
+});
+
+const { EMPTY_EPIC_FORM, epicCommand, epicFormHtml, epicProblems } =
+  await import(source('views/epic-form.ts'));
+
+const EPIC_CHOICES = {
+  profiles: [
+    { id: 'epic-planning', label: 'Epic planning', description: '4 governed phases',
+      phases: ['epic-intake', 'epic-requirements', 'epic-impact', 'epic-planning'] },
+    { id: 'enterprise-delivery', label: 'Enterprise delivery', description: '7 governed phases',
+      phases: ['discover-define', 'design-iterate', 'pre-inception', 'inception', 'elaboration', 'construction', 'delivery'] }
+  ],
+  lenses: [{ id: 'product-owner', label: 'Product owner' }, { id: 'architect', label: 'Architect' }]
+};
+const epicForm = (over = {}) => ({ ...EMPTY_EPIC_FORM, ...EPIC_CHOICES, ...over });
+
+test('starting an Epic is a form, not five prompts in a row', () => {
+  // It was title, description, goal, profile and lens asked one at a time, each covering the answer
+  // before it — and the one that decides the Epic's whole lifecycle came last.
+  const html = epicFormHtml(epicForm());
+  for (const field of ['title', 'description', 'goal']) {
+    assert.match(html, new RegExp(`data-epic="${field}"`), `${field} is on the form`);
+  }
+  assert.match(html, /data-choose-profile="enterprise-delivery"/);
+  assert.match(html, /data-epic="lens"/);
+  // All five listed at once rather than revealed one prompt at a time — the same five that used to
+  // be five separate boxes.
+  assert.equal(epicProblems(epicForm()).length, 5);
+  assert.match(html, /Before this can start/);
+  assert.match(html, /<button data-epic-submit="start" disabled>/);
+});
+
+test('the profiles are shown with the phases that distinguish them', () => {
+  // A picker showing "Epic planning" and "Enterprise delivery" gives no basis for choosing. The
+  // difference is which phases each runs, and the choice is pinned for the Epic's whole life.
+  const html = epicFormHtml(epicForm());
+  assert.match(html, /discover-define/);
+  assert.match(html, /elaboration/);
+  assert.match(html, /epic-intake/);
+  assert.match(html, /7 phases/);
+  assert.match(html, /cannot be changed afterwards|Pinned at start/);
+});
+
+test('a complete Epic form describes the command it will run', () => {
+  const form = epicForm({
+    title: ' One-tap checkout ', description: 'Fewer steps to pay', goal: 'Cut abandonment',
+    profile: 'enterprise-delivery', lens: 'product-owner'
+  });
+  assert.deepEqual(epicProblems(form), []);
+  assert.deepEqual(epicCommand(form), [
+    'epic', 'start', '--local',
+    '--title', 'One-tap checkout',
+    '--description', 'Fewer steps to pay',
+    '--goal', 'Cut abandonment',
+    '--profile', 'enterprise-delivery',
+    '--persona', 'product-owner'
+  ]);
+  assert.match(epicFormHtml(form), /<button data-epic-submit="start" >/);
+});
+
+test('a repository with no working lenses does not demand one', () => {
+  // The lens is only a requirement where the repository declares lenses to choose between.
+  const form = epicForm({
+    lenses: [], title: 'A', description: 'B', goal: 'C', profile: 'epic-planning'
+  });
+  assert.deepEqual(epicProblems(form), []);
+  assert.deepEqual(epicCommand(form).includes('--persona'), false);
+  assert.match(epicFormHtml(form), /declares no working lenses/);
+});
+
+test('a refused start is reported on the form that caused it', () => {
+  const form = epicForm({
+    title: 'A', description: 'B', goal: 'C', profile: 'epic-planning', lens: 'architect',
+    error: 'Working tree is not clean.'
+  });
+  assert.match(epicFormHtml(form), /Working tree is not clean/);
 });

@@ -15,11 +15,12 @@ import { workspaceRows } from './workspaces-model.ts';
 import type { TreeNode } from './tree-model.ts';
 
 /**
- * The workspaces on this machine, each opening into what it holds.
+ * The workspaces on this machine, each acting as a direct selector.
  *
- * The working directory is the description rather than a child, because it is what distinguishes
- * two rows at a glance and the rule that no two may share one is only checkable by eye if they sit
- * in the same column.
+ * A workspace row used to be an expandable group. That made its chevron look like the primary
+ * action and hid the actual switch command behind VS Code's tree-item behaviour. A workspace is a
+ * choice, not a folder browser: one click now selects it, records it as current, and opens its lead
+ * repository in this window. The directory and lead remain in the tooltip for inspection.
  */
 export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
   const rows = workspaceRows(entries);
@@ -36,7 +37,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
   }
 
   return rows.map((row) => ({
-    kind: 'group' as const,
+    kind: 'action' as const,
     id: `workspace:${row.path}`,
     label: row.name,
     // "working here" rather than "active": it says what the state means for the reader rather than
@@ -46,9 +47,9 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
         : row.active ? 'working here' : undefined,
     tooltip: row.collides
       ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
-      : `${row.directory}\n\n${row.active
+      : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
         ? 'Every screen is scoped to this workspace.'
-        : 'Choose this workspace to scope every screen to it.'}`,
+        : 'Click to make this the active workspace and load Lifecycle and Configuration.'}`,
     icon: row.collides || row.sharesId ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
     contextValue: row.active ? 'sflow.workspace.active' : 'sflow.workspace',
     // Carried so the commands acting on this row never have to re-read the registry to find out
@@ -56,24 +57,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     // the map, the governed state and every command's configuration live.
     path: row.directory,
     openPath: row.leadRepositoryPath || row.directory,
-    runCommand: 'singularityFlow.switchWorkspace',
-    children: [
-      {
-        kind: 'message' as const,
-        id: `workspace:${row.path}:directory`,
-        label: row.directory,
-        icon: 'folder',
-        contextValue: 'sflow.workspace.directory'
-      },
-      ...(row.lead ? [{
-        kind: 'repository' as const,
-        id: `workspace:${row.path}:lead`,
-        label: row.lead,
-        description: 'lead',
-        tooltip: 'Holds the capability map and the governed state branch.',
-        icon: 'repo'
-      }] : [])
-    ]
+    runCommand: 'singularityFlow.switchWorkspace'
   }));
 }
 

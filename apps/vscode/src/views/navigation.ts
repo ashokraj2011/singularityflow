@@ -41,6 +41,18 @@ export class NodeTreeProvider implements vscode.TreeDataProvider<TreeNode>, vsco
     if (node.tooltip) item.tooltip = node.tooltip;
     if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
     if (node.contextValue) item.contextValue = node.contextValue;
+    // Navigation rows can be selectors as well as containers. Workspaces in particular are direct
+    // one-click choices; dropping their command here left the model correctly annotated while the
+    // rendered TreeItem did nothing.
+    if (node.runCommand) {
+      item.command = { command: node.runCommand, title: node.label, arguments: [node] };
+    } else if (node.path) {
+      item.command = {
+        command: 'singularityFlow.openArtifact',
+        title: 'Open artifact',
+        arguments: [node]
+      };
+    }
     return item;
   }
 

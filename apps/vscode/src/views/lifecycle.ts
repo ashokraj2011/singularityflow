@@ -48,7 +48,7 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     const collapsible = node.children?.length
       // The lifecycle and the current Epic are the things someone opened the view to see.
       ? (node.kind === 'initiative' || node.id === 'phases' || node.id === 'gate'
-          || node.id === 'configuration'
+          || node.id === 'configuration' || node.id === 'unavailable'
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed)
       : vscode.TreeItemCollapsibleState.None;

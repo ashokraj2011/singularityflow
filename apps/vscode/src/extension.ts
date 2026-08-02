@@ -121,8 +121,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
     const configuration = new LifecycleTreeProvider(null, [{
-      kind: 'message', id: 'configuration:unavailable', label: 'Configuration is unavailable',
-      description: 'open a governed workspace', tooltip: detail, icon: 'info',
+      kind: 'action', id: 'configuration:unavailable', label: 'Choose a workspace to load configuration',
+      description: 'select a saved workspace', tooltip: detail, icon: 'root-folder',
       runCommand: 'singularityFlow.openWorkspaces'
     }]);
     context.subscriptions.push(provider, configuration);

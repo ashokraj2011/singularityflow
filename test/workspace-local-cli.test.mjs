@@ -409,3 +409,12 @@ test('a workspace can be renamed without restating everything about it', async (
   // The directory never moves: it was fixed at creation, and moving it is a copy.
   assert.equal(manifest.path, await realpath(workspace));
 });
+
+test('a clone URL written with a trailing slash still yields a clean identifier', async () => {
+  // `.git$` does not match a string ending in a slash, so stripping the suffix before the slash
+  // left `platform.git` as the repository identifier — and identifiers end up in paths, in the
+  // capability map, and in every Story record.
+  const { source, env } = await environment();
+  const inspected = JSON.parse(cli(['workspace', 'inspect', `${source}/`, '--json'], env).stdout);
+  assert.equal(inspected.id, 'source');
+});

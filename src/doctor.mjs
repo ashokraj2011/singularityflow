@@ -82,8 +82,24 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   if (!hasRemote(root, remote)) checks.push(check('remote', definition.git?.publish === 'required' ? 'fail' : 'warn', `Git remote '${remote}' is not configured.`, `Add the '${remote}' remote or set git.publish: off.`));
   else if (offline) checks.push(check('remote', 'skip', `Remote '${remote}' was not contacted in offline mode.`));
   else {
-    const probe = run('git', ['ls-remote', '--exit-code', remote, 'HEAD'], { cwd: root, allowFailure: true });
-    checks.push(check('remote', probe.status === 0 ? 'pass' : 'fail', probe.status === 0 ? `Remote '${remote}' is reachable.` : `Remote '${remote}' could not be reached.`, probe.status === 0 ? null : 'Restore Git authentication or network access, then run singularity-flow sync.'));
+    // Any ref, not HEAD specifically. A remote whose HEAD points at a branch that never appeared —
+    // which is what a bare repository created before its first push looks like — answers nothing for
+    // HEAD, and probing for it reported a perfectly reachable remote as a network or authentication
+    // failure, with a remedy about restoring credentials that had nothing to do with it.
+    const probe = run('git', ['ls-remote', '--exit-code', remote], { cwd: root, allowFailure: true });
+    // Exit 2 is "reachable, but no refs at all" — a remote that exists and is empty, which is a
+    // different thing from one that cannot be reached and deserves a different sentence.
+    const empty = probe.status === 2;
+    checks.push(check(
+      'remote',
+      probe.status === 0 ? 'pass' : empty ? 'warn' : 'fail',
+      probe.status === 0 ? `Remote '${remote}' is reachable.`
+        : empty ? `Remote '${remote}' is reachable but has no branches yet.`
+          : `Remote '${remote}' could not be reached.`,
+      probe.status === 0 ? null
+        : empty ? 'Push a branch before relying on publication.'
+          : 'Restore Git authentication or network access, then run singularity-flow sync.'
+    ));
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
   return summarize(root, checks, workflow, session);

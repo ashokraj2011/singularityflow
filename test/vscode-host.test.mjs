@@ -1427,20 +1427,22 @@ test('a window with nothing open offers the two ways to get a repository', async
   const [explanation] = provider.getChildren();
   const rows = provider.getChildren(explanation);
   const actions = rows.filter((row) => row.runCommand);
+  // Governing one is first: it is the only one of the three that works when nothing has been
+  // governed yet, and that is the state anybody seeing this is in.
   assert.deepEqual(actions.map((row) => row.runCommand),
-    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
+    ['singularityFlow.bootstrap', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
   // Both work from a window with nothing open, which is exactly where this state occurs.
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
 
   // Clicking a row runs its command rather than trying to open it as an artifact.
   const item = provider.getTreeItem(actions[0]);
-  assert.equal(item.command.command, 'singularityFlow.openWorkspaces');
+  assert.equal(item.command.command, 'singularityFlow.bootstrap');
 
   // And a repository command names the ways forward rather than only what is wrong.
   await registered.commands.get('singularityFlow.openDesigner')();
   await settle();
   assert.match(registered.warnings.at(-1) ?? '', /Singularity Flow: /);
-  assert.deepEqual(registered.warningActions.at(-1), ['Find a workspace', 'Create a workspace']);
+  assert.deepEqual(registered.warningActions.at(-1), ['Govern a repository', 'Find a workspace']);
 });
 
 test('a folder that is not a Flow repository also offers to become one', async (t) => {
@@ -1454,7 +1456,8 @@ test('a folder that is not a Flow repository also offers to become one', async (
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = provider.getChildren(provider.getChildren()[0]);
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
-    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.init'],
+    ['singularityFlow.bootstrap', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace',
+      'singularityFlow.init'],
     'initializing is only offered where there is a folder to initialize');
 });
 
@@ -1521,4 +1524,60 @@ test('opening a workspace directory says what it is and offers the repository in
   assert.ok(lead, 'the lead repository is offered');
   assert.match(lead.openPath, /commerce\/repos\/platform$/);
   assert.equal(lead.runCommand, 'singularityFlow.openWorkspace');
+});
+
+test('a window with nothing open can govern a repository from scratch', async (t) => {
+  if (!requireBundle(t)) return;
+  // The product's one chicken-and-egg problem, in the worst possible place: to use the tool you
+  // needed a governed repository, and to get one you needed the tool. This drives the whole way out
+  // of it — empty window, a URL, a capability name, a repository the rest of the product can read.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-boot-'));
+  const bare = path.join(base, 'acme-platform.git');
+  await mkdir(bare);
+  run('git', ['init', '-q', '--bare', bare], { cwd: base });
+  const seed = path.join(base, 'seed');
+  await mkdir(seed);
+  run('git', ['init', '-q', '-b', 'main', seed], { cwd: base });
+  await writeFile(path.join(seed, 'README.md'), '# Acme\n');
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['-c', 'user.email=a@b.com', '-c', 'user.name=A B', 'commit', '-qm', 'Initial'], { cwd: seed });
+  run('git', ['push', '-q', bare, 'main:main'], { cwd: seed });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  registered.pickedFolder = path.join(base, 'work');
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  // It is offered from the empty state, first, because it is the only one of the three that works
+  // when nothing has been governed yet.
+  const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const rows = lifecycle.getChildren(lifecycle.getChildren()[0]);
+  assert.equal(rows.filter((row) => row.runCommand)[0].runCommand, 'singularityFlow.bootstrap');
+
+  await registered.commands.get('singularityFlow.bootstrap')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.bootstrap');
+  assert.ok(panel, 'a bootstrap panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+
+  await panel.post({ type: 'field', field: 'url', value: bare });
+  await panel.post({ type: 'field', field: 'capabilityId', value: 'commerce' });
+  await panel.post({ type: 'field', field: 'capabilityName', value: 'Commerce' });
+  await panel.post({ type: 'choose' });
+  await settle();
+  assert.match(panel.webview.html, /It will be known as acme-platform/);
+
+  await panel.post({ type: 'bootstrap' });
+  // Wait for the last thing this does, not the first. `init` writes a starter map early, and the
+  // capability is written before the commit, the orphan branch and the push — so every earlier
+  // signal leaves the assertions racing the rest of the work. The state branch reaching the remote
+  // is the end of it.
+  const root = path.join(base, 'work', 'acme-platform');
+  await until(() => (run('git', ['ls-remote', '--heads', bare], { allowFailure: true })
+    .stdout.includes('refs/heads/state') ? true : null), { attempts: 200 });
+
+  assert.ok(existsSync(path.join(root, 'singularity/workflow.yml')));
+  assert.match(readFileSync(path.join(root, 'singularity/capabilities.yml'), 'utf8'), /commerce/);
+  assert.match(readFileSync(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /acme-platform/);
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });

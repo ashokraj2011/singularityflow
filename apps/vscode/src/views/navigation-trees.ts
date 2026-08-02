@@ -83,9 +83,24 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
  * capabilities beneath it. That distinction decides the icon, because it is the only structural
  * fact about a capability that matters to a reader scanning the tree.
  */
+/**
+ * What `capability organisation --readiness --json` answers, keyed by repository id.
+ *
+ * Absent by default. It costs an `ls-remote` per repository, so the map renders without it and this
+ * arrives afterwards — and a repository not in here means nobody asked, not that the answer is no.
+ */
+export type CapabilityReadiness = Record<string, {
+  url?: string;
+  stateBranch?: string | null;
+  hasStateBranch?: boolean;
+  /** Which copy a command would actually read: `state-branch`, a branch name, or nothing. */
+  worldModel?: string | null;
+}>;
+
 export function buildCapabilityTree(
   snapshot: DesktopSnapshot | null,
-  unavailable: string | null = null
+  unavailable: string | null = null,
+  readiness: CapabilityReadiness = {}
 ): TreeNode[] {
   if (unavailable) {
     return [{
@@ -117,31 +132,155 @@ export function buildCapabilityTree(
     }];
   }
 
-  const toNode = (capability: CapabilityNode): TreeNode => ({
-    // Whether a capability ships is decided by naming a repository, not by what its `kind` says.
-    kind: capability.repository ? 'repository' : 'group',
-    id: `capability:${capability.id}`,
-    label: capability.name,
-    description: capability.repository ?? undefined,
-    tooltip: [
-      capability.description,
-      capability.repository ? `Ships from ${capability.repository}.` : 'Groups the capabilities beneath it.',
-      capability.jira?.projectKey ? `Jira ${capability.jira.projectKey}` : null,
-      capability.teams?.length ? `Teams: ${capability.teams.join(', ')}` : null
-    ].filter(Boolean).join('\n'),
-    icon: capability.repository ? 'repo' : 'type-hierarchy',
-    // A capability that ships cannot contain anything, so only a grouping offers "add one inside".
-    contextValue: capability.repository ? 'sflow.capability.delivery' : 'sflow.capability',
-    children: capability.children.map(toNode)
-  });
+  const toNode = (capability: CapabilityNode): TreeNode => {
+    const repositories = capability.repositories?.length
+      ? capability.repositories
+      : (capability.repository ? [capability.repository] : []);
+    return {
+      // Whether a capability ships is decided by naming a repository, not by what its `kind` says.
+      kind: repositories.length ? 'repository' : 'group',
+      id: `capability:${capability.id}`,
+      label: capability.name,
+      // The lead is the one worth naming here: it is where the governed state lives, and the others
+      // are counted rather than listed because a row that lists four URLs is a row nobody reads.
+      description: [
+        capability.type ?? null,
+        capability.leadRepository ?? repositories[0] ?? null,
+        repositories.length > 1 ? `+${repositories.length - 1}` : null
+      ].filter(Boolean).join(' · ') || undefined,
+      tooltip: [
+        capability.description,
+        repositories.length
+          ? `Ships from ${repositories.join(', ')}.`
+          : 'Groups the capabilities beneath it.',
+        capability.jira?.projectKey ? `Jira ${capability.jira.projectKey}` : null,
+        capability.teams?.length ? `Teams: ${capability.teams.join(', ')}` : null
+      ].filter(Boolean).join('\n'),
+      icon: repositories.length ? 'repo' : 'type-hierarchy',
+      // One value for every capability. There was a `.delivery` variant here, from when shipping and
+      // containing were exclusive; the menu that gated "add one inside" on the plain value therefore
+      // hid it from exactly the capabilities that ship — which may now contain others too.
+      contextValue: 'sflow.capability',
+      // What it contains first, then what it is. The tree is a map of the organisation before it is
+      // a property sheet, and a "World model" row above the capabilities beneath it buries the
+      // structure somebody opened this view to read.
+      children: [
+        ...capability.children.map(toNode),
+        ...repositoryNodes(capability, repositories, readiness),
+        ...worldModelNodes(capability, repositories, readiness),
+        ...linkNodes(capability)
+      ]
+    };
+  };
 
   return map.capabilities.map(toNode);
 }
 
-/** The capability id a tree node stands for, or null for anything else. */
+/**
+ * Each repository a capability ships from, and whether it is somewhere work can actually be governed.
+ *
+ * The state branch is the whole answer to "can this record anything": it is the orphan ledger every
+ * governed act appends to, and its absence is not visible anywhere else until a command fails.
+ */
+function repositoryNodes(
+  capability: CapabilityNode,
+  repositories: string[],
+  readiness: CapabilityReadiness
+): TreeNode[] {
+  return repositories.map((id) => {
+    const state = readiness[id];
+    return {
+      kind: 'repository' as const,
+      id: `capability:${capability.id}:repository:${id}`,
+      label: id,
+      description: [
+        id === capability.leadRepository ? 'lead' : null,
+        // Unasked is not the same as absent, and saying "no state branch" when nobody looked would
+        // be a claim about the remote that this tree has no basis for.
+        state ? (state.hasStateBranch ? `${state.stateBranch} branch` : 'no state branch') : 'not checked'
+      ].filter(Boolean).join(' · '),
+      tooltip: [
+        state?.url ?? `Repository ${id}.`,
+        id === capability.leadRepository ? 'Holds the governed state for this capability.' : null
+      ].filter(Boolean).join('\n'),
+      icon: state && !state.hasStateBranch ? 'warning' : 'repo',
+      contextValue: 'sflow.capability.repository'
+    };
+  });
+}
+
+/**
+ * Where this capability's grounding comes from.
+ *
+ * A capability that ships has one model, resolved state-branch-first because that is the order every
+ * reader resolves it in. A capability that groups others has no repository to hold one, so what it
+ * has is the union of its children's — composed on read and stored nowhere, which is why this says
+ * how many parts it is made of rather than pretending there is a file.
+ */
+function worldModelNodes(
+  capability: CapabilityNode,
+  repositories: string[],
+  readiness: CapabilityReadiness
+): TreeNode[] {
+  const descendants = (node: CapabilityNode): string[] => [
+    ...(node.repositories?.length ? node.repositories : (node.repository ? [node.repository] : [])),
+    ...node.children.flatMap(descendants)
+  ];
+  const parts = repositories.length ? repositories : descendants(capability);
+  if (!parts.length) return [];
+
+  const checked = parts.filter((id) => readiness[id]);
+  const built = checked.filter((id) => readiness[id]?.worldModel);
+  const lead = capability.leadRepository ?? parts[0]!;
+  const description = !checked.length
+    ? 'not checked'
+    : repositories.length
+      ? (readiness[lead]?.worldModel ? `on ${readiness[lead]!.worldModel}` : 'not built')
+      : `${built.length}/${parts.length} of its capabilities`;
+
+  return [{
+    kind: 'group',
+    id: `capability:${capability.id}:world-model`,
+    label: 'World model',
+    description,
+    tooltip: repositories.length
+      ? 'Read from the state branch first and the default branch second, in that order.'
+      : 'Composed from the models beneath it when something asks for it, and stored nowhere.',
+    icon: built.length || !checked.length ? 'book' : 'warning',
+    contextValue: 'sflow.capability.worldModel'
+  }];
+}
+
+/** Whatever describes the capability or whatever it runs on, as the map records it. */
+function linkNodes(capability: CapabilityNode): TreeNode[] {
+  const entries = [
+    ...Object.entries(capability.documentation ?? {}).map(([name, link]) => ({ name, link, icon: 'book' })),
+    ...Object.entries(capability.resources ?? {}).map(([name, link]) => ({ name, link, icon: 'cloud' }))
+  ];
+  return entries.map(({ name, link, icon }) => ({
+    kind: 'group' as const,
+    id: `capability:${capability.id}:link:${name}`,
+    label: name,
+    description: link,
+    tooltip: link,
+    icon,
+    contextValue: 'sflow.capability.link'
+  }));
+}
+
+/**
+ * The capability id a tree node stands for, or null for anything else.
+ *
+ * A capability now has rows beneath it — its repositories, its world model, its links — and their
+ * ids are the capability's with a further segment. Those are not capabilities, and handing
+ * `commerce:repository:commerce-api` to an edit command is how a screen opens on something that
+ * does not exist. Capability ids are kebab-case, so a second colon is proof this is not one.
+ */
 export function capabilityIdOf(node: { id?: unknown } | undefined): string | null {
   const id = typeof node?.id === 'string' ? node.id : '';
-  return id.startsWith('capability:') ? id.slice('capability:'.length) : null;
+  if (!id.startsWith('capability:')) return null;
+  const rest = id.slice('capability:'.length);
+  return rest && !rest.includes(':') ? rest : null;
 }
 
 /** The workspace directory a tree node stands for, or null for anything else. */

@@ -310,7 +310,7 @@
         },
         {
           "command": "singularityFlow.editCapability",
-          "when": "view == singularityFlow.capabilities && viewItem =~ /^sflow\\.capability/",
+          "when": "view == singularityFlow.capabilities && viewItem == sflow.capability",
           "group": "inline@1"
         },
         {

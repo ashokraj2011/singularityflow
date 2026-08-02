@@ -30,10 +30,20 @@ export interface CapabilityNode {
   kind: string;
   description?: string;
   owner?: string | null;
+  /** Tech or business. Absent on capabilities mapped before the field existed. */
+  type?: 'tech' | 'business' | null;
   /** True when this capability ships, which the engine infers from naming a repository. */
   delivery?: boolean;
-  /** Present on delivery capabilities only: the repository this ships from. */
+  /** The first repository, kept for readers that predate a capability shipping from several. */
   repository?: string | null;
+  /** Every repository this ships from. A capability may ship from several and still contain others. */
+  repositories?: string[];
+  /** Which of them holds the governed state; the others are governed by it. */
+  leadRepository?: string | null;
+  /** Named links to whatever describes this capability — Confluence pages, briefs, runbooks. */
+  documentation?: Record<string, string>;
+  /** Named links to whatever it runs on — an AWS account, a dashboard, a queue. */
+  resources?: Record<string, string>;
   jira?: { projectKey?: string; board?: string; component?: string } | null;
   teams?: string[];
   owns?: string[];

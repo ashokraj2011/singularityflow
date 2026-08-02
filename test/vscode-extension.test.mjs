@@ -322,7 +322,7 @@ test('the tree is built from the real snapshot: lifecycle, phases, artifacts, St
   const tree = buildTree(snapshot);
   // The Epic, plus the two things that belong to the repository rather than to any Epic.
   assert.deepEqual(tree.map((node) => node.id),
-    ['initiative:INIT-MULTI', 'capabilities', 'world-model', 'configuration']);
+    ['initiative:INIT-MULTI', 'workflows', 'configuration']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -772,7 +772,9 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     assert.ok(configuration, 'configuration is always reachable');
     const children = configuration.children.map((child) => child.id);
     // workflow and portfolio first: they define everything the other sets are instances of.
-    assert.deepEqual(children.slice(0, 2), ['config:workflow', 'config:portfolio']);
+    // The world model leads: it is the one thing under Configuration that is built rather than
+    // edited, and it used to sit in the Lifecycle tree as though it were a stage.
+    assert.deepEqual(children.slice(0, 3), ['world-model', 'config:workflow', 'config:portfolio']);
     for (const set of ['config:templates', 'config:prompts', 'config:skills', 'config:personas']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
@@ -1319,9 +1321,14 @@ test('a locally pinned source can be opened; a remote one has no path to open', 
   assert.equal(sources.children[1].path, undefined, 'its bytes live in corporate storage');
 });
 
+/**
+ * The capability map is rendered by the Capabilities view, and only there.
+ *
+ * It used to appear inside the Lifecycle tree as well, identical and duplicated. A capability is
+ * what the organisation builds; it is not a stage of anything, so it has no business in a view
+ * about stages — and two renderings of one thing is two places for them to disagree.
+ */
 test('the capability map is shown as the tree it is, to any depth', () => {
-  // What the organisation builds is a different shape from where its code is stored: one business
-  // capability is often several repositories.
   const withMap = structuredClone(snapshot);
   withMap.capabilityMap = {
     repositories: ['api', 'web'],
@@ -1333,33 +1340,66 @@ test('the capability map is shown as the tree it is, to any depth', () => {
       }, { id: 'payments-api', name: 'Payments', kind: 'delivery', repository: 'api', children: [] }]
     }]
   };
-  const capabilities = find(buildTree(withMap), 'capabilities');
-  assert.equal(capabilities.description, '2 delivering');
+  const tree = buildCapabilityTree(withMap);
+  assert.deepEqual(tree.map((node) => node.label), ['Commerce']);
 
   // Three levels deep, and the leaf names the repository it ships from.
-  const checkout = find(buildTree(withMap), 'capability:checkout');
+  const checkout = find(tree, 'capability:checkout');
   assert.equal(checkout.description, 'web');
-  assert.equal(checkout.contextValue, 'sflow.capability.delivery');
+  assert.equal(checkout.contextValue, 'sflow.capability');
   assert.match(checkout.tooltip, /Ships from web/);
 
-  const storefront = find(buildTree(withMap), 'capability:storefront');
+  const storefront = find(tree, 'capability:storefront');
   assert.equal(storefront.description, undefined, 'a grouping ships nothing of its own');
   assert.equal(storefront.contextValue, 'sflow.capability');
+
+  // And it is not in the Lifecycle tree at all any more.
+  assert.equal(buildTree(withMap).some((node) => node.id === 'capabilities'), false);
 });
 
 test('a repository that has not described what it builds says so', () => {
-  const undescribed = find(buildTree(snapshot), 'capabilities');
-  assert.equal(undescribed.description, 'not described');
-  assert.match(undescribed.tooltip, /capability-map\.yml in the lead repository/);
-  assert.match(undescribed.children[0].label, /has not described what it builds/);
+  const [undescribed] = buildCapabilityTree(snapshot);
+  assert.equal(undescribed.id, 'capabilities:empty');
+  assert.match(undescribed.label, /Nothing describes what this organisation builds/);
 });
 
 test('a capability map that does not validate reports the engine reason', () => {
   const broken = structuredClone(snapshot);
   broken.capabilityMap = { error: "Delivery capability 'ghost' names repository 'nope', which the portfolio does not declare." };
-  const node = find(buildTree(broken), 'capabilities');
-  assert.equal(node.description, 'not valid');
-  assert.match(node.children[0].label, /which the portfolio does not declare/);
+  const [node] = buildCapabilityTree(broken);
+  assert.equal(node.id, 'capabilities:error');
+  assert.match(node.label, /which the portfolio does not declare/);
+});
+
+/**
+ * Lifecycle holds work and the shapes work can take. Nothing else.
+ *
+ * It used to hold the capability map and the world model too — one is what the organisation builds,
+ * the other is grounding for prompts, and neither is a stage. The world model moved to
+ * Configuration, where the rest of what you configure already lives.
+ */
+test('the lifecycle tree holds work and workflows; configuration holds the rest', () => {
+  const tree = buildTree(snapshot);
+  const ids = tree.map((node) => node.id);
+  assert.ok(ids.includes('workflows'), 'the shapes work can take');
+  assert.ok(ids.includes('configuration'));
+  assert.equal(ids.includes('capabilities'), false, 'the Capabilities view renders those');
+  assert.equal(ids.includes('world-model'), false, 'grounding is configuration');
+
+  // The world model is inside Configuration now, first, because it is the one thing there that is
+  // built rather than edited.
+  const configuration = find(tree, 'configuration');
+  assert.equal(configuration.children[0].id, 'world-model');
+
+  // A workflow is listed with the phase chain that distinguishes it, and says what it governs.
+  const withWorkflows = structuredClone(snapshot);
+  withWorkflows.portfolio = { initiativeProfiles: { 'epic-planning': { label: 'Epic planning', phases: ['a', 'b'] } } };
+  withWorkflows.definition = { ...withWorkflows.definition, workTypes: { feature: { label: 'Feature', phases: ['x'] } } };
+  const workflows = find(buildTree(withWorkflows), 'workflows');
+  assert.equal(workflows.description, '2');
+  assert.deepEqual(workflows.children.map((child) => child.label), ['Epic planning', 'Feature']);
+  assert.match(workflows.children[0].description, /^initiative · a → b$/);
+  assert.match(workflows.children[1].description, /^story · x$/);
 });
 
 const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
@@ -1506,9 +1546,9 @@ test('a capability that ships is rendered as one whatever its kind says', () => 
       ]
     }]
   };
-  const node = find(buildTree(withMap), 'capability:payments-api');
+  const node = find(buildCapabilityTree(withMap), 'capability:payments-api');
   assert.equal(node.description, 'api');
-  assert.equal(node.contextValue, 'sflow.capability.delivery');
+  assert.equal(node.contextValue, 'sflow.capability');
   assert.match(node.tooltip, /Ships from api/);
   assert.equal(flattenCapabilities(withMap.capabilityMap.capabilities).length, 2);
 });
@@ -1911,6 +1951,10 @@ test('an empty registry offers the one thing to do about it', () => {
   assert.match(empty.label, /No workspaces yet/);
 });
 
+/** What a capability shows about itself, and what it contains — the same split the commands make. */
+const beneath = (node) => node.children.filter((child) => capabilityIdOf(child) === null);
+const capabilitiesUnder = (node) => node.children.filter((child) => capabilityIdOf(child) !== null);
+
 test('capabilities are the tree they already are, and say what ships', () => {
   const snapshot = { capabilityMap: { capabilities: capabilityFixture }, capabilityMapPath: 'singularity/capabilities.yml' };
   const [commerce] = buildCapabilityTree(snapshot);
@@ -1918,16 +1962,95 @@ test('capabilities are the tree they already are, and say what ships', () => {
   assert.equal(commerce.icon, 'type-hierarchy');
   assert.equal(commerce.contextValue, 'sflow.capability', 'a grouping can contain more');
 
-  const payments = commerce.children[0];
-  const api = payments.children[0];
+  const payments = capabilitiesUnder(commerce)[0];
+  const api = capabilitiesUnder(payments)[0];
   assert.equal(api.label, 'Payments API');
   assert.equal(api.description, 'api', 'the repository it ships from');
   assert.equal(api.icon, 'repo');
-  // A capability that ships cannot contain anything, so it must not offer "add one inside".
-  assert.equal(api.contextValue, 'sflow.capability.delivery');
+  // Shipping and containing stopped being exclusive, so there is one context value: the menu that
+  // gated "add one inside" on the plain value had been hiding it from every capability that ships.
+  assert.equal(api.contextValue, 'sflow.capability');
   assert.match(api.tooltip, /Ships from api/);
   assert.match(payments.tooltip, /Jira PAY/);
   assert.match(payments.tooltip, /Teams: Payments squad/);
+});
+
+test('a capability shows the repositories it ships from and where its world model is', () => {
+  // Both were in the map and in the engine's readiness answer, and neither reached this tree: a
+  // capability rendered as a name with a repository in grey and nothing about whether it could
+  // actually be worked in.
+  const capabilities = [{
+    id: 'commerce', name: 'Commerce', kind: 'product', type: 'tech',
+    repository: 'commerce-api', repositories: ['commerce-api', 'commerce-web'],
+    leadRepository: 'commerce-api',
+    documentation: { Charter: 'https://confluence/charter' },
+    resources: { 'AWS account': '399181' },
+    children: []
+  }];
+  const readiness = {
+    'commerce-api': {
+      url: 'git@github:acme/commerce-api.git',
+      stateBranch: 'state', hasStateBranch: true, worldModel: 'state-branch'
+    },
+    'commerce-web': { url: 'git@github:acme/commerce-web.git', hasStateBranch: false, worldModel: null }
+  };
+  const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } }, null, readiness);
+
+  // The lead is named on the row itself; the rest are counted, because a row listing four URLs is a
+  // row nobody reads.
+  assert.equal(commerce.description, 'tech · commerce-api · +1');
+
+  // What it contains comes first; what it is follows.
+  const [api, web] = beneath(commerce);
+  assert.equal(api.label, 'commerce-api');
+  assert.equal(api.description, 'lead · state branch');
+  assert.equal(api.tooltip.split('\n')[0], 'git@github:acme/commerce-api.git');
+  assert.equal(web.description, 'no state branch');
+  assert.equal(web.icon, 'warning', 'a repository with nowhere to record governance is a problem');
+
+  const model = beneath(commerce).find((row) => row.label === 'World model');
+  assert.equal(model.description, 'on state-branch');
+  assert.match(model.tooltip, /state branch first/);
+
+  // Whatever describes the capability, and whatever it runs on, as the map records them.
+  const links = beneath(commerce).filter((row) => row.contextValue === 'sflow.capability.link');
+  assert.deepEqual(links.map((row) => [row.label, row.description]),
+    [['Charter', 'https://confluence/charter'], ['AWS account', '399181']]);
+});
+
+test('unasked is not the same as absent in the capability tree', () => {
+  // Readiness costs an ls-remote per repository, so the tree renders before it arrives. Saying "no
+  // state branch" when nobody looked would be a claim about the remote with nothing behind it.
+  const capabilities = [{
+    id: 'commerce', name: 'Commerce', kind: 'product',
+    repositories: ['commerce-api'], leadRepository: 'commerce-api', children: []
+  }];
+  const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } });
+  assert.equal(beneath(commerce)[0].description, 'lead · not checked');
+  assert.equal(beneath(commerce)[0].icon, 'repo', 'not a warning: nothing is known to be wrong');
+  assert.equal(beneath(commerce).find((row) => row.label === 'World model').description, 'not checked');
+});
+
+test('a grouping capability composes its world model from what is beneath it', () => {
+  // A grouping has no repository to hold a model, so what it has is the union of its children's —
+  // composed on read and stored nowhere. Saying "not built" would be false; saying nothing would
+  // hide that half its capabilities cannot ground anything.
+  const capabilities = [{
+    id: 'commerce', name: 'Commerce', kind: 'portfolio', repositories: [], children: [
+      { id: 'checkout', name: 'Checkout', kind: 'service', repositories: ['checkout'], leadRepository: 'checkout', children: [] },
+      { id: 'catalog', name: 'Catalog', kind: 'service', repositories: ['catalog'], leadRepository: 'catalog', children: [] }
+    ]
+  }];
+  const readiness = {
+    checkout: { hasStateBranch: true, stateBranch: 'state', worldModel: 'state-branch' },
+    catalog: { hasStateBranch: true, stateBranch: 'state', worldModel: null }
+  };
+  const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } }, null, readiness);
+  const model = beneath(commerce).find((row) => row.label === 'World model');
+  assert.equal(model.description, '1/2 of its capabilities');
+  assert.match(model.tooltip, /stored nowhere/);
+  // The hierarchy is still the hierarchy: the composed row does not replace what is beneath.
+  assert.deepEqual(capabilitiesUnder(commerce).map((row) => row.label), ['Checkout', 'Catalog']);
 });
 
 test('the capability tree says why it is empty rather than being empty', () => {
@@ -1951,9 +2074,14 @@ test('a tree node resolves back to the thing it stands for', () => {
   // from the label.
   const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities: capabilityFixture } });
   assert.equal(capabilityIdOf(commerce), 'commerce');
-  assert.equal(capabilityIdOf(commerce.children[0].children[0]), 'payments-api');
+  assert.equal(capabilityIdOf(capabilitiesUnder(capabilitiesUnder(commerce)[0])[0]), 'payments-api');
   assert.equal(capabilityIdOf({ id: 'workspace:/work/commerce' }), null);
   assert.equal(capabilityIdOf(undefined), null);
+  // A capability's own rows sit under its id with a further segment. They are not capabilities, and
+  // handing one to an edit command opens a screen on something that does not exist.
+  assert.equal(capabilityIdOf({ id: 'capability:commerce:repository:commerce-api' }), null);
+  assert.equal(capabilityIdOf({ id: 'capability:commerce:world-model' }), null);
+  assert.equal(capabilityIdOf({ id: 'capability:' }), null);
 
   const [workspace] = buildWorkspaceTree(REGISTRY);
   assert.equal(workspacePathOf(workspace), '/work/commerce');

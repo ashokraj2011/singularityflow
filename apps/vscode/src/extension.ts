@@ -30,8 +30,10 @@ import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import {
-  buildCapabilityTree, buildRemoteCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf
+  buildCapabilityTree, buildRemoteCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf,
+  type CapabilityReadiness
 } from './views/navigation-trees.ts';
+import type { DesktopSnapshot } from './cli/snapshot.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -424,9 +426,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(store);
   // The capability tree is the map as the lead repository states it, so it follows the snapshot
   // rather than being refreshed by whoever happened to change it.
-  context.subscriptions.push(store.onDidChange((state) =>
-    capabilityTree.replace(buildCapabilityTree(state.snapshot, state.error?.message ?? null))));
-  capabilityTree.replace(buildCapabilityTree(store.current.snapshot));
+  //
+  // Readiness — does the orphan state branch exist, is there a world model — is not in the map and
+  // not in the snapshot. It is one `ls-remote` per repository against remotes that may be slow or
+  // unreachable, so it is asked once beside the render rather than inside it: the tree appears at
+  // snapshot speed saying "not checked", and fills in when the answer arrives. A tree that waits on
+  // the network to show what a repository is called is a tree that is blank when the VPN is off.
+  let readiness: CapabilityReadiness = {};
+  const drawCapabilities = (state: { snapshot: DesktopSnapshot | null; error?: Error | null }): void =>
+    capabilityTree.replace(buildCapabilityTree(state.snapshot, state.error?.message ?? null, readiness));
+
+  const refreshReadiness = async (): Promise<void> => {
+    try {
+      const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
+      const url = leads.find((lead) => lead.url)?.url;
+      if (!url) return;
+      const organisation = await client.run<{ readiness?: CapabilityReadiness }>(
+        ['capability', 'organisation', url, '--readiness', '--json']);
+      if (!organisation.readiness) return;
+      readiness = organisation.readiness;
+      drawCapabilities(store.current);
+    } catch (error) {
+      // Every repository being unreachable is a normal state on a laptop, and it is not a reason to
+      // interrupt: the tree already says "not checked", which is exactly what is true.
+      output.appendLine(`Capability readiness could not be read: ${(error as Error).message}`);
+    }
+  };
+
+  context.subscriptions.push(store.onDidChange(drawCapabilities));
+  drawCapabilities(store.current);
+  void refreshReadiness();
 
   // Governed configuration is edited in ordinary tabs; saving one asks the engine whether the result
   // is still valid, so a broken workflow.yml is reported where it was typed rather than by a command
@@ -701,7 +730,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
     'singularityFlow.startWork': startWork,
     'singularityFlow.addSource': addSource,
-    'singularityFlow.refresh': () => store.refresh(),
+    // Refresh asks the remotes again too: the state branch somebody just created is the whole reason
+    // they would press it.
+    'singularityFlow.refresh': async () => { void refreshReadiness(); await store.refresh(); },
     'singularityFlow.openArtifact': ((node?: TreeNode) => openArtifact(repository, node)) as never,
     'singularityFlow.runAction': runNode as never,
     'singularityFlow.approve': runNode as never,

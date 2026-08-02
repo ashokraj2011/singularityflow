@@ -84,14 +84,31 @@ function requireBundle(t) {
 }
 
 
-/** Wait for a fire-and-forget listener to produce something, or give up with a useful failure. */
-async function until(read, { attempts = 60, everyMs = 50 } = {}) {
+/**
+ * Wait for a fire-and-forget listener to produce something, or fail saying what never arrived.
+ *
+ * The budget is deliberately generous. Nearly everything waited on here is a panel that has spawned
+ * several CLI processes, each of which loads the whole engine; three seconds was comfortable on an
+ * idle machine and not comfortable at all with the rest of the suite running beside it. A test that
+ * passes alone and fails in the suite is worse than a slow one, and the ceiling only costs time on
+ * the runs that were going to fail anyway.
+ *
+ * Giving up throws rather than returning the empty value, because the assertion that follows would
+ * otherwise report the consequence — `expected /Commerce/, got null` — and say nothing at all about
+ * the wait that actually failed.
+ */
+async function until(read, { attempts = 600, everyMs = 50, what = '' } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = read();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, everyMs));
   }
-  return read();
+  const last = read();
+  if (last) return last;
+  // No call site passes a description, so the reader's own source is the description: it names the
+  // condition exactly, and it cannot drift out of date the way a hand-written label would.
+  const described = what || read.toString().replace(/\s+/g, ' ').trim().slice(0, 160);
+  throw new Error(`Timed out after ${Math.round((attempts * everyMs) / 1000)}s waiting for: ${described}`);
 }
 
 /** Let a fire-and-forget listener finish when the expected outcome is that nothing happens. */
@@ -149,7 +166,12 @@ function stubVscode() {
     },
     commands: {
       registerCommand: (id, handler) => { registered.commands.set(id, handler); return { dispose() {} }; },
-      executeCommand: async () => {}
+      // Dispatches, like the real one. It used to be inert, which quietly made every command that
+      // leads to another command untestable: a screen whose button chains through executeCommand
+      // could be asserted on and the assertion could not fail, because nothing was ever going to
+      // happen. Built-ins nobody registered — `vscode.openFolder` and friends — still do nothing,
+      // which is the correct outcome for a stub rather than a hidden one.
+      executeCommand: async (id, ...args) => registered.commands.get(id)?.(...args)
     },
     languages: {
       createDiagnosticCollection: () => ({
@@ -319,7 +341,7 @@ test('the built extension activates against a real repository and populates the 
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
   assert.deepEqual(roots.map((node) => node.id),
-    ['initiative:INIT-CHECKOUT', 'capabilities', 'world-model', 'configuration'],
+    ['initiative:INIT-CHECKOUT', 'workflows', 'configuration'],
     'the Epic, plus the things that belong to the repository rather than to any Epic');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
@@ -1370,15 +1392,25 @@ test('the sidebar shows capabilities as a tree, and adding one starts from what 
     return nodes[0]?.label === 'Commerce' ? nodes : null;
   });
   assert.equal(roots.length, 1);
-  const payments = provider.getChildren(roots[0])[0];
-  const api = provider.getChildren(payments)[0];
+  // A capability's own rows — its repositories, its world model, its links — sit beside the
+  // capabilities it contains, and only the latter are capabilities.
+  const contained = (node) => provider.getChildren(node)
+    .filter((child) => !child.id.slice('capability:'.length).includes(':'));
+  const payments = contained(roots[0])[0];
+  const api = contained(payments)[0];
   assert.equal(api.label, 'Payments API');
   assert.equal(api.description, 'api');
 
-  // The TreeItem carries the context value the menu keys on, so "add one inside" appears on a
-  // grouping and not on a leaf that ships.
+  // Both offer "add one inside": shipping and containing stopped being exclusive, and the menu that
+  // keyed on a separate delivery value was hiding it from every capability that ships.
   assert.equal(provider.getTreeItem(payments).contextValue, 'sflow.capability');
-  assert.equal(provider.getTreeItem(api).contextValue, 'sflow.capability.delivery');
+  assert.equal(provider.getTreeItem(api).contextValue, 'sflow.capability');
+
+  // The repository it ships from is a row of its own, saying whether it can be worked in at all.
+  const [repository] = provider.getChildren(api);
+  assert.equal(repository.label, 'api');
+  assert.equal(repository.contextValue, 'sflow.capability.repository');
+  assert.ok(provider.getChildren(api).some((row) => row.label === 'World model'));
 
   // Adding from a node opens the form already parented to it.
   await registered.commands.get('singularityFlow.addCapability')(payments);
@@ -1475,7 +1507,7 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   // be first — this repository's templates root holds work-item templates too, and an initiative
   // artifact written among those is a file nothing can ever reference.
   const created = path.join(root, 'singularity/templates/initiatives/release-checklist.md');
-  await until(() => (existsSync(created) ? true : null), { attempts: 120 });
+  await until(() => (existsSync(created) ? true : null));
   const text = readFileSync(created, 'utf8');
   // Written in the shape every other artifact template follows, so it is usable immediately.
   assert.match(text, /singularity-flow:initiative-metadata/);
@@ -1726,7 +1758,9 @@ test('a window with nothing open still shows what the organisation builds', asyn
   const top = tree.getChildren(root);
   assert.deepEqual(top.map((row) => row.label), ['Commerce']);
   const beneath = tree.getChildren(top[0]);
-  assert.deepEqual(beneath.map((row) => row.label), ['Payments', 'Storefront']);
+  // What Commerce contains, then what Commerce is: the grouping has no repository of its own, so
+  // what it has is a world model composed from the models beneath it.
+  assert.deepEqual(beneath.map((row) => row.label), ['Payments', 'Storefront', 'World model']);
   // The tree goes to any depth, like a directory.
   const [paymentsApi] = tree.getChildren(beneath[0]);
   assert.equal(paymentsApi.label, 'Payments API');

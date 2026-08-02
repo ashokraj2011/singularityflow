@@ -275,70 +275,64 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }, capabilityNode(snapshot), worldModelNode(snapshot), configuration];
+    }, workflowsNode(snapshot), configuration];
   }
 
-  return [initiativeNode(initiative), capabilityNode(snapshot), worldModelNode(snapshot), configuration];
+  return [initiativeNode(initiative), workflowsNode(snapshot), configuration];
 }
 
 /**
- * The capability map: what this organisation builds, as opposed to where its code is stored.
+ * The workflows this repository can start work with.
  *
- * Shown as the tree it is, to any depth. A delivery capability names the repository it ships from,
- * which is the join between this and everything else in the view — a Story lands in a repository,
- * and this is what says which part of the business that repository serves.
+ * This is what a lifecycle view is for: the work in flight, and the shapes that work can take. The
+ * capability tree used to sit here as well, duplicating the Capabilities view exactly, and the
+ * world model sat here too — but a capability is what the organisation builds and a world model is
+ * grounding for prompts. Neither is a stage of anything, and neither belonged in a view about
+ * stages.
  */
-function capabilityNode(snapshot: DesktopSnapshot): TreeNode {
-  const map = snapshot.capabilityMap;
-  const path = snapshot.capabilityMapPath ?? 'singularity/capability-map.yml';
+function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
+  const portfolio = snapshot.portfolio as {
+    initiativeProfiles?: Record<string, { label?: string; phases?: string[] }>;
+  } | undefined;
+  const workTypes = Object.entries(snapshot.definition?.workTypes ?? {});
+  const profiles = Object.entries(portfolio?.initiativeProfiles ?? {});
+  const rows = [
+    ...profiles.map(([id, profile]) => ({ id, label: profile?.label ?? id, phases: profile?.phases ?? [], governs: 'initiative' })),
+    ...workTypes.map(([id, type]) => ({
+      id,
+      label: (type as { label?: string })?.label ?? id,
+      phases: (type as { phases?: string[] })?.phases ?? [],
+      governs: 'story'
+    }))
+  ];
 
-  if (map?.error) {
-    return {
-      kind: 'group', id: 'capabilities', label: 'Capabilities',
-      description: 'not valid', icon: 'warning', tooltip: map.error,
-      children: [{ kind: 'message', id: 'capabilities:error', label: map.error, icon: 'error' }]
-    };
-  }
-
-  const roots = map?.capabilities ?? [];
-  if (!roots.length) {
-    return {
-      kind: 'group', id: 'capabilities', label: 'Capabilities',
-      description: 'not described', icon: 'type-hierarchy',
-      tooltip: `Nothing describes what this organisation builds. Create ${path} in the lead repository.`,
-      children: [{
-        kind: 'message', id: 'capabilities:empty',
-        label: 'The lead repository has not described what it builds',
-        icon: 'info'
-      }]
-    };
-  }
-
-  // Whether a capability ships is decided by naming a repository, not by what its `kind` says. Kind
-  // is free text the organisation chooses; reading it as a flag made a capability labelled anything
-  // other than "delivery" render as an empty grouping however clearly it named its repository.
-  const toNode = (capability: CapabilityNode): TreeNode => ({
-    kind: capability.repository ? 'artifact' : 'group',
-    id: `capability:${capability.id}`,
-    label: capability.name,
-    description: capability.repository ?? undefined,
-    tooltip: capability.description || (capability.repository
-      ? `Ships from ${capability.repository}.`
-      : 'Groups the capabilities beneath it.'),
-    icon: capability.repository ? 'repo' : 'type-hierarchy',
-    contextValue: capability.repository ? 'sflow.capability.delivery' : 'sflow.capability',
-    ...(capability.children.length ? { children: capability.children.map(toNode) } : {})
-  });
-
-  const deliveries = map?.repositories?.length ?? 0;
   return {
     kind: 'group',
-    id: 'capabilities',
-    label: 'Capabilities',
-    description: `${deliveries} delivering`,
-    icon: 'type-hierarchy',
-    tooltip: 'What this organisation builds. Delivery capabilities name the repository they ship from.',
-    children: roots.map(toNode)
+    id: 'workflows',
+    label: 'Workflows',
+    icon: 'git-merge',
+    description: rows.length ? `${rows.length}` : 'none',
+    tooltip: 'The shapes work can take here. A workflow is an ordered list of phases; which of them '
+      + 'governs an Initiative and which a Story is a property of the workflow, not two ideas.',
+    children: rows.length
+      ? rows.map((row) => ({
+        kind: 'message' as const,
+        id: `workflow:${row.governs}:${row.id}`,
+        label: row.label,
+        // The phase chain is what actually distinguishes one workflow from another, so it is the
+        // description rather than something to open the file to discover.
+        description: `${row.governs} · ${row.phases.join(' → ')}`,
+        icon: row.governs === 'initiative' ? 'rocket' : 'git-branch',
+        contextValue: 'sflow.workflow'
+      }))
+      : [{
+        kind: 'message' as const,
+        id: 'workflows:empty',
+        label: 'No workflows are configured',
+        description: 'add one',
+        icon: 'info',
+        contextValue: 'sflow.workflows.empty'
+      }]
   };
 }
 
@@ -501,6 +495,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       ? `Workflow progress is recorded on the orphan branch '${ledger.branch}'.`
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
+      worldModelNode(snapshot),
       {
         kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
         description: 'phases, lenses, grounding', icon: 'layers',

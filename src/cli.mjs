@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
+import {
+  createPhase, createProfile, editPhase, editProfile, listProfiles
+} from './workflow-authoring.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
@@ -424,6 +427,12 @@ Usage:
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind TEXT]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
+  singularity-flow lifecycle profile list [--json]
+  singularity-flow lifecycle profile create <PROFILE-ID> --phases a,b,c [--label TEXT] [--description TEXT]
+  singularity-flow lifecycle profile edit <PROFILE-ID> [--phases a,b,c] [--label TEXT]
+  singularity-flow lifecycle phase create <PHASE-ID> [--label TEXT] [--views a,b] [--lanes a,b]
+    [--authorities group-a,group-b] [--minimum N]   (runs nowhere until a profile lists it)
+  singularity-flow lifecycle phase edit <PHASE-ID> [--label TEXT] [--views a,b] [--lanes a,b]
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
@@ -2403,6 +2412,93 @@ function capabilityChanges(options) {
  * the value written, and an option per field would make that easier to get wrong rather than easier
  * to see. `capability show --json` reports both.
  */
+/**
+ * Creating and changing the lifecycle this repository runs.
+ *
+ * Profiles and phases were editable only by hand, which made "how do I add a stage?" a question
+ * answered with "open the YAML and copy one". These are the narrow edits worth having as commands;
+ * outputs and checklists stay in the file, because a form over those would be a worse YAML editor
+ * than a YAML editor.
+ */
+async function lifecycleAuthoringCommand(positionals, options) {
+  const root = repoRoot();
+  const noun = positionals[1];
+  const action = positionals[2] ?? 'list';
+  const list = (option) => (optionString(options, option) ?? '')
+    .split(',').map((entry) => entry.trim()).filter(Boolean);
+
+  if (noun === 'profile') {
+    if (action === 'list') {
+      const profiles = await listProfiles(root);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(profiles, null, 2));
+      for (const profile of profiles) {
+        console.log(`${profile.id} — ${profile.label}`);
+        console.log(`  ${profile.phases.join(' \u2192 ')}`);
+      }
+      return;
+    }
+    if (action === 'create') {
+      const created = await createProfile(root, requirePositional(positionals, 3, 'profile ID'), {
+        label: optionString(options, 'label'),
+        description: optionString(options, 'description', ''),
+        phases: list('phases'),
+        lifecycleMode: optionString(options, 'lifecycle-mode')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
+      console.log(`Created profile ${created.profileId}: ${created.phases.join(' \u2192 ')}`);
+      console.log(`  ${created.path} — commit it to put the profile under governance.`);
+      return;
+    }
+    if (action === 'edit') {
+      const changes = {};
+      for (const field of ['label', 'description', 'lifecycle-mode']) {
+        const value = optionString(options, field);
+        if (value != null) changes[field === 'lifecycle-mode' ? 'lifecycleMode' : field] = value;
+      }
+      if (optionString(options, 'phases') != null) changes.phases = list('phases');
+      const edited = await editProfile(root, requirePositional(positionals, 3, 'profile ID'), changes);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
+      console.log(`Updated profile ${edited.profileId} in ${edited.path}.`);
+      return;
+    }
+    throw new SingularityFlowError('Use lifecycle profile list|create|edit.');
+  }
+
+  if (noun === 'phase') {
+    if (action === 'create') {
+      const created = await createPhase(root, requirePositional(positionals, 3, 'phase ID'), {
+        label: optionString(options, 'label'),
+        worldModelViews: list('views'),
+        lanes: list('lanes'),
+        approvalAuthorities: list('authorities'),
+        approvalMinimum: optionNumber(options, 'minimum') ?? 1
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
+      console.log(`Created phase ${created.phaseId} in ${created.path}.`);
+      // Said rather than assumed: adding a stage to every lifecycle at once is not what anybody
+      // means by adding a stage.
+      console.log('  It runs nowhere until a profile lists it: singularity-flow lifecycle profile edit <ID> --phases a,b,c');
+      return;
+    }
+    if (action === 'edit') {
+      const changes = {};
+      if (optionString(options, 'label') != null) changes.label = optionString(options, 'label');
+      if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
+      if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
+      const edited = await editPhase(root, requirePositional(positionals, 3, 'phase ID'), changes);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
+      console.log(`Updated phase ${edited.phaseId} in ${edited.path}.`);
+      if (edited.usedBy.length) {
+        console.log(`  This changes ${edited.usedBy.join(', ')}, which run it.`);
+      }
+      return;
+    }
+    throw new SingularityFlowError('Use lifecycle phase create|edit.');
+  }
+
+  throw new SingularityFlowError('Use lifecycle profile ... or lifecycle phase ...');
+}
+
 async function capabilityCommand(positionals, options) {
   const subcommandForWrite = positionals[1];
 
@@ -5062,6 +5158,7 @@ async function dispatch(command, positionals, options) {
     initiative: () => initiativeCommand(positionals, options),
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),
+    lifecycle: () => lifecycleAuthoringCommand(positionals, options),
     epic: () => epicCommand(positionals, options),
     story: () => storyCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),

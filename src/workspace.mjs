@@ -523,18 +523,23 @@ export async function workspaceRemoteCapabilities(url, {
     const tree = capabilityTree(definition);
     return {
       capabilities: tree,
-      // Flat, because the caller's next question is always "which repositories is that?".
+      // Flat, because the caller's next question is always "which repositories is that?" — and one
+      // row per repository rather than per capability, because a capability may ship from several
+      // and a list with one row for two repositories answers that question wrongly.
       deliveries: flattenCapabilityTree(tree)
-        .filter((row) => row.repository)
-        .map((row) => ({
+        .flatMap((row) => (row.repositories?.length
+          ? row.repositories
+          : (row.repository ? [row.repository] : [])).map((repository) => ({ row, repository })))
+        .map(({ row, repository }) => ({
           id: row.id,
           name: row.name,
-          repository: row.repository,
+          repository,
+          lead: repository === (row.leadRepository ?? repository),
           ancestors: row.ancestors,
           // Null when the capability names a repository the portfolio does not declare — a real
           // state, and one the person choosing needs to see rather than discover at clone time.
-          url: portfolio[row.repository]?.url ?? null,
-          defaultBranch: portfolio[row.repository]?.defaultBranch ?? 'main'
+          url: portfolio[repository]?.url ?? null,
+          defaultBranch: portfolio[repository]?.defaultBranch ?? 'main'
         })),
       reason: null,
       path: capabilitiesPath

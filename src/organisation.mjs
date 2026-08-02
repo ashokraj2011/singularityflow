@@ -489,9 +489,15 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
     }
   }
 
+  // Every repository a capability ships from, not the first one. A product with a web app and a
+  // service is two, and a workspace that cloned one of them is a workspace missing half the work.
+  const shipsFrom = (row) => (row.repositories?.length
+    ? row.repositories
+    : (row.repository ? [row.repository] : []));
+
   const covered = rows.filter((row) => chosen.has(row.id)
     || row.ancestors.some((ancestor) => chosen.has(ancestor)));
-  const shipping = covered.filter((row) => row.repository);
+  const shipping = covered.filter((row) => shipsFrom(row).length);
   if (!shipping.length) {
     throw new SingularityFlowError(
       'None of the chosen capabilities ships from a repository, so there would be nothing to work in.');
@@ -502,31 +508,37 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
   if (!leadRow) {
     throw new SingularityFlowError(`Lead capability '${lead}' is not among the chosen capabilities.`);
   }
-  if (!leadRow.repository) {
+  const leadShips = shipsFrom(leadRow);
+  if (!leadShips.length) {
     throw new SingularityFlowError(
       `Lead capability '${lead}' does not ship from a repository. The lead is where the workspace's `
       + 'state branch is created, so it has to be one that does.');
   }
+  // With several, the capability's own lead decides — the state branch goes in one repository, and
+  // which one is a decision the map records rather than one the ordering of a list makes.
+  const leadRepository = leadRow.leadRepository ?? leadShips[0];
 
   const repositories = {};
   for (const row of shipping) {
-    const declared = organisation.repositories?.[row.repository];
-    if (!declared?.url) {
-      throw new SingularityFlowError(
-        `Capability '${row.id}' ships from '${row.repository}', which the organisation's portfolio `
-        + 'does not declare, so there is nowhere to clone it from.');
+    for (const id of shipsFrom(row)) {
+      const declared = organisation.repositories?.[id];
+      if (!declared?.url) {
+        throw new SingularityFlowError(
+          `Capability '${row.id}' ships from '${id}', which the organisation's portfolio `
+          + 'does not declare, so there is nowhere to clone it from.');
+      }
+      repositories[id] = {
+        url: declared.url,
+        defaultBranch: declared.defaultBranch ?? 'main',
+        required: true,
+        path: `repos/${id}`
+      };
     }
-    repositories[row.repository] = {
-      url: declared.url,
-      defaultBranch: declared.defaultBranch ?? 'main',
-      required: true,
-      path: `repos/${row.repository}`
-    };
   }
 
   return {
     repositories,
-    leadRepository: leadRow.repository,
+    leadRepository,
     leadCapability: lead,
     capabilities: [...chosen].sort()
   };

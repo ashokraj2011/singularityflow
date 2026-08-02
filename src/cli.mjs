@@ -2668,8 +2668,16 @@ async function capabilityCommand(positionals, options) {
         id, deliveries, policy: node?.policy ?? {}, effectivePolicy: node?.effectivePolicy ?? {}
       }, null, 2));
     }
-    console.log(`${id} ships from ${deliveries.length} ${deliveries.length === 1 ? 'repository' : 'repositories'}`);
-    for (const delivery of deliveries) console.log(`  ${delivery.id.padEnd(28)} ${delivery.repository}`);
+    // Counted by repository rather than by capability: "ships from 1 repository" above a row naming
+    // two is the count contradicting the list beneath it.
+    const shipsFrom = new Set(deliveries.flatMap((delivery) =>
+      (delivery.repositories?.length ? delivery.repositories : (delivery.repository ? [delivery.repository] : []))));
+    console.log(`${id} ships from ${shipsFrom.size} ${shipsFrom.size === 1 ? 'repository' : 'repositories'}`);
+    for (const delivery of deliveries) {
+      const ships = delivery.repositories?.length ? delivery.repositories
+        : (delivery.repository ? [delivery.repository] : []);
+      console.log(`  ${delivery.id.padEnd(28)} ${ships.join(', ')}`);
+    }
     for (const [key, value] of Object.entries(node?.effectivePolicy ?? {})) {
       const declared = node?.policy?.[key];
       const overridden = declared !== undefined && JSON.stringify(declared) !== JSON.stringify(value);
@@ -2692,11 +2700,16 @@ async function capabilityCommand(positionals, options) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ capabilities: tree }, null, 2));
   for (const row of rows) {
     const indent = '  '.repeat(row.depth);
-    const suffix = row.delivery ? `  → ${row.repository}` : '';
-    console.log(`${indent}${row.name}${suffix}`);
+    // Every repository, not the first one. A capability may ship from several — a product with a web
+    // app and a service is the ordinary case — and naming one of them is how a map that describes
+    // two repositories reads as describing one.
+    const ships = row.repositories?.length ? row.repositories : (row.repository ? [row.repository] : []);
+    const lead = ships.length > 1 && row.leadRepository ? ` (lead ${row.leadRepository})` : '';
+    console.log(`${indent}${row.name}${ships.length ? `  → ${ships.join(', ')}${lead}` : ''}`);
   }
   const deliveries = rows.filter((row) => row.delivery);
-  const repositories = new Set(deliveries.map((row) => row.repository));
+  const repositories = new Set(deliveries.flatMap((row) =>
+    (row.repositories?.length ? row.repositories : (row.repository ? [row.repository] : []))));
   console.log(`\n${rows.length} capabilities, ${deliveries.length} delivering from ${repositories.size} ${repositories.size === 1 ? 'repository' : 'repositories'}.`);
 }
 
@@ -3927,9 +3940,13 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(map, null, 2));
     if (!map.capabilities) return console.log(map.reason);
     for (const row of flattenCapabilityTree(map.capabilities)) {
-      console.log(`${'  '.repeat(row.depth)}${row.name}${row.repository ? `  \u2192 ${row.repository}` : ''}`);
+      const ships = row.repositories?.length ? row.repositories : (row.repository ? [row.repository] : []);
+      const lead = ships.length > 1 && row.leadRepository ? ` (lead ${row.leadRepository})` : '';
+      console.log(`${'  '.repeat(row.depth)}${row.name}${ships.length ? `  \u2192 ${ships.join(', ')}${lead}` : ''}`);
     }
-    console.log(`\n${map.deliveries.length} delivering from ${new Set(map.deliveries.map((entry) => entry.repository)).size} repositories.`);
+    const shipping = new Set(map.deliveries.map((entry) => entry.id));
+    const cloned = new Set(map.deliveries.map((entry) => entry.repository));
+    console.log(`\n${shipping.size} delivering from ${cloned.size} ${cloned.size === 1 ? 'repository' : 'repositories'}.`);
     return;
   }
 

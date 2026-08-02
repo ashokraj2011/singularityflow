@@ -134,6 +134,41 @@ test('a workspace plan is what the chosen capabilities ship from, not a second l
       .leadRepository, 'web');
 });
 
+test('a capability that ships from several repositories brings all of them into the workspace', () => {
+  // The map stopped being one-repository-per-capability, and the planner kept reading the first.
+  // A product with a web app and a service produced a workspace with half the work missing in it.
+  const organisation = {
+    capabilities: [{
+      id: 'commerce', name: 'Commerce', repositories: [], children: [{
+        id: 'checkout', name: 'Checkout',
+        repositories: ['checkout-api', 'checkout-web'], leadRepository: 'checkout-api', children: []
+      }]
+    }],
+    repositories: {
+      'checkout-api': { url: 'https://example.com/checkout-api.git', defaultBranch: 'main' },
+      'checkout-web': { url: 'https://example.com/checkout-web.git', defaultBranch: 'trunk' }
+    }
+  };
+
+  const plan = resolveWorkspacePlan(organisation, { capabilities: ['commerce'] });
+  assert.deepEqual(Object.keys(plan.repositories).sort(), ['checkout-api', 'checkout-web']);
+  assert.equal(plan.repositories['checkout-web'].defaultBranch, 'trunk');
+  assert.equal(plan.repositories['checkout-web'].path, 'repos/checkout-web');
+  // The state branch goes in one repository, and which one is recorded on the capability rather
+  // than decided by the order the list happens to be written in.
+  assert.equal(plan.leadRepository, 'checkout-api');
+
+  const named = resolveWorkspacePlan(organisation, { capabilities: ['commerce'], leadCapability: 'checkout' });
+  assert.equal(named.leadRepository, 'checkout-api');
+
+  // A repository the portfolio never declared is refused by name, not by position.
+  assert.throws(
+    () => resolveWorkspacePlan(
+      { ...organisation, repositories: { 'checkout-api': organisation.repositories['checkout-api'] } },
+      { capabilities: ['commerce'] }),
+    /ships from 'checkout-web'/);
+});
+
 test('a workspace plan refuses what would produce nothing to work in', () => {
   const organisation = {
     capabilities: [{ id: 'commerce', name: 'Commerce', repository: null, children: [] }],

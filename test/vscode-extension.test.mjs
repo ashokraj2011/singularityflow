@@ -922,15 +922,29 @@ test('a lead with no capability map falls back to naming repositories by URL', (
   assert.deepEqual(formProblems(form), []);
 });
 
-test('the capability tree is the form, and says which rows came in through a parent', () => {
+test('capabilities are picked from a dropdown, and each pick shows what it drags in', () => {
+  // A checkbox per capability asks a reader to scan a map that runs to dozens of them. The dropdown
+  // is indented so the hierarchy is still legible, and the chosen list says what each one covers.
   const html = workspaceFormHtml(withMap(['payments']));
-  assert.match(html, /Commerce/);
-  assert.match(html, /data-capability="payments-api"/);
-  assert.match(html, /included by its parent/);
+  assert.match(html, /data-capability-pick/);
+  assert.match(html, /— choose a capability —/);
+  assert.match(html, /data-capability-remove="payments"/);
+  // Choosing `payments` brought its API in, and the row says so rather than leaving it to be
+  // inferred from a table of ticked and unticked boxes.
+  assert.match(html, /1 beneath it/);
+  assert.match(html, /api<\/code>/);
+  // What is already covered is not offered again: picking a child of a chosen parent adds nothing.
+  assert.doesNotMatch(html, /<option value="payments-api"/);
+  assert.match(html, /<option value="storefront"/);
   assert.match(html, /choosing a\s*\n?\s*directory includes its contents/);
-  // The repositories are shown as a consequence, not as something to curate.
   assert.match(html, /What the chosen capabilities deliver from/);
   assert.doesNotMatch(html, /Add a repository/, 'no by-URL card once a map exists');
+});
+
+test('with nothing chosen the form says what that would mean', () => {
+  const html = workspaceFormHtml(withMap([]));
+  assert.match(html, /only its lead repository/);
+  assert.match(html, /<option value="commerce"/, 'the root is offered when nothing covers it');
 });
 
 test('the workspace form asks for a working directory and a lead, in that order', () => {
@@ -1767,4 +1781,91 @@ test('the page carries the directories it needs to answer without a round trip',
   // Not a script element: the CSP allows only this render's nonce, and a data block under a strict
   // policy is not worth depending on.
   assert.doesNotMatch(html, /<script/);
+});
+
+const { buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
+  await import(source('views/navigation-trees.ts'));
+
+test('workspaces are a tree, with the working directory where it can be compared', () => {
+  // The directory is what distinguishes two rows at a glance, and the rule that no two may share
+  // one is only checkable by eye if they sit in the same place on every row.
+  const [commerce, payments] = buildWorkspaceTree(REGISTRY);
+  assert.equal(commerce.label, 'commerce');
+  assert.equal(commerce.description, 'active');
+  assert.equal(commerce.tooltip, '/work/commerce');
+  assert.equal(commerce.contextValue, 'sflow.workspace');
+  assert.equal(commerce.path, '/work/commerce');
+  // Opening a workspace means opening its lead repository: that is where the map, the governed
+  // state and every command's configuration live.
+  assert.equal(commerce.openPath, '/work/commerce/repos/platform');
+  assert.deepEqual(commerce.children.map((child) => child.label),
+    ['/work/commerce', 'platform']);
+  assert.equal(payments.description, undefined, 'only one workspace is active');
+});
+
+test('a workspace sharing a directory with another is marked in the tree', () => {
+  const rows = buildWorkspaceTree([
+    ...REGISTRY,
+    { id: 'local--commerce-2', path: '/work/commerce', name: 'commerce copy', anchorKey: 'commerce-2' }
+  ]);
+  const shared = rows.filter((row) => row.description === 'shares a directory');
+  assert.equal(shared.length, 2);
+  assert.equal(shared[0].icon, 'warning');
+  assert.match(shared[0].tooltip, /Another workspace occupies this directory/);
+});
+
+test('an empty registry offers the one thing to do about it', () => {
+  const [empty] = buildWorkspaceTree([]);
+  assert.equal(empty.contextValue, 'sflow.workspaces.empty');
+  assert.match(empty.label, /No workspaces yet/);
+});
+
+test('capabilities are the tree they already are, and say what ships', () => {
+  const snapshot = { capabilityMap: { capabilities: capabilityFixture }, capabilityMapPath: 'singularity/capabilities.yml' };
+  const [commerce] = buildCapabilityTree(snapshot);
+  assert.equal(commerce.label, 'Commerce');
+  assert.equal(commerce.icon, 'type-hierarchy');
+  assert.equal(commerce.contextValue, 'sflow.capability', 'a grouping can contain more');
+
+  const payments = commerce.children[0];
+  const api = payments.children[0];
+  assert.equal(api.label, 'Payments API');
+  assert.equal(api.description, 'api', 'the repository it ships from');
+  assert.equal(api.icon, 'repo');
+  // A capability that ships cannot contain anything, so it must not offer "add one inside".
+  assert.equal(api.contextValue, 'sflow.capability.delivery');
+  assert.match(api.tooltip, /Ships from api/);
+  assert.match(payments.tooltip, /Jira PAY/);
+  assert.match(payments.tooltip, /Teams: Payments squad/);
+});
+
+test('the capability tree says why it is empty rather than being empty', () => {
+  // A view with nothing in it and no explanation is the same defect as a view with no provider.
+  const [unavailable] = buildCapabilityTree(null, 'Open the repository that contains singularity/workflow.yml.');
+  assert.match(unavailable.label, /Open the repository/);
+  assert.match(unavailable.tooltip, /lead repository/);
+
+  const [none] = buildCapabilityTree({ capabilityMap: null, capabilityMapPath: 'singularity/capabilities.yml' });
+  assert.equal(none.contextValue, 'sflow.capabilities.empty');
+  assert.match(none.label, /Nothing describes what this organisation builds/);
+  assert.match(none.tooltip, /singularity\/capabilities\.yml/);
+
+  const [broken] = buildCapabilityTree({ capabilityMap: { error: "Capability 'x' references unknown parent 'y'." } });
+  assert.match(broken.label, /references unknown parent/);
+  assert.equal(broken.icon, 'error');
+});
+
+test('a tree node resolves back to the thing it stands for', () => {
+  // The commands act on what was clicked, so the mapping back has to be exact rather than a guess
+  // from the label.
+  const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities: capabilityFixture } });
+  assert.equal(capabilityIdOf(commerce), 'commerce');
+  assert.equal(capabilityIdOf(commerce.children[0].children[0]), 'payments-api');
+  assert.equal(capabilityIdOf({ id: 'workspace:/work/commerce' }), null);
+  assert.equal(capabilityIdOf(undefined), null);
+
+  const [workspace] = buildWorkspaceTree(REGISTRY);
+  assert.equal(workspacePathOf(workspace), '/work/commerce');
+  assert.equal(workspacePathOf({ id: 'workspace:/work/payments:lead' }), '/work/payments');
+  assert.equal(workspacePathOf({ id: 'capability:commerce' }), null);
 });

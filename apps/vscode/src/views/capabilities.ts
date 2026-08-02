@@ -93,6 +93,22 @@ export class CapabilitiesPanel {
     return CapabilitiesPanel.current;
   }
 
+  /** Open on a capability, for a caller that already knows which one — the tree, clicking one. */
+  focus(capabilityId: string): void {
+    this.selected = capabilityId;
+    this.adding = null;
+    this.error = null;
+    this.render();
+  }
+
+  /** Open on the form for a new capability under `parent`, or at the top when there is none. */
+  beginAdd(parent: string | null): void {
+    this.adding = { parent };
+    this.selected = parent;
+    this.error = null;
+    this.render();
+  }
+
   /** A refused edit reports the engine's own sentence on the screen that caused it. */
   report(error: string | null): void {
     this.error = error;

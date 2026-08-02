@@ -1026,10 +1026,12 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   await panel.post({ type: 'read-lead' });
   const read = await until(() => (panel.webview.html.includes('Commerce') ? panel.webview.html : null));
 
-  // The whole tree came back from a repository nobody cloned.
-  assert.match(read, /Commerce/);
-  assert.match(read, /data-capability="payments-api"/);
-  assert.match(read, /data-capability="storefront-web"/);
+  // The whole tree came back from a repository nobody cloned, and is offered as a dropdown with
+  // the hierarchy kept in the option labels.
+  assert.match(read, /data-capability-pick/);
+  assert.match(read, /<option value="commerce"/);
+  assert.match(read, /<option value="payments-api"/);
+  assert.match(read, /<option value="storefront-web"/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
   assert.doesNotMatch(read, /Add a repository/, 'no by-URL card once a map exists');
   // Nothing is chosen yet, so it says what is outstanding rather than offering a dead button.
@@ -1037,7 +1039,10 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
 
   // Choosing a grouping takes everything beneath it, and the repositories appear.
   await panel.post({ type: 'capability', id: 'payments', selected: true });
-  assert.match(panel.webview.html, /included by its parent/);
+  assert.match(panel.webview.html, /data-capability-remove="payments"/);
+  assert.match(panel.webview.html, /1 beneath it/, 'the pick says what it dragged in');
+  // What is already covered stops being offered: picking a child of a chosen parent adds nothing.
+  assert.doesNotMatch(panel.webview.html, /<option value="payments-api"/);
   assert.match(panel.webview.html, new RegExp(escapeRegExp(org.api)));
   assert.doesNotMatch(panel.webview.html, new RegExp(escapeRegExp(org.web)),
     'storefront was not chosen, so its repository is not cloned');
@@ -1244,4 +1249,105 @@ test('with a repository, every contributed command actually does something', asy
   assert.ok(registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities'),
     'openCapabilities opened its panel rather than warning');
   assert.doesNotMatch(registered.warnings.join(' '), /Open the repository that contains/);
+});
+
+/** Every view package.json contributes, in the order the sidebar will show them. */
+function contributedViews() {
+  const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
+  return manifest.contributes.views.singularityFlow.map((view) => view.id);
+}
+
+test('every contributed view has a provider, whatever state the window is in', async (t) => {
+  if (!requireBundle(t)) return;
+  // A contributed view with no provider is what makes VS Code report that no data provider is
+  // registered — a sentence about the extension's internals rather than about the folder. It was
+  // fixed for the lifecycle view; adding two more views is exactly how that regresses.
+  for (const folders of [undefined, [{ uri: { fsPath: await mkdtemp(path.join(os.tmpdir(), 'sflow-plain-')) } }]]) {
+    const { api, registered } = stubVscode();
+    api.workspace.workspaceFolders = folders;
+    const extension = loadExtension(api);
+    await extension.activate(context());
+
+    const missing = contributedViews().filter((id) => !registered.trees.has(id));
+    assert.deepEqual(missing, [], `${missing.join(', ')} would report "no data provider registered"`);
+
+    // And the capabilities tree explains itself rather than sitting empty.
+    const capabilities = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
+    const [explanation] = capabilities.getChildren();
+    assert.ok(explanation?.label, 'the capabilities tree says why it is empty');
+  }
+});
+
+test('the sidebar shows capabilities as a tree, and adding one starts from what was clicked', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    '  commerce: { name: Commerce, kind: portfolio, parent: null }',
+    '  payments: { name: Payments, kind: product, parent: commerce }',
+    '  payments-api: { name: Payments API, kind: service, parent: payments, repository: api }',
+    ''
+  ].join('\n'));
+  await registered.commands.get('singularityFlow.refresh')();
+
+  const provider = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
+  const roots = await until(() => {
+    const nodes = provider.getChildren();
+    return nodes[0]?.label === 'Commerce' ? nodes : null;
+  });
+  assert.equal(roots.length, 1);
+  const payments = provider.getChildren(roots[0])[0];
+  const api = provider.getChildren(payments)[0];
+  assert.equal(api.label, 'Payments API');
+  assert.equal(api.description, 'api');
+
+  // The TreeItem carries the context value the menu keys on, so "add one inside" appears on a
+  // grouping and not on a leaf that ships.
+  assert.equal(provider.getTreeItem(payments).contextValue, 'sflow.capability');
+  assert.equal(provider.getTreeItem(api).contextValue, 'sflow.capability.delivery');
+
+  // Adding from a node opens the form already parented to it.
+  await registered.commands.get('singularityFlow.addCapability')(payments);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
+  assert.ok(panel, 'the capability screen opened');
+  assert.match(panel.webview.html, /New capability/);
+  assert.match(panel.webview.html, /<option value="payments" selected>/, 'parented to what was clicked');
+
+  // Editing from a node opens on that capability rather than on nothing.
+  await registered.commands.get('singularityFlow.editCapability')(api);
+  assert.match(panel.webview.html, /Payments API/);
+  assert.match(panel.webview.html, /Delivers from/);
+  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('the sidebar lists workspaces even with no repository open', async (t) => {
+  if (!requireBundle(t)) return;
+  // The registry is machine-wide, which is exactly why this is useful in a window that has nothing
+  // open yet — it is how a person finds the workspace they already have.
+  const org = await organisation();
+  const registryFile = path.join(org.base, 'registry.json');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--no-clone'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+  });
+
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const rows = await until(() => {
+    const nodes = provider.getChildren();
+    return nodes[0]?.label === 'commerce' ? nodes : null;
+  });
+  assert.equal(rows[0].label, 'commerce');
+  assert.match(rows[0].tooltip, /workspaces\/commerce/);
+  assert.equal(provider.getTreeItem(rows[0]).contextValue, 'sflow.workspace');
+  // Its lead repository is what opening it means.
+  assert.match(rows[0].openPath, /workspaces\/commerce\/repos\/platform/);
 });

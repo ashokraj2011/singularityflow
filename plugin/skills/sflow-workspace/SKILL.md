@@ -6,9 +6,9 @@ disable-model-invocation: true
 # Switch the active Singularity Flow workspace
 
 1. Run `singularity-flow workspace list --json`.
-2. If no workspaces are saved, explain that a workspace must first be created or opened in the desktop app. Do not invent a directory or repository URL.
+2. If no workspaces are saved, explain how one is made: a workspace is a set of capabilities plus a local working directory, and the repositories it holds are what those capabilities ship from rather than a list anybody types. Offer `singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <ID> [--lead-capability <ID>] --base <DIRECTORY> --confirm <ID>`, or the New Workspace screen in the editor extension. Do not invent a directory, a capability, or a repository URL.
 3. Use Copilot's `ask_user` facility to ask the contributor to choose the exact workspace. Show its name, workspace ID, Jira anchor, and path.
-4. If the workspace contains multiple repositories, ask which repository to use. Clearly mark the configured lead repository when that information is available from `workspace status`.
+4. If the workspace contains multiple repositories, ask which repository to use. Clearly mark the lead repository when `workspace status` reports one — it is the repository the workspace's lead capability ships from, and it is where the orphan `state` branch lives.
 5. If the contributor supplied a Story/Jira ID, preserve it. Otherwise let Singularity Flow detect a Story from the selected repository's checked-out governed branch.
 6. Run:
 

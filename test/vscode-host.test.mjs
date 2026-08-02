@@ -1065,7 +1065,7 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   assert.match(panel.webview.html, /Lead capability/);
   assert.match(panel.webview.html, /<option value="payments-api" selected>/);
   assert.doesNotMatch(panel.webview.html, /data-draft="state-branch"/);
-  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created/);
+  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
 
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
@@ -1193,7 +1193,7 @@ test('creating a workspace asks nothing through a prompt', async (t) => {
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);
-  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created/);
+  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
 
   // Not one input box, from opening the panel to being ready to create.
   assert.equal(registered.inputBoxes.length, 0,

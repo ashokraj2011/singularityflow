@@ -141,7 +141,7 @@ test('Epic Story decisions use exact-packet Copilot selection receipts', async (
 test('legacy Epic planning skill redirects to the canonical Story drafting boundary', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-planning', 'SKILL.md'), 'utf8');
   assert.match(content, /compatibility name for `\/sflow-epic-story-draft`/);
-  assert.match(content, /Stop for exact business approval in the Singularity Flow desktop UI/);
+  assert.match(content, /Stop for exact business approval in a review surface/);
   assert.match(content, /Do not run a second planning sequence/);
 });
 

@@ -409,8 +409,9 @@ Usage:
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
     [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
-  singularity-flow capability map <CAPABILITY-ID> --repository URL [--lead URL] [--name TEXT]
+  singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL] [--name TEXT]
     [--kind TEXT] [--parent ID] [--jira-project KEY] [--teams A,B] [--json]
+    (--repository names what it ships from; omit it for a capability that groups others)
   singularity-flow capability organisation [LEAD-URL] [--json]
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]

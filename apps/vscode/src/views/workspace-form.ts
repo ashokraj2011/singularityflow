@@ -293,10 +293,10 @@ function leadHtml(form: WorkspaceForm): string {
       </select></label>
     </p>
     <p class="muted">The workspace's centre of gravity. When the workspace is initialised, the orphan
-      <code>state</code> branch is created and checked in
-      ${lead ? `in <code>${escape(lead.repository ?? '')}</code>` : 'in its repository'} if it is not
-      there already. It shares no ancestry with any code branch and is never merged into one, so a
-      rebase of the work cannot rewrite the record of it.</p>`;
+      <code>state</code> branch is created
+      ${lead ? `in <code>${escape(lead.repository ?? '')}</code>` : 'in its repository'} and pushed,
+      if it is not there already. It shares no ancestry with any code branch and is never merged into
+      one, so a rebase of the work cannot rewrite the record of it.</p>`;
 }
 
 function repositoryRows(form: WorkspaceForm): string {

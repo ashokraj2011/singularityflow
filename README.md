@@ -111,14 +111,51 @@ creates the canonical Story branch, repository world-model generation becomes
 the one deliberate desktop Copilot operation and its commit is pushed on that
 Story branch before phase work begins.
 
-The Electron **Workspace configuration** view creates a disposable local
-directory containing one isolated clone per participating repository, a clearly
-ungoverned document inbox, and local caches. Each repository records its Jira
-board or project key, App ID, display name, and optional metadata. Exactly one
-repository is the lead: it is opened as the home for Epic-level artifacts.
-Switching workspaces changes the lead repository used by the displayed
-`/sflow-*` commands. Workspace setup does not require Jira or portfolio governance.
-See [WORKSPACES.md](WORKSPACES.md).
+## Capabilities, and the workspaces made of them
+
+What an organisation builds is a tree of **capabilities**. A capability that
+names a repository is a leaf that **ships**; one that names no repository
+**groups** the capabilities beneath it. The tree has exactly one root and may go
+to any depth. Jira projects and team names belong to a capability, not to a
+repository and not to a workspace.
+
+The map lives in `singularity/capabilities.yml` in the **lead repository**, with
+the repositories it refers to declared in that repository's
+`singularity/portfolio.yml`. Editing it checks nothing out: the lead is cloned to
+a temporary directory, edited, pushed and discarded.
+
+```
+singularity-flow capability map payments-api --lead https://github.com/acme/platform.git \
+  --name "Payments API" --kind service --parent payments --repository https://github.com/acme/api.git
+```
+
+The first capability mapped into a repository governs it — `singularity/` is
+written, the repository is declared in its own portfolio, and the orphan `state`
+branch is named, all in the same operation. There is no separate setup step, and
+no order in which you need a map before you can make one.
+
+A **workspace** is a set of capabilities and a local working directory. The
+repositories it clones are what those capabilities ship from, derived rather than
+listed again. One chosen capability is the **lead capability**; the repository it
+ships from is where the orphan `state` branch is created when the workspace is
+initialised.
+
+```
+singularity-flow workspace create --local --id commerce-work \
+  --organisation https://github.com/acme/platform.git \
+  --capability commerce --lead-capability payments-api \
+  --base ~/work --confirm commerce-work
+```
+
+Choosing a capability includes everything beneath it, the way choosing a
+directory includes its contents — and the selection is recorded rather than its
+expansion, so a capability added to the map later is picked up by a workspace
+that asked for its parent. No two workspaces may occupy the same directory.
+Workspace setup does not require Jira. See [WORKSPACES.md](WORKSPACES.md).
+
+The editor extension has the same two screens: **Map a Capability** and **New
+Workspace**. Both work from a window with no repository open, which is the state
+anybody starting out is in.
 
 From Copilot, `/sflow-workspaces` lists saved contexts and `/sflow-workspace`
 selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`

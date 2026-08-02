@@ -956,8 +956,7 @@ test('capabilities are picked from a dropdown, and each pick shows what it drags
 test('the state branch is stated as a consequence, not asked for as a field', () => {
   const html = workspaceFormHtml(withMap(['payments']));
   assert.doesNotMatch(html, /data-draft="state-branch"/);
-  assert.match(html, /orphan\s+<code>state<\/code> branch is created/);
-  assert.match(html, /in <code>api<\/code>/);
+  assert.match(html, /orphan\s+<code>state<\/code> branch is created\s+in <code>api<\/code> and pushed/);
 });
 
 test('the workspace form asks for a directory, an organisation and capabilities — no repositories', () => {

@@ -1193,3 +1193,55 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   assert.match(readFileSync(path.join(workspaceRoot, 'workspace.json'), 'utf8'), /Commerce platform/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
+
+/** Every command package.json contributes. The palette offers all of them, always. */
+function contributedCommands() {
+  const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
+  return manifest.contributes.commands.map((command) => command.command);
+}
+
+test('every contributed command exists, whatever state the window is in', async (t) => {
+  if (!requireBundle(t)) return;
+  // They were registered after activation had decided it had a repository, so in a window without
+  // one the palette advertised thirteen commands that did not exist and running one reported
+  // "command not found" — which describes the extension's internals and nothing about the folder.
+  const states = [
+    ['no folder open', undefined],
+    ['a folder that is not a Flow repository', [{ uri: { fsPath: await mkdtemp(path.join(os.tmpdir(), 'sflow-plain-')) } }]]
+  ];
+
+  for (const [label, folders] of states) {
+    const { api, registered } = stubVscode();
+    api.workspace.workspaceFolders = folders;
+    const extension = loadExtension(api);
+    await extension.activate(context());
+
+    const missing = contributedCommands().filter((id) => !registered.commands.has(id));
+    assert.deepEqual(missing, [], `${label}: ${missing.join(', ')} would report "command not found"`);
+
+    // And running one says why — in exactly the words the view is showing, so a command and the
+    // tree can never disagree about what is wrong with the folder.
+    const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+    const [explanation] = provider.getChildren();
+    const detail = provider.getChildren(explanation)[0].label;
+    assert.ok(detail, `${label}: the tree explains itself`);
+
+    await registered.commands.get('singularityFlow.openCapabilities')();
+    assert.equal(registered.panels.length, 0, `${label}: nothing was opened`);
+    assert.equal(registered.warnings.at(-1), `Singularity Flow: ${detail}`);
+  }
+});
+
+test('with a repository, every contributed command actually does something', async (t) => {
+  if (!requireBundle(t)) return;
+  // The other half: a command registered but never given a handler would be silently inert, which
+  // is the same defect wearing a different face.
+  const { registered } = await activated();
+  const missing = contributedCommands().filter((id) => !registered.commands.has(id));
+  assert.deepEqual(missing, []);
+
+  await registered.commands.get('singularityFlow.openCapabilities')();
+  assert.ok(registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities'),
+    'openCapabilities opened its panel rather than warning');
+  assert.doesNotMatch(registered.warnings.join(' '), /Open the repository that contains/);
+});

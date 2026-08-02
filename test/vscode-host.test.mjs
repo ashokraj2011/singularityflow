@@ -1351,3 +1351,21 @@ test('the sidebar lists workspaces even with no repository open', async (t) => {
   // Its lead repository is what opening it means.
   assert.match(rows[0].openPath, /workspaces\/commerce\/repos\/platform/);
 });
+
+test('the status dashboard opens and reports the repository it is actually in', async (t) => {
+  if (!requireBundle(t)) return;
+  // Everything on it was already available from doctor, inbox, initiative status and the agent
+  // lock — four commands whose answers a person had to hold in their head at once.
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openDashboard')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.dashboard');
+  assert.ok(panel, 'a status panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.match(panel.webview.html, /Status/);
+  // Real diagnostics from a real subprocess, not a fixture.
+  assert.match(panel.webview.html, /diagnostics pass|Would stop governed work/);
+  assert.match(panel.webview.html, /Approvals/);
+  assert.match(panel.webview.html, /Governance/);
+});

@@ -266,7 +266,20 @@ export interface DesktopSnapshot {
     assurance?: Record<string, string>;
   };
   session?: { persona?: string; workId?: string | null } | null;
-  diagnostics?: unknown;
+  /** `doctor`, as the engine reports it: what would stop governed work from running here. */
+  diagnostics?: {
+    repository?: string;
+    branch?: string;
+    healthy?: boolean;
+    counts?: Record<string, number>;
+    checks?: Array<{ id: string; status: string; message: string; fix?: string | null }>;
+  };
+  /** Approvals waiting on this person, as `inbox` reports them. */
+  approvalInbox?: { count?: number; fetched?: boolean; items?: unknown[] };
+  /** Whether each installed agent still matches the version it was locked to. */
+  agentStatus?: Array<{ id: string; scope: string; status: string; locked?: boolean; sourceChanged?: boolean }>;
+  /** The append-only workflow ledger, which is what makes progress recoverable from Git. */
+  ledger?: { enabled?: boolean; config?: { branch?: string } };
   [key: string]: unknown;
 }
 

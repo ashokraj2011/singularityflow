@@ -83,6 +83,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.openDashboard",
+        "title": "Singularity Flow: Status",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"
@@ -164,6 +169,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "singularityFlow.openDashboard",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@1"
+        },
+        {
           "command": "singularityFlow.openCapabilities",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@0"
@@ -176,32 +186,32 @@
         {
           "command": "singularityFlow.openApprovals",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "singularityFlow.openStories",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "singularityFlow.openImpact",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@3"
+          "group": "navigation@4"
         },
         {
           "command": "singularityFlow.openJourney",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@4"
+          "group": "navigation@5"
         },
         {
           "command": "singularityFlow.openReconciliation",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@5"
+          "group": "navigation@6"
         },
         {
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@6"
+          "group": "navigation@7"
         },
         {
           "command": "singularityFlow.openWorkspaces",

@@ -192,7 +192,7 @@ export class DesignerPanel {
       if (!picked?.length) return;
       this.error = await this.onMessage({
         type: 'run',
-        command: ['lifecycle', 'profile', 'edit', profile.id, '--phases', picked.map((entry) => entry.description).join(',')],
+        command: ['workflow', 'edit', profile.id, '--phases', picked.map((entry) => entry.description).join(',')],
         title: `Changing ${profile.label}`
       });
       return this.render();
@@ -211,7 +211,7 @@ export class DesignerPanel {
       if (!picked?.length) return;
       this.error = await this.onMessage({
         type: 'run',
-        command: ['lifecycle', 'profile', 'create', id.trim(), '--phases', picked.map((entry) => entry.description).join(',')],
+        command: ['workflow', 'create', id.trim(), '--phases', picked.map((entry) => entry.description).join(',')],
         title: `Creating ${id.trim()}`
       });
       return this.render();
@@ -227,14 +227,14 @@ export class DesignerPanel {
       });
       this.error = await this.onMessage({
         type: 'run',
-        command: ['lifecycle', 'phase', 'create', id.trim(), ...(label?.trim() ? ['--label', label.trim()] : [])],
+        command: ['workflow', 'phase', 'add', id.trim(), ...(label?.trim() ? ['--label', label.trim()] : [])],
         title: `Creating ${id.trim()}`
       });
       // Said here as well as by the CLI: a new phase runs nowhere until a profile lists it, and
       // somebody who just created one from this screen is about to wonder where it went.
       if (!this.error) {
         void vscode.window.showInformationMessage(
-          `Phase ${id.trim()} created. It runs nowhere until a profile lists it — use "Change which phases this profile runs".`);
+          `Phase ${id.trim()} created. It runs nowhere until a workflow lists it — use "Change which phases this workflow runs".`);
       }
       return this.render();
     }

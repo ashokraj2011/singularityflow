@@ -78,12 +78,12 @@ function phasesHtml(profiles: Profile[], selected: string | null, standing: Stan
     <ul class="chain">${profile.phases.map((phase) => `<li>${escape(phase.label)}</li>`).join('')}</ul>
     <p class="${standing.length ? 'blockers' : 'muted'}">${escape(consequence(standing, portfolioPath))}</p>
     <p>
-      <button class="secondary" data-reorder="1">Change which phases this profile runs</button>
-      <button class="secondary" data-new-profile="1">New profile</button>
+      <button class="secondary" data-reorder="1">Change which phases this workflow runs</button>
+      <button class="secondary" data-new-profile="1">New workflow</button>
       <button class="secondary" data-new-phase="1">New phase</button>
     </p>
-    <p class="muted">A profile is an ordered list of phases; a phase is what that stage produces and
-      who signs it off. Changing either is governed configuration, so it is written through the
+    <p class="muted">A workflow is an ordered list of phases; a phase is what that stage produces
+      and who signs it off. Changing either is governed configuration, so it is written through the
       engine and validated before it lands.</p>
     <p><button class="secondary" data-open-file="${escape(portfolioPath)}">Edit ${escape(portfolioPath)}</button></p>
   </section>

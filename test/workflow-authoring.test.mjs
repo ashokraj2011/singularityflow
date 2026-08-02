@@ -186,9 +186,9 @@ test('the designer creates and reorders through the engine, not its own writer',
   for (const action of ['data-reorder', 'data-new-profile', 'data-new-phase']) {
     assert.match(page, new RegExp(action), `${action} is offered`);
   }
-  assert.match(panel, /'lifecycle', 'profile', 'edit', profile\.id, '--phases'/);
-  assert.match(panel, /'lifecycle', 'profile', 'create', id\.trim\(\), '--phases'/);
-  assert.match(panel, /'lifecycle', 'phase', 'create', id\.trim\(\)/);
+  assert.match(panel, /'workflow', 'edit', profile\.id, '--phases'/);
+  assert.match(panel, /'workflow', 'create', id\.trim\(\), '--phases'/);
+  assert.match(panel, /'workflow', 'phase', 'add', id\.trim\(\)/);
 
   // Run through the governed action path, so a refusal comes back from the engine rather than being
   // decided in the editor.
@@ -203,5 +203,37 @@ test('the designer creates and reorders through the engine, not its own writer',
   // Every phase the portfolio defines, not just the ones already in the profile: picking from those
   // could only ever remove them.
   assert.match(panel, /private everyPhase\(/);
-  assert.match(panel, /It runs nowhere until a profile lists it/);
+  assert.match(panel, /It runs nowhere until a workflow lists it/);
+});
+
+/**
+ * One noun for one concept.
+ *
+ * A workflow is a named, ordered list of phases. The product had two vocabularies for that —
+ * `workTypes` governing Stories, `initiativeProfiles` governing Initiatives — and I added a third,
+ * `lifecycle`, which was a word for something that already had two. Whether a workflow governs a
+ * Story or an Initiative is an attribute of it, not a different kind of thing, so it is a column.
+ */
+test('workflow is the only noun for a named list of phases', async () => {
+  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  const registry = await readFile(new URL('../src/command-registry.mjs', import.meta.url), 'utf8');
+
+  // The invented noun is gone, from the dispatch and from the registry that guards it.
+  assert.doesNotMatch(registry, /\['lifecycle'\]/);
+  assert.doesNotMatch(cli, /lifecycleAuthoringCommand/);
+  assert.doesNotMatch(cli, /singularity-flow lifecycle/);
+
+  // Authoring lives under the noun that already existed.
+  assert.match(cli, /if \(\['create', 'edit'\]\.includes\(subcommand\)\) \{/);
+  assert.match(cli, /if \(subcommand === 'phase'\) \{/);
+  assert.match(cli, /Use workflow phase add\|edit\./);
+
+  // `add` already meant "install a packaged workflow", so making one from chosen phases is
+  // `create`. Both are documented together so the difference is visible where it matters.
+  assert.match(cli, /add installs a packaged workflow; create makes one from phases you choose/);
+
+  // One list, both kinds, with the level as a column.
+  assert.match(cli, /governs: 'story'/);
+  assert.match(cli, /governs: 'initiative'/);
+  assert.match(cli, /\{ key: 'governs', label: 'GOVERNS' \}/);
 });

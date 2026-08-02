@@ -1223,6 +1223,9 @@ export async function rememberWorkspace(file, workspace, status = null) {
   });
   return withRegistryMutation(file, async () => {
     const current = await readWorkspaceRegistry(file);
+    // Keyed by path, not by identifier: copying a workspace beside itself keeps its id, and both
+    // copies are real workspaces. The identifier is therefore not unique, which is why anything
+    // resolving by id has to say so when the answer is ambiguous rather than pick one.
     const workspaces = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_WORKSPACES);
     await atomicJson(file, { schemaVersion: 1, workspaces });
     return workspaces;

@@ -714,6 +714,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });
         return null;
       }
+      // Authoring a lifecycle runs the same command the CLI runs, so the validation that refuses an
+      // incoherent profile is one implementation rather than two that drift.
+      if (message.type === 'run') {
+        const ran = await runGovernedAction(client, { command: message.command, title: message.title }, output);
+        if (!ran) return 'The lifecycle was not changed. The output channel has the engine\'s reason.';
+        await store.refresh();
+        return null;
+      }
       // Written through the engine, which validates before it writes — a template is governed
       // configuration like any other, and the editor does not get its own way past that.
       output.appendLine(`\n$ singularity-flow desktop save ${message.path}`);

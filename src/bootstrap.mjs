@@ -26,7 +26,7 @@ import path from 'node:path';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { SingularityFlowError, run } from './util.mjs';
+import { SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
 import { initializeDefinition } from './config.mjs';
 import { CAPABILITIES_PATH, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
@@ -83,7 +83,7 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
     }
   }
 
-  await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
+  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
   return { declared: repositoryId };
 }
 

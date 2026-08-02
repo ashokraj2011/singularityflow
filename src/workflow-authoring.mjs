@@ -21,7 +21,7 @@ import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 
 /** Identifiers are kebab-case throughout this product; a lifecycle is not the place to differ. */
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -49,7 +49,7 @@ async function loadDocument(root) {
  */
 async function saveDocument(file, document) {
   validatePortfolio(document.toJS());
-  await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
+  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 }
 
 /**

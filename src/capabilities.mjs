@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { exists, SingularityFlowError } from './util.mjs';
+import { exists, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 
 export const CAPABILITIES_PATH = 'singularity/capabilities.yml';
 
@@ -329,7 +329,7 @@ export async function editCapability(root, capabilityId, changes = {}, { mode = 
   // Unpadded flow collections, because that is how this file is written by hand and by the starter
   // template. Without it every `[a, b]` in the file comes back as `[ a, b ]` and one edit shows up in
   // review as a diff against lines nobody touched.
-  await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
+  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
   return { path: CAPABILITIES_PATH, capabilityId, removed: mode === 'remove', capabilities: after.capabilities };
 }
 

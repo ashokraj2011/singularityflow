@@ -19,7 +19,7 @@ import os from 'node:os';
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { SingularityFlowError, run, readJson } from './util.mjs';
+import { SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
 import {
   CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
 } from './capabilities.mjs';
@@ -207,7 +207,7 @@ export async function mapCapability(leadUrl, {
           url, defaultBranch: branch, required: true
         }));
       }
-      await writeFile(file, portfolio.toString({ flowCollectionPadding: false }), 'utf8');
+      await writeFile(file, portfolio.toString(YAML_OUTPUT), 'utf8');
     }
     const repositoryId = repositoryIds[0] ?? null;
     // The lead is where this capability's governed state and world model live, so with more than
@@ -250,7 +250,7 @@ export async function mapCapability(leadUrl, {
       ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8'))
       : null;
     validateCapabilities(document.toJS(), portfolio);
-    await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
+    await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 
     return {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,

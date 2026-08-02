@@ -169,3 +169,39 @@ test('composing a phase says when the session agent is not what it expects', asy
   // Reported through the same channel as every other grounding warning, not a separate one.
   assert.match(source, /\.\.\.epicSources\.warnings, \.\.\.agentWarnings\]/);
 });
+
+/**
+ * The Designer authors the lifecycle through the engine.
+ *
+ * It used to render the phase chain and link out to raw YAML — a viewer with an "open the file"
+ * button. The actions now run the same commands the CLI runs, so the validation that refuses an
+ * incoherent profile is one implementation rather than two that drift.
+ */
+test('the designer creates and reorders through the engine, not its own writer', async () => {
+  const panel = await readFile(new URL('../apps/vscode/src/views/designer.ts', import.meta.url), 'utf8');
+  const page = await readFile(new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url), 'utf8');
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+
+  // Three actions on the screen, and each posts intent rather than content.
+  for (const action of ['data-reorder', 'data-new-profile', 'data-new-phase']) {
+    assert.match(page, new RegExp(action), `${action} is offered`);
+  }
+  assert.match(panel, /'lifecycle', 'profile', 'edit', profile\.id, '--phases'/);
+  assert.match(panel, /'lifecycle', 'profile', 'create', id\.trim\(\), '--phases'/);
+  assert.match(panel, /'lifecycle', 'phase', 'create', id\.trim\(\)/);
+
+  // Run through the governed action path, so a refusal comes back from the engine rather than being
+  // decided in the editor.
+  assert.match(panel, /\| \{ type: 'run'; command: string\[\]; title: string \}/);
+  assert.match(extension, /if \(message\.type === 'run'\) \{/);
+  assert.match(extension, /runGovernedAction\(client, \{ command: message\.command/);
+
+  // Phases are picked and ordered, because that is what choosing a lifecycle is — not a text field
+  // of comma-separated identifiers this screen is already showing.
+  assert.match(panel, /canPickMany: true/);
+  assert.match(panel, /Chosen in the order you pick them/);
+  // Every phase the portfolio defines, not just the ones already in the profile: picking from those
+  // could only ever remove them.
+  assert.match(panel, /private everyPhase\(/);
+  assert.match(panel, /It runs nowhere until a profile lists it/);
+});

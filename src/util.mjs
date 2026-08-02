@@ -240,3 +240,24 @@ export function table(rows, columns) {
   const line = (row) => columns.map((column, index) => String(row[column.key] ?? '').padEnd(widths[index])).join('  ');
   return [line(Object.fromEntries(columns.map((column) => [column.key, column.label]))), widths.map((width) => '-'.repeat(width)).join('  '), ...rows.map(line)].join('\n');
 }
+
+/**
+ * How this product re-emits YAML it has edited.
+ *
+ * One rule: an edit's diff should be the lines the edit touched, and nothing else. Governed
+ * configuration lives in Git so it can be reviewed, and a diff nobody can read is a diff nobody
+ * reads.
+ *
+ * `lineWidth: 0` disables folding. The default wraps at eighty columns, so a file full of prose —
+ * the `question:` lines explaining an applicability policy, a long `writeOperations` list — comes
+ * back re-wrapped, and adding one phase to one profile showed up in review as twelve hundred
+ * changed lines.
+ *
+ * `flowCollectionPadding: false` is the lesser of two evils rather than a clean answer. These files
+ * mix the two conventions — the portfolio template has 184 unpadded flow sequences `[a, b]` and 165
+ * padded flow maps `{ a: b }` — and YAML controls both with one setting, so whichever way it goes
+ * about a hundred and sixty lines are rewritten by any edit. Off preserves the larger group. The
+ * clean fix is for the templates to pick one convention, which is a change to make deliberately
+ * rather than as a side effect of an unrelated edit.
+ */
+export const YAML_OUTPUT = Object.freeze({ flowCollectionPadding: false, lineWidth: 0 });

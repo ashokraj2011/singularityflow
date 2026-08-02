@@ -77,6 +77,14 @@ function phasesHtml(profiles: Profile[], selected: string | null, standing: Stan
     </p>
     <ul class="chain">${profile.phases.map((phase) => `<li>${escape(phase.label)}</li>`).join('')}</ul>
     <p class="${standing.length ? 'blockers' : 'muted'}">${escape(consequence(standing, portfolioPath))}</p>
+    <p>
+      <button class="secondary" data-reorder="1">Change which phases this profile runs</button>
+      <button class="secondary" data-new-profile="1">New profile</button>
+      <button class="secondary" data-new-phase="1">New phase</button>
+    </p>
+    <p class="muted">A profile is an ordered list of phases; a phase is what that stage produces and
+      who signs it off. Changing either is governed configuration, so it is written through the
+      engine and validated before it lands.</p>
     <p><button class="secondary" data-open-file="${escape(portfolioPath)}">Edit ${escape(portfolioPath)}</button></p>
   </section>
 
@@ -168,7 +176,7 @@ export function designerHtml(
 export const DESIGNER_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-tab],[data-open-file],[data-open-template],[data-edit-phase],[data-create-template]');
+    const target = event.target.closest('[data-tab],[data-open-file],[data-open-template],[data-edit-phase],[data-create-template],[data-reorder],[data-new-profile],[data-new-phase]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -176,6 +184,9 @@ export const DESIGNER_SCRIPT = `
     else if (data.openFile) vscode.postMessage({ type: 'open', path: data.openFile });
     else if (data.openTemplate) vscode.postMessage({ type: 'open-template', template: data.openTemplate });
     else if (data.editPhase) vscode.postMessage({ type: 'edit-phase', phase: data.editPhase });
+    else if (data.reorder) vscode.postMessage({ type: 'reorder-phases' });
+    else if (data.newProfile) vscode.postMessage({ type: 'new-profile' });
+    else if (data.newPhase) vscode.postMessage({ type: 'new-phase' });
     else if (data.createTemplate) {
       const name = document.querySelector('[data-new-template]');
       if (name && name.value.trim()) vscode.postMessage({ type: 'create-template', name: name.value.trim() });

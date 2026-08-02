@@ -13,6 +13,7 @@ import { designerHtml, DESIGNER_SCRIPT, type DesignerTab } from './designer-page
 import { buildProfiles, buildTemplateUsage, standingOn } from './designer-model.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
+import type { DesktopSnapshot } from '../cli/snapshot.ts';
 
 /** The shape every artifact template in this repository already follows. */
 function starterTemplate(name: string): string {
@@ -51,7 +52,11 @@ The boundary, so it is on the record rather than relitigated.
 
 export type DesignerMessage =
   | { type: 'open'; path: string }
-  | { type: 'save'; path: string; content: string };
+  | { type: 'save'; path: string; content: string }
+  // Authoring goes through the engine like every other governed write: the panel says what to run,
+  // the extension runs it, and the validation that refuses a bad lifecycle is the same validation
+  // the CLI uses. The editor does not get its own way past it.
+  | { type: 'run'; command: string[]; title: string };
 
 export class DesignerPanel {
   private static current: DesignerPanel | null = null;
@@ -99,6 +104,30 @@ export class DesignerPanel {
     return DesignerPanel.current;
   }
 
+  /** The profile the screen is showing, which is what the authoring actions act on. */
+  private currentProfile(snapshot: DesktopSnapshot | null): { id: string; label: string; phases: string[] } | null {
+    if (!snapshot) return null;
+    const profiles = buildProfiles(snapshot);
+    const chosen = profiles.find((entry) => entry.id === this.profile) ?? profiles[0];
+    return chosen
+      ? { id: chosen.id, label: chosen.label, phases: chosen.phases.map((phase) => phase.id) }
+      : null;
+  }
+
+  /**
+   * Every phase the portfolio defines, not only the ones this profile runs.
+   *
+   * Choosing from the profile's own phases could only ever remove them; the point of the picker is
+   * to reach the ones it does not run yet.
+   */
+  private everyPhase(snapshot: DesktopSnapshot | null): { id: string; label: string }[] {
+    const portfolio = snapshot?.portfolio as {
+      initiativePhases?: Record<string, { label?: string }>;
+    } | undefined;
+    return Object.entries(portfolio?.initiativePhases ?? {})
+      .map(([id, phase]) => ({ id, label: phase?.label ?? id }));
+  }
+
   /** The template file a portfolio-declared template name resolves to, or null when unknown. */
   private resolveTemplate(declared: string): string | null {
     const templates = this.store.current.snapshot?.templates ?? [];
@@ -142,6 +171,71 @@ export class DesignerPanel {
       const resolved = this.resolveTemplate(message.template);
       if (resolved) await this.onMessage({ type: 'open', path: resolved });
       else this.error = `No file in this repository matches the template '${message.template}'.`;
+      return this.render();
+    }
+
+    // Choosing which phases a profile runs is genuinely a pick-and-order problem, which is what a
+    // QuickPick is for. The alternative — a text field of comma-separated ids — asks somebody to
+    // remember the identifiers of things this screen is already showing them.
+    if (message?.type === 'reorder-phases') {
+      const profile = this.currentProfile(snapshot);
+      if (!profile) return;
+      const every = this.everyPhase(snapshot);
+      const picked = await vscode.window.showQuickPick(
+        every.map((phase) => ({
+          label: phase.label,
+          description: phase.id,
+          picked: profile.phases.includes(phase.id)
+        })),
+        { canPickMany: true, title: `Which phases does ${profile.label} run?`,
+          placeHolder: 'Chosen in the order you pick them' });
+      if (!picked?.length) return;
+      this.error = await this.onMessage({
+        type: 'run',
+        command: ['lifecycle', 'profile', 'edit', profile.id, '--phases', picked.map((entry) => entry.description).join(',')],
+        title: `Changing ${profile.label}`
+      });
+      return this.render();
+    }
+
+    if (message?.type === 'new-profile') {
+      const id = await vscode.window.showInputBox({
+        title: 'New profile', prompt: 'Identifier, lower-case kebab-case', placeHolder: 'discovery-first'
+      });
+      if (!id?.trim()) return;
+      const every = this.everyPhase(snapshot);
+      const picked = await vscode.window.showQuickPick(
+        every.map((phase) => ({ label: phase.label, description: phase.id })),
+        { canPickMany: true, title: `Which phases does ${id.trim()} run?`,
+          placeHolder: 'Chosen in the order you pick them' });
+      if (!picked?.length) return;
+      this.error = await this.onMessage({
+        type: 'run',
+        command: ['lifecycle', 'profile', 'create', id.trim(), '--phases', picked.map((entry) => entry.description).join(',')],
+        title: `Creating ${id.trim()}`
+      });
+      return this.render();
+    }
+
+    if (message?.type === 'new-phase') {
+      const id = await vscode.window.showInputBox({
+        title: 'New phase', prompt: 'Identifier, lower-case kebab-case', placeHolder: 'market-validation'
+      });
+      if (!id?.trim()) return;
+      const label = await vscode.window.showInputBox({
+        title: 'New phase', prompt: 'What this stage is called', value: id.trim()
+      });
+      this.error = await this.onMessage({
+        type: 'run',
+        command: ['lifecycle', 'phase', 'create', id.trim(), ...(label?.trim() ? ['--label', label.trim()] : [])],
+        title: `Creating ${id.trim()}`
+      });
+      // Said here as well as by the CLI: a new phase runs nowhere until a profile lists it, and
+      // somebody who just created one from this screen is about to wonder where it went.
+      if (!this.error) {
+        void vscode.window.showInformationMessage(
+          `Phase ${id.trim()} created. It runs nowhere until a profile lists it — use "Change which phases this profile runs".`);
+      }
       return this.render();
     }
 

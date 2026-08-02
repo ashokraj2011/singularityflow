@@ -1869,3 +1869,90 @@ test('a tree node resolves back to the thing it stands for', () => {
   assert.equal(workspacePathOf({ id: 'workspace:/work/payments:lead' }), '/work/payments');
   assert.equal(workspacePathOf({ id: 'capability:commerce' }), null);
 });
+
+const { buildDashboard, dashboardHealth } = await import(source('views/dashboard-model.ts'));
+
+const DIAGNOSTICS = {
+  repository: '/work/platform', branch: 'SF-1',
+  checks: [
+    { id: 'node', status: 'pass', message: 'Node.js 22.14.0', fix: null },
+    { id: 'git', status: 'pass', message: 'git 2.43', fix: null },
+    { id: 'world-model', status: 'warn', message: 'No world model has been built.', fix: 'singularity-flow wm build' },
+    { id: 'approvers', status: 'fail', message: 'No approval authority has a member.', fix: 'Edit singularity/portfolio.yml' },
+    { id: 'jira', status: 'skip', message: 'Jira is not configured.', fix: null }
+  ]
+};
+
+test('the dashboard leads with what would stop work, worst first', () => {
+  // A dashboard that opens with a row of counts teaches people to skim past the one line that
+  // mattered. Failures come first, and passing checks are a number rather than a list.
+  const dashboard = buildDashboard({ ...snapshot, diagnostics: DIAGNOSTICS });
+  assert.deepEqual(dashboard.failing.map((check) => check.id), ['approvers', 'world-model', 'jira']);
+  assert.equal(dashboard.passing, 2);
+  assert.equal(dashboard.repository, '/work/platform');
+  assert.equal(dashboardHealth(dashboard), 'fail');
+  assert.equal(dashboard.quiet, false);
+});
+
+test('a healthy repository with nothing waiting says exactly that', () => {
+  const dashboard = buildDashboard({
+    ...snapshot,
+    initiative: null,
+    diagnostics: { repository: '/work/platform', branch: 'main', checks: [{ id: 'node', status: 'pass', message: 'ok' }] },
+    approvalInbox: { count: 0, fetched: true },
+    agentStatus: [],
+    ledger: { enabled: true, config: { branch: 'state' } }
+  });
+  assert.deepEqual(dashboard.failing, []);
+  assert.equal(dashboard.quiet, true);
+  assert.equal(dashboardHealth(dashboard), 'skip', 'no Epic is a state, not a fault');
+});
+
+test('anything waiting on a person is surfaced, because it will not resolve itself', () => {
+  const dashboard = buildDashboard({ ...snapshot, approvalInbox: { count: 3, fetched: true } });
+  const approvals = dashboard.sections.find((section) => section.id === 'approvals');
+  assert.equal(approvals.status, 'warn');
+  assert.match(approvals.headline, /3 approvals are waiting on you/);
+  assert.equal(dashboard.quiet, false, 'something waiting is not quiet');
+
+  const unread = buildDashboard({ ...snapshot, approvalInbox: { count: 0, fetched: false } });
+  assert.match(unread.sections.find((section) => section.id === 'approvals').detail.join(' '),
+    /counts only what is already local/);
+});
+
+test('an agent that drifted from what it was locked to is reported', () => {
+  const dashboard = buildDashboard({
+    ...snapshot,
+    agentStatus: [
+      { id: 'sflow-workflow', scope: 'plugin', status: 'locked', locked: true, sourceChanged: true },
+      { id: 'reviewer', scope: 'repository', status: 'local-only', locked: false }
+    ]
+  });
+  const agents = dashboard.sections.find((section) => section.id === 'agents');
+  assert.equal(agents.status, 'warn');
+  assert.match(agents.headline, /2 agents, 1 changed since being locked/);
+  assert.match(agents.detail.join(' '), /sflow-workflow has changed/);
+  assert.match(agents.detail.join(' '), /1 not yet locked/);
+});
+
+test('a repository with no state branch says what that costs', () => {
+  // Not an error — a repository can be governed without one. The difference decides whether
+  // workflow progress is recoverable from Git, which is worth stating rather than implying.
+  const dashboard = buildDashboard({ ...snapshot, ledger: { enabled: false } });
+  const governance = dashboard.sections.find((section) => section.id === 'governance');
+  assert.equal(governance.status, 'skip');
+  assert.match(governance.headline, /not recorded in Git/);
+
+  const enabled = buildDashboard({ ...snapshot, ledger: { enabled: true, config: { branch: 'state' } } });
+  assert.match(enabled.sections.find((section) => section.id === 'governance').headline, /recorded on state/);
+});
+
+test('the Epic section reports where it has got to, and what is holding it', () => {
+  const dashboard = buildDashboard(snapshot);
+  const epic = dashboard.sections.find((section) => section.id === 'epic');
+  assert.match(epic.headline, /is in |phases approved/);
+  assert.match(epic.detail.join(' '), /phases approved/);
+
+  const none = buildDashboard({ ...snapshot, initiative: null });
+  assert.match(none.sections.find((section) => section.id === 'epic').headline, /No Epic is checked out/);
+});

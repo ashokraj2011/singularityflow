@@ -22,6 +22,7 @@ import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
 import { EpicPanel } from './views/epic-panel.ts';
+import { DashboardPanel } from './views/dashboard.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
@@ -61,7 +62,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openApprovals', 'singularityFlow.startEpic', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
-    'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability'
+    'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
+    'singularityFlow.openDashboard'
   ];
   /**
    * The two navigation trees, registered before anything can go wrong.
@@ -594,6 +596,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
     'singularityFlow.showImpact': () => showImpact(client, output),
+    'singularityFlow.openDashboard': () => DashboardPanel.show(context, store),
     // Both open the same screen, positioned: adding lands on the form for a new capability under
     // whatever was clicked, editing lands on the capability itself.
     'singularityFlow.addCapability': ((node?: TreeNode) => {

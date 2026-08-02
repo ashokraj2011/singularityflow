@@ -35,9 +35,15 @@ import {
   buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf
 } from './views/navigation-trees.ts';
 
+/** Injected by esbuild: the commit and time this bundle was built from. */
+declare const __SFLOW_BUILD__: string;
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
+  // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
+  // The version does not change between development reinstalls, so it cannot answer this.
+  output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
 
   /**
    * Register the view with a fixed explanation and stop.

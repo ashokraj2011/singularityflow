@@ -1956,3 +1956,114 @@ test('the Epic section reports where it has got to, and what is holding it', () 
   const none = buildDashboard({ ...snapshot, initiative: null });
   assert.match(none.sections.find((section) => section.id === 'epic').headline, /No Epic is checked out/);
 });
+
+const { buildProfiles, buildTemplateUsage, consequence, standingOn } =
+  await import(source('views/designer-model.ts'));
+const { designerHtml } = await import(source('views/designer-page.ts'));
+
+const DESIGN_SNAPSHOT = {
+  portfolioPath: 'singularity/portfolio.yml',
+  definitionPath: 'singularity/workflow.yml',
+  portfolio: {
+    initiativeProfiles: {
+      'enterprise-delivery': { label: 'Enterprise delivery', phases: ['discover-define', 'delivery'] }
+    },
+    initiativePhases: {
+      'discover-define': {
+        label: 'Discover & Define',
+        outputs: [
+          { id: 'business-case', label: 'Business case', required: true,
+            template: 'initiatives/business-case.md',
+            approval: { mode: 'individual', authorities: ['product-approvers'], minimum: 1 } },
+          { id: 'source-catalog', label: 'Source catalog', required: false, template: null, generator: 'source-catalog' }
+        ],
+        checklist: [{ id: 'business-case-exists', label: 'Business case exists' }],
+        bundleApproval: { mode: 'bundle', chain: [{ authority: 'product-approvers', label: 'Product Governance' }] }
+      },
+      delivery: { label: 'Delivery', outputs: [], checklist: [] }
+    }
+  },
+  templates: [
+    { path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md', bytes: 2185 },
+    { path: 'singularity/templates/initiatives/unused-draft.md', name: 'unused-draft.md', bytes: 400 }
+  ],
+  initiatives: [
+    { id: 'SF-1', title: 'One-tap checkout', status: 'in_progress', currentPhase: 'discover-define',
+      pinnedTemplates: [{ path: 'singularity/templates/initiatives/business-case.md', sha256: 'abc' }] },
+    { id: 'SF-0', title: 'Closed thing', status: 'complete',
+      pinnedTemplates: [{ path: 'singularity/templates/initiatives/business-case.md', sha256: 'abc' }] }
+  ]
+};
+
+test('the designer reads a profile as the ordered phases it actually runs', () => {
+  const [profile] = buildProfiles(DESIGN_SNAPSHOT);
+  assert.equal(profile.label, 'Enterprise delivery');
+  assert.deepEqual(profile.phases.map((phase) => phase.id), ['discover-define', 'delivery']);
+  assert.deepEqual(profile.phases.map((phase) => phase.order), [0, 1]);
+
+  const [discover] = profile.phases;
+  assert.equal(discover.outputs.length, 2);
+  assert.equal(discover.outputs[0].template, 'initiatives/business-case.md');
+  assert.equal(discover.outputs[1].generator, 'source-catalog', 'generated outputs have no template');
+  assert.equal(discover.bundleApproval.chain[0].label, 'Product Governance');
+});
+
+test('a template knows what points at it and who is standing on it', () => {
+  // The files cannot tell you either. That is the whole reason this is a screen.
+  const usage = buildTemplateUsage(DESIGN_SNAPSHOT);
+  const businessCase = usage.find((entry) => entry.name === 'business-case.md');
+  assert.deepEqual(businessCase.usedBy, [
+    { profile: 'enterprise-delivery', phase: 'discover-define', output: 'business-case' }
+  ]);
+  // Only Epics still running: a closed one has nothing left to stop.
+  assert.deepEqual(businessCase.standing.map((entry) => entry.id), ['SF-1']);
+
+  const unused = usage.find((entry) => entry.name === 'unused-draft.md');
+  assert.deepEqual(unused.usedBy, [], 'listed rather than hidden — it may be about to be wired up');
+  assert.deepEqual(unused.standing, []);
+});
+
+test('editing the portfolio stops every running Epic, and the screen says so first', () => {
+  // An Epic pins the portfolio hash at start and validates against those exact bytes for the rest
+  // of its life. Editing it does not change the Epic — it stops it, at whatever moment somebody
+  // next runs a phase.
+  const standing = standingOn(DESIGN_SNAPSHOT, 'singularity/portfolio.yml');
+  assert.deepEqual(standing.map((entry) => entry.id), ['SF-1']);
+  assert.match(consequence(standing, 'singularity/portfolio.yml'),
+    /1 running Epic pinned .*it stops it at the next phase/);
+
+  const template = standingOn(DESIGN_SNAPSHOT, 'singularity/templates/initiatives/business-case.md');
+  assert.deepEqual(template.map((entry) => entry.id), ['SF-1']);
+
+  // A template nobody pinned is a free edit, and saying so is as useful as the warning.
+  const free = standingOn(DESIGN_SNAPSHOT, 'singularity/templates/initiatives/unused-draft.md');
+  assert.deepEqual(free, []);
+  assert.match(consequence(free, 'unused-draft.md'), /changes what the next Epic starts from and nothing else/);
+});
+
+test('the phases tab shows each artifact, whether it is required, and what approves it', () => {
+  const html = designerHtml('phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all',
+    standingOn(DESIGN_SNAPSHOT, 'singularity/portfolio.yml'), 'singularity/portfolio.yml', null);
+  assert.match(html, /Discover &amp; Define/);
+  assert.match(html, /Business case/);
+  assert.match(html, /required/);
+  assert.match(html, /Product Governance/);
+  assert.match(html, /generated by source-catalog/);
+  // The warning leads, because it is the thing the file cannot tell you.
+  assert.match(html, /1 running Epic pinned/);
+});
+
+test('the templates tab can be filtered to what is risky and what is dead', () => {
+  const templates = buildTemplateUsage(DESIGN_SNAPSHOT);
+  const pinned = designerHtml('templates', [], templates, null, 'pinned', [], 'singularity/portfolio.yml', null);
+  assert.match(pinned, /business-case\.md/);
+  assert.doesNotMatch(pinned, /unused-draft\.md/);
+
+  const unused = designerHtml('templates', [], templates, null, 'unused', [], 'singularity/portfolio.yml', null);
+  assert.match(unused, /unused-draft\.md/);
+  assert.doesNotMatch(unused, /business-case\.md/);
+
+  const all = designerHtml('templates', [], templates, null, 'all', [], 'singularity/portfolio.yml', null);
+  assert.match(all, /SF-1/, 'the Epic standing on it is named on the row');
+  assert.match(all, /New template/);
+});

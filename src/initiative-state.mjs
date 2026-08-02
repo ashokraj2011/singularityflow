@@ -996,6 +996,15 @@ export async function listInitiatives(root, portfolio = null) {
       lastEvent: lastEvent?.event ?? null,
       branch: state.initiative?.branch ?? fallbackId,
       updatedAt: lastEvent?.at ?? state.initiative?.createdAt ?? null,
+      // What this Epic pinned when it started. An Epic validates against the exact bytes it was
+      // resolved from, so editing one of these files does not change the Epic — it stops it, with a
+      // message about a template hash. Carried here so a surface that offers such an edit can say
+      // which Epics it would stop, before rather than after.
+      resolutionSha256: state.resolution?.resolutionSha256 ?? null,
+      portfolioSha256: state.resolution?.portfolioSha256 ?? null,
+      pinnedTemplates: [...new Map(Object.values(state.resolution?.templates ?? {})
+        .filter((entry) => entry?.path)
+        .map((entry) => [entry.path, { path: entry.path, sha256: entry.sha256 ?? null }])).values()],
       source
     };
   };

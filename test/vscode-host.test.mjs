@@ -1006,14 +1006,22 @@ async function organisation() {
     'commit', '-qm', 'Capability map'], { cwd: lead.seed });
   run('git', ['push', '-q', lead.dir, 'main:main'], { cwd: lead.seed });
 
-  return { base, lead: lead.dir, api: api.dir, web: web.dir };
+  // Remembered the way `capability map` remembers it: the workspace form offers the organisations
+  // already mapped rather than asking for a URL, so a fixture that is not in the registry is an
+  // organisation nobody has mapped.
+  const registry = path.join(base, 'leads.json');
+  await writeFile(registry, JSON.stringify(
+    { schemaVersion: 1, leads: [{ url: lead.dir, usedAt: '2026-01-01T00:00:00.000Z' }] }));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry;
+
+  return { base, lead: lead.dir, api: api.dir, web: web.dir, registry };
 }
 
 test('a workspace is chosen as capabilities, and its repositories follow', async (t) => {
   if (!requireBundle(t)) return;
   // A workspace is capabilities plus a working directory. The repositories are not the thing being
-  // chosen — they are what the chosen capabilities deliver from, and the map that says so lives in
-  // the lead repository, which is why the lead is named first and read before anything else.
+  // chosen — they are what the chosen capabilities ship from, and the map that says so is read from
+  // an organisation already mapped, so the form opens with the tree rather than with a URL field.
   const org = await organisation();
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -1022,20 +1030,20 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   await registered.commands.get('singularityFlow.createWorkspace')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
   assert.ok(panel, 'a workspace panel was created');
-  assert.match(panel.webview.html, /Name the lead repository first/);
 
-  await panel.post({ type: 'draft', field: 'lead', value: org.lead });
-  await panel.post({ type: 'read-lead' });
   const read = await until(() => (panel.webview.html.includes('Commerce') ? panel.webview.html : null));
 
   // The whole tree came back from a repository nobody cloned, and is offered as a dropdown with
-  // the hierarchy kept in the option labels.
+  // the hierarchy kept in the option labels. Nothing was typed to get it.
   assert.match(read, /data-capability-pick/);
   assert.match(read, /<option value="commerce"/);
   assert.match(read, /<option value="payments-api"/);
   assert.match(read, /<option value="storefront-web"/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
-  assert.doesNotMatch(read, /Add a repository/, 'no by-URL card once a map exists');
+  assert.doesNotMatch(read, /Add a repository/, 'repositories are never named by hand');
+  assert.doesNotMatch(read, /data-draft="lead"/, 'no lead-repository URL field');
+  // One organisation is stated rather than asked about.
+  assert.doesNotMatch(read, /<select data-field="organisation">/);
   // Nothing is chosen yet, so it says what is outstanding rather than offering a dead button.
   assert.match(read, /Choose the capabilities this workspace is for/);
 
@@ -1044,17 +1052,58 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   assert.match(panel.webview.html, /data-capability-remove="payments"/);
   assert.match(panel.webview.html, /1 beneath it/, 'the pick says what it dragged in');
   // What is already covered stops being offered: picking a child of a chosen parent adds nothing.
-  assert.doesNotMatch(panel.webview.html, /<option value="payments-api"/);
+  const include = panel.webview.html.slice(
+    panel.webview.html.indexOf('data-capability-pick'), panel.webview.html.indexOf('</select>'));
+  assert.doesNotMatch(include, /<option value="payments-api"/);
+  assert.doesNotMatch(include, /<option value="payments"/);
   assert.match(panel.webview.html, new RegExp(escapeRegExp(org.api)));
   assert.doesNotMatch(panel.webview.html, new RegExp(escapeRegExp(org.web)),
     'storefront was not chosen, so its repository is not cloned');
+
+  // One shipping capability, so the lead is settled without being asked, and the state branch is
+  // stated as the consequence it is.
+  assert.match(panel.webview.html, /Lead capability/);
+  assert.match(panel.webview.html, /<option value="payments-api" selected>/);
+  assert.doesNotMatch(panel.webview.html, /data-draft="state-branch"/);
+  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created/);
 
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
   await settle();
-  assert.match(panel.webview.html, /2 repositories will be cloned/, 'the lead and what payments ships');
+  assert.match(panel.webview.html, /1 repository will be cloned/, 'what payments ships, and only that');
+  assert.match(panel.webview.html, /led by <code>Payments API<\/code>/);
   assert.match(panel.webview.html, /<button data-submit="create" >/, 'nothing outstanding');
+});
+
+test('when several capabilities ship, one of them is named the lead', async (t) => {
+  if (!requireBundle(t)) return;
+  // The lead is the workspace's centre of gravity: its repository is where the orphan state branch
+  // is created. With more than one candidate it is a choice, and it is offered as one.
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  await until(() => (panel.webview.html.includes('Commerce') ? panel.webview.html : null));
+
+  await panel.post({ type: 'capability', id: 'commerce', selected: true });
+  const html = panel.webview.html;
+  assert.match(html, /<option value="payments-api"[^>]*>Payments API \(api\)/);
+  assert.match(html, /<option value="storefront-web"[^>]*>Storefront Web \(web\)/);
+  // Defaulted rather than demanded, so the form is never blocked on it.
+  assert.match(html, /<option value="payments-api" selected>/);
+  assert.match(html, /in <code>api<\/code>/);
+
+  await panel.post({ type: 'field', field: 'lead-capability', value: 'storefront-web' });
+  assert.match(panel.webview.html, /<option value="storefront-web" selected>/);
+  assert.match(panel.webview.html, /in <code>web<\/code>/);
+
+  // A grouping cannot lead: leading means carrying the state branch, and it has no repository.
+  await panel.post({ type: 'field', field: 'lead-capability', value: 'commerce' });
+  assert.match(panel.webview.html, /<option value="storefront-web" selected>/, 'the pick stood');
 });
 
 /** Paths contain regex metacharacters; matching one literally has to say so. */
@@ -1062,10 +1111,11 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('a lead repository that has not described what it builds still makes a workspace', async (t) => {
+test('an organisation that has not described what it builds says so, and where to fix it', async (t) => {
   if (!requireBundle(t)) return;
-  // A new organisation has no map yet. That is a state, not a failure: the repositories are named
-  // directly and the form says describing capabilities is the thing to do next.
+  // A new organisation has no map yet. That is a state, not a failure — but a workspace over
+  // capabilities nobody has mapped is a step out of order, so the form says which step and offers
+  // it, rather than falling back to naming repositories by hand.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-nomap-'));
   const origin = path.join(base, 'payments-api.git');
   await mkdir(origin);
@@ -1076,6 +1126,10 @@ test('a lead repository that has not described what it builds still makes a work
   run('git', ['-c', 'user.email=seed@example.com', '-c', 'user.name=Seed',
     'commit', '-q', '--allow-empty', '-m', 'Initial'], { cwd: seed });
   run('git', ['push', '-q', origin, 'trunk:trunk'], { cwd: seed });
+  const registry = path.join(base, 'leads.json');
+  await writeFile(registry, JSON.stringify(
+    { schemaVersion: 1, leads: [{ url: origin, usedAt: '2026-01-01T00:00:00.000Z' }] }));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry;
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -1084,33 +1138,44 @@ test('a lead repository that has not described what it builds still makes a work
   await registered.commands.get('singularityFlow.createWorkspace')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
 
-  await panel.post({ type: 'draft', field: 'lead', value: origin });
-  await panel.post({ type: 'read-lead' });
-  const html = await until(() => (panel.webview.html.includes('Reading…') ? null : panel.webview.html));
+  const html = await until(() =>
+    (panel.webview.html.includes('Map a capability from the Capabilities screen')
+      ? panel.webview.html : null));
 
-  assert.match(html, /payments-api/, 'the identifier was read from the URL');
-  assert.match(html, /trunk/, 'the default branch was read from the remote');
-  assert.match(html, /does not contain singularity\/capabilities\.yml/);
-  assert.match(html, /describe capabilities from the Capabilities screen/);
-  assert.match(html, /Add a repository/, 'the fallback is offered rather than a dead end');
+  assert.match(html, /This organisation does not describe what it builds yet/);
+  assert.match(html, /Map a capability from the Capabilities screen/);
+  assert.doesNotMatch(html, /Add a repository/, 'no by-URL fallback to walk into');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
-  // The lead alone is a workspace; nothing else is outstanding but the directory and identifier.
-  assert.doesNotMatch(html, /Add at least one repository/);
-
-  // A URL nothing answers is reported on the form, not as a notification that outlives the panel.
-  await panel.post({ type: 'clear-lead' });
-  await panel.post({ type: 'draft', field: 'lead', value: path.join(base, 'absent.git') });
-  await panel.post({ type: 'read-lead' });
-  const failed = await until(() => (panel.webview.html.includes('Reading…') ? null : panel.webview.html));
-  assert.match(failed, /absent/);
   assert.equal(registered.warnings.length, 0, 'reported on the form rather than over it');
+  assert.match(html, /<button data-submit="create" disabled>/);
 });
 
-test('creating a workspace asks nothing through a prompt, including the state branch', async (t) => {
+test('with no organisation mapped at all, the form offers the screen that maps one', async (t) => {
+  if (!requireBundle(t)) return;
+  // The chicken-and-egg case, answered rather than hit.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-empty-'));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(base, 'leads.json');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.createWorkspace')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  const html = await until(() =>
+    (panel.webview.html.includes('No organisation has been mapped') ? panel.webview.html : null));
+  assert.match(html, /data-open="capabilities"/);
+
+  // And the button leads somewhere: it opens the screen that maps one.
+  await panel.post({ type: 'open', what: 'capabilities' });
+  await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability'));
+});
+
+test('creating a workspace asks nothing through a prompt', async (t) => {
   if (!requireBundle(t)) return;
   // The state branch used to be an input box that opened after the panel had closed. Everything the
-  // form needs is now on the form, so a whole workspace can be described without a single prompt —
-  // which is also what makes any of it correctable before it is committed to.
+  // form needs is now on the form — and the state branch is not asked at all, because it is what
+  // initialising a workspace does rather than a decision anybody makes.
   const org = await organisation();
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -1118,18 +1183,9 @@ test('creating a workspace asks nothing through a prompt, including the state br
   await extension.activate(context());
   await registered.commands.get('singularityFlow.createWorkspace')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
-
-  assert.match(panel.webview.html, /Workflow state branch/);
-  assert.match(panel.webview.html, /data-draft="state-branch"/);
-
-  // Rename it before the lead is read, so the inspection looks for the branch actually asked for.
-  await panel.post({ type: 'draft', field: 'state-branch', value: 'governance' });
-  await panel.post({ type: 'draft', field: 'lead', value: org.lead });
-  await panel.post({ type: 'read-lead' });
   await until(() => (panel.webview.html.includes('Commerce') ? panel.webview.html : null));
 
-  assert.match(panel.webview.html, /value="governance"/, 'the name survived reading the lead');
-  assert.doesNotMatch(panel.webview.html, /already on the lead/, 'this remote has no such branch');
+  assert.doesNotMatch(panel.webview.html, /data-draft="state-branch"/);
 
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
@@ -1137,6 +1193,7 @@ test('creating a workspace asks nothing through a prompt, including the state br
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);
+  assert.match(panel.webview.html, /orphan\s+<code>state<\/code> branch is created/);
 
   // Not one input box, from opening the panel to being ready to create.
   assert.equal(registered.inputBoxes.length, 0,
@@ -1430,19 +1487,19 @@ test('a window with nothing open offers the two ways to get a repository', async
   // Governing one is first: it is the only one of the three that works when nothing has been
   // governed yet, and that is the state anybody seeing this is in.
   assert.deepEqual(actions.map((row) => row.runCommand),
-    ['singularityFlow.bootstrap', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
+    ['singularityFlow.mapCapability', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace']);
   // Both work from a window with nothing open, which is exactly where this state occurs.
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
 
   // Clicking a row runs its command rather than trying to open it as an artifact.
   const item = provider.getTreeItem(actions[0]);
-  assert.equal(item.command.command, 'singularityFlow.bootstrap');
+  assert.equal(item.command.command, 'singularityFlow.mapCapability');
 
   // And a repository command names the ways forward rather than only what is wrong.
   await registered.commands.get('singularityFlow.openDesigner')();
   await settle();
   assert.match(registered.warnings.at(-1) ?? '', /Singularity Flow: /);
-  assert.deepEqual(registered.warningActions.at(-1), ['Govern a repository', 'Find a workspace']);
+  assert.deepEqual(registered.warningActions.at(-1), ['Map a capability', 'Find a workspace']);
 });
 
 test('a folder that is not a Flow repository also offers to become one', async (t) => {
@@ -1456,7 +1513,7 @@ test('a folder that is not a Flow repository also offers to become one', async (
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = provider.getChildren(provider.getChildren()[0]);
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
-    ['singularityFlow.bootstrap', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace',
+    ['singularityFlow.mapCapability', 'singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace',
       'singularityFlow.init'],
     'initializing is only offered where there is a folder to initialize');
 });
@@ -1526,11 +1583,12 @@ test('opening a workspace directory says what it is and offers the repository in
   assert.equal(lead.runCommand, 'singularityFlow.openWorkspace');
 });
 
-test('a window with nothing open can govern a repository from scratch', async (t) => {
+test('a window with nothing open can map a capability from scratch', async (t) => {
   if (!requireBundle(t)) return;
   // The product's one chicken-and-egg problem, in the worst possible place: to use the tool you
   // needed a governed repository, and to get one you needed the tool. This drives the whole way out
-  // of it — empty window, a URL, a capability name, a repository the rest of the product can read.
+  // of it — empty window, a URL, a capability, a map the rest of the product can read. Nothing is
+  // checked out: the lead is borrowed for the length of the edit and given back.
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-boot-'));
   const bare = path.join(base, 'acme-platform.git');
   await mkdir(bare);
@@ -1542,43 +1600,87 @@ test('a window with nothing open can govern a repository from scratch', async (t
   run('git', ['add', '-A'], { cwd: seed });
   run('git', ['-c', 'user.email=a@b.com', '-c', 'user.name=A B', 'commit', '-qm', 'Initial'], { cwd: seed });
   run('git', ['push', '-q', bare, 'main:main'], { cwd: seed });
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(base, 'leads.json');
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
-  registered.pickedFolder = path.join(base, 'work');
   const extension = loadExtension(api);
   await extension.activate(context());
 
   // It is offered from the empty state, first, because it is the only one of the three that works
-  // when nothing has been governed yet.
+  // when nothing has been mapped yet.
   const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = lifecycle.getChildren(lifecycle.getChildren()[0]);
-  assert.equal(rows.filter((row) => row.runCommand)[0].runCommand, 'singularityFlow.bootstrap');
+  assert.equal(rows.filter((row) => row.runCommand)[0].runCommand, 'singularityFlow.mapCapability');
 
-  await registered.commands.get('singularityFlow.bootstrap')();
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.bootstrap');
-  assert.ok(panel, 'a bootstrap panel was created');
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.ok(panel, 'a map-a-capability panel was created');
   assert.match(panel.webview.html, /default-src 'none'/);
+  // No folder to choose: mapping a capability checks nothing out, so there is nowhere to put it.
+  assert.doesNotMatch(panel.webview.html, /data-choose="base"/);
+  assert.doesNotMatch(panel.webview.html, /Workflow state branch/);
+  // Kind is a classification, so it is a dropdown rather than four spellings of one word.
+  assert.match(panel.webview.html, /<select data-map="kind">/);
 
-  await panel.post({ type: 'field', field: 'url', value: bare });
+  await panel.post({ type: 'field', field: 'lead', value: bare });
+  await panel.post({ type: 'read' });
+  await until(() => (panel.webview.html.includes('Read the map') && !panel.webview.html.includes('Reading…')
+    ? panel.webview.html : null));
+
   await panel.post({ type: 'field', field: 'capabilityId', value: 'commerce' });
-  await panel.post({ type: 'field', field: 'capabilityName', value: 'Commerce' });
-  await panel.post({ type: 'choose' });
-  await settle();
-  assert.match(panel.webview.html, /It will be known as acme-platform/);
+  await panel.post({ type: 'field', field: 'name', value: 'Commerce' });
+  await panel.post({ type: 'field', field: 'kind', value: 'portfolio' });
+  await panel.post({ type: 'map' });
 
-  await panel.post({ type: 'bootstrap' });
-  // Wait for the last thing this does, not the first. `init` writes a starter map early, and the
-  // capability is written before the commit, the orphan branch and the push — so every earlier
-  // signal leaves the assertions racing the rest of the work. The state branch reaching the remote
-  // is the end of it.
-  const root = path.join(base, 'work', 'acme-platform');
-  await until(() => (run('git', ['ls-remote', '--heads', bare], { allowFailure: true })
-    .stdout.includes('refs/heads/state') ? true : null), { attempts: 200 });
+  // The map reached the remote, which is the end of the work — nothing local is left behind.
+  await until(() => {
+    const show = run('git', ['show', 'main:singularity/capabilities.yml'],
+      { cwd: bare, allowFailure: true });
+    return show.stdout.includes('commerce') ? show.stdout : null;
+  }, { attempts: 200 });
 
-  assert.ok(existsSync(path.join(root, 'singularity/workflow.yml')));
-  assert.match(readFileSync(path.join(root, 'singularity/capabilities.yml'), 'utf8'), /commerce/);
-  assert.match(readFileSync(path.join(root, 'singularity/portfolio.yml'), 'utf8'), /acme-platform/);
+  // The first capability governed the repository it was mapped into: the whole singularity/ folder
+  // is there, which is the circular dependency this breaks. Without it there was no way to get a
+  // first map, because getting one required already having one.
+  assert.ok(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout.includes('phases'));
+  assert.match(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout,
+    /branch: state/, 'the orphan branch is named, and made when a workspace is initialised');
+  // A grouping ships from nothing, so it names no repository. Giving one to a capability that does
+  // not have one is how a portfolio fills up with repositories nobody clones.
+  assert.doesNotMatch(run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare }).stdout,
+    /repository:/);
+
+  // A capability that ships names its repository, and that is what puts one in the portfolio. The
+  // panel closes on a successful map, so this is a second visit to the screen — which is also the
+  // real shape of mapping an organisation: one capability at a time.
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.mapCapability').at(-1);
+  assert.notEqual(second, panel, 'the screen reopened rather than reusing a disposed panel');
+  await second.post({ type: 'field', field: 'lead', value: bare });
+  await second.post({ type: 'read' });
+  // The capability just mapped is offered as a parent, which is how a tree gets built at all.
+  const reloaded = await until(() =>
+    (second.webview.html.includes('<option value="commerce"') ? second.webview.html : null));
+  assert.ok(reloaded, 'the map was read back, with the capability just mapped in it');
+
+  const panel2 = second;
+  await panel2.post({ type: 'field', field: 'capabilityId', value: 'platform-api' });
+  await panel2.post({ type: 'field', field: 'name', value: 'Platform API' });
+  await panel2.post({ type: 'field', field: 'kind', value: 'service' });
+  await panel2.post({ type: 'field', field: 'parent', value: 'commerce' });
+  await panel2.post({ type: 'field', field: 'repositoryUrl', value: bare });
+  await panel2.post({ type: 'map' });
+
+  // Waited on the capability itself, not the portfolio: governing already put the lead in the
+  // portfolio, so polling for that would be satisfied before this map had done anything.
+  const map = await until(() => {
+    const show = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare, allowFailure: true });
+    return show.stdout.includes('platform-api') ? show.stdout : null;
+  }, { attempts: 200 });
+  assert.ok(map, 'the second capability reached the remote');
+  const portfolio = run('git', ['show', 'main:singularity/portfolio.yml'], { cwd: bare }).stdout;
+  assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 

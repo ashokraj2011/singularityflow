@@ -57,6 +57,7 @@ const ICONS: Record<string, string> = {
   code: '<path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4"/>',
 
   // Structure
+  organisation: '<path d="M2 14.5V3.2a1 1 0 0 1 .7-1L7.3 1a1 1 0 0 1 1.2 1v12.5M8.5 6h4.8a1 1 0 0 1 1 1v7.5M1 14.5h14M4.2 4.6h2M4.2 7.2h2M4.2 9.8h2M10.4 8.6h1.6M10.4 11.2h1.6"/>',
   capability: '<rect x="5.5" y="1.5" width="5" height="4" rx="1"/><rect x="1.5" y="10.5" width="4.5" height="4" rx="1"/><rect x="10" y="10.5" width="4.5" height="4" rx="1"/><path d="M8 5.5v3M3.75 10.5v-2h8.5v2"/>',
   directory: '<path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h3.2l1.4 1.6h5.4a1 1 0 0 1 1 1v7.4a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/>',
   workspace: '<rect x="1.5" y="3.5" width="13" height="10" rx="1.5"/><path d="M1.5 6.5h13M5 1.5v2M11 1.5v2"/>',

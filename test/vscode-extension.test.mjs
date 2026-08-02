@@ -803,16 +803,11 @@ test('each working lens is openable as the file that defines it', () => {
 });
 
 const {
-  EMPTY_FORM, EMPTY_DRAFT, coveredCapabilities, derivedRepositories, draftUrls, flattenChoices,
-  formProblems, formCommand, hasCapabilityMap, uncloneable, workspaceFormHtml
+  EMPTY_WORKSPACE_FORM, capabilityChoices, coveredCapabilities, derivedRepositories, effectiveLead,
+  formProblems, formCommand, hasCapabilityMap, shippingCapabilities, uncloneable, workspaceFormHtml
 } = await import(source('views/workspace-form.ts'));
 
-const repository = (id, extra = {}) => ({
-  id, url: `https://example.com/${id}.git`, defaultBranch: 'main',
-  hasStateBranch: false, stateBranch: 'state', ...extra
-});
-
-/** The lead's map, as `workspace capabilities --json` returns it. */
+/** The organisation's map, as `capability organisation --json` returns it. */
 const REMOTE_TREE = [{
   id: 'commerce', name: 'Commerce', repository: null, children: [
     {
@@ -825,214 +820,196 @@ const REMOTE_TREE = [{
     ] }
   ]
 }];
-const REMOTE_DELIVERIES = [
-  { id: 'payments-api', url: 'https://example.com/api.git', defaultBranch: 'main' },
-  { id: 'storefront-web', url: 'https://example.com/web.git', defaultBranch: 'trunk' }
-];
+const REMOTE_REPOSITORIES = {
+  platform: { url: 'https://example.com/platform.git', defaultBranch: 'main' },
+  api: { url: 'https://example.com/api.git', defaultBranch: 'main' },
+  web: { url: 'https://example.com/web.git', defaultBranch: 'trunk' }
+};
 
-const withMap = (selected = []) => ({
-  ...EMPTY_FORM,
+const withMap = (selected = [], extra = {}) => ({
+  ...EMPTY_WORKSPACE_FORM,
   base: '/work', id: 'checkout-platform', name: 'Checkout platform',
-  lead: repository('platform'),
-  capabilities: flattenChoices(REMOTE_TREE, REMOTE_DELIVERIES),
-  selected
+  organisations: ['https://example.com/platform.git'],
+  organisation: 'https://example.com/platform.git',
+  capabilities: capabilityChoices(REMOTE_TREE, REMOTE_REPOSITORIES),
+  selected,
+  ...extra
 });
 
 test('an empty workspace form reports every outstanding requirement at once', () => {
   // Revealing them one at a time is how a five-field form takes five attempts.
-  const problems = formProblems(EMPTY_FORM);
+  const problems = formProblems(EMPTY_WORKSPACE_FORM);
   assert.match(problems.join(' '), /where the workspace directory/);
   assert.match(problems.join(' '), /identifier/);
-  assert.match(problems.join(' '), /lead repository, which holds the capability map/);
+  assert.match(problems.join(' '), /organisation/);
 });
 
-test("the lead's map is flattened with each capability's depth, ancestors and clone URL", () => {
-  const rows = flattenChoices(REMOTE_TREE, REMOTE_DELIVERIES);
-  assert.deepEqual(rows.map((row) => row.id),
+test('the organisation map is flattened with each capability\'s depth, ancestors and clone URL', () => {
+  const choices = capabilityChoices(REMOTE_TREE, REMOTE_REPOSITORIES);
+  assert.deepEqual(choices.map((choice) => choice.id),
     ['commerce', 'payments', 'payments-api', 'storefront', 'storefront-web']);
-  const api = rows.find((row) => row.id === 'payments-api');
+
+  const api = choices.find((choice) => choice.id === 'payments-api');
   assert.equal(api.depth, 2);
   assert.deepEqual(api.ancestors, ['commerce', 'payments']);
   assert.equal(api.repository, 'api');
-  assert.equal(api.url, 'https://example.com/api.git', 'joined from the portfolio');
-  assert.equal(rows.find((row) => row.id === 'commerce').repository, null, 'a grouping ships nothing');
+  // The clone URL comes from the portfolio, keyed by the repository the capability names.
+  assert.equal(api.url, 'https://example.com/api.git');
+  assert.equal(choices.find((choice) => choice.id === 'storefront-web').defaultBranch, 'trunk');
+  // A grouping ships from nothing, and says so rather than inventing a repository.
+  assert.equal(choices.find((choice) => choice.id === 'commerce').repository, null);
 });
 
 test('choosing a capability includes everything beneath it, the way a directory does', () => {
   const form = withMap(['payments']);
-  assert.deepEqual(coveredCapabilities(form).map((entry) => entry.id), ['payments', 'payments-api']);
-
-  // And the repositories follow from that, rather than being curated separately.
-  assert.deepEqual(derivedRepositories(form).map((entry) => entry.id), ['platform', 'api']);
-  assert.equal(derivedRepositories(form).find((entry) => entry.id === 'api').defaultBranch, 'main');
-
-  const whole = withMap(['commerce']);
-  assert.deepEqual(derivedRepositories(whole).map((entry) => entry.id), ['platform', 'api', 'web']);
-  assert.equal(derivedRepositories(whole).find((entry) => entry.id === 'web').defaultBranch, 'trunk',
-    'the branch each repository actually uses, from the portfolio');
+  assert.deepEqual(coveredCapabilities(form).map((entry) => entry.id),
+    ['payments', 'payments-api']);
+  // Choosing the root covers the lot.
+  assert.equal(coveredCapabilities(withMap(['commerce'])).length, 5);
 });
 
-test('the lead is always in the workspace: it holds the map and the state branch', () => {
-  // A workspace that omitted its lead could not read its own configuration.
-  assert.deepEqual(derivedRepositories(withMap([])).map((entry) => entry.id), ['platform']);
-});
-
-test('a workspace with a map records the capabilities it is for, not just the repositories', () => {
+test('the repositories are what the chosen capabilities ship from — never named by hand', () => {
+  // The form has no way to add a repository. Two places to say which repositories are involved is
+  // one place for them to disagree.
   const form = withMap(['payments']);
-  assert.deepEqual(formProblems(form), []);
-  const argv = formCommand(form);
-  assert.deepEqual(argv.slice(0, 12), [
-    'workspace', 'create', '--local', '--json',
-    '--id', 'checkout-platform', '--base', '/work', '--lead', 'platform',
-    '--confirm', 'checkout-platform'
-  ]);
-  assert.match(argv.join(' '), /--capability payments/);
-  assert.match(argv.join(' '), /--repository api=https:\/\/example\.com\/api\.git/);
-  assert.match(argv.join(' '), /--default-branch api=main/);
-  assert.doesNotMatch(argv.join(' '), /--repository web=/, 'storefront was not chosen');
+  assert.deepEqual(derivedRepositories(form).map((entry) => entry.id), ['api']);
+
+  // A grouping brings in what is beneath it, so choosing one is choosing its deliveries.
+  assert.deepEqual(derivedRepositories(withMap(['storefront'])).map((entry) => entry.id), ['web']);
+  assert.deepEqual(derivedRepositories(withMap(['commerce'])).map((entry) => entry.id),
+    ['api', 'web']);
+
+  // A grouping with nothing beneath it that ships is a workspace with nothing to work in, and the
+  // form refuses rather than creating an empty directory.
+  const barren = withMap(['commerce'], {
+    capabilities: capabilityChoices([{ id: 'commerce', name: 'Commerce', repository: null, children: [] }], {})
+  });
+  assert.match(formProblems(barren).join(' '), /None of the chosen capabilities ships/);
 });
 
-test('a lead whose map is read but nothing chosen from cannot be created', () => {
-  assert.match(formProblems(withMap([])).join(' '), /Choose the capabilities this workspace is for/);
+test('one of the chosen capabilities leads, and its repository carries the state branch', () => {
+  const form = withMap(['commerce'], { leadCapability: 'storefront-web' });
+  assert.equal(effectiveLead(form).id, 'storefront-web');
+  assert.match(formCommand(form).join(' '), /--lead-capability storefront-web/);
+
+  // Only a capability that ships can lead: leading means carrying the branch.
+  assert.deepEqual(shippingCapabilities(form).map((entry) => entry.id), ['payments-api', 'storefront-web']);
+
+  // Defaulted rather than demanded — with one shipping capability there is nothing to decide.
+  assert.equal(effectiveLead(withMap(['payments'])).id, 'payments-api');
+  // A lead left over from a selection that no longer covers it falls back rather than sticking.
+  assert.equal(effectiveLead(withMap(['payments'], { leadCapability: 'storefront-web' })).id, 'payments-api');
 });
 
-test('a capability naming a repository the portfolio does not declare is named, not silently dropped', () => {
-  // Discovering this at clone time, halfway through, is the expensive version of finding out.
-  const form = {
-    ...withMap(['commerce']),
-    capabilities: flattenChoices(REMOTE_TREE, [REMOTE_DELIVERIES[0]])
-  };
-  assert.deepEqual(uncloneable(form).map((entry) => entry.id), ['storefront-web']);
-  assert.match(workspaceFormHtml(form), /which the lead repository's portfolio does not declare/);
-  assert.deepEqual(derivedRepositories(form).map((entry) => entry.id), ['platform', 'api']);
+test('a workspace records the capabilities it is for, and the organisation they came from', () => {
+  const command = formCommand(withMap(['payments', 'storefront']));
+  assert.deepEqual(command.slice(0, 4), ['workspace', 'create', '--local', '--json']);
+  assert.match(command.join(' '), /--organisation https:\/\/example\.com\/platform\.git/);
+  assert.match(command.join(' '), /--capability payments --capability storefront/);
+  // The selection is recorded, not its expansion: a capability added under payments later is picked
+  // up by this workspace without editing it.
+  assert.equal(command.filter((entry) => entry === '--capability').length, 2);
+  assert.match(command.join(' '), /--confirm checkout-platform/);
 });
 
-test('a lead with no capability map falls back to naming repositories by URL', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('platform'),
-    capabilities: null, capabilitiesReason: 'platform.git does not contain singularity/capabilities.yml.'
-  };
-  assert.equal(hasCapabilityMap(form), false);
-  const html = workspaceFormHtml(form);
-  assert.match(html, /does not contain singularity\/capabilities\.yml/);
-  assert.match(html, /describe capabilities from the Capabilities screen/);
-  assert.match(html, /Add a repository/, 'the fallback is offered rather than a dead end');
+test('an organisation read but nothing chosen from cannot be created', () => {
+  const form = withMap([]);
+  assert.equal(hasCapabilityMap(form), true);
+  assert.match(formProblems(form).join(' '), /Choose the capabilities/);
+  assert.match(workspaceFormHtml(form), /Nothing chosen yet/);
+});
 
-  // The lead alone is enough to create with, because it is a repository like any other.
-  assert.deepEqual(formProblems(form), []);
+test('a capability shipping from a repository the portfolio does not declare is named, not dropped', () => {
+  const form = withMap(['payments'], {
+    capabilities: capabilityChoices(REMOTE_TREE, { web: REMOTE_REPOSITORIES.web })
+  });
+  assert.deepEqual(uncloneable(form).map((entry) => entry.id), ['payments-api']);
+  // Silently cloning one fewer repository than was asked for is the failure mode this prevents.
+  assert.deepEqual(derivedRepositories(form), []);
+  assert.match(formProblems(form).join(' '), /nowhere to clone it from/);
+  assert.match(workspaceFormHtml(form), /no clone URL/);
+});
+
+test('with no organisation mapped the form says so and offers the screen that fixes it', () => {
+  // The chicken-and-egg case: a workspace over capabilities nobody has mapped is a step out of
+  // order, not a form to fill in.
+  const html = workspaceFormHtml(EMPTY_WORKSPACE_FORM);
+  assert.match(html, /No organisation has been mapped yet/);
+  assert.match(html, /data-open="capabilities"/);
+  // And there is no way to type a repository URL past it.
+  assert.doesNotMatch(html, /data-draft="url"/);
+  assert.doesNotMatch(html, /Add a repository/);
 });
 
 test('capabilities are picked from a dropdown, and each pick shows what it drags in', () => {
-  // A checkbox per capability asks a reader to scan a map that runs to dozens of them. The dropdown
-  // is indented so the hierarchy is still legible, and the chosen list says what each one covers.
+  // A real map runs to dozens; a checkbox table asks a reader to scan all of them to find two.
   const html = workspaceFormHtml(withMap(['payments']));
-  assert.match(html, /data-capability-pick/);
-  assert.match(html, /— choose a capability —/);
-  assert.match(html, /data-capability-remove="payments"/);
-  // Choosing `payments` brought its API in, and the row says so rather than leaving it to be
-  // inferred from a table of ticked and unticked boxes.
+  assert.match(html, /<select data-capability-pick>/);
+  // Already covered, so not offered again.
+  assert.doesNotMatch(html, /<option value="payments-api">/);
+  assert.match(html, /<option value="storefront">/);
+  // What the pick brought with it is shown rather than left to be inferred.
   assert.match(html, /1 beneath it/);
-  assert.match(html, /api<\/code>/);
-  // What is already covered is not offered again: picking a child of a chosen parent adds nothing.
-  assert.doesNotMatch(html, /<option value="payments-api"/);
-  assert.match(html, /<option value="storefront"/);
-  assert.match(html, /choosing a\s*\n?\s*directory includes its contents/);
-  assert.match(html, /What the chosen capabilities deliver from/);
-  assert.doesNotMatch(html, /Add a repository/, 'no by-URL card once a map exists');
+  assert.match(html, /<code>api<\/code>/);
 });
 
-test('with nothing chosen the form says what that would mean', () => {
-  const html = workspaceFormHtml(withMap([]));
-  assert.match(html, /only its lead repository/);
-  assert.match(html, /<option value="commerce"/, 'the root is offered when nothing covers it');
+test('the state branch is stated as a consequence, not asked for as a field', () => {
+  const html = workspaceFormHtml(withMap(['payments']));
+  assert.doesNotMatch(html, /data-draft="state-branch"/);
+  assert.match(html, /orphan\s+<code>state<\/code> branch is created/);
+  assert.match(html, /in <code>api<\/code>/);
 });
 
-test('the workspace form asks for a working directory and a lead, in that order', () => {
-  const html = workspaceFormHtml(EMPTY_FORM);
-  assert.ok(html.indexOf('Working directory') < html.indexOf('Lead repository'));
-  assert.ok(html.indexOf('Lead repository') < html.indexOf('Capabilities'));
-  assert.ok(html.indexOf('Capabilities') < html.indexOf('Repositories'));
-  assert.match(html, /data-draft="lead"/);
-  assert.match(html, /Read its capability map/);
-  assert.match(html, /Name the lead repository first/);
+test('the workspace form asks for a directory, an organisation and capabilities — no repositories', () => {
+  const html = workspaceFormHtml(EMPTY_WORKSPACE_FORM);
+  const order = ['Working directory', 'Identity', 'Organisation', 'Capabilities', 'Repositories'];
+  let at = -1;
+  for (const heading of order) {
+    const next = html.indexOf(heading);
+    assert.ok(next > at, `${heading} out of order`);
+    at = next;
+  }
+  // Repositories appear, but as a consequence to confirm rather than a list to curate.
+  assert.doesNotMatch(html, /data-remove=/);
+  assert.doesNotMatch(html, /data-add=/);
 });
 
-test('two repositories with the same identifier is a problem, not a silent overwrite', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api'),
-    repositories: [repository('api'), repository('api', { url: 'https://elsewhere/api.git' })]
-  };
-  assert.match(formProblems(form).join(' '), /More than one repository is called 'api'/);
-});
+test('a single mapped organisation is stated rather than asked about', () => {
+  // Asking which of one to use is a question with no information in it.
+  assert.match(workspaceFormHtml(withMap(['payments'])), /<code>https:\/\/example\.com\/platform\.git<\/code>/);
+  assert.doesNotMatch(workspaceFormHtml(withMap(['payments'])), /data-field="organisation"/);
 
-test('an identifier that is not a safe id is refused before the CLI sees it', () => {
-  const form = { ...EMPTY_FORM, base: '/work', id: 'has spaces', lead: repository('api') };
-  assert.match(formProblems(form).join(' '), /letters, numbers, dots, underscores and hyphens/i);
-});
-
-test('the form renders each repository with what was read from its remote', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w',
-    lead: repository('api', { defaultBranch: 'trunk', hasStateBranch: true })
-  };
-  const html = workspaceFormHtml(form);
-  assert.match(html, /https:\/\/example\.com\/api\.git/);
-  assert.match(html, /trunk/);
-  assert.match(html, /<span class="pill ok">[\s\S]*?state<\/span>/, 'the state branch is already there');
-  assert.match(html, /<button data-submit="create" >/);
+  const several = withMap(['payments'], {
+    organisations: ['https://example.com/platform.git', 'https://example.com/other.git']
+  });
+  assert.match(workspaceFormHtml(several), /<select data-field="organisation">/);
 });
 
 test('a form still missing something disables the button and lists why', () => {
-  const html = workspaceFormHtml({ ...EMPTY_FORM, id: 'w' });
+  const html = workspaceFormHtml(withMap([]));
   assert.match(html, /Before this can be created/);
   assert.match(html, /<button data-submit="create" disabled>/);
+
+  const ready = workspaceFormHtml(withMap(['payments']));
+  assert.match(ready, /1 repository will be cloned into <code>\/work\/checkout-platform<\/code>/);
+  assert.match(ready, /led by <code>Payments API<\/code>/);
+  assert.match(ready, /<button data-submit="create" >/);
 });
 
-test('a repository is added by a form on the page, not by a prompt over it', () => {
-  // A prompt shows one field, cannot be corrected without starting over, and covers the rows you
-  // already have while you type — which is the whole reason this is a panel.
-  const form = { ...EMPTY_FORM, lead: repository('platform') };
-  const html = workspaceFormHtml(form);
-  assert.match(html, /Add a repository/);
-  assert.match(html, /data-draft="url"/);
-  assert.match(html, /data-draft="id"/);
-  assert.match(html, /<button class="secondary" data-add="repository" disabled>/);
-  assert.match(html, /read from the URL/, 'the identifier is optional and says why');
-});
-
-test('the add button counts the URLs actually given', () => {
-  const base = { ...EMPTY_FORM, lead: repository('platform') };
-  const one = { ...base, draft: { ...EMPTY_DRAFT, url: ' https://example.com/api.git ' } };
-  assert.deepEqual(draftUrls(one.draft), ['https://example.com/api.git']);
-  assert.match(workspaceFormHtml(one), /<button class="secondary" data-add="repository">\s*Add repository/);
-
-  // Several at once is the case the identifier field cannot serve, so it is disabled and the form
-  // says what will happen instead of silently naming three repositories one thing.
-  const many = {
-    ...base,
-    draft: { ...EMPTY_DRAFT, url: 'https://example.com/api.git https://example.com/web.git' }
-  };
-  assert.equal(draftUrls(many.draft).length, 2);
-  const html = workspaceFormHtml(many);
-  assert.match(html, /Add 2 repositories/);
-  assert.match(html, /2 URLs given/);
-});
-
-test('while a remote is being read the form says so and refuses a second read', () => {
-  const form = { ...EMPTY_FORM, adding: true, leadDraft: 'https://example.com/platform.git' };
-  const html = workspaceFormHtml(form);
-  assert.match(html, /Reading…/);
-  assert.match(html, /<button class="secondary" data-read="lead" disabled>/);
-  assert.match(html, /data-draft="lead"[\s\S]{0,120}disabled/);
+test('while the map is being read the form says so and refuses to be submitted', () => {
+  const form = { ...withMap([]), capabilities: null, reading: true };
+  assert.match(workspaceFormHtml(form), /Reading the capability map…/);
+  assert.match(formProblems(form).join(' '), /Wait for the capability map/);
 });
 
 test('a URL that cannot be read is reported on the form, beside the field it was typed into', () => {
   const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w', lead: repository('api'),
+    ...withMap([]),
     error: "Cannot reach 'https://example.com/gone.git': repository not found."
   };
   assert.match(workspaceFormHtml(form), /Cannot reach/);
 });
+
 
 const { isGovernedConfiguration } = await import(source('governed.ts'));
 
@@ -1569,7 +1546,7 @@ test('exactly one filled button per page, so the consequential action is findabl
   // commits something"; everything else is outlined or plain.
   const pages = [
     workspaceFormHtml(withMap(['payments'])),
-    workspaceFormHtml(EMPTY_FORM),
+    workspaceFormHtml(EMPTY_WORKSPACE_FORM),
     capabilitiesHtml(capabilityFixture, 'payments', null, null)
   ];
   for (const html of pages) {
@@ -1588,33 +1565,6 @@ test('the accent is defined for both themes and never hard-codes the surface', (
   assert.doesNotMatch(STYLE, /background:\s*#(fff|ffffff|000|000000)\b/i);
   // Pill-shaped, which is the shape the whole language is built on.
   assert.match(STYLE, /button \{[\s\S]*?border-radius: 999px/);
-});
-
-test('the workflow state branch is asked on the form, not after it', () => {
-  // It used to be an input box that appeared once the panel had closed — a question about a decision
-  // the person had already finished making, and one they could not correct without starting the
-  // whole workspace again.
-  const html = workspaceFormHtml(EMPTY_FORM);
-  assert.match(html, /Workflow state branch/);
-  assert.match(html, /data-draft="state-branch"/);
-  assert.match(html, /value="state"/, 'defaulted, because most workspaces want one');
-  assert.match(html, /leave the field empty to skip it/);
-  // It sits with the lead repository, which is the repository that will carry it.
-  assert.ok(html.indexOf('Lead repository') < html.indexOf('Workflow state branch'));
-  assert.ok(html.indexOf('Workflow state branch') < html.indexOf('Capabilities'));
-});
-
-test('a lead that already carries the state branch says so rather than offering to make it', () => {
-  const form = {
-    ...EMPTY_FORM, base: '/work', id: 'w',
-    lead: repository('platform', { hasStateBranch: true, stateBranch: 'state' })
-  };
-  assert.match(workspaceFormHtml(form), /already on the lead/);
-
-  // Asking for a different branch than the one that exists is not "already there".
-  const renamed = { ...form, stateBranch: 'governance' };
-  assert.doesNotMatch(workspaceFormHtml(renamed), /already on the lead/);
-  assert.match(workspaceFormHtml(renamed), /value="governance"/);
 });
 
 const { EMPTY_EPIC_FORM, epicCommand, epicFormHtml, epicProblems } =

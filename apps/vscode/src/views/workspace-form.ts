@@ -1,135 +1,102 @@
 /**
  * The workspace form.
  *
- * A workspace is a set of capabilities and a working directory. That is the whole concept: the
- * repositories are not the thing being chosen, they are what the chosen capabilities deliver from.
- * So the form asks in those terms and derives the rest.
+ * A workspace is a set of capabilities and a working directory. That is the whole concept. The
+ * repositories are not chosen here and cannot be added here: a capability that ships names the
+ * repository it ships from, so the clone list is derived from the selection rather than restated
+ * beside it. Two places to say which repositories are involved is one place for them to disagree.
  *
- * The order is forced by where the map lives. `singularity/capabilities.yml` is held by the lead
- * repository, so the lead has to be named — by URL, since nothing is cloned yet — before there is
- * anything to choose from. Once it is read, the capability tree is the form, and the repositories
- * below it are a consequence shown for confirmation rather than a list to curate.
+ * One of the chosen capabilities is the lead. It is the workspace's centre of gravity — the
+ * repository it ships from is where the orphan `state` branch is created and checked in when the
+ * workspace is initialised.
  *
- * A lead that does not describe what it builds is a normal state for a new organisation, not a
- * failure. In that case the form falls back to naming repositories by URL, and says that describing
- * capabilities is the thing to do next.
+ * The capability map is not fetched from a URL typed here. It is read from an organisation already
+ * mapped on the Capabilities screen, because a workspace over capabilities that do not exist yet is
+ * not a form to fill in, it is a step taken out of order.
  */
 import { escape, icon } from './webview.ts';
 
+/** A repository the selection implies. Derived, never entered. */
 export interface FormRepository {
   id: string;
   url: string;
   defaultBranch: string;
-  /** Whether this repository already carries the workflow state branch. */
-  hasStateBranch: boolean;
-  /** Which branch that was looked for, so the column can say what it checked. */
-  stateBranch: string;
 }
 
-/** One capability from the lead repository's map. */
+/** One capability from the organisation's map. */
 export interface CapabilityChoice {
   id: string;
   name: string;
   depth: number;
   ancestors: string[];
-  /** The repository this capability delivers from; null for a grouping. */
+  /** The repository this capability ships from; null for a grouping. */
   repository: string | null;
   /** Where that repository is cloned from, or null when the portfolio does not declare it. */
   url: string | null;
   defaultBranch: string;
 }
 
-/** The repository being described but not yet added, in the no-map fallback. */
-export interface RepositoryDraft {
-  url: string;
-  /** Optional: read from the URL when left empty. */
-  id: string;
-  lead: boolean;
-}
-
 export interface WorkspaceForm {
   base: string | null;
   id: string;
   name: string;
-  /** The repository holding the capability map. Named first; everything else follows from it. */
-  lead: FormRepository | null;
-  /** What is typed into the lead field before it has been read. */
-  leadDraft: string;
-  /**
-   * The orphan branch recording what happens to each work item. Empty means no ledger.
-   *
-   * Asked here rather than after the workspace exists: it decides what `workspace inspect` looks
-   * for while the lead is being read, and it is the branch this creation will make. A question
-   * asked after the form has closed is a question about a decision already taken.
-   */
-  stateBranch: string;
-  /** The lead's capability map; null until it has been read, or when it has none. */
+  /** Organisations already mapped, by lead clone URL. The source of every capability offered. */
+  organisations: string[];
+  /** The one being drawn from; auto-selected when there is only one. */
+  organisation: string | null;
+  /** Its capability map; null until read. */
   capabilities: CapabilityChoice[] | null;
-  /** Why there is no map, when there is none. */
+  /** Why there is no map to choose from, when there is none. */
   capabilitiesReason: string | null;
   /** The capabilities this workspace is for. */
   selected: string[];
-  /** Only used when the lead has no map: repositories named directly. */
-  repositories: FormRepository[];
-  draft: RepositoryDraft;
-  /** Set while a remote is being read, so the form can say so and refuse a second add. */
-  adding: boolean;
-  /** Set while the CLI is running, so the form can say so and refuse a second submit. */
+  /** Which of them leads. Its repository carries the state branch. */
+  leadCapability: string | null;
+  /** True while the map is being read. */
+  reading: boolean;
   busy: boolean;
   error: string | null;
 }
 
-export const EMPTY_DRAFT: RepositoryDraft = { url: '', id: '', lead: false };
-
-export const EMPTY_FORM: WorkspaceForm = {
-  base: null, id: '', name: '', lead: null, leadDraft: '', stateBranch: 'state',
-  capabilities: null, capabilitiesReason: null, selected: [],
-  repositories: [], draft: { ...EMPTY_DRAFT }, adding: false, busy: false, error: null
+export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
+  base: null, id: '', name: '', organisations: [], organisation: null,
+  capabilities: null, capabilitiesReason: null, selected: [], leadCapability: null,
+  reading: false, busy: false, error: null
 };
 
-/** The URLs a draft names. Several may be pasted at once; whitespace and commas separate them. */
-export function draftUrls(draft: RepositoryDraft): string[] {
-  return draft.url.split(/[\s,]+/).map((url) => url.trim()).filter(Boolean);
-}
-
-/** The nested tree and the flat delivery list, as `workspace capabilities --json` returns them. */
+/** The nested tree and the flat delivery list, as `capability organisation --json` returns them. */
 export interface RemoteCapability {
   id: string;
-  name: string;
+  name?: string;
   repository?: string | null;
   children?: RemoteCapability[];
 }
-export interface RemoteDelivery { id: string; url: string | null; defaultBranch?: string }
 
-/**
- * Flatten the lead's map into rows the form can list, carrying each delivery's clone URL across.
- *
- * The engine returns the tree and the deliveries separately because they answer different questions;
- * the form asks both at once — what this is, and whether it can be cloned — so they are joined here.
- */
-export function flattenChoices(
+/** Flatten the organisation's map into rows the form can list, carrying each clone URL across. */
+export function capabilityChoices(
   tree: RemoteCapability[],
-  deliveries: RemoteDelivery[],
-  ancestors: string[] = []
+  repositories: Record<string, { url?: string; defaultBranch?: string } | undefined> = {}
 ): CapabilityChoice[] {
-  const byId = new Map(deliveries.map((delivery) => [delivery.id, delivery]));
   const walk = (nodes: RemoteCapability[], chain: string[]): CapabilityChoice[] =>
-    nodes.flatMap((node) => [
-      {
-        id: node.id,
-        name: node.name,
-        depth: chain.length,
-        ancestors: chain,
-        repository: node.repository ?? null,
-        url: byId.get(node.id)?.url ?? null,
-        defaultBranch: byId.get(node.id)?.defaultBranch ?? 'main'
-      },
-      ...walk(node.children ?? [], [...chain, node.id])
-    ]);
-  return walk(tree, ancestors);
+    nodes.flatMap((node) => {
+      const declared = node.repository ? repositories[node.repository] : undefined;
+      return [
+        {
+          id: node.id,
+          name: node.name ?? node.id,
+          depth: chain.length,
+          ancestors: chain,
+          repository: node.repository ?? null,
+          url: declared?.url ?? null,
+          defaultBranch: declared?.defaultBranch ?? 'main'
+        },
+        ...walk(node.children ?? [], [...chain, node.id])
+      ];
+    });
+  return walk(tree, []);
 }
 
-/** Whether the lead described what it builds. Decides which half of the form applies. */
+/** Whether there is a map to choose from at all. */
 export function hasCapabilityMap(form: WorkspaceForm): boolean {
   return Boolean(form.capabilities?.length);
 }
@@ -137,7 +104,7 @@ export function hasCapabilityMap(form: WorkspaceForm): boolean {
 /**
  * Which capabilities a selection actually covers.
  *
- * Selecting a grouping means the things beneath it, the way selecting a directory means its
+ * Choosing a capability means the things beneath it, the way choosing a directory means its
  * contents. Recorded as the selection made rather than the expansion of it, so a capability added to
  * the map later is picked up by a workspace that asked for its parent.
  */
@@ -147,41 +114,39 @@ export function coveredCapabilities(form: WorkspaceForm): CapabilityChoice[] {
     chosen.has(capability.id) || capability.ancestors.some((ancestor) => chosen.has(ancestor)));
 }
 
+/** The covered capabilities that ship — the ones that can lead, and the ones that clone. */
+export function shippingCapabilities(form: WorkspaceForm): CapabilityChoice[] {
+  return coveredCapabilities(form).filter((capability) => capability.repository);
+}
+
 /**
- * The repositories a selection implies: what the covered capabilities deliver from, plus the lead.
+ * The repositories a selection implies: what the covered capabilities ship from.
  *
- * The lead is always present — it holds the map and the governed state, so a workspace without it
- * could not read its own configuration.
+ * Keyed by the repository each capability names, so two capabilities shipping from the same
+ * repository mean one clone rather than a duplicate.
  */
 export function derivedRepositories(form: WorkspaceForm): FormRepository[] {
-  // The fallback path names its repositories directly, but the lead is one of them either way: it is
-  // a repository like any other, and a workspace of nothing but a lead is a perfectly good
-  // workspace. Concatenated rather than keyed, because two repositories sharing an identifier is a
-  // conflict formProblems has to be able to see — collapsing them here would resolve it silently.
-  if (!hasCapabilityMap(form)) {
-    const named = form.repositories.filter((entry) => entry.url !== form.lead?.url);
-    return form.lead ? [form.lead, ...named] : named;
-  }
-  // The derived path cannot produce a duplicate: it is keyed by the repository each capability
-  // names, and two capabilities naming the same repository means one clone, not two.
   const byId = new Map<string, FormRepository>();
-  if (form.lead) byId.set(form.lead.id, form.lead);
-  for (const capability of coveredCapabilities(form)) {
-    if (!capability.repository || !capability.url || byId.has(capability.repository)) continue;
-    byId.set(capability.repository, {
-      id: capability.repository,
-      url: capability.url,
-      defaultBranch: capability.defaultBranch,
-      hasStateBranch: false,
-      stateBranch: 'state'
-    });
+  for (const capability of shippingCapabilities(form)) {
+    const id = capability.repository ?? '';
+    if (!capability.url || byId.has(id)) continue;
+    byId.set(id, { id, url: capability.url, defaultBranch: capability.defaultBranch });
   }
   return [...byId.values()];
 }
 
 /** Covered capabilities that name a repository the portfolio does not declare. */
 export function uncloneable(form: WorkspaceForm): CapabilityChoice[] {
-  return coveredCapabilities(form).filter((capability) => capability.repository && !capability.url);
+  return shippingCapabilities(form).filter((capability) => !capability.url);
+}
+
+/**
+ * The lead the form would use: the explicit pick, or the first shipping capability when the pick is
+ * absent or no longer covered by the selection.
+ */
+export function effectiveLead(form: WorkspaceForm): CapabilityChoice | null {
+  const shipping = shippingCapabilities(form);
+  return shipping.find((capability) => capability.id === form.leadCapability) ?? shipping[0] ?? null;
 }
 
 /**
@@ -197,16 +162,18 @@ export function formProblems(form: WorkspaceForm): string[] {
   else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(form.id.trim())) {
     problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
   }
-  if (!form.lead) problems.push('Name the lead repository, which holds the capability map.');
-  else if (hasCapabilityMap(form) && !form.selected.length) {
+  if (!form.organisation) problems.push('Choose the organisation whose capabilities this is for.');
+  else if (form.reading) problems.push('Wait for the capability map to be read.');
+  else if (!hasCapabilityMap(form)) {
+    problems.push('This organisation has no capabilities yet. Map one from the Capabilities screen first.');
+  } else if (!form.selected.length) {
     problems.push('Choose the capabilities this workspace is for.');
+  } else if (!shippingCapabilities(form).length) {
+    problems.push('None of the chosen capabilities ships from a repository, so there would be nothing to work in.');
   }
-
-  const repositories = derivedRepositories(form);
-  if (!repositories.length) problems.push('Add at least one repository.');
-  const ids = repositories.map((repository) => repository.id);
-  const duplicated = ids.filter((id, index) => ids.indexOf(id) !== index);
-  for (const id of new Set(duplicated)) problems.push(`More than one repository is called '${id}'.`);
+  for (const capability of uncloneable(form)) {
+    problems.push(`${capability.name} ships from '${capability.repository}', which the portfolio does not declare, so there is nowhere to clone it from.`);
+  }
   return problems;
 }
 
@@ -214,62 +181,38 @@ export function formProblems(form: WorkspaceForm): string[] {
 export function formCommand(form: WorkspaceForm): string[] {
   const args = ['workspace', 'create', '--local', '--json',
     '--id', form.id.trim(), '--base', form.base ?? '',
-    '--lead', form.lead?.id ?? '', '--confirm', form.id.trim()];
+    '--organisation', form.organisation ?? '', '--confirm', form.id.trim()];
   if (form.name.trim()) args.push('--name', form.name.trim());
-  for (const repository of derivedRepositories(form)) {
-    args.push('--repository', `${repository.id}=${repository.url}`);
-    args.push('--default-branch', `${repository.id}=${repository.defaultBranch}`);
-  }
-  // Recorded on the workspace, because it is what the workspace is for — not merely how its
-  // repository list happened to be arrived at.
   for (const id of form.selected) args.push('--capability', id);
+  const lead = effectiveLead(form);
+  if (lead) args.push('--lead-capability', lead.id);
   return args;
 }
 
-function leadHtml(form: WorkspaceForm): string {
-  if (form.lead) {
-    return `
-    <p>
-      <code>${escape(form.lead.url)}</code>
-      <span class="muted">→ ${escape(form.lead.id)} · ${escape(form.lead.defaultBranch)}</span>
-      ${form.lead.hasStateBranch
-    ? `<span class="pill ok">${icon('branch')}${escape(form.lead.stateBranch)}</span>`
-    : `<span class="muted">${icon('branch')}no ${escape(form.lead.stateBranch)} branch yet</span>`}
-      <button class="link" data-clear="lead">Change</button>
-    </p>
-    ${stateBranchHtml(form)}`;
+/**
+ * Which organisation the capabilities come from.
+ *
+ * Not a URL field: every organisation offered is one already mapped from the Capabilities screen.
+ * With only one there is nothing to decide, so it is stated rather than asked.
+ */
+function organisationHtml(form: WorkspaceForm): string {
+  if (!form.organisations.length) {
+    return `<p class="muted">No organisation has been mapped yet. Map a capability to a Git
+      repository from the Capabilities screen — that is what creates the map this form reads.</p>
+      <p><button class="secondary" data-open="capabilities">Open Capabilities</button></p>`;
+  }
+  if (form.organisations.length === 1 && form.organisation === form.organisations[0]) {
+    return `<p><code>${escape(form.organisation)}</code>
+      ${form.reading ? '<span class="muted">reading its map…</span>' : ''}</p>`;
   }
   return `
     <p>
-      <label>Clone URL <input type="text" value="${escape(form.leadDraft)}" data-draft="lead" size="46"
-        placeholder="https://github.com/org/platform.git"${form.adding ? ' disabled' : ''}></label>
-      <button class="secondary" data-read="lead"${form.adding || !form.leadDraft.trim() ? ' disabled' : ''}>
-        ${form.adding ? 'Reading…' : 'Read its capability map'}
-      </button>
-    </p>
-    <p class="muted">Nothing is cloned. The map and the repository URLs it refers to are read from
-      this remote so the capabilities below can be chosen.</p>
-    ${stateBranchHtml(form)}`;
-}
-
-/**
- * The workflow state branch, asked while the workspace is being described.
- *
- * An orphan branch with no shared ancestry with any code branch, so governance history cannot be
- * rewritten by a rebase of the work it records. Off unless named, because a branch nobody asked for
- * appearing in a repository is its own kind of surprise.
- */
-function stateBranchHtml(form: WorkspaceForm): string {
-  const exists = form.lead?.hasStateBranch && form.lead.stateBranch === form.stateBranch.trim();
-  return `
-    <p>
-      <label>Workflow state branch <input type="text" value="${escape(form.stateBranch)}"
-        data-draft="state-branch" size="18" placeholder="leave empty to skip"></label>
-      ${exists ? `<span class="pill ok">${icon('ok')}already on the lead</span>` : ''}
-    </p>
-    <p class="muted">An orphan branch recording what happens to each work item. It shares no
-      ancestry with any code branch and is never merged into one, so a rebase of the work cannot
-      rewrite the record of it. Created with the workspace; leave the field empty to skip it.</p>`;
+      <label>Organisation <select data-field="organisation">
+        <option value=""${form.organisation ? '' : ' selected'}>— choose —</option>
+        ${form.organisations.map((url) => `<option value="${escape(url)}"${url === form.organisation ? ' selected' : ''}>${escape(url)}</option>`).join('')}
+      </select></label>
+      ${form.reading ? '<span class="muted">reading its map…</span>' : ''}
+    </p>`;
 }
 
 /**
@@ -282,13 +225,11 @@ function stateBranchHtml(form: WorkspaceForm): string {
  * than inferred.
  */
 function capabilityHtml(form: WorkspaceForm): string {
-  if (!form.lead) {
-    return '<p class="muted">Name the lead repository first; it holds the map of what this organisation builds.</p>';
-  }
+  if (!form.organisation) return '<p class="muted">Choose an organisation first.</p>';
+  if (form.reading) return '<p class="muted">Reading the capability map…</p>';
   if (!hasCapabilityMap(form)) {
-    return `<p class="muted">${escape(form.capabilitiesReason ?? 'This lead repository does not describe what it builds.')}
-      Add the repositories directly for now, and describe capabilities from the Capabilities screen once
-      the workspace exists.</p>`;
+    return `<p class="muted">${escape(form.capabilitiesReason ?? 'This organisation does not describe what it builds yet.')}
+      Map a capability from the Capabilities screen, then come back.</p>`;
   }
 
   const covered = coveredCapabilities(form);
@@ -324,66 +265,59 @@ function capabilityHtml(form: WorkspaceForm): string {
           <td><button class="link" data-capability-remove="${escape(id)}">Remove</button></td>
         </tr>`;
   }).join('')}</tbody>
-    </table>` : '<p class="muted">Nothing chosen yet, so this workspace would hold only its lead repository.</p>'}
+    </table>` : '<p class="muted">Nothing chosen yet.</p>'}
+
+    ${leadHtml(form)}
 
     <p class="muted">Choosing a capability includes everything beneath it, the way choosing a
       directory includes its contents. The selection is recorded on the workspace, so a capability
       added to the map later is picked up by a workspace that asked for its parent.</p>`;
 }
 
+/**
+ * The lead capability, and what naming it decides.
+ *
+ * Offered only among the capabilities that ship, because leading means carrying the state branch
+ * and a grouping has no repository to carry it in. Defaulted rather than demanded — one shipping
+ * capability makes the choice unambiguous, and a form that insists on being told what it already
+ * knows is just a longer form.
+ */
+function leadHtml(form: WorkspaceForm): string {
+  const shipping = shippingCapabilities(form);
+  if (!shipping.length) return '';
+  const lead = effectiveLead(form);
+  return `
+    <p>
+      <label>Lead capability <select data-field="lead-capability">
+        ${shipping.map((capability) => `<option value="${escape(capability.id)}"${capability.id === lead?.id ? ' selected' : ''}>${escape(capability.name)} (${escape(capability.repository ?? '')})</option>`).join('')}
+      </select></label>
+    </p>
+    <p class="muted">The workspace's centre of gravity. When the workspace is initialised, the orphan
+      <code>state</code> branch is created and checked in
+      ${lead ? `in <code>${escape(lead.repository ?? '')}</code>` : 'in its repository'} if it is not
+      there already. It shares no ancestry with any code branch and is never merged into one, so a
+      rebase of the work cannot rewrite the record of it.</p>`;
+}
+
 function repositoryRows(form: WorkspaceForm): string {
   const repositories = derivedRepositories(form);
   if (!repositories.length) {
-    return `<tr><td colspan="5" class="muted">No repositories yet.</td></tr>`;
+    return '<tr><td colspan="4" class="muted">Nothing to clone yet — choose a capability that ships.</td></tr>';
   }
-  const derived = hasCapabilityMap(form);
+  const lead = effectiveLead(form);
   return repositories.map((repository) => `
     <tr>
-      <td>${repository.id === form.lead?.id ? `<span class="pill ok">${icon('repository')}lead</span>` : ''}</td>
-      <td>${derived
-    ? escape(repository.id)
-    : `<input type="text" value="${escape(repository.id)}" data-id="${escape(repository.id)}" size="18">`}</td>
+      <td>${repository.id === lead?.repository ? `<span class="pill ok">${icon('repository')}lead</span>` : ''}</td>
+      <td>${escape(repository.id)}</td>
       <td><code>${escape(repository.url)}</code></td>
       <td>${escape(repository.defaultBranch)}</td>
-      <td>${derived || repository.id === form.lead?.id
-    ? ''
-    : `<button class="link" data-remove="${escape(repository.id)}" title="Remove">Remove</button>`}</td>
     </tr>`).join('');
-}
-
-/** The fallback for a lead with no map: repositories named directly, by URL. */
-function addRepositoryHtml(form: WorkspaceForm): string {
-  const urls = draftUrls(form.draft);
-  const several = urls.length > 1;
-  const disabled = form.adding ? ' disabled' : '';
-  return `
-  <div class="card">
-    <div class="card-head"><h3>Add a repository</h3></div>
-    <p>
-      <label>Clone URL <input type="text" value="${escape(form.draft.url)}" data-draft="url" size="46"
-        placeholder="https://github.com/org/service.git"${disabled}></label>
-    </p>
-    <p>
-      <label>Identifier <input type="text" value="${escape(form.draft.id)}" data-draft="id" size="20"
-        placeholder="read from the URL"${form.adding || several ? ' disabled' : ''}></label>
-    </p>
-    <p class="muted">Nothing is cloned yet: the default branch and whether the <code>state</code>
-      branch already exists are read from the remote.
-      <span data-hint="urls">${several
-    ? `<strong>${urls.length} URLs given</strong> — each is added under the identifier read from its own URL.`
-    : 'Paste several URLs separated by spaces to add them at once.'}</span></p>
-    <p class="card-foot">
-      <button class="secondary" data-add="repository"${form.adding || !urls.length ? ' disabled' : ''}>
-        ${form.adding ? 'Reading the remote…' : several ? `Add ${urls.length} repositories` : 'Add repository'}
-      </button>
-    </p>
-  </div>`;
 }
 
 export function workspaceFormHtml(form: WorkspaceForm): string {
   const problems = formProblems(form);
   const repositories = derivedRepositories(form);
-  const blocked = uncloneable(form);
+  const lead = effectiveLead(form);
   return `
   <header>
     <h1>${icon('workspace', { size: 20 })}New workspace</h1>
@@ -410,10 +344,9 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   </section>
 
   <section>
-    <h2>${icon('repository')}Lead repository</h2>
-    <p class="question">It holds the capability map and the governed state branch, so it is named
-      first and everything else is read from it.</p>
-    ${leadHtml(form)}
+    <h2>${icon('organisation')}Organisation</h2>
+    <p class="question">Whose capability map this workspace draws from.</p>
+    ${organisationHtml(form)}
   </section>
 
   <section>
@@ -423,23 +356,17 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 
   <section>
     <h2>${icon('git')}Repositories</h2>
-    <p class="question">${hasCapabilityMap(form)
-    ? 'What the chosen capabilities deliver from. Cloned when the workspace is created.'
-    : 'Named directly, because this lead repository has no capability map yet.'}</p>
+    <p class="question">What the chosen capabilities ship from. Cloned when the workspace is created.</p>
     <table>
-      <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th><th></th></tr></thead>
+      <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th></tr></thead>
       <tbody>${repositoryRows(form)}</tbody>
     </table>
-    ${blocked.length ? `
-      <p class="blockers">${blocked.map((capability) =>
-    `${escape(capability.name)} delivers from <code>${escape(capability.repository ?? '')}</code>, which the lead repository's portfolio does not declare, so there is nowhere to clone it from.`).join(' ')}</p>` : ''}
-    ${hasCapabilityMap(form) ? '' : addRepositoryHtml(form)}
   </section>
 
   <section>
     ${problems.length
     ? `<h2>${icon('bad')}Before this can be created</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} will be cloned into <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, with <code>${escape(form.lead?.id ?? '')}</code> as lead.</p>`}
+    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} will be cloned into <code>${escape(form.base ?? '')}/${escape(form.id.trim())}</code>, led by <code>${escape(lead?.name ?? '')}</code>.</p>`}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-submit="create" ${problems.length || form.busy ? 'disabled' : ''}>
@@ -453,12 +380,10 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 export const WORKSPACE_FORM_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-choose],[data-remove],[data-submit],[data-add],[data-read],[data-clear],[data-capability-add],[data-capability-remove]');
+    const target = event.target.closest('[data-choose],[data-submit],[data-open],[data-capability-add],[data-capability-remove]');
     if (!target) return;
     if (target.dataset.choose) vscode.postMessage({ type: 'choose', what: target.dataset.choose });
-    else if (target.dataset.remove) vscode.postMessage({ type: 'remove', id: target.dataset.remove });
-    else if (target.dataset.read) vscode.postMessage({ type: 'read-lead' });
-    else if (target.dataset.clear) vscode.postMessage({ type: 'clear-lead' });
+    else if (target.dataset.open) vscode.postMessage({ type: 'open', what: target.dataset.open });
     else if (target.dataset.capabilityAdd) {
       const pick = document.querySelector('[data-capability-pick]');
       if (pick && pick.value) vscode.postMessage({ type: 'capability', id: pick.value, selected: true });
@@ -466,53 +391,21 @@ export const WORKSPACE_FORM_SCRIPT = `
     else if (target.dataset.capabilityRemove) {
       vscode.postMessage({ type: 'capability', id: target.dataset.capabilityRemove, selected: false });
     }
-    else if (target.dataset.add) vscode.postMessage({ type: 'add' });
     else if (target.dataset.submit) vscode.postMessage({ type: 'create' });
   });
   /**
-   * The draft is reported as it is typed so the actions never have to trust what the page sends with
-   * them — but the panel does NOT re-render in response, because replacing the document on every
-   * keystroke would take the caret with it. The affordances that depend on what is typed are
-   * therefore updated here, in the page, where they are presentation and nothing else.
+   * Typed values are reported as they are typed so the actions never have to trust what the page
+   * sends with them — as a draft, because the panel does not re-render for a draft and replacing the
+   * document on every keystroke would take the caret with it. The same value is reported again as a
+   * field when it is committed — on blur, or the moment a dropdown is picked — and that one redraws,
+   * because by then the summary below it is out of date.
    */
-  const affordances = () => {
-    const lead = document.querySelector('[data-draft="lead"]');
-    const read = document.querySelector('[data-read]');
-    if (lead && read) read.disabled = !lead.value.trim();
-    const url = document.querySelector('[data-draft="url"]');
-    const button = document.querySelector('[data-add]');
-    if (!url || !button) return;
-    const identifier = document.querySelector('[data-draft="id"]');
-    const hint = document.querySelector('[data-hint="urls"]');
-    const urls = url.value.split(/[\\s,]+/).map((value) => value.trim()).filter(Boolean);
-    button.disabled = urls.length === 0;
-    button.textContent = urls.length > 1 ? 'Add ' + urls.length + ' repositories' : 'Add repository';
-    if (identifier) identifier.disabled = urls.length > 1;
-    if (hint) {
-      hint.textContent = urls.length > 1
-        ? urls.length + ' URLs given — each is added under the identifier read from its own URL.'
-        : 'Paste several URLs separated by spaces to add them at once.';
-    }
-  };
-  const draft = (event) => {
-    const field = event.target.dataset?.draft;
-    if (!field) return false;
-    vscode.postMessage({ type: 'draft', field, value: event.target.value });
-    return true;
-  };
-  document.addEventListener('input', (event) => { if (draft(event)) affordances(); });
-  document.addEventListener('change', (event) => {
-    if (draft(event)) return;
+  document.addEventListener('input', (event) => {
     const field = event.target.dataset?.field;
-    if (field) return vscode.postMessage({ type: 'field', field, value: event.target.value });
-    const id = event.target.dataset?.id;
-    if (id) vscode.postMessage({ type: 'rename', id, value: event.target.value });
+    if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
   });
-  // Enter in a URL field does what the button beside it does.
-  document.addEventListener('keydown', (event) => {
-    const field = event.target.dataset?.draft;
-    if (event.key !== 'Enter' || (field !== 'url' && field !== 'lead')) return;
-    event.preventDefault();
-    vscode.postMessage({ type: field === 'lead' ? 'read-lead' : 'add' });
+  document.addEventListener('change', (event) => {
+    const field = event.target.dataset?.field;
+    if (field) vscode.postMessage({ type: 'field', field, value: event.target.value });
   });
 `;

@@ -182,14 +182,19 @@
     "menus": {
       "view/title": [
         {
+          "command": "singularityFlow.startWork",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@0"
+        },
+        {
           "command": "singularityFlow.openDashboard",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "singularityFlow.openCapabilities",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@0"
+          "group": "navigation@1"
         },
         {
           "command": "singularityFlow.createWorkspace",
@@ -199,32 +204,32 @@
         {
           "command": "singularityFlow.openApprovals",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "singularityFlow.openStories",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@3"
+          "group": "navigation@4"
         },
         {
           "command": "singularityFlow.openImpact",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@4"
+          "group": "navigation@5"
         },
         {
           "command": "singularityFlow.openJourney",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@5"
+          "group": "navigation@6"
         },
         {
           "command": "singularityFlow.openReconciliation",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@6"
+          "group": "navigation@7"
         },
         {
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@7"
+          "group": "navigation@9"
         },
         {
           "command": "singularityFlow.openWorkspaces",
@@ -254,7 +259,7 @@
         {
           "command": "singularityFlow.openDesigner",
           "when": "view == singularityFlow.lifecycle",
-          "group": "9_setup@2"
+          "group": "navigation@8"
         },
         {
           "command": "singularityFlow.mapCapability",

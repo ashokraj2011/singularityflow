@@ -69,7 +69,7 @@ export function buildStories(snapshot: DesktopSnapshot | null): Stories {
   });
   if (!snapshot) return nothing('Reading the repository…');
   const initiative = snapshot.initiative;
-  if (!initiative) return nothing('No Epic is checked out on this branch.');
+  if (!initiative) return nothing('Nothing governed is checked out on this branch.');
 
   const stories = initiative.breakdown?.stories ?? [];
   if (!stories.length) {

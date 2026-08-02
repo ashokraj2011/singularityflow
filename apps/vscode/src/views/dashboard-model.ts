@@ -47,7 +47,7 @@ function epicSection(initiative: InitiativeSnapshot | null | undefined): Dashboa
   if (!initiative) {
     return {
       id: 'epic', label: 'Epic', status: 'skip',
-      headline: 'No Epic is checked out on this branch.',
+      headline: 'Nothing governed is checked out on this branch.',
       detail: ['Starting one is the first governed act in a repository.']
     };
   }

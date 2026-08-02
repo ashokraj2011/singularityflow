@@ -407,7 +407,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
     if (state.error) { status.text = '$(error) Singularity Flow'; status.tooltip = state.error.message; status.show(); return; }
     const initiative = state.snapshot?.initiative;
-    if (!initiative) { status.text = '$(rocket) No Epic'; status.tooltip = 'No Epic is checked out on this branch.'; status.show(); return; }
+    if (!initiative) { status.text = '$(rocket) No work'; status.tooltip = 'Nothing governed is checked out on this branch.'; status.show(); return; }
     const phase = initiative.state.currentPhase ?? 'complete';
     status.text = `$(rocket) ${initiative.state.initiative.id} · ${phase}`;
     status.tooltip = initiative.nextActions?.[0]?.reason ?? 'Singularity Flow';

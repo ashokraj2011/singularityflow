@@ -179,7 +179,7 @@ export class ImpactPanel {
   private async reload(): Promise<void> {
     if (!this.store.current.snapshot?.initiative) {
       this.report = null;
-      this.error = 'No Epic is checked out on this branch.';
+      this.error = 'Nothing governed is checked out on this branch.';
       this.render();
       return;
     }

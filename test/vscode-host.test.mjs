@@ -864,7 +864,7 @@ test('the planning and impact panel computes from the plan, not from the map', a
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(panel.webview.html, /Planning and impact/);
   // It renders synchronously before the subprocess answers, rather than showing a blank page.
-  assert.match(panel.webview.html, /Computing impact|Reconciliation|No Epic/);
+  assert.match(panel.webview.html, /Computing impact|Reconciliation|Nothing governed/);
 });
 
 test('the capability tree can be grown entirely from the editor', async (t) => {

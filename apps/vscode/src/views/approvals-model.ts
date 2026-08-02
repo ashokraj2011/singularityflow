@@ -164,7 +164,7 @@ export function buildApprovals(snapshot: DesktopSnapshot | null): Approvals {
   if (!initiative) {
     return {
       initiativeId: '', actor: null, pending: [], obstacles: [],
-      empty: 'No Epic is checked out on this branch.'
+      empty: 'Nothing governed is checked out on this branch.'
     };
   }
   return approvalsOf(snapshot, initiative);

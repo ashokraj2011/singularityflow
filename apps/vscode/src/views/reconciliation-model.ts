@@ -283,8 +283,8 @@ export function buildReconciliation(
       initiativeId: '',
       levels: [],
       empty: snapshot.initiatives?.length
-        ? 'No Epic is checked out on this branch. Check out an Epic branch to reconcile it.'
-        : 'No Epic has been started in this repository yet.'
+        ? 'Nothing governed is checked out on this branch. Check out a governed branch to reconcile it.'
+        : 'No work has been started in this repository yet.'
     };
   }
 

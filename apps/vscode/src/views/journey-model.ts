@@ -72,7 +72,7 @@ export interface Journey {
 const EMPTY: Journey = {
   id: '', title: '', profile: '', branch: null, status: '',
   stages: [], currentStage: null, artifacts: [], packs: [], sources: [],
-  repositories: [], blockers: [], nextAction: null, empty: 'No Epic is checked out on this branch.'
+  repositories: [], blockers: [], nextAction: null, empty: 'Nothing governed is checked out on this branch.'
 };
 
 /**
@@ -100,8 +100,8 @@ export function buildJourney(snapshot: DesktopSnapshot | null): Journey {
     return {
       ...EMPTY,
       empty: snapshot.initiatives?.length
-        ? 'No Epic is checked out on this branch. Check out an Epic branch to see its journey.'
-        : 'No Epic has been started in this repository yet.'
+        ? 'Nothing governed is checked out on this branch. Check out an Epic branch to see its journey.'
+        : 'No work has been started in this repository yet.'
     };
   }
   return journeyOf(initiative);

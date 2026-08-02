@@ -526,8 +526,8 @@ test('a gate the engine says is ready contributes no blockers', () => {
 
 test('the journey says why it is empty rather than rendering a blank page', () => {
   assert.match(buildJourney(null).empty, /Reading the repository/);
-  assert.match(buildJourney({ initiative: null, initiatives: [], workItems: [] }).empty, /No Epic has been started/);
-  assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /No Epic is checked out/);
+  assert.match(buildJourney({ initiative: null, initiatives: [], workItems: [] }).empty, /No work has been started/);
+  assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /Nothing governed is checked out/);
 });
 
 const { buildReconciliation } = await import(source('views/reconciliation-model.ts'));
@@ -656,7 +656,7 @@ test('a contract file that changed since it was pinned is drift for every consum
 test('reconciliation says why it is empty rather than rendering nothing', () => {
   assert.match(buildReconciliation(null, null).empty, /Reading the repository/);
   assert.match(buildReconciliation({ initiative: null, initiatives: [], workItems: [] }, null).empty,
-    /No Epic has been started/);
+    /No work has been started/);
 });
 
 test('a Story that reached conformance contributes its tree hash to the spec-versus-code level', () => {
@@ -2020,7 +2020,7 @@ test('the Epic section reports where it has got to, and what is holding it', () 
   assert.match(epic.detail.join(' '), /phases approved/);
 
   const none = buildDashboard({ ...snapshot, initiative: null });
-  assert.match(none.sections.find((section) => section.id === 'epic').headline, /No Epic is checked out/);
+  assert.match(none.sections.find((section) => section.id === 'epic').headline, /Nothing governed is checked out/);
 });
 
 const { buildProfiles, buildTemplateUsage, consequence, standingOn } =

@@ -626,7 +626,14 @@ async function build(root, config, options) {
       analysisRoot, temporary, config, options, views, metadata, checkpoint
     );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
-    const discoveryChanges = changedSnapshotPaths(before, afterDiscovery);
+    // The checkpoint is the builder's own scratch space and it lives under the world-model output
+    // directory — inside the very tree this guard watches. So parallel discovery, which is the
+    // default, tripped its own isolation check by doing the thing it is designed to do, while
+    // `--no-parallel` worked because it never creates a checkpoint at all. Reading the model
+    // already skips `.checkpoints` for the same reason: it is not repository content.
+    const builderScratch = `${config.outputDir}/.checkpoints`;
+    const discoveryChanges = changedSnapshotPaths(before, afterDiscovery)
+      .filter((entry) => !String(entry).includes(builderScratch));
     if (head(analysisRoot) !== sourceCommit) discoveryChanges.push('Git history (discovery worker created a commit)');
     if (discoveryChanges.length) {
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);

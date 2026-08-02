@@ -327,3 +327,30 @@ test('epic stories add creates the first planned Story without a tracker', async
   assert.match(cli, /if \(action === 'add'\) \{/);
   assert.match(cli, /list\|show\|add\|update\|split\|adopt/);
 });
+
+/**
+ * Parallel discovery is not an escape from its own isolation.
+ *
+ * Discovery workers must not touch the repository outside their packets, and the builder snapshots
+ * the tree before and after to enforce it. But the checkpoint those workers write into lives under
+ * the world-model output directory — inside the very tree being watched — so parallel discovery,
+ * which is the default, failed its own check by doing exactly what it is designed to do. Every
+ * build in the walks that succeeded had passed `--no-parallel`, which never creates a checkpoint;
+ * the default path was broken and the workaround hid it.
+ */
+test('the builder does not flag its own checkpoint as a worker escape', async () => {
+  const source = await readFile(new URL('../src/worldmodel.mjs', import.meta.url), 'utf8');
+
+  // The checkpoint genuinely lives under the output directory, which is why the exclusion is needed
+  // rather than merely convenient.
+  assert.match(source, /const checkpointRoot = path\.join\(outputDirectory, '\.checkpoints'\)/);
+  assert.match(source, /const builderScratch = `\$\{config\.outputDir\}\/\.checkpoints`/);
+  assert.match(source, /\.filter\(\(entry\) => !String\(entry\)\.includes\(builderScratch\)\)/);
+
+  // Reading the model already treats .checkpoints as builder-internal; the two agree now.
+  const grounding = await readFile(new URL('../src/grounding.mjs', import.meta.url), 'utf8');
+  assert.match(grounding, /entry\.name === '\.checkpoints'/);
+
+  // The guard itself stays: anything else a worker touches is still an escape.
+  assert.match(source, /World-model discovery workers modified files outside their isolated packets/);
+});

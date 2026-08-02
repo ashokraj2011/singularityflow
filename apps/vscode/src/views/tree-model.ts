@@ -40,6 +40,11 @@ export interface TreeNode {
    * repository — a workspace opens into its lead repository, which is somewhere else entirely.
    */
   openPath?: string;
+  /**
+   * A command this node runs when clicked. For rows that exist to be acted on rather than read —
+   * an empty state offering the way out of itself.
+   */
+  runCommand?: string;
   /** True when opening this artifact should be read-only. */
   readOnly?: boolean;
   /** A CLI invocation this node offers, already split into argv. */
@@ -187,7 +192,25 @@ export function unavailableTree(label: string, detail: string, contextValue?: st
     tooltip: detail,
     icon: 'info',
     ...(contextValue ? { contextValue } : {}),
-    children: [{ kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' }]
+    children: [
+      { kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' },
+      // A state that explains itself and offers nothing is a dead end. Everything Singularity Flow
+      // can do needs a repository, so the two ways to get one are the only useful rows here — and
+      // both work from a window with nothing open, which is exactly where this state occurs.
+      {
+        kind: 'action', id: 'unavailable:workspaces', label: 'Find a workspace you already have',
+        icon: 'root-folder', runCommand: 'singularityFlow.openWorkspaces'
+      },
+      {
+        kind: 'action', id: 'unavailable:create', label: 'Create a workspace',
+        icon: 'add', runCommand: 'singularityFlow.createWorkspace'
+      },
+      ...(contextValue === 'sflow.uninitialized' ? [{
+        kind: 'action' as const, id: 'unavailable:init',
+        label: 'Initialize Singularity Flow in this folder',
+        icon: 'add', runCommand: 'singularityFlow.init'
+      }] : [])
+    ]
   }];
 }
 

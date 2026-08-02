@@ -87,7 +87,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(vscode.commands.registerCommand(id, (...args: never[]) => {
       const handler = handlers.get(id);
       if (handler) return handler(...args);
-      void vscode.window.showWarningMessage(`Singularity Flow: ${unavailableReason}`);
+      void vscode.window.showWarningMessage(
+        `Singularity Flow: ${unavailableReason}`,
+        'Find a workspace', 'Create a workspace'
+      ).then((chosen) => {
+        if (chosen === 'Find a workspace') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+        if (chosen === 'Create a workspace') return vscode.commands.executeCommand('singularityFlow.createWorkspace');
+        return undefined;
+      });
       return undefined;
     }));
   }

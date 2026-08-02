@@ -50,6 +50,14 @@
         {
           "id": "singularityFlow.lifecycle",
           "name": "Lifecycle"
+        },
+        {
+          "id": "singularityFlow.capabilities",
+          "name": "Capabilities"
+        },
+        {
+          "id": "singularityFlow.workspaces",
+          "name": "Workspaces"
         }
       ]
     },
@@ -136,6 +144,21 @@
         "command": "singularityFlow.doctor",
         "title": "Singularity Flow: Diagnostics",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "singularityFlow.addCapability",
+        "title": "Singularity Flow: Add a Capability",
+        "icon": "$(add)"
+      },
+      {
+        "command": "singularityFlow.editCapability",
+        "title": "Singularity Flow: Edit This Capability",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "singularityFlow.openWorkspace",
+        "title": "Singularity Flow: Open This Workspace",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
@@ -184,6 +207,26 @@
           "command": "singularityFlow.openWorkspaces",
           "when": "view == singularityFlow.lifecycle",
           "group": "9_setup@1"
+        },
+        {
+          "command": "singularityFlow.addCapability",
+          "when": "view == singularityFlow.capabilities",
+          "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.openCapabilities",
+          "when": "view == singularityFlow.capabilities",
+          "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.createWorkspace",
+          "when": "view == singularityFlow.workspaces",
+          "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.openWorkspaces",
+          "when": "view == singularityFlow.workspaces",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -216,6 +259,26 @@
           "command": "singularityFlow.init",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.uninitialized",
           "group": "inline"
+        },
+        {
+          "command": "singularityFlow.addCapability",
+          "when": "view == singularityFlow.capabilities && viewItem =~ /^sflow\\.capabilit(y|ies\\.empty)$/",
+          "group": "inline@0"
+        },
+        {
+          "command": "singularityFlow.editCapability",
+          "when": "view == singularityFlow.capabilities && viewItem =~ /^sflow\\.capability/",
+          "group": "inline@1"
+        },
+        {
+          "command": "singularityFlow.createWorkspace",
+          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspaces.empty",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.openWorkspace",
+          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -229,6 +292,14 @@
         },
         {
           "command": "singularityFlow.approve",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.editCapability",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.openWorkspace",
           "when": "false"
         }
       ]

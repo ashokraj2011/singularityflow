@@ -35,6 +35,11 @@ export interface TreeNode {
   children?: TreeNode[];
   /** Set for artifacts the editor can open. Repository-relative. */
   path?: string;
+  /**
+   * An absolute folder this node opens into. Distinct from `path`, which is an artifact inside the
+   * repository — a workspace opens into its lead repository, which is somewhere else entirely.
+   */
+  openPath?: string;
   /** True when opening this artifact should be read-only. */
   readOnly?: boolean;
   /** A CLI invocation this node offers, already split into argv. */

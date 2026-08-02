@@ -27,6 +27,10 @@ import type { WorkspaceEntry } from './views/workspaces-model.ts';
 import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
+import { NodeTreeProvider } from './views/navigation.ts';
+import {
+  buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf
+} from './views/navigation-trees.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Singularity Flow');
@@ -57,8 +61,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openApprovals', 'singularityFlow.startEpic', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
-    'singularityFlow.showImpact'
+    'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability'
   ];
+  /**
+   * The two navigation trees, registered before anything can go wrong.
+   *
+   * Workspaces are machine-wide and are populated whatever the open folder is. Capabilities need
+   * the lead repository, so until there is one the tree says that rather than being absent — a
+   * contributed view with no provider reports on the extension rather than on the folder.
+   */
+  const capabilityTree = new NodeTreeProvider();
+  const workspaceTree = new NodeTreeProvider();
+  context.subscriptions.push(capabilityTree, workspaceTree);
+  context.subscriptions.push(
+    vscode.window.createTreeView('singularityFlow.capabilities', { treeDataProvider: capabilityTree }),
+    vscode.window.createTreeView('singularityFlow.workspaces', { treeDataProvider: workspaceTree })
+  );
+
   const handlers = new Map<string, (...args: never[]) => unknown>();
   let unavailableReason = 'Open the repository that contains singularity/workflow.yml.';
   for (const id of REPOSITORY_COMMANDS) {
@@ -75,6 +94,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The same sentence the view is showing, so a command and the tree never disagree about why
     // there is nothing to act on.
     unavailableReason = detail;
+    capabilityTree.replace(buildCapabilityTree(null, detail));
     const provider = new LifecycleTreeProvider(null, unavailableTree(label, detail, contextValue));
     context.subscriptions.push(provider);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
@@ -164,8 +184,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
-    WorkspacesPanel.show(context, await list(), list, onMessage);
+    WorkspacesPanel.show(context, await list(), list, async (message) => {
+      const failure = await onMessage(message);
+      // Anything that changes the registry changes the tree beside it.
+      if (message.type !== 'open') void refreshWorkspaceTree();
+      return failure;
+    });
   }));
+
+  /**
+   * The workspace tree, and the two things it offers.
+   *
+   * Machine-wide: the registry does not depend on which folder happens to be open, which is exactly
+   * why this is useful in a window that has no repository in it yet.
+   */
+  const refreshWorkspaceTree = async (): Promise<void> => {
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const entries = await new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: () => {}
+      }).run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
+      workspaceTree.replace(buildWorkspaceTree(entries));
+    } catch (error) {
+      output.appendLine(`Could not read the workspace registry: ${(error as Error).message}`);
+      workspaceTree.replace(buildWorkspaceTree([]));
+    }
+  };
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspace',
+    async (node?: TreeNode) => {
+      // The lead repository, not the workspace directory: that is where the capability map, the
+      // governed state branch and every command's configuration live.
+      const target = node?.openPath ?? workspacePathOf(node);
+      if (!target) return;
+      await vscode.commands.executeCommand('vscode.openFolder',
+        vscode.Uri.file(target), { forceNewWindow: true });
+    }));
+  void refreshWorkspaceTree();
 
   /** Diagnostics, as the CLI reports them. */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', async () => {
@@ -244,6 +298,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
+  // The capability tree is the map as the lead repository states it, so it follows the snapshot
+  // rather than being refreshed by whoever happened to change it.
+  context.subscriptions.push(store.onDidChange((state) =>
+    capabilityTree.replace(buildCapabilityTree(state.snapshot, state.error?.message ?? null))));
+  capabilityTree.replace(buildCapabilityTree(store.current.snapshot));
 
   // Governed configuration is edited in ordinary tabs; saving one asks the engine whether the result
   // is still valid, so a broken workflow.yml is reported where it was typed rather than by a command
@@ -534,7 +593,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
-    'singularityFlow.showImpact': () => showImpact(client, output)
+    'singularityFlow.showImpact': () => showImpact(client, output),
+    // Both open the same screen, positioned: adding lands on the form for a new capability under
+    // whatever was clicked, editing lands on the capability itself.
+    'singularityFlow.addCapability': ((node?: TreeNode) => {
+      const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+      panel.beginAdd(capabilityIdOf(node));
+    }) as never,
+    'singularityFlow.editCapability': ((node?: TreeNode) => {
+      const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+      const capability = capabilityIdOf(node);
+      if (capability) panel.focus(capability);
+    }) as never
   };
   for (const [id, handler] of Object.entries(registered)) handlers.set(id, handler);
   // A contributed command with no handler here would be one the palette offers and nothing answers.

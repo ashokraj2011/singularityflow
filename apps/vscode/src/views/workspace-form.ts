@@ -272,6 +272,15 @@ function stateBranchHtml(form: WorkspaceForm): string {
       rewrite the record of it. Created with the workspace; leave the field empty to skip it.</p>`;
 }
 
+/**
+ * Choosing what the workspace is for.
+ *
+ * A dropdown rather than a row of checkboxes: a real map runs to dozens of capabilities, and a
+ * checkbox table asks a reader to scan all of them to find the two they want. The options are
+ * indented so the hierarchy stays legible, and each pick is listed below with what it drags in —
+ * choosing a grouping means everything beneath it, and that consequence should be visible rather
+ * than inferred.
+ */
 function capabilityHtml(form: WorkspaceForm): string {
   if (!form.lead) {
     return '<p class="muted">Name the lead repository first; it holds the map of what this organisation builds.</p>';
@@ -282,25 +291,41 @@ function capabilityHtml(form: WorkspaceForm): string {
       the workspace exists.</p>`;
   }
 
-  const chosen = new Set(form.selected);
-  const covered = new Set(coveredCapabilities(form).map((capability) => capability.id));
+  const covered = coveredCapabilities(form);
+  const coveredIds = new Set(covered.map((capability) => capability.id));
+  // Anything already covered is not offered: picking a child of something chosen adds nothing, and
+  // picking the same one twice is not a thing.
+  const offered = (form.capabilities ?? []).filter((capability) => !coveredIds.has(capability.id));
+
   return `
+    <p>
+      <label>Include <select data-capability-pick>
+        <option value="">— choose a capability —</option>
+        ${offered.map((capability) => `<option value="${escape(capability.id)}">${'&nbsp;&nbsp;'.repeat(capability.depth)}${escape(capability.name)}${capability.repository ? ` (${escape(capability.repository)})` : ''}</option>`).join('')}
+      </select></label>
+      <button class="secondary" data-capability-add="1"${offered.length ? '' : ' disabled'}>Add</button>
+    </p>
+
+    ${form.selected.length ? `
     <table>
-      <thead><tr><th>Include</th><th>Capability</th><th>Delivers from</th></tr></thead>
-      <tbody>${(form.capabilities ?? []).map((capability) => {
-    const inherited = !chosen.has(capability.id) && covered.has(capability.id);
+      <thead><tr><th>Capability</th><th>Brings in</th><th></th></tr></thead>
+      <tbody>${form.selected.map((id) => {
+    const capability = (form.capabilities ?? []).find((entry) => entry.id === id);
+    const beneath = covered.filter((entry) => entry.id !== id && entry.ancestors.includes(id));
+    const ships = covered
+      .filter((entry) => entry.id === id || entry.ancestors.includes(id))
+      .filter((entry) => entry.repository);
     return `
-        <tr${covered.has(capability.id) ? '' : ' class="others"'}>
-          <td><input type="checkbox" data-capability="${escape(capability.id)}"
-            ${chosen.has(capability.id) ? 'checked' : ''}></td>
-          <td style="padding-left:${capability.depth * 1.2}rem">${escape(capability.name)}
-            ${inherited ? '<span class="muted">included by its parent</span>' : ''}</td>
-          <td>${capability.repository
-      ? `${icon('repository')}<code>${escape(capability.repository)}</code>${capability.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`
-      : '<span class="muted">—</span>'}</td>
+        <tr>
+          <td>${icon('capability')}${escape(capability?.name ?? id)}</td>
+          <td class="muted">${beneath.length ? `${beneath.length} beneath it · ` : ''}${ships.length
+      ? ships.map((entry) => `${icon('repository')}<code>${escape(entry.repository ?? '')}</code>${entry.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`).join(' ')
+      : 'ships nothing yet'}</td>
+          <td><button class="link" data-capability-remove="${escape(id)}">Remove</button></td>
         </tr>`;
   }).join('')}</tbody>
-    </table>
+    </table>` : '<p class="muted">Nothing chosen yet, so this workspace would hold only its lead repository.</p>'}
+
     <p class="muted">Choosing a capability includes everything beneath it, the way choosing a
       directory includes its contents. The selection is recorded on the workspace, so a capability
       added to the map later is picked up by a workspace that asked for its parent.</p>`;
@@ -428,12 +453,19 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 export const WORKSPACE_FORM_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-choose],[data-remove],[data-submit],[data-add],[data-read],[data-clear]');
+    const target = event.target.closest('[data-choose],[data-remove],[data-submit],[data-add],[data-read],[data-clear],[data-capability-add],[data-capability-remove]');
     if (!target) return;
     if (target.dataset.choose) vscode.postMessage({ type: 'choose', what: target.dataset.choose });
     else if (target.dataset.remove) vscode.postMessage({ type: 'remove', id: target.dataset.remove });
     else if (target.dataset.read) vscode.postMessage({ type: 'read-lead' });
     else if (target.dataset.clear) vscode.postMessage({ type: 'clear-lead' });
+    else if (target.dataset.capabilityAdd) {
+      const pick = document.querySelector('[data-capability-pick]');
+      if (pick && pick.value) vscode.postMessage({ type: 'capability', id: pick.value, selected: true });
+    }
+    else if (target.dataset.capabilityRemove) {
+      vscode.postMessage({ type: 'capability', id: target.dataset.capabilityRemove, selected: false });
+    }
     else if (target.dataset.add) vscode.postMessage({ type: 'add' });
     else if (target.dataset.submit) vscode.postMessage({ type: 'create' });
   });
@@ -471,10 +503,6 @@ export const WORKSPACE_FORM_SCRIPT = `
   document.addEventListener('input', (event) => { if (draft(event)) affordances(); });
   document.addEventListener('change', (event) => {
     if (draft(event)) return;
-    const capability = event.target.dataset?.capability;
-    if (capability) {
-      return vscode.postMessage({ type: 'capability', id: capability, selected: event.target.checked });
-    }
     const field = event.target.dataset?.field;
     if (field) return vscode.postMessage({ type: 'field', field, value: event.target.value });
     const id = event.target.dataset?.id;

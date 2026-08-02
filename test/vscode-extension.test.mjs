@@ -287,7 +287,7 @@ test('only approval-pinned artifacts are treated as read-only', () => {
   assert.equal(isApprovalPinned({ status: 'not_generated', sha256: null }), false);
 });
 
-const { buildTree } = await import(source('views/tree-model.ts'));
+const { buildTree, buildConfigurationTree } = await import(source('views/tree-model.ts'));
 
 /** Every node in the tree, depth-first, so a test can assert about the whole shape. */
 function flatten(nodes) {
@@ -320,9 +320,8 @@ test('a repository with nothing started at all offers the command that starts so
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
-  // The Epic, plus the two things that belong to the repository rather than to any Epic.
-  assert.deepEqual(tree.map((node) => node.id),
-    ['initiative:INIT-MULTI', 'workflows', 'configuration']);
+  // Lifecycle is only the work in flight. Repository configuration has its own view.
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -765,8 +764,8 @@ test('an empty repository offers to start an Epic rather than describing the com
 test('configuration is shown whether or not an Epic is checked out', () => {
   // The lifecycle, the approvers and the lenses are properties of the repository, not of an Epic.
   // A newcomer's problem is not editing these files but knowing they exist and where.
-  const withEpic = buildTree(snapshot);
-  const withoutEpic = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  const withEpic = buildConfigurationTree(snapshot);
+  const withoutEpic = buildConfigurationTree({ initiative: null, initiatives: [], workItems: [] });
   for (const tree of [withEpic, withoutEpic]) {
     const configuration = find(tree, 'configuration');
     assert.ok(configuration, 'configuration is always reachable');
@@ -774,7 +773,8 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     // workflow and portfolio first: they define everything the other sets are instances of.
     // The world model leads: it is the one thing under Configuration that is built rather than
     // edited, and it used to sit in the Lifecycle tree as though it were a stage.
-    assert.deepEqual(children.slice(0, 3), ['world-model', 'config:workflow', 'config:portfolio']);
+    assert.deepEqual(children.slice(0, 4),
+      ['world-model', 'workflows', 'config:workflow', 'config:portfolio']);
     for (const set of ['config:templates', 'config:prompts', 'config:skills', 'config:personas']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
@@ -782,13 +782,13 @@ test('configuration is shown whether or not an Epic is checked out', () => {
 });
 
 test('the configuration node says whether workflow progress is recorded, and where', () => {
-  const off = find(buildTree(snapshot), 'configuration');
+  const off = find(buildConfigurationTree(snapshot), 'configuration');
   assert.equal(off.description, 'no state branch');
   assert.match(off.tooltip, /No append-only workflow ledger/);
 
   const on = structuredClone(snapshot);
   on.definition = { ...(on.definition ?? {}), ledger: { enabled: true, branch: 'state' } };
-  const node = find(buildTree(on), 'configuration');
+  const node = find(buildConfigurationTree(on), 'configuration');
   assert.equal(node.description, 'state on state');
   assert.match(node.tooltip, /orphan branch 'state'/);
 });
@@ -798,7 +798,7 @@ test('each working lens is openable as the file that defines it', () => {
   withLenses.definition = {
     personas: { 'product-owner': { label: 'Product owner' }, developer: { label: 'Developer' } }
   };
-  const lenses = find(buildTree(withLenses), 'config:personas');
+  const lenses = find(buildConfigurationTree(withLenses), 'config:personas');
   assert.equal(lenses.description, '2');
   assert.deepEqual(lenses.children.map((child) => child.label), ['Product owner', 'Developer']);
   assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
@@ -1026,7 +1026,7 @@ test('the editable file sets appear as groups of openable files', () => {
     { id: 'house', scope: 'repository', path: '.github/agents/house.md', editable: true }
   ];
   authored.agentMappings = { path: 'singularity/agent-mappings.yml', exists: true };
-  const tree = buildTree(authored);
+  const tree = buildConfigurationTree(authored);
 
   const templates = find(tree, 'config:templates');
   assert.equal(templates.description, '1');
@@ -1274,7 +1274,7 @@ test('an Epic with no Story plan says what planning would produce', () => {
 test('the world model is shown at the root, and its absence is named', () => {
   // A model belongs to the repository, not to an Epic: every Epic on every branch grounds against
   // the same one. Its absence is invisible until the answers are wrong.
-  const unbuilt = find(buildTree(snapshot), 'world-model');
+  const unbuilt = find(buildConfigurationTree(snapshot), 'world-model');
   assert.equal(unbuilt.description, 'not built');
   assert.match(unbuilt.tooltip, /no repository knowledge to draw on/);
   assert.deepEqual(unbuilt.children[0].command, ['wm', 'build'], 'and it offers to build one');
@@ -1284,7 +1284,7 @@ test('the world model is shown at the root, and its absence is named', () => {
     root: 'singularity/world-model', generatedAt: '2026-08-01T00:00:00Z', rebuildReason: null,
     views: [{ id: 'business', references: ['a', 'b'] }, { id: 'data', references: [] }]
   };
-  const node = find(buildTree(built), 'world-model');
+  const node = find(buildConfigurationTree(built), 'world-model');
   assert.equal(node.description, '2 views');
   assert.equal(node.children[0].path, 'singularity/world-model/views/business.md');
   assert.equal(node.children[1].description, 'no references');
@@ -1296,13 +1296,13 @@ test('a stale world model offers the rebuild the engine asked for, in its own wo
     root: 'singularity/world-model', generatedAt: '2026-07-01T00:00:00Z',
     rebuildReason: 'The repository changed after the model was generated.', views: []
   };
-  const node = find(buildTree(stale), 'world-model');
+  const node = find(buildConfigurationTree(stale), 'world-model');
   assert.equal(node.children[0].label, 'The repository changed after the model was generated.');
   assert.deepEqual(node.children[0].command, ['wm', 'build']);
 });
 
 test('the world model is reachable even with no Epic checked out', () => {
-  const tree = buildTree({ initiative: null, initiatives: [], workItems: [], worldModel: { root: 'w', generatedAt: null, rebuildReason: null, views: [] } });
+  const tree = buildConfigurationTree({ initiative: null, initiatives: [], workItems: [], worldModel: { root: 'w', generatedAt: null, rebuildReason: null, views: [] } });
   assert.ok(find(tree, 'world-model'), 'grounding does not depend on an Epic');
   assert.ok(find(tree, 'configuration'));
 });
@@ -1378,24 +1378,25 @@ test('a capability map that does not validate reports the engine reason', () => 
  * the other is grounding for prompts, and neither is a stage. The world model moved to
  * Configuration, where the rest of what you configure already lives.
  */
-test('the lifecycle tree holds work and workflows; configuration holds the rest', () => {
-  const tree = buildTree(snapshot);
-  const ids = tree.map((node) => node.id);
-  assert.ok(ids.includes('workflows'), 'the shapes work can take');
-  assert.ok(ids.includes('configuration'));
-  assert.equal(ids.includes('capabilities'), false, 'the Capabilities view renders those');
-  assert.equal(ids.includes('world-model'), false, 'grounding is configuration');
+test('Lifecycle holds intake and delivery; Configuration holds workflows and governed files', () => {
+  const lifecycle = buildTree(snapshot);
+  const configurationTree = buildConfigurationTree(snapshot);
+  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI']);
+  assert.equal(find(lifecycle, 'workflows'), undefined, 'workflow design is configuration');
+  assert.equal(find(lifecycle, 'configuration'), undefined, 'settings do not crowd the intake view');
+  assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
+  assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
 
   // The world model is inside Configuration now, first, because it is the one thing there that is
   // built rather than edited.
-  const configuration = find(tree, 'configuration');
+  const configuration = find(configurationTree, 'configuration');
   assert.equal(configuration.children[0].id, 'world-model');
 
   // A workflow is listed with the phase chain that distinguishes it, and says what it governs.
   const withWorkflows = structuredClone(snapshot);
   withWorkflows.portfolio = { initiativeProfiles: { 'epic-planning': { label: 'Epic planning', phases: ['a', 'b'] } } };
   withWorkflows.definition = { ...withWorkflows.definition, workTypes: { feature: { label: 'Feature', phases: ['x'] } } };
-  const workflows = find(buildTree(withWorkflows), 'workflows');
+  const workflows = find(buildConfigurationTree(withWorkflows), 'workflows');
   assert.equal(workflows.description, '2');
   assert.deepEqual(workflows.children.map((child) => child.label), ['Epic planning', 'Feature']);
   assert.match(workflows.children[0].description, /^initiative · a → b$/);
@@ -1892,6 +1893,8 @@ test('the selected workspace offers rename, copy and forget, and says what each 
   assert.match(html, /data-rename="\/work\/commerce"/);
   assert.match(html, /data-duplicate="\/work\/commerce"/);
   assert.match(html, /data-forget="\/work\/commerce"/);
+  assert.match(html, /data-switch="\/work\/commerce"/, 'switching is available directly on the row');
+  assert.doesNotMatch(html, /data-open="\/work\/commerce"/, 'there is no separate, ambiguous Open action');
   assert.match(html, /The copy would be created at \/work\/commerce-spike/);
   assert.match(html, /leaves the directory alone/, 'forgetting is not deleting, and says so');
   assert.match(html, /working\s*\n?\s*directory is not/, 'renaming does not move anything');
@@ -1917,6 +1920,7 @@ test('workspaces are a tree, with the working directory where it can be compared
   const [commerce, payments] = buildWorkspaceTree(REGISTRY);
   assert.equal(commerce.label, 'commerce');
   assert.equal(commerce.description, 'working here');
+  assert.equal(commerce.runCommand, 'singularityFlow.switchWorkspace', 'selecting it performs the switch');
   // The directory leads the tooltip, then what choosing this workspace means.
   assert.match(commerce.tooltip, /^\/work\/commerce\n/);
   assert.match(commerce.tooltip, /scoped to this workspace/);

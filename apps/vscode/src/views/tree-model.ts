@@ -243,7 +243,7 @@ export function unavailableTree(
  * empty branch. An empty tree in a governance tool reads as "nothing to do", which is the single
  * most expensive thing it could wrongly say.
  */
-export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null = null): TreeNode[] {
+export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Error | null = null): TreeNode[] {
   if (error) {
     return [{
       kind: 'message',
@@ -257,7 +257,6 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
   }
 
-  const configuration = configurationNode(snapshot);
   const initiative = snapshot.initiative;
   if (!initiative) {
     const available = snapshot.initiatives?.length ?? 0;
@@ -275,11 +274,40 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }, workflowsNode(snapshot), configuration];
+    }];
   }
 
-  return [initiativeNode(initiative), workflowsNode(snapshot), configuration];
+  return [initiativeNode(initiative)];
 }
+
+/**
+ * Repository configuration has its own view.
+ *
+ * Keeping this out of Lifecycle matters: intake and delivery state change as work advances, while
+ * these files define how that work is performed. Mixing both made templates and agents hard to
+ * find and made Lifecycle look like a settings drawer rather than the place work moves forward.
+ */
+export function buildConfigurationTree(
+  snapshot: DesktopSnapshot | null,
+  error: Error | null = null
+): TreeNode[] {
+  if (error) {
+    return [{
+      kind: 'message', id: 'configuration:error', label: error.message, icon: 'error',
+      tooltip: 'The Singularity Flow CLI reported this. Run diagnostics for the full output.'
+    }];
+  }
+  if (!snapshot) {
+    return [{
+      kind: 'message', id: 'configuration:loading', label: 'Reading repository configuration…',
+      icon: 'loading~spin'
+    }];
+  }
+  return [configurationNode(snapshot)];
+}
+
+/** Kept as the public lifecycle builder for callers compiled against the earlier name. */
+export const buildTree = buildLifecycleTree;
 
 /**
  * The workflows this repository can start work with.
@@ -447,38 +475,42 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
   }));
 
   const agents = snapshot.agents ?? [];
-  if (agents.length || snapshot.agentMappings) {
-    nodes.push({
-      kind: 'group',
-      id: 'config:agents',
-      label: 'Agents',
-      description: agents.length ? `${agents.length}` : 'none',
-      icon: 'hubot',
-      children: [
-        ...agents.map((agent) => ({
-          kind: 'artifact' as const,
-          id: `agent:${agent.id}`,
-          label: agent.id,
-          description: agent.scope,
-          tooltip: agent.path,
-          icon: 'hubot',
-          path: agent.path,
-          // A packaged agent is read-only; only a repository one is the team's to change.
-          readOnly: agent.editable === false,
-          contextValue: 'sflow.config'
-        })),
-        ...(snapshot.agentMappings ? [{
-          kind: 'artifact' as const,
-          id: 'agent:mappings',
-          label: 'agent-mappings.yml',
-          description: snapshot.agentMappings.exists ? 'which agent runs which skill' : 'not created yet',
-          icon: 'list-tree',
-          path: snapshot.agentMappings.path,
-          contextValue: 'sflow.config'
-        }] : [])
-      ]
-    });
-  }
+  nodes.push({
+    kind: 'group',
+    id: 'config:agents',
+    label: 'Agents',
+    description: agents.length ? `${agents.length}` : 'none',
+    icon: 'hubot',
+    children: [
+      ...agents.map((agent) => ({
+        kind: 'artifact' as const,
+        id: `agent:${agent.id}`,
+        label: agent.id,
+        description: agent.scope,
+        tooltip: agent.path,
+        icon: 'hubot',
+        path: agent.path,
+        // A packaged agent is read-only; only a repository one is the team's to change.
+        readOnly: agent.editable === false,
+        contextValue: 'sflow.config'
+      })),
+      ...(snapshot.agentMappings ? [{
+        kind: 'artifact' as const,
+        id: 'agent:mappings',
+        label: 'agent-mappings.yml',
+        description: snapshot.agentMappings.exists ? 'which agent runs which skill' : 'not created yet',
+        icon: 'list-tree',
+        path: snapshot.agentMappings.path,
+        contextValue: 'sflow.config'
+      }] : []),
+      ...(!agents.length && !snapshot.agentMappings ? [{
+        kind: 'message' as const,
+        id: 'config:agents:empty',
+        label: 'No agents or mappings are configured',
+        icon: 'blank'
+      }] : [])
+    ]
+  });
   return nodes;
 }
 
@@ -496,6 +528,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
       worldModelNode(snapshot),
+      workflowsNode(snapshot),
       {
         kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
         description: 'phases, lenses, grounding', icon: 'layers',

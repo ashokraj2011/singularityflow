@@ -56,6 +56,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     // the map, the governed state and every command's configuration live.
     path: row.directory,
     openPath: row.leadRepositoryPath || row.directory,
+    runCommand: 'singularityFlow.switchWorkspace',
     children: [
       {
         kind: 'message' as const,

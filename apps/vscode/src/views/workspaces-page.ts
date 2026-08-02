@@ -19,6 +19,8 @@ function rowHtml(row: WorkspaceRow, selected: string | null): string {
     <td>${icon('directory')}<code>${escape(row.directory)}</code>
       ${row.collides ? `<span class="pill bad">${icon('bad')}shared directory</span>` : ''}</td>
     <td>${row.lead ? `${icon('repository')}<code>${escape(row.lead)}</code>` : '<span class="muted">—</span>'}</td>
+    <td><button class="${row.active ? 'secondary' : ''}" data-switch="${escape(row.path)}">
+      ${row.active ? 'Reload' : 'Switch'}</button></td>
   </tr>`;
 }
 
@@ -30,7 +32,6 @@ function detailHtml(row: WorkspaceRow, rows: WorkspaceRow[], draft: DuplicateDra
     <h3>${icon('workspace')}${escape(row.name)}</h3>
     ${row.active ? `<span class="pill ok">${icon('ok')}active</span>` : ''}
     <span class="grow"></span>
-    <button class="link" data-open="${escape(row.path)}">Open</button>
   </div>
   <p class="muted">${icon('directory')}<code>${escape(row.directory)}</code></p>
 
@@ -95,7 +96,7 @@ export function workspacesHtml(
   <section class="plain">
     ${rows.length ? `
     <table>
-      <thead><tr><th></th><th>Workspace</th><th>Working directory</th><th>Lead</th></tr></thead>
+      <thead><tr><th></th><th>Workspace</th><th>Working directory</th><th>Lead</th><th></th></tr></thead>
       <tbody>${rows.map((entry) => rowHtml(entry, selected)).join('')}</tbody>
     </table>` : '<p class="muted">No workspaces yet.</p>'}
     <p><button class="secondary" data-create="new">Create a workspace</button></p>
@@ -103,7 +104,7 @@ export function workspacesHtml(
 
   <section>${row
     ? detailHtml(row, rows, draft)
-    : '<p class="muted">Choose a workspace to rename it, copy it, or open it.</p>'}</section>
+    : '<p class="muted">Choose a workspace name to manage it, or use Switch to work in it.</p>'}</section>
   <div hidden data-context="${escape(JSON.stringify({
     parent: row ? row.directory.split('/').slice(0, -1).join('/') : '',
     taken: rows.map((entry) => entry.directory)
@@ -113,13 +114,13 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-open],[data-rename],[data-duplicate],[data-forget],[data-create]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
     const value = (field) => document.querySelector('[data-field="' + field + '"]')?.value ?? '';
     if (data.select !== undefined) vscode.postMessage({ type: 'select', path: data.select });
-    else if (data.open !== undefined) vscode.postMessage({ type: 'open', path: data.open });
+    else if (data.switch !== undefined) vscode.postMessage({ type: 'switch', path: data.switch });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });

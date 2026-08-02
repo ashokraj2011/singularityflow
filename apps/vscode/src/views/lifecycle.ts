@@ -3,8 +3,11 @@
  * turns nodes into TreeItems and reacts to store changes.
  */
 import * as vscode from 'vscode';
-import { buildTree, type TreeNode } from './tree-model.ts';
+import { buildLifecycleTree, type TreeNode } from './tree-model.ts';
+import type { DesktopSnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
+
+export type TreeBuilder = (snapshot: DesktopSnapshot | null, error?: Error | null) => TreeNode[];
 
 export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();
@@ -19,18 +22,22 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
    *   unprovided is what makes VS Code report that no data provider exists, which says nothing
    *   about the repository the reader actually has open.
    */
-  constructor(store: WorkspaceStore | null, roots: TreeNode[] = []) {
+  constructor(
+    store: WorkspaceStore | null,
+    roots: TreeNode[] = [],
+    private readonly build: TreeBuilder = buildLifecycleTree
+  ) {
     this.roots = roots;
     if (!store) {
       this.subscription = { dispose() {} };
       return;
     }
     this.subscription = store.onDidChange((state) => {
-      this.roots = buildTree(state.snapshot, state.error);
+      this.roots = this.build(state.snapshot, state.error);
       this.emitter.fire(undefined);
     });
     const state = store.current;
-    this.roots = buildTree(state.snapshot, state.error);
+    this.roots = this.build(state.snapshot, state.error);
   }
 
   getChildren(node?: TreeNode): TreeNode[] {
@@ -41,6 +48,7 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     const collapsible = node.children?.length
       // The lifecycle and the current Epic are the things someone opened the view to see.
       ? (node.kind === 'initiative' || node.id === 'phases' || node.id === 'gate'
+          || node.id === 'configuration'
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed)
       : vscode.TreeItemCollapsibleState.None;

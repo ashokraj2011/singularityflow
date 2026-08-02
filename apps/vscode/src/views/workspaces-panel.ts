@@ -15,7 +15,7 @@ import {
 } from './workspaces-model.ts';
 
 export type WorkspacesMessage =
-  | { type: 'open'; row: WorkspaceRow }
+  | { type: 'switch'; row: WorkspaceRow }
   | { type: 'create' }
   | { type: 'forget'; row: WorkspaceRow }
   | { type: 'run'; command: string[]; title: string };
@@ -114,7 +114,7 @@ export class WorkspacesPanel {
     const row = this.rowFor(message?.path);
     if (!row) return;
 
-    if (message.type === 'open') { await this.onMessage({ type: 'open', row }); return; }
+    if (message.type === 'switch') { await this.onMessage({ type: 'switch', row }); return; }
 
     if (message.type === 'forget') {
       const failure = await this.onMessage({ type: 'forget', row });

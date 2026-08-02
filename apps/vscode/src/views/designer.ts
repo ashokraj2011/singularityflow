@@ -95,7 +95,7 @@ export class DesignerPanel {
       return DesignerPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.designer', 'Lifecycle designer', vscode.ViewColumn.Active, {
+      'singularityFlow.designer', 'Workflow designer', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -276,7 +276,7 @@ export class DesignerPanel {
     const token = nonce();
     const portfolioPath = snapshot?.portfolioPath ?? 'singularity/portfolio.yml';
     this.panel.webview.html = page(
-      'Lifecycle designer',
+      'Workflow designer',
       designerHtml(
         this.tab,
         snapshot ? buildProfiles(snapshot) : [],

@@ -348,11 +348,29 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     workItem: { id: initiativeId, workType: `initiative:${initiative.initiative.profile}` },
     currentPhase: phaseId
   };
+  // A phase that declares the agents it expects is stating a requirement, not a preference. Running
+  // it under a different agent produces artifacts that look governed and were composed by something
+  // the phase was not written for — so it is said out loud rather than discovered in review.
+  const agentSession = session?.workId === initiativeId ? session : { persona: selectedPersona };
+  // The phase's own declaration, pinned into the resolution when the Initiative started — so a
+  // later edit to the configuration cannot change what work already under way expected.
+  const expectedAgents = phase.agents ?? [];
+  const agentWarnings = [];
+  if (expectedAgents.length && agentSession?.agent && !expectedAgents.includes(agentSession.agent)) {
+    agentWarnings.push(
+      `Phase '${phaseId}' expects ${expectedAgents.join(' or ')}, and this session is running `
+      + `'${agentSession.agent}'. The artifacts will record which composed them.`);
+  }
+  if (expectedAgents.length && !agentSession?.agent) {
+    agentWarnings.push(
+      `Phase '${phaseId}' expects ${expectedAgents.join(' or ')}, and no agent is selected for this session.`);
+  }
+
   const remote = await renderAgentSkills(
     root,
     pseudoWorkflow,
     { id: phaseId, generation: initiative.phases[phaseId].generation },
-    session?.workId === initiativeId ? session : { persona: selectedPersona },
+    agentSession,
     { record: !dryRun, itemDirectory: itemDirectory.absolute }
   );
   const inputText = inputs.map((input) => [
@@ -431,7 +449,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       itemDirectory.relative,
       promptRelative(initiative, phaseId, generation)
     )),
-    warnings: [...grounding.warnings, ...remote.warnings, ...epicSources.warnings],
+    warnings: [...grounding.warnings, ...remote.warnings, ...epicSources.warnings, ...agentWarnings],
     recordedAt: nowIso()
   };
   if (!dryRun) {

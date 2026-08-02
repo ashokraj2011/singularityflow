@@ -52,6 +52,26 @@ async function saveDocument(file, document) {
   await writeFile(file, document.toString({ flowCollectionPadding: false }), 'utf8');
 }
 
+/**
+ * Refuse a phase that expects an agent this repository does not have.
+ *
+ * An agent named in a phase but absent from the repository fails at the moment the phase is run,
+ * which is the worst time to discover it: the person hitting it did not write the phase and has no
+ * reason to suspect the configuration. Checked when the phase is written instead, against the
+ * agents actually discoverable here.
+ */
+async function assertAgentsExist(root, agents, phaseId) {
+  if (!agents.length) return;
+  const { discoverAgents } = await import('./agents.mjs');
+  const available = (await discoverAgents(root)).map((agent) => agent.id);
+  const unknown = agents.filter((agent) => !available.includes(agent));
+  if (unknown.length) {
+    throw new SingularityFlowError(
+      `Phase '${phaseId}' expects ${unknown.length === 1 ? 'an agent' : 'agents'} this repository does not have: ${unknown.join(', ')}. `
+      + `Available: ${available.join(', ') || 'none'}.`);
+  }
+}
+
 /** Every profile, with the phases it runs — the same view `initiative profiles` reports. */
 export async function listProfiles(root) {
   const { document } = await loadDocument(root);
@@ -154,6 +174,7 @@ export async function createPhase(root, phaseId, {
   label = null,
   worldModelViews = [],
   lanes = [],
+  agents = [],
   approvalAuthorities = [],
   approvalMinimum = 1
 } = {}) {
@@ -171,10 +192,16 @@ export async function createPhase(root, phaseId, {
       + `Configured: ${authorities.join(', ') || 'none'}.`);
   }
 
+  await assertAgentsExist(root, agents, id);
+
   if (!portfolio.initiativePhases) document.setIn(['initiativePhases'], document.createNode({}));
   document.setIn(['initiativePhases', id], document.createNode({
     label: label ?? id,
     ...(lanes.length ? { lanes } : {}),
+    // The agents this stage expects. An agent was only ever chosen by whoever set the session, so a
+    // phase could not say what it needs to be run properly — the knowledge lived in somebody's head
+    // or in a runbook. Declared here it is part of the phase contract, versioned with it.
+    ...(agents.length ? { agents } : {}),
     // Empty rather than absent: the field is the thing a reader edits next, and an absent key is
     // harder to find than an empty one.
     worldModelViews,
@@ -195,8 +222,9 @@ export async function editPhase(root, phaseId, changes = {}) {
   const portfolio = document.toJS() ?? {};
   if (!portfolio.initiativePhases?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
 
+  if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
   if (changes.label !== undefined) document.setIn(['initiativePhases', id, 'label'], changes.label);
-  for (const field of ['worldModelViews', 'lanes']) {
+  for (const field of ['worldModelViews', 'lanes', 'agents']) {
     if (changes[field] === undefined) continue;
     if (!changes[field].length) document.deleteIn(['initiativePhases', id, field]);
     else document.setIn(['initiativePhases', id, field], changes[field]);

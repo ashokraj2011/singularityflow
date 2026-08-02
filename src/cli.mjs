@@ -431,8 +431,10 @@ Usage:
   singularity-flow lifecycle profile create <PROFILE-ID> --phases a,b,c [--label TEXT] [--description TEXT]
   singularity-flow lifecycle profile edit <PROFILE-ID> [--phases a,b,c] [--label TEXT]
   singularity-flow lifecycle phase create <PHASE-ID> [--label TEXT] [--views a,b] [--lanes a,b]
-    [--authorities group-a,group-b] [--minimum N]   (runs nowhere until a profile lists it)
+    [--agents a,b] [--authorities group-a,group-b] [--minimum N]
+    (--agents is what this stage expects; it runs nowhere until a profile lists the phase)
   singularity-flow lifecycle phase edit <PHASE-ID> [--label TEXT] [--views a,b] [--lanes a,b]
+    [--agents a,b]
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
@@ -2470,6 +2472,7 @@ async function lifecycleAuthoringCommand(positionals, options) {
         label: optionString(options, 'label'),
         worldModelViews: list('views'),
         lanes: list('lanes'),
+        agents: list('agents'),
         approvalAuthorities: list('authorities'),
         approvalMinimum: optionNumber(options, 'minimum') ?? 1
       });
@@ -2485,6 +2488,7 @@ async function lifecycleAuthoringCommand(positionals, options) {
       if (optionString(options, 'label') != null) changes.label = optionString(options, 'label');
       if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
       if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
+      if (optionString(options, 'agents') != null) changes.agents = list('agents');
       const edited = await editPhase(root, requirePositional(positionals, 3, 'phase ID'), changes);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
       console.log(`Updated phase ${edited.phaseId} in ${edited.path}.`);

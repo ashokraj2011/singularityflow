@@ -133,3 +133,39 @@ test('identifiers are kebab-case, like every other identifier in the product', a
     /lower-case kebab-case/);
   await assert.rejects(() => createPhase(root, 'Market_Validation', {}), /lower-case kebab-case/);
 });
+
+/**
+ * A phase can say which agents it expects.
+ *
+ * An agent was only ever chosen by whoever set the session, so a phase could not state what it
+ * needs to be run properly — that knowledge lived in somebody's head or in a runbook beside the
+ * repository. Declared on the phase it is part of the contract, versioned with it, and pinned into
+ * an Initiative's resolution when it starts.
+ */
+test('a phase declares the agents it expects, and they must exist', async () => {
+  const root = await repository();
+
+  // Refused when the repository does not have it. An agent named in a phase but absent fails at
+  // the moment the phase is run — the worst time, because whoever hits it did not write the phase.
+  await assert.rejects(
+    () => createPhase(root, 'review', { agents: ['nobody-agent'] }),
+    /does not have: nobody-agent\. Available:/);
+
+  // The check is against agents actually discoverable here, so a repository with none says so.
+  const withNone = await createPhase(root, 'review', {});
+  assert.equal(withNone.phaseId, 'review');
+  const after = await portfolio(root);
+  assert.equal(after.initiativePhases.review.agents, undefined,
+    'a phase that expects no particular agent does not pretend to');
+});
+
+test('composing a phase says when the session agent is not what it expects', async () => {
+  // Running a phase under a different agent produces artifacts that look governed and were composed
+  // by something the phase was not written for. Said out loud rather than found in review.
+  const source = await readFile(new URL('../src/initiative-context.mjs', import.meta.url), 'utf8');
+  assert.match(source, /const expectedAgents = phase\.agents \?\? \[\];/);
+  assert.match(source, /expects \$\{expectedAgents\.join\(' or '\)\}, and this session is running/);
+  assert.match(source, /and no agent is selected for this session/);
+  // Reported through the same channel as every other grounding warning, not a separate one.
+  assert.match(source, /\.\.\.epicSources\.warnings, \.\.\.agentWarnings\]/);
+});

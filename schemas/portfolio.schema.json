@@ -3,20 +3,56 @@
   "$id": "https://singularity-flow.dev/schemas/portfolio.schema.json",
   "title": "Singularity Flow portfolio configuration",
   "type": "object",
-  "required": ["version", "repositories", "approvalAuthorities", "initiativeProfiles", "initiativePhases"],
+  "required": [
+    "version",
+    "repositories",
+    "approvalAuthorities",
+    "initiativeProfiles",
+    "initiativePhases"
+  ],
   "properties": {
-    "version": { "const": 1 },
-    "initiativeRoot": { "type": "string" },
-    "templatesRoot": { "type": "string" },
+    "version": {
+      "const": 1
+    },
+    "initiativeRoot": {
+      "type": "string"
+    },
+    "templatesRoot": {
+      "type": "string"
+    },
     "contextPolicy": {
       "type": "object",
       "properties": {
-        "phaseBoundary": { "enum": ["keep", "compact", "new"] },
-        "onApproval": { "enum": ["keep", "compact", "new"] },
-        "onRejection": { "enum": ["keep", "compact", "new"] },
+        "phaseBoundary": {
+          "enum": [
+            "keep",
+            "compact",
+            "new"
+          ]
+        },
+        "onApproval": {
+          "enum": [
+            "keep",
+            "compact",
+            "new"
+          ]
+        },
+        "onRejection": {
+          "enum": [
+            "keep",
+            "compact",
+            "new"
+          ]
+        },
         "phaseOverrides": {
           "type": "object",
-          "additionalProperties": { "enum": ["keep", "compact", "new"] }
+          "additionalProperties": {
+            "enum": [
+              "keep",
+              "compact",
+              "new"
+            ]
+          }
         }
       },
       "additionalProperties": false
@@ -24,15 +60,34 @@
     "identity": {
       "type": "object",
       "properties": {
-        "authority": { "enum": ["jira", "local"] },
-        "configurablePerEpic": { "type": "boolean" },
+        "authority": {
+          "enum": [
+            "jira",
+            "local"
+          ]
+        },
+        "configurablePerEpic": {
+          "type": "boolean"
+        },
         "local": {
           "type": "object",
           "properties": {
-            "epicPrefix": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{1,30}$" },
-            "storyPrefix": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{1,30}$" },
-            "pad": { "type": "integer", "minimum": 2, "maximum": 8 },
-            "scopeStoriesByEpic": { "type": "boolean" }
+            "epicPrefix": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9-]{1,30}$"
+            },
+            "storyPrefix": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9-]{1,30}$"
+            },
+            "pad": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 8
+            },
+            "scopeStoriesByEpic": {
+              "type": "boolean"
+            }
           },
           "additionalProperties": false
         }
@@ -42,37 +97,126 @@
     "jira": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "connection": { "type": "string", "minLength": 1 },
-        "deployment": { "enum": ["cloud", "data-center"] },
-        "allowedHosts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-        "allowedProjects": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" }, "uniqueItems": true },
+        "enabled": {
+          "type": "boolean"
+        },
+        "connection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deployment": {
+          "enum": [
+            "cloud",
+            "data-center"
+          ]
+        },
+        "allowedHosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "allowedProjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_-]{0,31}$"
+          },
+          "uniqueItems": true
+        },
         "authentication": {
           "type": "object",
           "properties": {
-            "permitted": { "type": "array", "items": { "enum": ["user-token", "service-account", "pat"] }, "uniqueItems": true },
-            "tokenExpiryWarningDays": { "type": "integer", "minimum": 0 }
+            "permitted": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "user-token",
+                  "service-account",
+                  "pat"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "tokenExpiryWarningDays": {
+              "type": "integer",
+              "minimum": 0
+            }
           },
           "additionalProperties": false
         },
         "read": {
           "type": "object",
           "properties": {
-            "epics": { "type": "boolean" },
-            "stories": { "type": "boolean" },
-            "attachmentPolicy": { "enum": ["none", "metadata-only"] },
-            "cacheMinutes": { "type": "integer", "minimum": 0, "maximum": 1440 }
+            "epics": {
+              "type": "boolean"
+            },
+            "stories": {
+              "type": "boolean"
+            },
+            "attachmentPolicy": {
+              "enum": [
+                "none",
+                "metadata-only"
+              ]
+            },
+            "cacheMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440
+            }
           },
           "additionalProperties": false
         },
-        "write": { "type": ["boolean", "object"] },
-        "writeMode": { "enum": ["off", "preview", "approved"] },
-        "writeOperations": { "type": "array", "items": { "enum": ["create-epic", "create-story", "create-subtask", "update-owned-fields", "add-comment", "attach-artifact", "set-lineage-property"] }, "uniqueItems": true },
-        "allowedFields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-        "projectKey": { "type": "string" },
-        "epicIssueType": { "type": "string" },
-        "storyIssueType": { "type": "string" },
-        "subtaskIssueType": { "type": "string" }
+        "write": {
+          "type": [
+            "boolean",
+            "object"
+          ]
+        },
+        "writeMode": {
+          "enum": [
+            "off",
+            "preview",
+            "approved"
+          ]
+        },
+        "writeOperations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "create-epic",
+              "create-story",
+              "create-subtask",
+              "update-owned-fields",
+              "add-comment",
+              "attach-artifact",
+              "set-lineage-property"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "allowedFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "projectKey": {
+          "type": "string"
+        },
+        "epicIssueType": {
+          "type": "string"
+        },
+        "storyIssueType": {
+          "type": "string"
+        },
+        "subtaskIssueType": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
@@ -80,30 +224,66 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["url"],
+        "required": [
+          "url"
+        ],
         "properties": {
-          "url": { "type": "string", "minLength": 1 },
-          "defaultBranch": { "type": "string", "minLength": 1 },
-          "branchCompletionPolicy": { "enum": ["pr", "direct", "either"] },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "defaultBranch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branchCompletionPolicy": {
+            "enum": [
+              "pr",
+              "direct",
+              "either"
+            ]
+          },
           "requiredChecks": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "uniqueItems": true
           },
-          "required": { "type": "boolean" },
+          "required": {
+            "type": "boolean"
+          },
           "jira": {
             "type": "object",
             "properties": {
-              "projectKey": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" },
-              "board": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$" },
-              "boardId": { "type": "string", "maxLength": 128 }
+              "projectKey": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_-]{0,31}$"
+              },
+              "board": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_-]{0,31}$"
+              },
+              "boardId": {
+                "type": "string",
+                "maxLength": 128
+              }
             },
             "additionalProperties": false
           },
           "metadata": {
             "type": "object",
-            "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
-            "additionalProperties": { "type": ["string", "number", "boolean"] }
+            "propertyNames": {
+              "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
           }
         },
         "additionalProperties": true
@@ -114,12 +294,18 @@
       "properties": {
         "requiredKeys": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$"
+          },
           "uniqueItems": true
         },
         "patterns": {
           "type": "object",
-          "additionalProperties": { "type": "string", "minLength": 1 }
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false
@@ -127,39 +313,87 @@
     "storage": {
       "type": "object",
       "properties": {
-        "defaultProvider": { "type": "string", "minLength": 1 },
-        "maxBytes": { "type": "integer", "minimum": 1 },
+        "defaultProvider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
         "allowedMimeTypes": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "uniqueItems": true
         },
         "providers": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "properties": {
-              "type": { "enum": ["jira-attachment", "artifactory", "sharepoint", "s3", "https-reference"] },
-              "baseUrl": { "type": "string" },
-              "repository": { "type": "string" },
-              "tenantId": { "type": "string" },
-              "clientId": { "type": "string" },
-              "siteId": { "type": "string" },
-              "driveId": { "type": "string" },
+              "type": {
+                "enum": [
+                  "jira-attachment",
+                  "artifactory",
+                  "sharepoint",
+                  "s3",
+                  "https-reference"
+                ]
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "repository": {
+                "type": "string"
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "siteId": {
+                "type": "string"
+              },
+              "driveId": {
+                "type": "string"
+              },
               "scopes": {
                 "type": "array",
-                "items": { "type": "string", "minLength": 1 },
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "uniqueItems": true
               },
-              "bucket": { "type": "string" },
-              "region": { "type": "string" },
-              "prefix": { "type": "string" },
-              "profile": { "type": "string" },
-              "maxBytes": { "type": "integer", "minimum": 1 },
+              "bucket": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "profile": {
+                "type": "string"
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1
+              },
               "allowedMimeTypes": {
                 "type": "array",
-                "items": { "type": "string", "minLength": 1 },
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "uniqueItems": true
               }
             },
@@ -177,16 +411,26 @@
           "githubTeams": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "type": "string", "pattern": "^@[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
+            "items": {
+              "type": "string",
+              "pattern": "^@[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+            }
           },
           "members": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["email"],
+              "required": [
+                "email"
+              ],
               "properties": {
-                "name": { "type": "string" },
-                "email": { "type": "string", "format": "email" }
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                }
               }
             }
           }
@@ -198,8 +442,14 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "label": { "type": "string", "minLength": 1 },
-          "question": { "type": "string", "minLength": 1 }
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -207,34 +457,74 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["phases"],
+        "required": [
+          "phases"
+        ],
         "properties": {
-          "label": { "type": "string" },
-          "description": { "type": "string" },
-          "lifecycleMode": { "enum": ["planning-only", "full-delivery"] },
-          "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "lifecycleMode": {
+            "enum": [
+              "planning-only",
+              "full-delivery"
+            ]
+          },
+          "phases": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
           "templateOverrides": {
             "type": "object",
-            "propertyNames": { "pattern": "^[^/]+/[^/]+$" },
-            "additionalProperties": { "type": "string", "minLength": 1 }
+            "propertyNames": {
+              "pattern": "^[^/]+/[^/]+$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "phaseOverrides": {
             "type": "object",
             "additionalProperties": {
               "type": "object",
               "properties": {
-                "label": { "type": "string" },
-                "worldModelViews": { "type": "array", "items": { "type": "string" } },
-                "bundleApproval": { "type": "object" },
+                "label": {
+                  "type": "string"
+                },
+                "worldModelViews": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "bundleApproval": {
+                  "type": "object"
+                },
                 "outputs": {
                   "type": "object",
                   "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "label": { "type": "string" },
-                      "required": { "type": "boolean" },
-                      "template": { "type": "string" },
-                      "approval": { "type": "object" }
+                      "label": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "template": {
+                        "type": "string"
+                      },
+                      "approval": {
+                        "type": "object"
+                      }
                     }
                   }
                 }
@@ -245,17 +535,29 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["id", "members"],
+              "required": [
+                "id",
+                "members"
+              ],
               "properties": {
-                "id": { "type": "string" },
-                "label": { "type": "string" },
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
                 "members": {
                   "type": "array",
                   "minItems": 1,
                   "uniqueItems": true,
-                  "items": { "type": "string", "pattern": "^[^/]+/[^/]+$" }
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[^/]+/[^/]+$"
+                  }
                 },
-                "approval": { "type": "object" }
+                "approval": {
+                  "type": "object"
+                }
               }
             }
           }
@@ -267,12 +569,39 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "label": { "type": "string" },
-          "lanes": { "type": "array", "items": { "type": "string" } },
-          "worldModelViews": { "type": "array", "items": { "type": "string" } },
-          "outputs": { "type": "array" },
-          "checklist": { "type": "array" },
-          "bundleApproval": { "type": "object" }
+          "label": {
+            "type": "string"
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "worldModelViews": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "checklist": {
+            "type": "array"
+          },
+          "bundleApproval": {
+            "type": "object"
+          },
+          "agents": {
+            "description": "The agents this stage expects, part of the phase contract rather than a session choice.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     }

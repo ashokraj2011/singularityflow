@@ -15,7 +15,7 @@ import {
   initiativeMilestoneReadiness, requiredInitiativeMilestone
 } from './initiative-milestones.mjs';
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
-import { identity } from './git.mjs';
+import { changedFiles, identity } from './git.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, repoRelative, snapshot, writeText
 } from './util.mjs';
@@ -744,6 +744,12 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   const phase = initiative.phases[phaseId];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}.`);
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
+  const protectedPaths = initiative.resolution?.capability?.policy?.protectedPaths ?? [];
+  const protectedChange = protectedPaths.find((protectedPath) => changedFiles(root)
+    .some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
+  if (protectedChange) {
+    throw new SingularityFlowError(`Initiative generation cannot modify protected capability path: ${protectedChange}`);
+  }
   if (phaseId === 'epic-planning') {
     await (await import('./epic-lifecycle.mjs')).prepareEpicStorySpecifications(root, initiativeId);
   }
@@ -910,6 +916,9 @@ export async function approveInitiative(root, {
   const generatedByEmail = actorEmail(target.generatedBy);
   const phaseGeneratedByActor = Object.values(phase.outputs).some((output) => actorEmail(output.generatedBy) === actorEmail(actor));
   const selfApproval = generatedByEmail === actorEmail(actor) || (target.type === 'phase' && phaseGeneratedByActor);
+  if (selfApproval && target.definition.allowSelfApproval === false) {
+    throw new SingularityFlowError(`Capability and initiative policy prohibit self-approval for ${target.type} '${target.id}'. Ask another authorized Git identity to approve this hash.`);
+  }
   const at = nowIso();
   const record = {
     schemaVersion: 1,

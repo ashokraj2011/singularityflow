@@ -76,6 +76,7 @@ export async function startStory(root, {
   source,
   workType,
   persona,
+  capabilityId = null,
   files = [],
   urls = []
 } = {}) {
@@ -128,7 +129,8 @@ export async function startStory(root, {
     baseBranch: definition.defaultBaseBranch,
     workType,
     persona,
-    resolved: resolveWorkType(definition, workType)
+    resolved: resolveWorkType(definition, workType),
+    capabilityId
   });
   const publication = await commitAndPublish(
     root,

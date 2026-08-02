@@ -19,6 +19,7 @@ import {
 } from './grounding.mjs';
 import { injectPersonaPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
+import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { initiativeBreakdownDocument, validateInitiativeBreakdown } from './initiative-repositories.mjs';
 import { assignLocalStoryIds } from './local-identity.mjs';
 import {
@@ -418,6 +419,9 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
     labels: []
   });
   const world = await workItemWorldModel(root, definition, workflow, phase, persona);
+  const capability = await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
+    views: phase.worldModel?.views ?? []
+  });
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const inputBlock = renderInputsBlock(inputs).text;
@@ -435,6 +439,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
     `# Governed story context — ${id}/${selectedPhase}`,
     `## Selected working lens\n\n${personaResult.text.trim()}`,
     world.text,
+    capability.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
     supportingDocuments.text,
@@ -458,13 +463,14 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
       { kind: 'workflow-resolution', path: posix(path.relative(root, statePath)), sha256: stateInfo.sha256, bytes: stateInfo.size, configSha256: workflow.resolution.configSha256 },
       { kind: 'persona', path: personaPath.relative, sha256: personaInfo.sha256, bytes: personaInfo.size },
       ...world.files.map((file) => ({ kind: 'world-model', ...file })),
+      ...capability.files.map((file) => ({ kind: 'capability-world-model', ...file })),
       ...inputs.records.filter((entry) => entry.status === 'captured').map((entry) => ({ kind: 'approved-input', path: posix(path.join(itemRelative, entry.path)), sha256: entry.sha256, bytes: entry.bytes })),
       ...remote.skills.map((skill) => ({ kind: 'remote-skill', path: `agent:${session?.agent}/${skill.id}`, sha256: skill.sha256, bytes: skill.size })),
       ...supportingDocuments.sources,
       ...(storyInfo ? [{ kind: 'work-item-source', path: posix(path.relative(root, storyPath)), sha256: storyInfo.sha256, bytes: storyInfo.size }] : []),
       ...(currentInfo ? [{ kind: 'current-draft', path: posix(path.relative(root, target)), sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
-    warnings: [...world.warnings, ...remote.warnings, ...inputs.warnings],
+    warnings: [...world.warnings, ...capability.warnings, ...remote.warnings, ...inputs.warnings],
     generation: phase.generation + 1,
     profile: workflow.workItem.workType,
     repositoryPath: itemRelative

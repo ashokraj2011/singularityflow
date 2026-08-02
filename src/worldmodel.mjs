@@ -23,6 +23,7 @@ import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
+import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
@@ -71,7 +72,8 @@ async function load(root, { persona: selectedPersona = null, workId = null } = {
         maxWorkers: definition.worldModel?.generation?.maxWorkers ?? 4,
         strategy: definition.worldModel?.generation?.strategy ?? 'view'
       },
-      grounding: groundingMode(definition, activeState), staleness: definition.worldModel?.staleness ?? 'warn', phases,
+      grounding: groundingMode(definition, activeState),
+      staleness: activeState?.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn', phases,
       context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
       personaPrompt: persona && definition.personas[persona] ? path.posix.join(definition.personaPromptsRoot, definition.personas[persona].prompt) : null
     };
@@ -204,6 +206,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
 async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
   const ledger = config.definition?.ledger ?? null;
   if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
+  if (ledger.publication === 'off') return { published: false, reason: 'state publication is disabled' };
   const directory = path.join(root, config.outputDir);
   if (!existsSync(path.join(directory, 'manifest.json'))) {
     return { published: false, reason: 'there is no built model to publish' };
@@ -226,6 +229,7 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
     return { published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
+    if (ledger.publication === 'required') throw error;
     return { published: false, reason: error.message };
   }
 }
@@ -1046,11 +1050,18 @@ async function compose(root, options) {
   const rulePaths = new Set(injection.sections.map((section) => section.path));
   const requiredText = groundingSectionsText(mandatory, rulePaths);
   const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
+  const capability = workflow
+    ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
+      views: phase?.worldModel?.views ?? []
+    })
+    : { text: '', files: [], warnings: [] };
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
+  capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
   const pieces = [
     governed.contract,
     text.trimEnd(),
     requiredText,
+    capability.text,
     remote.text,
     governed.inputs
   ].filter((part) => part?.trim());
@@ -1063,11 +1074,22 @@ async function compose(root, options) {
   if (modelChanges && config.grounding === 'warn') console.error('Warning: the world-model directory has uncommitted changes; its committed hashes will not verify.');
   if (config.grounding === 'enforce' && !modelCommit) throw new SingularityFlowError('The world model is not committed. Run singularity-flow wm build --phase <phase> before composing a governed prompt.');
   if (config.grounding === 'enforce' && !required.freshness.fresh) throw new SingularityFlowError('The world model is stale. Rebuild it before composing a governed prompt.');
-  const files = [...mandatory, ...injection.sections.map((section) => ({ ...section, category: 'rule', level: null, reason: 'matched injection rule' }))]
+  const files = [
+    ...mandatory,
+    ...injection.sections.map((section) => ({ ...section, category: 'rule', level: null, reason: 'matched injection rule' })),
+    ...capability.files.map((file) => ({
+      ...file,
+      injectedBytes: file.bytes,
+      truncated: false,
+      category: 'capability',
+      level: 1,
+      reason: `capability ${workflow?.resolution?.capability?.id}`
+    }))
+  ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  working lens: ${persona}  required files: ${mandatory.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  prompt-pack skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  working lens: ${persona}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  prompt-pack skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  prompt-pack:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;

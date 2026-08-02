@@ -281,6 +281,7 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
   // `enabled: false` is a decision this repository made, not a fault: it says the state branch is
   // not in use here, and publishing to a branch nobody reads would be noise.
   if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
+  if (ledger.publication === 'off') return { published: false, reason: 'state publication is disabled' };
   try {
     const result = await publishToStateBranch(
       root, ledger, { [CAPABILITIES_PATH]: await readFile(file, 'utf8') }, message);
@@ -289,6 +290,7 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
     return { published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
+    if (ledger.publication === 'required') throw error;
     return { published: false, reason: error.message };
   }
 }
@@ -340,22 +342,34 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
     const refs = run('git', ['ls-remote', '--heads', url], { allowFailure: true }).stdout;
     const hasState = refs.includes(`refs/heads/${stateBranch}`);
     const defaultBranch = declared.defaultBranch ?? 'main';
-    // `ls-tree` on a remote needs a fetch, so the model is probed by asking the remote for the one
-    // path rather than by cloning: cheap, and truthful about what is actually published.
-    const modelOn = (branch) => {
+    // GitHub and many corporate Git servers disable `git archive --remote`. Fetch the one shallow
+    // commit into a temporary bare repository and inspect it there instead; this works over the
+    // same HTTPS/SSH transports used by clone and leaves no checkout behind.
+    const modelOn = async (branch) => {
       if (!refs.includes(`refs/heads/${branch}`)) return false;
-      const probe = run('bash', ['-c',
-        `git archive --remote=${JSON.stringify(url)} ${branch} ${JSON.stringify(`${outputDir}/manifest.json`)} >/dev/null 2>&1`],
-      { allowFailure: true });
-      return probe.status === 0;
+      const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-'));
+      try {
+        run('git', ['init', '--quiet', '--bare', scratch]);
+        const fetched = run('git', ['fetch', '--quiet', '--depth', '1', url, `refs/heads/${branch}`], {
+          cwd: scratch,
+          allowFailure: true
+        });
+        if (fetched.status !== 0) return false;
+        return run('git', ['cat-file', '-e', `FETCH_HEAD:${outputDir}/manifest.json`], {
+          cwd: scratch,
+          allowFailure: true
+        }).status === 0;
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
     };
-    const onState = hasState && modelOn(stateBranch);
+    const onState = hasState && await modelOn(stateBranch);
     rows[id] = {
       url,
       stateBranch: hasState ? stateBranch : null,
       hasStateBranch: hasState,
       // Which copy a command would actually read, said plainly rather than left to be worked out.
-      worldModel: onState ? 'state-branch' : modelOn(defaultBranch) ? defaultBranch : null
+      worldModel: onState ? 'state-branch' : await modelOn(defaultBranch) ? defaultBranch : null
     };
   }
   return rows;
@@ -531,7 +545,8 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
         url: declared.url,
         defaultBranch: declared.defaultBranch ?? 'main',
         required: true,
-        path: `repos/${id}`
+        path: `repos/${id}`,
+        capabilities: [...new Set([...(repositories[id]?.capabilities ?? []), row.id])].sort()
       };
     }
   }

@@ -25,7 +25,8 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "default": false },
-        "branch": { "type": "string", "minLength": 1, "default": "singularity/ledger" },
+        "branch": { "type": "string", "minLength": 1, "default": "state" },
+        "publication": { "enum": ["off", "warn", "required"], "default": "warn" },
         "remote": { "type": "string", "minLength": 1, "default": "origin" },
         "behind": { "enum": ["warn", "block"], "default": "warn" },
         "enforcement": { "enum": ["shadow", "required"], "default": "shadow" },

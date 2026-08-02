@@ -354,11 +354,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) return void vscode.window.showWarningMessage('Open a repository first.');
     try {
-      const report = await new SingularityFlowClient({
+      const client = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
         repository: folder.uri.fsPath,
         onOutput: (text) => output.append(text)
-      }).runText(['doctor']);
+      });
+      const [repositoryReport, capabilityReport] = await Promise.all([
+        client.runText(['doctor']),
+        client.runText(['capabilities', 'doctor']).catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
+      ]);
+      const report = `${repositoryReport.trim()}\n\nCAPABILITY AND STATE DIAGNOSTICS\n${capabilityReport.trim()}\n`;
       const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
       await vscode.window.showTextDocument(document, { preview: true });
     } catch (error) {

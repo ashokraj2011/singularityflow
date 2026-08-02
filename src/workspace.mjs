@@ -123,6 +123,14 @@ function normalizeRepository(id, input) {
   if (!/^(?![./])(?!.*(?:\.\.|@\{|[~^:?*\\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\x00-\x1f\x7f]+$/.test(defaultBranch)) {
     throw new SingularityFlowError(`Workspace repository '${id}' has an invalid default branch.`);
   }
+  const capabilities = [...new Set((repository.capabilities ?? [])
+    .map((capability) => String(capability ?? '').trim())
+    .filter(Boolean))].sort();
+  for (const capability of capabilities) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(capability)) {
+      throw new SingularityFlowError(`Workspace repository '${id}' capability '${capability}' must be lower-case kebab-case.`);
+    }
+  }
   return {
     id,
     url: repository.url.trim(),
@@ -131,7 +139,8 @@ function normalizeRepository(id, input) {
     metadata: normalizeRepositoryMetadata(repository.metadata ?? {}, `Workspace repository '${id}' metadata`),
     jira: normalizeRepositoryJira(repository.jira ?? {}, `Workspace repository '${id}' Jira configuration`),
     path: relativePath,
-    role: repository.role === 'lead' ? 'lead' : 'participant'
+    role: repository.role === 'lead' ? 'lead' : 'participant',
+    capabilities
   };
 }
 

@@ -45,7 +45,7 @@ async function repository() {
 
 const enabled = {
   enabled: true,
-  branch: 'singularity/ledger',
+  branch: 'state',
   remote: 'origin',
   behind: 'block',
   enforcement: 'shadow',
@@ -56,7 +56,9 @@ const enabled = {
 
 test('ledger configuration is opt-in and rejects dishonest signed trust tiers', () => {
   assert.equal(normalizeLedgerConfig().enabled, false);
-  assert.equal(normalizeLedgerConfig().branch, 'singularity/ledger');
+  assert.equal(normalizeLedgerConfig().branch, 'state');
+  assert.equal(normalizeLedgerConfig().publication, 'warn');
+  assert.throws(() => normalizeLedgerConfig({ publication: 'sometimes' }), /off, warn, or required/);
   assert.throws(() => normalizeLedgerConfig({ enabled: true, trustTier: 'T2' }), /requires ledger.signing/);
   assert.throws(() => normalizeLedgerConfig({ behind: 'continue' }), /warn or block/);
 });
@@ -76,8 +78,8 @@ test('capability ledger is an orphan branch and verifies its content-addressed c
   const doctor = await ledgerDoctor(root, enabled);
   assert.equal(doctor.valid, true);
   assert.equal(doctor.checks.find((check) => check.id === 'orphan').status, 'pass');
-  run('git', ['fetch', 'origin', 'singularity/ledger:refs/remotes/origin/singularity/ledger'], { cwd: root });
-  const mergeBase = run('git', ['merge-base', 'main', 'origin/singularity/ledger'], { cwd: root, allowFailure: true });
+  run('git', ['fetch', 'origin', 'state:refs/remotes/origin/state'], { cwd: root });
+  const mergeBase = run('git', ['merge-base', 'main', 'origin/state'], { cwd: root, allowFailure: true });
   assert.notEqual(mergeBase.status, 0);
 
   const intent = createLedgerIntent({
@@ -127,8 +129,8 @@ test('a failed first ledger push retains the orphan root locally for safe retry'
   const { root, parent } = await repository();
   git(root, ['remote', 'set-url', 'origin', path.join(parent, 'unavailable.git')]);
   await assert.rejects(initializeLedger(root, enabled), /retained locally but push failed/);
-  assert.match(git(root, ['rev-parse', '--verify', 'refs/heads/singularity/ledger']).stdout.trim(), /^[0-9a-f]{40}$/);
-  const mergeBase = run('git', ['merge-base', 'main', 'singularity/ledger'], { cwd: root, allowFailure: true });
+  assert.match(git(root, ['rev-parse', '--verify', 'refs/heads/state']).stdout.trim(), /^[0-9a-f]{40}$/);
+  const mergeBase = run('git', ['merge-base', 'main', 'state'], { cwd: root, allowFailure: true });
   assert.notEqual(mergeBase.status, 0);
 });
 
@@ -193,7 +195,7 @@ test('a governed file can be published to the state branch, and republishing the
     'singularity/capabilities.yml': 'version: 1\ncapabilities: {}\n'
   }, 'Publish the capability map');
   assert.equal(first.changed, true);
-  assert.equal(first.branch, 'singularity/ledger');
+  assert.equal(first.branch, 'state');
   assert.deepEqual(first.published, ['singularity/capabilities.yml']);
 
   // Readable from the branch without a checkout, which is how the readers reach it.

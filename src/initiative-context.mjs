@@ -18,6 +18,7 @@ import {
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 import { currentKnowledge, readKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
+import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -200,7 +201,7 @@ async function knowledgeSections(root) {
   return { included, total: ordered.length, truncated, text };
 }
 
-async function repositoryGrounding(root, definition, phase, persona, mode, profilePhases = []) {
+async function repositoryGrounding(root, definition, phase, persona, mode, profilePhases = [], staleness = null) {
   const warnings = [];
   // Epic planning deliberately runs before repository-specific Story branches exist.
   // In that lifecycle, `off` means "deferred to Story intake", not a degraded prompt,
@@ -215,7 +216,7 @@ async function repositoryGrounding(root, definition, phase, persona, mode, profi
   const config = {
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     grounding: mode,
-    staleness: definition.worldModel?.staleness ?? 'warn',
+    staleness: staleness ?? definition.worldModel?.staleness ?? 'warn',
     context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
     phases: { [phase.id]: { views: requiredViews, depth: 'standard', evidence: false } }
   };
@@ -343,7 +344,11 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const knowledge = await knowledgeSections(root);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
   const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode,
-    Object.values(initiative.resolution?.phases ?? {}));
+    Object.values(initiative.resolution?.phases ?? {}),
+    initiative.resolution?.worldModelStaleness);
+  const capability = await renderCapabilityWorldModelPack(root, initiative.resolution?.capability, {
+    views: phase.worldModelViews ?? []
+  });
   const pseudoWorkflow = {
     workItem: { id: initiativeId, workType: `initiative:${initiative.initiative.profile}` },
     currentPhase: phaseId
@@ -410,6 +415,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     '',
     personaText.trim(),
     grounding.text,
+    capability.text,
     remote.text,
     knowledge.text,
     sourceText,
@@ -431,6 +437,11 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     },
     worldModel: grounding.record,
     worldModelFiles: grounding.files,
+    capabilityWorldModel: {
+      capabilityId: initiative.resolution?.capability?.id ?? null,
+      contextSha256: initiative.resolution?.capability?.context?.sha256 ?? null,
+      files: capability.files
+    },
     inputs: inputs.map(({ content, ...input }) => input),
     epicSources: epicSources.sections,
     // Recorded so a generation can be audited for what prior knowledge it was shown, by hash.
@@ -449,7 +460,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       itemDirectory.relative,
       promptRelative(initiative, phaseId, generation)
     )),
-    warnings: [...grounding.warnings, ...remote.warnings, ...epicSources.warnings, ...agentWarnings],
+    warnings: [...grounding.warnings, ...capability.warnings, ...remote.warnings, ...epicSources.warnings, ...agentWarnings],
     recordedAt: nowIso()
   };
   if (!dryRun) {
@@ -519,6 +530,18 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
         errors.push(`initiative world-model commit does not pin ${file.path}`);
       }
     }
+  }
+  if (record.capabilityWorldModel?.contextSha256
+    && record.capabilityWorldModel.contextSha256 !== initiative.resolution?.capability?.context?.sha256) {
+    errors.push('initiative capability world-model context differs from its immutable resolution');
+  }
+  for (const file of record.capabilityWorldModel?.files ?? []) {
+    const target = await secureRepositoryPath(root, file.path, {
+      label: `Initiative capability world-model context '${file.path}'`,
+      type: 'file'
+    });
+    const current = await snapshot(target.absolute);
+    if (!current.exists || current.sha256 !== file.sha256) errors.push(`initiative capability world-model context changed: ${file.path}`);
   }
   if (mode === 'enforce') {
     if (!record.worldModel?.available || !record.worldModel?.fresh) errors.push(`initiative world-model grounding is not fresh for ${phaseId}`);

@@ -28,6 +28,13 @@ import {
   appendLedgerIntent, clearLedgerOutbox, createLedgerIntent, ledgerLog, ledgerStatus, persistLedgerIntent, reconcileLedger, recordLedgerOutbox
 } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import {
+  applyCapabilityPolicyToWorkResolution,
+  assertCapabilitySource,
+  capabilityWorldModelGrounding,
+  materializeCapabilityWorldModelPack,
+  resolveLifecycleCapability
+} from './capability-context.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -48,6 +55,14 @@ export function decisionDir(root, config, id, phase) { return path.join(workDir(
 export function pendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
+
+function workflowPublicationMode(config, workflow) {
+  const configured = config.git?.publish ?? 'required';
+  const capability = workflow.resolution?.capability?.policy?.gitPublication;
+  if (configured === 'required' || capability === 'required') return 'required';
+  if (capability === 'warn') return 'warn';
+  return configured;
+}
 
 export function workflowBranchNames(workflow) {
   return [...new Set([
@@ -195,6 +210,10 @@ function statusMarkdown(workflow) {
     `# ${workflow.workItem.id} — ${workflow.workItem.title}`, '',
     `- Branch: \`${workflow.workItem.branch}\``,
     `- Work type: **${workflow.workItem.workType}**`,
+    ...(workflow.resolution?.capability
+      ? [`- Capability: **${workflow.resolution.capability.name}** (\`${workflow.resolution.capability.id}\`)`,
+        `- Capability map: \`${workflow.resolution.capability.map.sha256}\``]
+      : []),
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? 'complete'}**`, '',
     '| # | Phase | Suggested working lenses | Status | Generation | Approvals | Tokens |',
@@ -218,15 +237,25 @@ export async function saveWorkflow(root, config, workflow) {
   await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
 }
 
-export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, persona, resolved } = {}) {
+export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, persona, resolved, capabilityId = null } = {}) {
   validateId(config, id);
   if (branch(root) !== canonicalBranch) {
     throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
   }
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
   const selectedType = workType ?? Object.keys(config.workTypes)[0];
-  const resolution = resolved ?? resolveWorkType(config, selectedType);
+  const capability = await resolveLifecycleCapability(root, { capabilityId });
+  assertCapabilitySource(capability, source);
+  const selectedResolution = resolved ?? resolveWorkType(config, selectedType);
+  const resolution = applyCapabilityPolicyToWorkResolution(
+    { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
+    capability
+  );
   const snapshotState = config._legacy ? { configSha256: null, templates: Object.fromEntries(resolution.phases.map((phase) => [phase.id, { path: phase.template, sha256: null }])) } : await snapshotResolution(root, config, resolution);
+  snapshotState.worldModelGrounding = capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
+  snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
+  snapshotState.storage = structuredClone(resolution.storage ?? null);
+  snapshotState.capability = capability;
   const actor = identity(root);
   const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
@@ -243,7 +272,10 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       initialJiraKey: source.key ?? (source.type === 'jira' ? id : null),
       currentJiraKey: source.key ?? (source.type === 'jira' ? id : null),
       branchCompletionPolicy: source.branchCompletionPolicy ?? 'pr',
-      requiredChecks: structuredClone(source.requiredChecks ?? []),
+      requiredChecks: [...new Set([
+        ...(source.requiredChecks ?? []),
+        ...(capability?.policy?.requiredChecks ?? [])
+      ])],
       childBranches: []
     },
     resolution: {
@@ -274,6 +306,21 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     sequenceOverrides: [],
     history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
+  if (capability?.policy?.maxDocumentBytes) {
+    workflow.resolution.documents.maxFileBytes = Math.min(
+      workflow.resolution.documents.maxFileBytes ?? capability.policy.maxDocumentBytes,
+      capability.policy.maxDocumentBytes
+    );
+  }
+  if (capability) {
+    await mkdir(workDir(root, config, id), { recursive: true });
+    const context = await materializeCapabilityWorldModelPack(root, capability, {
+      itemDirectory: workDir(root, config, id),
+      itemRelative: workDirRelative(config, id),
+      views: [...new Set(resolution.phases.flatMap((phase) => phase.worldModel?.views ?? []))]
+    });
+    workflow.resolution.capability = { ...capability, context };
+  }
   for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
     if (template.source !== 'agent' || !template.cachePath) continue;
     const destination = path.join(workDir(root, config, id), 'context/agent-templates', template.agent, `${template.resource}-${template.sha256}.md`);
@@ -622,7 +669,11 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
   const changed = changedFiles(root);
-  const protectedChange = (config.governance?.protectedPaths ?? []).find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
+  const protectedPaths = [...new Set([
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ])];
+  const protectedChange = protectedPaths.find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
   if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);
   if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
     const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
@@ -636,6 +687,15 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   if (capture.pending) capture.warnings.push('The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
   const normalizedUsage = (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1));
+  const capabilityBudget = workflow.resolution?.capability?.policy?.tokenBudget;
+  if (capabilityBudget) {
+    const used = Object.values(workflow.phases).flatMap((entry) => entry.usage ?? [])
+      .reduce((total, record) => total + (record.totalTokens ?? 0), 0)
+      + normalizedUsage.reduce((total, record) => total + (record.totalTokens ?? 0), 0);
+    if (used > capabilityBudget) {
+      throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
+    }
+  }
   phase.generation += 1; phase.generatedBy = session.actor; phase.generatedPersona = session.persona; phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
   phase.usage.push(...normalizedUsage);
@@ -738,8 +798,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     reason: `Generation commit is missing for generation ${phase.generation}.`
   });
   const publicationBranch = workflowPublicationBranch(root, workflow);
-  phase.publicationCommit = phase.generationCommit && (config.git?.publish === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', publicationBranch)) ? phase.generationCommit : null;
-  if (config.git?.publish === 'required' && !phase.publicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
+  const publicationMode = workflowPublicationMode(config, workflow);
+  phase.publicationCommit = phase.generationCommit && (publicationMode === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', publicationBranch)) ? phase.generationCommit : null;
+  if (publicationMode !== 'off' && !phase.publicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generationCommit ? `Generation commit ${phase.generationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
   });
@@ -790,6 +851,9 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
     reviewPacketSha256: packet?.packetSha256 ?? null,
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };
+  if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
+    throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`);
+  }
   phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
@@ -898,7 +962,7 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
     const decision = [...(phase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
     ledgerIntent = createLedgerIntent({
       eventType,
-      capabilityId: `story-${workflow.workItem.id}`,
+      capabilityId: workflow.resolution?.capability?.id ?? `story-${workflow.workItem.id}`,
       subject: {
         workId: workflow.workItem.id,
         workType: workflow.workItem.workType,
@@ -916,13 +980,15 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
         configSha256: workflow.resolution?.configSha256 ?? null,
         templateSha256: phaseId ? workflow.resolution?.templates?.[phaseId]?.sha256 ?? null : null,
         decision: decision?.decision ?? null,
-        reviewPacketSha256: decision?.reviewPacketSha256 ?? null
+        reviewPacketSha256: decision?.reviewPacketSha256 ?? null,
+        capabilityMapSha256: workflow.resolution?.capability?.map?.sha256 ?? null,
+        capabilityPolicy: workflow.resolution?.capability?.policy ?? null
       }
     });
     ledgerIntentPath = await persistLedgerIntent(root, workDirRelative(config, workflow.workItem.id), ledgerIntent);
   }
   add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths, ledgerIntentPath].filter(Boolean))]);
-  const sha = commit(root, message); const mode = config.git?.publish ?? 'required';
+  const sha = commit(root, message); const mode = workflowPublicationMode(config, workflow);
   if (mode === 'off') {
     let ledger = null;
     if (ledgerIntent) {
@@ -940,7 +1006,13 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
   const targetBranch = workflowPublicationBranch(root, workflow);
   const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, targetBranch);
   if (result.status !== 0) {
-    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error: (result.stderr || result.stdout).trim() });
+    const error = (result.stderr || result.stdout).trim();
+    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error });
+    if (mode === 'warn') {
+      const warning = `Commit ${sha.slice(0, 8)} was retained locally; publication is pending: ${error}`;
+      console.warn(`Warning: ${warning}`);
+      return { sha, pushed: false, pending: true, warning };
+    }
     throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
   }
   if (await exists(pending)) await unlink(pending);

@@ -182,6 +182,7 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
+import { capabilityDoctor } from './capability-doctor.mjs';
 
 const VERSION = '0.9.0';
 
@@ -226,7 +227,7 @@ Usage:
   singularity-flow init --check [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
-    [--ref CANONICAL-BRANCH] [--selection-receipt TOKEN]
+    [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
@@ -251,6 +252,7 @@ Usage:
   singularity-flow ledger archive [--out FILE] [--sign] [--json]
   singularity-flow capabilities list [--json]
   singularity-flow capabilities show <ID> [--json]
+  singularity-flow capabilities doctor [ID] [--offline] [--json]
   singularity-flow capabilities lease grant <ID> --expires ISO --reason TEXT --policy FILE_OR_JSON --confirm <ID>
   singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
   singularity-flow guide [WORK-ID] [--json]
@@ -689,7 +691,8 @@ async function startCommand(positionals, options) {
     canonicalBranch,
     workType,
     persona: selectedPersona.persona,
-    resolved: resolveWorkType(config, workType)
+    resolved: resolveWorkType(config, workType),
+    capabilityId: optionString(options, 'capability')
   });
   await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
   for (const document of supportingDocuments) {
@@ -988,7 +991,7 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'browse') {
     const workflow = await loadWorkflow(root, config, optionString(options, 'work-id'));
-    const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', '') });
+    const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', ''), workflow });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.providerId} (${result.providerType})`);
     if (!result.entries.length) return console.log('No entries.');
@@ -1505,9 +1508,23 @@ async function ledgerCommand(positionals, options) {
 
 async function capabilitiesCommand(positionals, options) {
   const root = repoRoot();
+  const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'doctor') {
+    const result = await capabilityDoctor(root, {
+      capabilityId: positionals[2] ?? optionString(options, 'capability'),
+      offline: optionBoolean(options, 'offline')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    for (const item of result.checks) {
+      const mark = item.status === 'pass' ? '✓' : item.status === 'warn' ? '!' : '✗';
+      console.log(`${mark} ${item.id}: ${item.summary}${item.detail ? `\n  ${item.detail}` : ''}`);
+    }
+    console.log(`\n${result.summary.passed} passed · ${result.summary.warnings} warnings · ${result.summary.failures} failures`);
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
   const definition = await loadCapabilities(root, { required: true });
   const workflowConfig = await loadConfig(root);
-  const subcommand = positionals[1] ?? 'list';
   if (subcommand === 'list') {
     const rows = Object.entries(definition.capabilities).map(([id, capability]) => ({
       id,
@@ -1602,7 +1619,7 @@ async function capabilitiesCommand(positionals, options) {
     console.log(`${action === 'grant' ? 'Granted' : 'Revoked'} capability lease ${intent.payload.leaseId} at ledger sequence ${result.sequence}.`);
     return;
   }
-  throw new SingularityFlowError(`Unknown capabilities subcommand '${subcommand}'. Use list, show, or lease.`);
+  throw new SingularityFlowError(`Unknown capabilities subcommand '${subcommand}'. Use list, show, doctor, or lease.`);
 }
 
 // Read the machine-local activity log. The log lives under .git/ so it is never committed, which
@@ -2886,7 +2903,8 @@ async function initiativeCommand(positionals, options) {
       title: optionString(options, 'title', source.title ?? initiativeId),
       profile,
       source,
-      persona: selectedPersona.persona
+      persona: selectedPersona.persona,
+      capabilityId: optionString(options, 'capability')
     });
     if (profile === 'epic-planning' && source.type === 'jira') {
       await registerInitiativeEvidence(root, {
@@ -4092,7 +4110,8 @@ async function epicCommand(positionals, options) {
         profile,
         source,
         persona: selectedPersona.persona,
-        idAuthority: 'local'
+        idAuthority: 'local',
+        capabilityId: optionString(options, 'capability')
       });
       await registerInitiativeEvidence(root, {
         initiativeId: reservation.id,
@@ -4994,7 +5013,8 @@ async function storyFetchCommand(positionals, options) {
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
       workType,
       persona: persona.persona,
-      resolved: resolveWorkType(config, workType)
+      resolved: resolveWorkType(config, workType),
+      capabilityId: optionString(options, 'capability')
     });
     await commitAndPublish(target, config, workflow, `[${storyKey}][init] start governed Story workflow`);
   }

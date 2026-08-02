@@ -2,7 +2,7 @@
 
 The capability ledger is an optional, tamper-evident record of important Story and
 Initiative lifecycle events. It lives on the orphan branch
-`singularity/ledger`, which shares no ancestry with application branches.
+`state`, which shares no ancestry with application branches.
 
 It is deliberately disabled by default. Existing repositories and work items behave
 exactly as before until `ledger.enabled` is set to `true`.
@@ -14,8 +14,9 @@ In `singularity/workflow.yml`:
 ```yaml
 ledger:
   enabled: true
-  branch: singularity/ledger
+  branch: state
   remote: origin
+  publication: warn
   behind: warn
   enforcement: shadow
   signing: off
@@ -24,6 +25,11 @@ ledger:
   pinTransport: refs
   retentionDays: 2555
 ```
+
+`publication` is `off`, `warn`, or `required`. `warn` keeps local work usable and
+reports a state-publish failure; `required` fails the governing operation when the
+orphan branch cannot be updated. The selected value is validated and ships as
+`warn` in new repositories.
 
 Initialize the unrelated history once:
 
@@ -139,9 +145,32 @@ approval minimums increase, byte/token ceilings decrease, and blocking severity 
 only increase toward a leaf. A break-glass lease is a separately authorized,
 time-bounded ledger event; it never weakens the stored capability tree.
 
+The capability map is not only descriptive. Story and Initiative creation pins the
+owning capability, map hash, full inherited policy and active leases into runtime
+state. The effective policy tightens the selected workflow's phases, write scopes,
+checks, approval authorities and minimums, self-approval rule, byte/token ceilings,
+and world-model requirements. Lifecycle ledger events use the real capability ID,
+not a synthetic Story/Initiative placeholder.
+
+For a capability delivered by several repositories, Flow copies the relevant
+sibling world-model summary and active-phase views into the Story or Initiative
+context. Sources are resolved from `state` first, then the working tree, and every
+copied file, repository commit, manifest and capability-map hash is recorded. Prompt
+composition verifies these pins and injects only the active phase's views.
+
+Run the combined diagnostic at any point:
+
+```bash
+singularity-flow capabilities doctor [CAPABILITY-ID]
+singularity-flow capabilities doctor [CAPABILITY-ID] --offline --json
+```
+
+The same check is available as `/sf-capability-doctor` and is included in the VS
+Code **Singularity Flow: Diagnostics** report.
+
 ## Recommended branch controls
 
-Protect both `main` and `singularity/ledger`: disable force pushes and deletion,
+Protect both `main` and `state`: disable force pushes and deletion,
 restrict publishers, require reviewed changes and T2/T3 signatures, and reject
 introduction of ledger ancestry into application branches. The last control requires
 a server-side or mandatory provider validator; CODEOWNERS alone cannot make an

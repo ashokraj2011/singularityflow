@@ -5,7 +5,7 @@
 
 ## Decision
 
-The ledger uses one canonical head on the orphan branch `singularity/ledger`.
+The ledger uses one canonical head on the orphan branch `state`.
 Content-addressed entry filenames contain no mutable sequence number. `head.json`
 records sequence and the current entry hash.
 

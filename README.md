@@ -1,7 +1,7 @@
 # Singularity Flow Lite 0.9.0
 
 The optional [Capability Ledger](./CAPABILITY-LEDGER.md) records high-value Story
-and Initiative lifecycle events on an unrelated `singularity/ledger` orphan branch.
+and Initiative lifecycle events on an unrelated `state` orphan branch.
 Durable work-branch intents let another machine reconcile a missing ledger append
 after partial publication.
 
@@ -133,6 +133,24 @@ The first capability mapped into a repository governs it — `singularity/` is
 written, the repository is declared in its own portfolio, and the orphan `state`
 branch is named, all in the same operation. There is no separate setup step, and
 no order in which you need a map before you can make one.
+
+When a Story or Initiative starts, Flow resolves the owning capability from the
+active workspace (or accepts `--capability <ID>` when a repository participates in
+more than one). It snapshots the capability path, map SHA-256, inherited policy,
+active leases, and sibling-repository world models into the lifecycle branch.
+That immutable snapshot then tightens phase availability, write scope, checks,
+approval identities and thresholds, self-approval, document/token budgets, and
+required world-model views. Prompt composition reads only the pinned, hash-verified
+views required by the active phase; later capability-map or sibling-model changes
+cannot silently rewrite work already in progress.
+
+Use one diagnostic from the terminal, Copilot, or the VS Code **Diagnostics**
+command:
+
+```bash
+singularity-flow capabilities doctor
+# Copilot: /sf-capability-doctor
+```
 
 A **workspace** is a set of capabilities and a local working directory. The
 repositories it clones are what those capabilities ship from, derived rather than
@@ -1074,6 +1092,7 @@ token downloads are not supported in this delivery. See
 | `sflow-next [--task TEXT]` | Execute exactly one next valid action; alias for `singularity-flow next`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow prompt-packs list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown prompt packs. |
+| `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |

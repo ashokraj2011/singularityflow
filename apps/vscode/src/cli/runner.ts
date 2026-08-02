@@ -113,6 +113,29 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
   return canonical;
 }
 
+/**
+ * The sentence a person should read, out of everything the CLI wrote to stderr.
+ *
+ * The engine logs a structured line — timestamp, level, the whole error serialized as JSON with a
+ * stack trace — and then prints the human sentence after it. Taking stderr whole meant every screen
+ * that reports a failure showed the log line: a wall of JSON where a sentence belonged, with the
+ * actual explanation somewhere in the middle of it.
+ *
+ * So the explicit `Singularity Flow error:` line wins wherever it appears, and structured log lines
+ * are dropped rather than shown. Anything else is passed through, because an unrecognised message is
+ * still better than none.
+ */
+export function humanError(stderr: string): string {
+  const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
+  const stated = lines.filter((line) => line.startsWith('Singularity Flow error:'));
+  if (stated.length) return stated.at(-1)!.replace(/^Singularity Flow error:\s*/, '');
+  // A structured line starts with an ISO timestamp and a level; nothing a reader wants is in it that
+  // is not also in the sentence beside it.
+  const readable = lines.filter((line) =>
+    !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(ERROR|WARN|INFO|DEBUG)\b/.test(line));
+  return readable.join('\n').trim();
+}
+
 export type OutputStream = 'stdout' | 'stderr';
 
 export interface InvokeOptions {
@@ -211,7 +234,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('close', (code) => {
       if (settled) return;
       if (code !== 0) {
-        const message = stderr.trim().replace(/^Singularity Flow error:\s*/, '')
+        const message = humanError(stderr)
           || stdout.trim()
           || `The Singularity Flow CLI exited with ${code}.`;
         return fail(new CliError(message, code, stderr));

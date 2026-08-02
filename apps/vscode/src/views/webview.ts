@@ -216,8 +216,27 @@ export const STYLE = `
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
   }
-  input[type="text"]:focus, select:focus { border-color: var(--sf-accent); }
+  input[type="text"]:focus, select:focus, textarea:focus { border-color: var(--sf-accent); }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--sf-accent); }
+  textarea {
+    font: inherit; padding: .35rem .5rem; border-radius: 6px; margin-top: .3rem;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
+    max-width: 100%; resize: vertical;
+  }
+  /* A choice between a few things, each of which needs a sentence to be choosable at all. A radio in
+     a row of radios shows only names, and the names are never the difference. */
+  .choices { display: grid; gap: .5rem; }
+  .choice {
+    display: grid; grid-template-columns: auto 1fr; gap: .1rem .55rem; align-items: baseline;
+    padding: .6rem .75rem; border: var(--sf-border); border-radius: var(--sf-radius); cursor: pointer;
+  }
+  .choice:hover { border-color: var(--sf-accent); }
+  .choice.chosen { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .choice input { grid-row: 1 / span 3; margin: .2rem 0 0; }
+  .choice-label { font-weight: 600; }
+  .choice-detail { grid-column: 2; color: var(--sf-dim); font-size: .92em; }
+  .choice-detail.phases { margin-top: .25rem; }
   label { display: inline-flex; align-items: center; gap: .5rem; }
 
   .rail { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.5rem; }

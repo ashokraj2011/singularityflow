@@ -86,8 +86,8 @@
         "icon": "$(add)"
       },
       {
-        "command": "singularityFlow.startEpic",
-        "title": "Singularity Flow: Start an Epic",
+        "command": "singularityFlow.startWork",
+        "title": "Singularity Flow: Start Work",
         "icon": "$(add)"
       },
       {
@@ -284,7 +284,7 @@
           "group": "inline"
         },
         {
-          "command": "singularityFlow.startEpic",
+          "command": "singularityFlow.startWork",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.start",
           "group": "inline"
         },

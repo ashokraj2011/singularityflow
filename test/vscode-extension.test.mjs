@@ -304,17 +304,17 @@ test('an unreadable repository shows the CLI error rather than an empty tree', (
   assert.equal(node.icon, 'error');
 });
 
-test('a repository with no Epic on this branch says so, and how many exist', () => {
+test('a repository with nothing checked out on this branch says so, and how many exist', () => {
   const [node] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
-  assert.match(node.label, /No Epic is checked out/);
+  assert.match(node.label, /Nothing is checked out/);
   assert.equal(node.description, '2 available');
   // Offered as an action rather than a command to retype; the tooltip no longer carries one.
   assert.equal(node.contextValue, 'sflow.start');
 });
 
-test('a repository with no Epic at all offers the command that starts one', () => {
+test('a repository with nothing started at all offers the command that starts something', () => {
   const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
-  assert.match(node.label, /No Epic has been started/);
+  assert.match(node.label, /No work has been started/);
   assert.equal(node.contextValue, 'sflow.start');
 });
 
@@ -1566,10 +1566,33 @@ test('the accent is defined for both themes and never hard-codes the surface', (
   assert.match(STYLE, /button \{[\s\S]*?border-radius: 999px/);
 });
 
-const { EMPTY_EPIC_FORM, epicCommand, epicFormHtml, epicProblems } =
-  await import(source('views/epic-form.ts'));
+const { humanError } = await import(source('cli/runner.ts'));
 
-const EPIC_CHOICES = {
+test('a failure shows the sentence, not the log line that carries it', () => {
+  // The engine logs a structured line — timestamp, level, the whole error as JSON with a stack
+  // trace — and then prints the sentence. Taking stderr whole put the JSON on screen wherever a
+  // failure was reported, with the explanation buried in the middle of it.
+  const stderr = [
+    '2026-08-02T08:44:02.932Z ERROR command.failed — Jira access requires JIRA_BASE_URL. '
+      + '{"command":"jira","stack":"SingularityFlowError: Jira access requires JIRA_BASE_URL\\n at x"}',
+    '',
+    'Singularity Flow error: Jira access requires JIRA_BASE_URL plus JIRA_PAT.'
+  ].join('\n');
+  assert.equal(humanError(stderr), 'Jira access requires JIRA_BASE_URL plus JIRA_PAT.');
+
+  // With no stated sentence, the structured lines are dropped rather than shown.
+  assert.equal(humanError('2026-08-02T08:44:02.932Z ERROR command.failed — x {"a":1}\nSomething broke.'),
+    'Something broke.');
+  // And an unrecognised message is passed through, because it beats saying nothing.
+  assert.equal(humanError('  fatal: not a git repository  '), 'fatal: not a git repository');
+});
+
+const {
+  EMPTY_INTAKE_FORM, SHAPES, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems,
+  mintsIdentifier, needsProfile
+} = await import(source('views/intake-form.ts'));
+
+const INTAKE_CHOICES = {
   profiles: [
     { id: 'epic-planning', label: 'Epic planning', description: '4 governed phases',
       phases: ['epic-intake', 'epic-requirements', 'epic-impact', 'epic-planning'] },
@@ -1578,68 +1601,162 @@ const EPIC_CHOICES = {
   ],
   lenses: [{ id: 'product-owner', label: 'Product owner' }, { id: 'architect', label: 'Architect' }]
 };
-const epicForm = (over = {}) => ({ ...EMPTY_EPIC_FORM, ...EPIC_CHOICES, ...over });
+const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
-test('starting an Epic is a form, not five prompts in a row', () => {
-  // It was title, description, goal, profile and lens asked one at a time, each covering the answer
-  // before it — and the one that decides the Epic's whole lifecycle came last.
-  const html = epicFormHtml(epicForm());
-  for (const field of ['title', 'description', 'goal']) {
-    assert.match(html, new RegExp(`data-epic="${field}"`), `${field} is on the form`);
+test('the three shapes are offered with what each one leads to', () => {
+  // The difference between an Initiative, an Epic and a Story is what happens afterwards, which a
+  // row of three radio labels cannot express — and choosing wrong is expensive.
+  const html = intakeHtml(intake());
+  assert.deepEqual(SHAPES.map((shape) => shape.id), ['initiative', 'epic', 'story']);
+  for (const shape of SHAPES) {
+    assert.match(html, new RegExp(`data-shape="${shape.id}"`));
+    assert.match(html, new RegExp(escapeForRegExp(shape.leads.slice(0, 40))));
   }
-  assert.match(html, /data-choose-profile="enterprise-delivery"/);
-  assert.match(html, /data-epic="lens"/);
-  // All five listed at once rather than revealed one prompt at a time — the same five that used to
-  // be five separate boxes.
-  assert.equal(epicProblems(epicForm()).length, 5);
-  assert.match(html, /Before this can start/);
-  assert.match(html, /<button data-epic-submit="start" disabled>/);
 });
 
-test('the profiles are shown with the phases that distinguish them', () => {
-  // A picker showing "Epic planning" and "Enterprise delivery" gives no basis for choosing. The
-  // difference is which phases each runs, and the choice is pinned for the Epic's whole life.
-  const html = epicFormHtml(epicForm());
-  assert.match(html, /discover-define/);
-  assert.match(html, /elaboration/);
-  assert.match(html, /epic-intake/);
-  assert.match(html, /7 phases/);
-  assert.match(html, /cannot be changed afterwards|Pinned at start/);
+/** Sentences in the fixtures contain regex metacharacters; matching one literally has to say so. */
+function escapeForRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+test('no tracker is a first-class answer, not a degraded one', () => {
+  // Teams without Jira were reading a key field and concluding the product was not for them.
+  const html = intakeHtml(intake());
+  assert.match(html, /data-tracker="none"/);
+  assert.match(html, /Described here and governed in Git/);
+  // Unconfigured Jira is still shown, with the reason — hiding it makes a missing integration look
+  // like a missing feature.
+  assert.match(intakeHtml(intake({ jiraReason: 'Set JIRA_BASE_URL and JIRA_PAT.' })),
+    /Set JIRA_BASE_URL and JIRA_PAT/);
+  assert.match(intakeProblems(intake({
+    tracker: 'jira', jiraConfigured: false, jiraReason: 'Set JIRA_BASE_URL and JIRA_PAT.'
+  })).join(' '), /Set JIRA_BASE_URL/);
 });
 
-test('a complete Epic form describes the command it will run', () => {
-  const form = epicForm({
-    title: ' One-tap checkout ', description: 'Fewer steps to pay', goal: 'Cut abandonment',
+test('an Initiative without a tracker is described here and started from that', () => {
+  const form = intake({
+    shape: 'initiative', tracker: 'none', id: 'faster-checkout',
+    title: 'Faster checkout', description: 'Cut the steps to pay', profile: 'enterprise-delivery'
+  });
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form), [
+    'initiative', 'start', 'faster-checkout', '--json',
+    '--title', 'Faster checkout', '--description', 'Cut the steps to pay',
+    '--profile', 'enterprise-delivery'
+  ]);
+});
+
+test('an Initiative with a tracker is fetched by key, and nothing else is asked', () => {
+  const form = intake({
+    shape: 'initiative', tracker: 'jira', jiraConfigured: true, key: 'PAY-17',
+    profile: 'enterprise-delivery'
+  });
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form), [
+    'initiative', 'start', 'PAY-17', '--json', '--jira', '--profile', 'enterprise-delivery'
+  ]);
+  // The title and description are the tracker's to change, so the form does not offer to duplicate
+  // them here.
+  const html = intakeHtml(form);
+  assert.doesNotMatch(html, /data-field="title"/);
+  assert.match(html, /read from the issue/);
+});
+
+test('an untracked Epic has no identifier to give: the branch reservation mints it', () => {
+  // Asking for one would be asking for a value the engine is about to replace — and passing --id to
+  // a command with no such flag is how a form quietly stops working.
+  const form = intake({
+    shape: 'epic', tracker: 'none', title: 'One-tap checkout',
+    description: 'Fewer steps to pay', goal: 'Cut abandonment',
     profile: 'enterprise-delivery', lens: 'product-owner'
   });
-  assert.deepEqual(epicProblems(form), []);
-  assert.deepEqual(epicCommand(form), [
-    'epic', 'start', '--local',
+  assert.equal(mintsIdentifier(form), true);
+  assert.equal(intakeIdentifier(form), '');
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form), [
+    'epic', 'start', '--local', '--json',
     '--title', 'One-tap checkout',
     '--description', 'Fewer steps to pay',
     '--goal', 'Cut abandonment',
     '--profile', 'enterprise-delivery',
     '--persona', 'product-owner'
   ]);
-  assert.match(epicFormHtml(form), /<button data-epic-submit="start" >/);
+  const html = intakeHtml(form);
+  assert.doesNotMatch(html, /data-field="id"/);
+  assert.match(html, /minted when the Epic reserves its branch/);
 });
 
-test('a repository with no working lenses does not demand one', () => {
-  // The lens is only a requirement where the repository declares lenses to choose between.
-  const form = epicForm({
-    lenses: [], title: 'A', description: 'B', goal: 'C', profile: 'epic-planning'
+test('an Epic asks what success looks like; the other two do not', () => {
+  assert.match(intakeProblems(intake({ shape: 'epic', id: 'x', title: 'A', description: 'B' })).join(' '),
+    /what outcome would make this a success/i);
+  assert.deepEqual(
+    intakeProblems(intake({ shape: 'story', id: 'x', title: 'A', description: 'B' })), []);
+  assert.match(intakeHtml(intake({ shape: 'epic' })), /data-field="goal"/);
+  assert.doesNotMatch(intakeHtml(intake({ shape: 'story' })), /data-field="goal"/);
+});
+
+test('a Story is the one shape that asks how it will be judged done', () => {
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry a failed charge',
+    description: 'One retry with backoff', acceptanceCriteria: 'Retries once\nGives up after that'
   });
-  assert.deepEqual(epicProblems(form), []);
-  assert.deepEqual(epicCommand(form).includes('--persona'), false);
-  assert.match(epicFormHtml(form), /declares no working lenses/);
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form), [
+    'start', 'checkout-retry', '--json',
+    '--title', 'Retry a failed charge',
+    '--description', 'One retry with backoff',
+    '--acceptance-criteria', 'Retries once\nGives up after that'
+  ]);
+  assert.match(intakeHtml(form), /data-field="acceptanceCriteria"/);
+  // A Story takes its phases from its work type, so there is no profile to choose.
+  assert.equal(needsProfile('story'), false);
+  assert.doesNotMatch(intakeHtml(form), /Delivery profile/);
+});
+
+test('a tracked Story is fetched by key', () => {
+  const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
+  assert.deepEqual(intakeProblems(form), []);
+  assert.deepEqual(intakeCommand(form), ['story', 'start', 'ENG-142', '--json']);
+});
+
+test('the profiles are shown with the phases that distinguish them', () => {
+  // A picker showing "Epic planning" and "Enterprise delivery" gives no basis for choosing. The
+  // difference is which phases each runs, and the choice is pinned for the whole life of the work.
+  const html = intakeHtml(intake({ shape: 'epic' }));
+  assert.match(html, /discover-define/);
+  assert.match(html, /elaboration/);
+  assert.match(html, /epic-intake/);
+  assert.match(html, /Pinned when it starts/);
+});
+
+test('what is already under way is shown, and starting it again is refused', () => {
+  // Starting the same thing twice is only preventable by the screen that starts things.
+  const inFlight = [{ shape: 'epic', id: 'PAY-17', title: 'Faster checkout', status: 'active · planning' }];
+  const html = intakeHtml(intake({ inFlight }));
+  assert.match(html, /Already under way/);
+  assert.match(html, /PAY-17/);
+  assert.match(html, /active · planning/);
+
+  const clash = intake({
+    shape: 'story', tracker: 'none', id: 'PAY-17', title: 'A', description: 'B', inFlight
+  });
+  assert.match(intakeProblems(clash).join(' '), /has already been started/);
+});
+
+test('an intake form still missing something disables the button and lists why', () => {
+  const html = intakeHtml(intake());
+  assert.match(html, /Before this can start/);
+  assert.match(html, /<button data-submit="start" disabled>/);
+
+  const ready = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B'
+  }));
+  assert.match(ready, /Starts story <code>checkout-retry<\/code>/);
+  assert.match(ready, /<button data-submit="start" >/);
 });
 
 test('a refused start is reported on the form that caused it', () => {
-  const form = epicForm({
-    title: 'A', description: 'B', goal: 'C', profile: 'epic-planning', lens: 'architect',
-    error: 'Working tree is not clean.'
-  });
-  assert.match(epicFormHtml(form), /Working tree is not clean/);
+  assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
 });
 
 const { duplicateCommand, duplicateDirectory, duplicateProblems, renameCommand, workspaceRows } =

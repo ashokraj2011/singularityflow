@@ -386,8 +386,12 @@ test('a folder that is not a Singularity Flow repository still gets a provider t
   assert.ok(registered.commands.has('singularityFlow.init'), 'the command it offers exists');
 });
 
-test('a window with no folder open explains that, rather than showing no provider', async (t) => {
+test('a window with nothing open and no active workspace says which of the two to fix', async (t) => {
   if (!requireBundle(t)) return;
+  // "Open the repository that contains singularity/workflow.yml" was a demand, and the wrong one:
+  // nobody opens that repository as their editor folder. A workspace is the thing to have.
+  const empty = await mkdtemp(path.join(os.tmpdir(), 'sflow-noreg-'));
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(empty, 'registry.json');
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);
@@ -395,7 +399,7 @@ test('a window with no folder open explains that, rather than showing no provide
 
   const view = registered.trees.get('singularityFlow.lifecycle');
   assert.ok(view, 'the view always has a provider');
-  assert.match(view.treeDataProvider.getChildren()[0].label, /No folder is open/);
+  assert.match(view.treeDataProvider.getChildren()[0].label, /No workspace is active/);
 });
 
 test('the view activates on being opened, not only when a workflow file happens to exist', async (t) => {
@@ -674,25 +678,33 @@ test('an Epic can be started and its first source pinned entirely from the edito
 
   // The tree starts by saying there is nothing here, and offering the one thing to do.
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  assert.match(provider.getChildren()[0].label, /No Epic has been started/);
+  assert.match(provider.getChildren()[0].label, /No work has been started/);
   assert.equal(provider.getChildren()[0].contextValue, 'sflow.start');
 
-  // Start an Epic. Everything it needs is on one form, so nothing is asked through a prompt and
-  // every answer stays visible and correctable until the Epic is actually started.
-  await registered.commands.get('singularityFlow.startEpic')();
-  const epicPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.startEpic');
-  assert.ok(epicPanel, 'a start-an-Epic panel was created');
-  assert.match(epicPanel.webview.html, /default-src 'none'/);
+  // Start work. One screen covers all six ways it starts, so nothing is asked through a prompt and
+  // every answer stays visible and correctable until the work is actually started.
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intakePanel, 'a start-work panel was created');
+  assert.match(intakePanel.webview.html, /default-src 'none'/);
+  // All three shapes are offered, and this repository has no Jira, which is said rather than hidden.
+  const loaded = await until(() =>
+    (intakePanel.webview.html.includes('data-choose-profile') || intakePanel.webview.html.includes('epic-intake')
+      ? intakePanel.webview.html : null));
+  assert.match(loaded, /data-shape="initiative"/);
+  assert.match(loaded, /data-shape="story"/);
   // The profiles came from this repository, with the phases each one runs.
-  assert.match(epicPanel.webview.html, /data-choose-profile="epic-planning"/);
-  assert.match(epicPanel.webview.html, /epic-intake/);
+  assert.match(loaded, /data-profile="epic-planning"/);
+  assert.match(loaded, /epic-intake/);
 
-  await epicPanel.post({ type: 'field', field: 'title', value: 'One-tap checkout' });
-  await epicPanel.post({ type: 'field', field: 'description', value: 'Reduce checkout to a single tap' });
-  await epicPanel.post({ type: 'field', field: 'goal', value: 'Lift completion to 80%' });
-  await epicPanel.post({ type: 'profile', id: 'epic-planning' });
-  await epicPanel.post({ type: 'field', field: 'lens', value: 'developer' });
-  await epicPanel.post({ type: 'start' });
+  await intakePanel.post({ type: 'shape', value: 'epic' });
+  await intakePanel.post({ type: 'tracker', value: 'none' });
+  await intakePanel.post({ type: 'field', field: 'title', value: 'One-tap checkout' });
+  await intakePanel.post({ type: 'field', field: 'description', value: 'Reduce checkout to a single tap' });
+  await intakePanel.post({ type: 'field', field: 'goal', value: 'Lift completion to 80%' });
+  await intakePanel.post({ type: 'profile', value: 'epic-planning' });
+  await intakePanel.post({ type: 'field', field: 'lens', value: 'developer' });
+  await intakePanel.post({ type: 'start' });
   await until(() => (provider.getChildren()[0]?.kind === 'initiative' ? true : null));
 
   assert.deepEqual(registered.errors, [], 'starting an Epic raised no error');
@@ -714,7 +726,7 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
 });
 
-test('starting an Epic before any approver is named says so first, and offers the file to fix', async (t) => {
+test('starting work before any approver is named says so first, and offers the file to fix', async (t) => {
   if (!requireBundle(t)) return;
   // The engine refuses this, correctly. What it must not do is refuse *after* five questions with a
   // message naming a YAML key — the precondition is knowable before anything is asked.
@@ -735,7 +747,7 @@ test('starting an Epic before any approver is named says so first, and offers th
   await extension.activate(context());
 
   registered.selfApprovalAnswer = undefined; // the person dismissed the modal
-  await registered.commands.get('singularityFlow.startEpic')();
+  await registered.commands.get('singularityFlow.startWork')();
 
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
   assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
@@ -1553,16 +1565,18 @@ test('opening a workspace replaces the current window rather than scattering new
   assert.match(folder.args[0].fsPath, /workspaces\/commerce\/repos\/platform$/);
 });
 
-test('opening a workspace directory says what it is and offers the repository inside it', async (t) => {
+test('opening a workspace directory works: its lead repository is what gets governed', async (t) => {
   if (!requireBundle(t)) return;
   // Opening the workspace folder from a file manager is the obvious thing to do, and it is not a
-  // repository — but it knows exactly where the one somebody wanted is.
+  // repository — but it knows exactly where the one somebody wanted is, so it is simply used.
   const org = await organisation();
   const workspaces = path.join(org.base, 'workspaces');
   spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    // Cloned for real: a lead repository that is not on disk is not one this can govern, and
+    // pretending otherwise would test the fixture rather than the resolution.
     'workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
     '--lead', 'platform', '--repository', `platform=${org.lead}`,
-    '--confirm', 'commerce', '--no-clone'], {
+    '--confirm', 'commerce'], {
     encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(org.base, 'r.json') }
   });
 
@@ -1573,14 +1587,15 @@ test('opening a workspace directory says what it is and offers the repository in
   const extension = loadExtension(api);
   await extension.activate(context());
 
+  // Used, not described. Every screen operates on the workspace's lead repository, so opening the
+  // workspace folder is a perfectly good way to work — the alternative was telling somebody the path
+  // of a folder and asking them to go and open it themselves.
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  const [explanation] = provider.getChildren();
-  assert.match(explanation.label, /workspace directory, not a repository/);
-  const rows = provider.getChildren(explanation);
-  const lead = rows.find((row) => row.id === 'unavailable:lead');
-  assert.ok(lead, 'the lead repository is offered');
-  assert.match(lead.openPath, /commerce\/repos\/platform$/);
-  assert.equal(lead.runCommand, 'singularityFlow.openWorkspace');
+  const [first] = provider.getChildren();
+  assert.doesNotMatch(first.label, /not a repository/);
+  assert.ok(registered.output.some((line) =>
+    /Governed repository: .*commerce\/repos\/platform \(the lead repository of the workspace directory you have open\)/
+      .test(String(line))), `the repository and where it came from are stated: ${registered.output.join(' | ')}`);
 });
 
 test('a window with nothing open can map a capability from scratch', async (t) => {
@@ -1682,6 +1697,37 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   const portfolio = run('git', ['show', 'main:singularity/portfolio.yml'], { cwd: bare }).stdout;
   assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('a window with nothing open still shows what the organisation builds', async (t) => {
+  if (!requireBundle(t)) return;
+  // The map lives in the lead repository, not in the open folder — so "not a Git repository" is a
+  // fact about the window and not about whether there is anything to show. Sending somebody to find
+  // a checkout for a map that was never in one is the whole confusion this avoids.
+  const org = await organisation();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const tree = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
+  const root = await until(() => {
+    const rows = tree.getChildren();
+    return rows[0]?.id === 'capabilities:organisation' ? rows[0] : null;
+  });
+  assert.ok(root, 'the mapped organisation replaced the empty state');
+  assert.equal(root.label, 'platform', 'named for where the map came from');
+
+  const top = tree.getChildren(root);
+  assert.deepEqual(top.map((row) => row.label), ['Commerce']);
+  const beneath = tree.getChildren(top[0]);
+  assert.deepEqual(beneath.map((row) => row.label), ['Payments', 'Storefront']);
+  // The tree goes to any depth, like a directory.
+  const [paymentsApi] = tree.getChildren(beneath[0]);
+  assert.equal(paymentsApi.label, 'Payments API');
+  // A capability that ships names the repository it ships from; a grouping names none.
+  assert.equal(paymentsApi.description, 'api');
+  assert.equal(beneath[0].description, undefined);
 });
 
 test('the loaded build identifies itself, because the version cannot', async (t) => {

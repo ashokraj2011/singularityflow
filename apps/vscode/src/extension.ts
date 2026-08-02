@@ -20,18 +20,17 @@ import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
 import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
-import { EpicPanel } from './views/epic-panel.ts';
+import { IntakePanel } from './views/intake-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry } from './views/workspaces-model.ts';
-import { epicCommand } from './views/epic-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import {
-  buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf
+  buildCapabilityTree, buildRemoteCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf
 } from './views/navigation-trees.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -66,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
-    'singularityFlow.openApprovals', 'singularityFlow.startEpic', 'singularityFlow.addSource',
+    'singularityFlow.openApprovals', 'singularityFlow.startWork', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
@@ -113,6 +112,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // there is nothing to act on.
     unavailableReason = detail;
     capabilityTree.replace(buildCapabilityTree(null, detail));
+    // The map is not in the open folder — it is in the lead repository. So a window with nothing
+    // open is not a window with nothing to show, and saying otherwise sends people looking for a
+    // checkout they were never meant to need.
+    void showMappedOrganisation();
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
     context.subscriptions.push(provider);
@@ -120,6 +123,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       treeDataProvider: provider
     }));
   };
+
+  /**
+   * Show the capability map of an organisation already mapped, when the open folder has none.
+   *
+   * Best effort by design: no lead remembered, an unreachable remote or a lead with no map all leave
+   * the tree saying what it already says. This can only add.
+   */
+  async function showMappedOrganisation(): Promise<void> {
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const client = new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: () => {}
+      });
+      const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
+      const url = leads.find((lead) => lead.url)?.url;
+      if (!url) return;
+      const organisation = await client.run<{ capabilities?: unknown[] }>(
+        ['capability', 'organisation', url, '--json']);
+      if (!organisation.capabilities?.length) return;
+      capabilityTree.replace(buildRemoteCapabilityTree(url, organisation.capabilities as never));
+    } catch (error) {
+      output.appendLine(`No mapped organisation to show: ${(error as Error).message}`);
+    }
+  }
 
   /**
    * Create a workspace, then offer its append-only state branch and open the lead repository.
@@ -326,30 +353,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    return unavailable('No folder is open',
-      'Open the repository that contains singularity/workflow.yml.');
+  const resolved = await resolveGovernedRepository(context, output);
+  if ('reason' in resolved) {
+    return unavailable(resolved.label, resolved.reason, resolved.contextValue, resolved.lead);
   }
-
-  let repository: string;
-  try {
-    repository = await validateRepositoryDirectory(folder.uri.fsPath);
-  } catch (error) {
-    // A workspace directory holds repos/, documents/ and workspace.json — it is not itself a
-    // repository, but opening it is the obvious thing to do from a file manager, and it knows
-    // exactly where the repository someone wanted is.
-    const lead = await workspaceLeadDirectory(folder.uri.fsPath);
-    if (lead) {
-      return unavailable('This is a workspace directory, not a repository',
-        `Its lead repository is ${lead}, which is where the capability map and the governed state live.`,
-        'sflow.workspace-directory', lead);
-    }
-    // Not a Singularity Flow repository is an ordinary state for a folder to be in. It is said in
-    // the view, where the person is looking, and the view offers to initialize one.
-    return unavailable('Not a Singularity Flow repository',
-      (error as Error).message, 'sflow.uninitialized');
-  }
+  const { repository, origin } = resolved;
+  // Which repository this window is acting on, and why that one. Every screen below operates on it,
+  // and when it was not the open folder that has to be visible rather than inferred.
+  output.appendLine(`Governed repository: ${repository} (${origin})`);
 
   const settings = vscode.workspace.getConfiguration('singularityFlow');
   let client: SingularityFlowClient;
@@ -469,21 +480,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
-   * Start an Epic.
+   * Start work: an Initiative, an Epic or a Story, with or without a tracker.
    *
    * Every answer is asked for; none is guessed. The profile and the working lens come from the
    * repository's own configuration rather than a list this file keeps, so a portfolio that adds a
    * profile offers it here without the extension being changed.
    */
-  const startEpic = async (): Promise<void> => {
-    // Checked before anything is asked. The engine refuses to start an Epic when no approval
-    // authority has a member, and discovering that after five questions — with a message naming a
+  const startWork = async (): Promise<void> => {
+    // Checked before anything is asked. The engine refuses to start governed work when no approval
+    // authority has a member, and discovering that after a filled-in form — with a message naming a
     // YAML key — is a poor greeting for someone who has just initialized a repository.
     const authorities = store.current.snapshot?.portfolio?.approvalAuthorities ?? {};
     const named = Object.entries(authorities).filter(([, authority]) => (authority?.members ?? []).length);
     if (Object.keys(authorities).length && !named.length) {
       const open = await vscode.window.showWarningMessage(
-        'No approval authority has a member yet, so an Epic cannot be started.',
+        'No approval authority has a member yet, so governed work cannot be started.',
         { modal: true, detail: 'Add at least one person under approvalAuthorities in singularity/portfolio.yml. Every governed approval is checked against that list.' },
         'Open portfolio.yml');
       if (open === 'Open portfolio.yml') {
@@ -493,33 +504,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
 
-    // Five prompts in a row, each covering the answer before it, with the one that decides the
-    // Epic's whole lifecycle asked last. It is a form: everything visible at once, everything
-    // correctable, and the profiles shown with the phases that actually distinguish them.
-    const profiles = await client.run<Array<{
-      id: string; label?: string; description?: string; phases?: string[];
-    }>>(['initiative', 'profiles', '--json']).catch(() => []);
-    const personas = store.current.snapshot?.definition?.personas ?? {};
-
-    EpicPanel.show(context, {
-      profiles: profiles.map((entry) => ({
-        id: entry.id,
-        label: entry.label ?? entry.id,
-        description: entry.description ?? '',
-        phases: entry.phases ?? []
-      })),
-      lenses: Object.entries(personas).map(([id, persona]) => ({
-        label: (persona as { label?: string })?.label ?? id, id
-      }))
-    }, async (form) => {
-      // The refusal comes back to the form rather than to a notification the panel outlives, so it
-      // can be corrected against the fields that caused it.
-      const ran = await runGovernedAction(client, {
-        command: epicCommand(form), title: `Starting ${form.title.trim()}`
-      }, output);
-      if (!ran) return 'The Epic was not started. The output channel has the engine\'s reason.';
+    // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
+    // used to be six commands you had to already know the names of — which meant the product's front
+    // door was documentation rather than a screen.
+    IntakePanel.show(context, client, output, async (started) => {
       await store.refresh();
-      return null;
+      const open = await vscode.window.showInformationMessage(
+        `Started ${started.shape} ${started.id}.`, 'Open the journey', 'Show status');
+      if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
+      else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     });
   };
 
@@ -658,7 +651,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); }),
     'singularityFlow.openApprovals':
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
-    'singularityFlow.startEpic': startEpic,
+    'singularityFlow.startWork': startWork,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': () => store.refresh(),
     'singularityFlow.openArtifact': ((node?: TreeNode) => openArtifact(repository, node)) as never,
@@ -758,6 +751,96 @@ async function showImpact(client: SingularityFlowClient, output: vscode.OutputCh
  * Read through the editor's own file system rather than the CLI: this runs on a path the CLI has
  * already refused to treat as a repository, so there is nothing to run a command in.
  */
+/** Where the governed repository came from, said in the words a reader would use. */
+type Resolved =
+  | { repository: string; origin: string }
+  | { label: string; reason: string; contextValue?: string; lead?: string | null };
+
+/**
+ * Which repository this window governs.
+ *
+ * The map and the governed state live in a repository, but nobody works by opening that repository
+ * as their editor folder — they work in a workspace, and the workspace already knows where its lead
+ * is. Requiring the folder to be the repository made every screen in the product unreachable from
+ * the place people actually start, and answered with "open the repository that contains
+ * singularity/workflow.yml", which is a demand rather than an explanation.
+ *
+ * So three sources, most specific first: the open folder when it is one; the open folder's lead when
+ * it is a workspace directory; and otherwise the active workspace's lead. The last is what makes the
+ * product usable from a window with something else entirely open.
+ */
+async function resolveGovernedRepository(
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel
+): Promise<Resolved> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+
+  if (folder) {
+    try {
+      return { repository: await validateRepositoryDirectory(folder.uri.fsPath), origin: 'the open folder' };
+    } catch (error) {
+      // A workspace directory holds repos/, documents/ and workspace.json — it is not itself a
+      // repository, but opening it is the obvious thing to do from a file manager, and it knows
+      // exactly where the repository someone wanted is. Now it is used rather than described.
+      const lead = await workspaceLeadDirectory(folder.uri.fsPath);
+      if (lead) {
+        try {
+          return {
+            repository: await validateRepositoryDirectory(lead),
+            origin: 'the lead repository of the workspace directory you have open'
+          };
+        } catch { /* falls through to the active workspace, then to the explanation below */ }
+      }
+      const active = await activeWorkspaceLead(context, output);
+      if (active) return active;
+      return {
+        label: 'Not a Singularity Flow repository',
+        reason: (error as Error).message,
+        contextValue: 'sflow.uninitialized'
+      };
+    }
+  }
+
+  const active = await activeWorkspaceLead(context, output);
+  if (active) return active;
+  return {
+    label: 'No workspace is active',
+    reason: 'Create a workspace, or open one you already have. Its lead repository is what the rest of this works on.'
+  };
+}
+
+/**
+ * The lead repository of the active workspace, when there is one.
+ *
+ * Best effort: no active workspace, a registry that cannot be read, or a lead that is not a governed
+ * repository all return null and let the caller explain itself.
+ */
+async function activeWorkspaceLead(
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel
+): Promise<{ repository: string; origin: string } | null> {
+  try {
+    const client = new SingularityFlowClient({
+      location: resolveCli({ extensionPath: context.extensionPath }),
+      repository: process.cwd(),
+      onOutput: () => {}
+    });
+    const current = await client.run<{ workspace?: { name?: string; path?: string } }>(
+      ['workspace', 'current', '--json']);
+    const directory = current.workspace?.path;
+    if (!directory) return null;
+    const lead = await workspaceLeadDirectory(directory);
+    if (!lead) return null;
+    return {
+      repository: await validateRepositoryDirectory(lead),
+      origin: `the lead repository of your active workspace, ${current.workspace?.name ?? directory}`
+    };
+  } catch (error) {
+    output.appendLine(`No active workspace to fall back to: ${(error as Error).message}`);
+    return null;
+  }
+}
+
 async function workspaceLeadDirectory(folder: string): Promise<string | null> {
   try {
     const manifest = vscode.Uri.file(path.join(folder, 'workspace.json'));

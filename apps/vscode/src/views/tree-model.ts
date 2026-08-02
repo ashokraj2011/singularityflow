@@ -262,13 +262,13 @@ export function buildTree(snapshot: DesktopSnapshot | null, error: Error | null 
       kind: 'message',
       id: 'no-initiative',
       label: available
-        ? 'No Epic is checked out on this branch'
-        : 'No Epic has been started in this repository',
+        ? 'Nothing is checked out on this branch'
+        : 'No work has been started in this repository',
       description: available ? `${available} available` : undefined,
       icon: 'info',
       tooltip: available
-        ? 'Check out an Epic branch, or start a new one.'
-        : 'Nothing has been started here yet.',
+        ? 'Check out a governed branch, or start something new.'
+        : 'An Initiative, an Epic or a Story — with or without a tracker.',
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'

@@ -144,3 +144,24 @@ export function workspacePathOf(node: { id?: unknown; path?: unknown } | undefin
   const id = typeof node?.id === 'string' ? node.id : '';
   return id.startsWith('workspace:') ? id.slice('workspace:'.length).split(':')[0]! : null;
 }
+
+/**
+ * The capability tree of an organisation that is not the open folder.
+ *
+ * The map lives in the lead repository, so it exists whether or not the window has anything open —
+ * and a window with nothing open is exactly where somebody needs to see it. Read from a remembered
+ * lead rather than from a checkout, and labelled with where it came from so it is never mistaken for
+ * the map of the folder in front of you.
+ */
+export function buildRemoteCapabilityTree(url: string, capabilities: CapabilityNode[]): TreeNode[] {
+  const tree = buildCapabilityTree({ capabilityMap: { capabilities } } as DesktopSnapshot);
+  return [{
+    kind: 'message',
+    id: 'capabilities:organisation',
+    label: url.replace(/^.*[/:]/, '').replace(/\.git$/, ''),
+    description: 'mapped organisation',
+    tooltip: `Read from ${url}. Nothing is checked out; this is the map that repository holds.`,
+    icon: 'organization',
+    children: tree
+  }];
+}

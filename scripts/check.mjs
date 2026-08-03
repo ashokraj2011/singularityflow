@@ -101,8 +101,17 @@ const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyM
 });
 if (legacyReferenceCheck.status === 0) fail(`Legacy model/vendor references remain:\n${legacyReferenceCheck.stdout.trim()}`);
 else if (legacyReferenceCheck.status !== 1) fail(`Unable to scan legacy model/vendor references: ${legacyReferenceCheck.stderr.trim() || `git exited ${legacyReferenceCheck.status}`}`);
-const personalSourceReference = ['ashok', 'raj2011'].join('');
-const personalSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-F', personalSourceReference, '--', '.'], {
+const personalSourceReferences = [
+  ['ashok', 'raj2011'].join(''),
+  ['ashok', '2011'].join(''),
+  ['ashok', 'raj'].join(''),
+  ['ashok', ' ', 'raj'].join(''),
+  ['a672', '090'].join('')
+];
+const personalSourcePattern = personalSourceReferences
+  .map((reference) => reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+const personalSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', personalSourcePattern, '--', '.'], {
   cwd: root,
   encoding: 'utf8'
 });

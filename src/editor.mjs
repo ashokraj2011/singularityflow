@@ -134,6 +134,7 @@ async function bundledFlowSkills() {
       argumentHint: metadata.argumentHint,
       command: `/${metadata.name}`,
       path: `plugin/skills/${entry.name}/SKILL.md`,
+      packagePath: `plugin/skills/${entry.name}/SKILL.md`,
       repositoryPath: `${REPOSITORY_SKILLS_ROOT}/${metadata.name}/SKILL.md`,
       content,
       bytes: Buffer.byteLength(content),
@@ -454,7 +455,16 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       })),
       files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
     },
-    agents: agents.map((agent) => ({ id: agent.id, scope: agent.scope, path: agent.source, content: agent.text, sha256: agent.sha256, editable: agent.scope === 'repository' && !agent.source.startsWith('..'), remoteResources: agent.dependencies.length })),
+    agents: agents.map((agent) => ({
+      id: agent.id,
+      scope: agent.scope,
+      path: agent.source,
+      packagePath: agent.scope === 'repository' ? null : posix(path.relative(packageRoot, agent.file)),
+      content: agent.text,
+      sha256: agent.sha256,
+      editable: agent.scope === 'repository' && !agent.source.startsWith('..'),
+      remoteResources: agent.dependencies.length
+    })),
     agentStatus: await agentStatus(root),
     agentMappings: {
       path: AGENT_MAPPING_PATH,
@@ -622,6 +632,7 @@ async function configurationSlice(root) {
       id: agent.id,
       scope: agent.scope,
       path: agent.source,
+      packagePath: agent.scope === 'repository' ? null : posix(path.relative(packageRoot, agent.file)),
       content: agent.text,
       sha256: agent.sha256,
       editable: agent.scope === 'repository' && !agent.source.startsWith('..'),

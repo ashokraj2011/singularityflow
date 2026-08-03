@@ -133,7 +133,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -170,7 +170,10 @@ function stubVscode() {
         registered.watchers.push(watcher);
         return watcher;
       },
-      openTextDocument: async (target) => ({ target }),
+      openTextDocument: async (target) => {
+        registered.openedDocuments.push(target);
+        return { target };
+      },
       fs: {}
     },
     window: {
@@ -536,6 +539,30 @@ test('refusing to open an artifact path that escapes the repository', async (t) 
   await open({ path: '../../../../etc/passwd' });
   assert.equal(registered.errors.length, 1);
   assert.match(registered.errors[0], /outside the repository/);
+});
+
+test('packaged agents open from the active CLI without weakening the repository boundary', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const open = registered.commands.get('singularityFlow.openArtifact');
+  await open({
+    path: '../../../../../.vscode/extensions/singularity-flow/architect.agent.md',
+    packagePath: 'templates/agents/architect.agent.md',
+    readOnly: true
+  });
+  assert.equal(registered.errors.length, 0);
+  assert.equal(registered.openedDocuments.at(-1).fsPath,
+    path.join(packageRoot, 'templates', 'agents', 'architect.agent.md'));
+
+  await open({
+    path: '../../../../../etc/passwd', packagePath: '../../../../../etc/passwd', readOnly: true
+  });
+  assert.match(registered.errors.at(-1), /outside the installed Singularity Flow engine/);
 });
 
 /** Activate against a repo and hand back everything a test needs to drive it. */

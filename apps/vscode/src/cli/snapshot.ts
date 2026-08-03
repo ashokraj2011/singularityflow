@@ -279,9 +279,11 @@ export interface RepositorySnapshot {
    */
   flowSkills?: Array<{
     id?: string; name?: string; description?: string; path: string; command?: string;
-    scope?: string; readOnly?: boolean;
+    packagePath?: string; scope?: string; readOnly?: boolean;
   }>;
-  agents?: Array<{ id: string; scope: string; path: string; editable?: boolean }>;
+  agents?: Array<{
+    id: string; scope: string; path: string; packagePath?: string | null; editable?: boolean;
+  }>;
   agentMappings?: { path: string; exists: boolean };
   /** Who this repository will attribute a decision to. Approvals turn on it. */
   identities?: {

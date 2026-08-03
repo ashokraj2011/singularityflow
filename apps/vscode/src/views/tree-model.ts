@@ -33,8 +33,10 @@ export interface TreeNode {
   /** A codicon id, chosen by state rather than by kind wherever state is what matters. */
   icon?: string;
   children?: TreeNode[];
-  /** Set for artifacts the editor can open. Repository-relative. */
+  /** Set for artifacts the editor can open. Repository-relative unless `packagePath` is present. */
   path?: string;
+  /** Read-only path beneath the CLI package root for agents and skills shipped with the engine. */
+  packagePath?: string;
   /**
    * An absolute folder this node opens into. Distinct from `path`, which is an artifact inside the
    * repository — a workspace opens into its lead repository, which is somewhere else entirely.
@@ -489,6 +491,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
     ...(snapshot.repositorySkills ?? []).map((file) => ({ ...file, scope: 'repository' as const })),
     ...(snapshot.flowSkills ?? []).map((skill) => ({
       path: skill.path,
+      packagePath: skill.packagePath ?? skill.path,
       name: skill.id ?? skill.name ?? skill.path,
       scope: 'packaged' as const,
       description: skill.description
@@ -497,7 +500,9 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
 
   const sets: Array<{
     id: string; label: string; icon: string;
-    files: Array<{ path: string; name: string; scope?: string; description?: string }>;
+    files: Array<{
+      path: string; packagePath?: string; name: string; scope?: string; description?: string;
+    }>;
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
     {
@@ -527,6 +532,8 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
           tooltip: [file.description, file.path].filter(Boolean).join('\n'),
           icon: set.icon,
           path: file.path,
+          packagePath: file.packagePath,
+          readOnly: Boolean(file.packagePath),
           contextValue: 'sflow.config'
         }))
       : [{ kind: 'message' as const, id: `config:${set.id}:empty`, label: `No ${set.label.toLowerCase()}`, icon: 'blank' }]
@@ -548,6 +555,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
         tooltip: agent.path,
         icon: 'hubot',
         path: agent.path,
+        packagePath: agent.packagePath ?? undefined,
         // A packaged agent is read-only; only a repository one is the team's to change.
         readOnly: agent.editable === false,
         contextValue: 'sflow.config'

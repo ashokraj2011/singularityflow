@@ -97,6 +97,27 @@ customizations. In Copilot CLI, use `/sflow-init [WORK-ID]`; `/sflow-doctor`
 also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
+For a deliberate clean restart, factory reset replaces the complete
+`singularity/` tree from the templates bundled in the **currently installed npm
+package** and removes machine-local runtime state under
+`.git/singularity-flow/`. Always preview first:
+
+```bash
+singularity-flow factory-reset --dry-run
+# Then copy the exact confirmation string printed by the preview:
+singularity-flow factory-reset --confirm "RESET <repository-folder-name>"
+singularity-flow init --check
+git status --short
+```
+
+This discards uncommitted workflow state, generated artifacts, world-model
+files, templates, prompts, sessions, locks, local telemetry, and pending
+publication records in the reset scope. It preserves application source, Git
+history and configuration, workspace clones, the global workspace registry,
+and custom `.github/agents` files not supplied by the package. The replacement
+is left uncommitted for review. In Copilot, `/sf-factory-reset` enforces the
+same preview and contributor-entered confirmation sequence.
+
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
 The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements
@@ -1089,6 +1110,7 @@ token downloads are not supported in this delivery. See
 |---|---|
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
+| `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
 | `singularity-flow start <ID> [--jira \| --story-file FILE] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow; its phase agent is automatic, and create/push the canonical branch. The branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
@@ -1240,6 +1262,7 @@ commands are:
 /sf-next
 /sf-report
 /sf-help
+/sf-factory-reset
 /sf-upload ./requirements.pdf --epic MOB-100
 /sf-documents list
 /sf-status

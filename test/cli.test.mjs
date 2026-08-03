@@ -35,6 +35,7 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow agent \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
+    assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
   }
 });
 

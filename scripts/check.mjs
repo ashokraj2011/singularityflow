@@ -41,17 +41,17 @@ function parseFrontmatter(text, file) {
 }
 
 const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-const desktopJson = JSON.parse(await readFile(path.join(root, 'apps', 'desktop', 'package.json'), 'utf8'));
+const vscodeJson = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
 const pluginJson = JSON.parse(await readFile(path.join(root, 'plugin', 'plugin.json'), 'utf8'));
 const marketplaceJson = JSON.parse(await readFile(path.join(root, '.github', 'plugin', 'marketplace.json'), 'utf8'));
 const lockJson = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-checked.push('package.json', 'apps/desktop/package.json', 'plugin/plugin.json', '.github/plugin/marketplace.json', 'package-lock.json');
+checked.push('package.json', 'apps/vscode/package.json', 'plugin/plugin.json', '.github/plugin/marketplace.json', 'package-lock.json');
 
 if (packageJson.version !== pluginJson.version) fail(`Version mismatch: package ${packageJson.version}, plugin ${pluginJson.version}`);
 for (const [name, version] of Object.entries({
-  desktop: desktopJson.version,
+  vscode: vscodeJson.version,
   lockPackage: lockJson.packages?.['']?.version,
-  lockDesktop: lockJson.packages?.['apps/desktop']?.version
+  lockVscode: lockJson.packages?.['apps/vscode']?.version
 })) {
   if (version !== packageJson.version) fail(`Version mismatch: package ${packageJson.version}, ${name} ${version ?? 'missing'}`);
 }
@@ -81,18 +81,14 @@ const marketplacePlugin = marketplaceJson.plugins?.find((item) => item.name === 
 if (marketplaceJson.name !== 'singularity-flow') fail('marketplace.json name must be singularity-flow');
 if (!marketplacePlugin || marketplacePlugin.source !== './plugin') fail('marketplace must publish singularity-flow from ./plugin');
 if (marketplaceJson.metadata?.version !== pluginJson.version || marketplacePlugin?.version !== pluginJson.version) fail('marketplace and plugin versions must match');
-if (desktopJson.build?.appId !== 'dev.singularityflow.desktop') fail('desktop appId must remain stable');
-if (desktopJson.build?.win?.icon !== 'build/icon.ico') fail('desktop Windows packages must use build/icon.ico');
-if (!desktopJson.build?.mac?.target?.every((target) => target.arch?.includes('universal'))) fail('desktop macOS targets must be universal');
-if (desktopJson.build?.nsis?.oneClick !== false || desktopJson.build?.nsis?.allowToChangeInstallationDirectory !== true) fail('desktop NSIS installer must use the assisted, changeable-directory flow');
-if (!packageJson.files?.includes('DISTRIBUTION.md') || !existsSync(path.join(root, 'DISTRIBUTION.md'))) fail('desktop distribution guide must ship in the npm package');
+if (!packageJson.files?.includes('DISTRIBUTION.md') || !existsSync(path.join(root, 'DISTRIBUTION.md'))) fail('distribution guide must ship in the npm package');
 for (const initiativeDocument of ['INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md']) {
   if (!packageJson.files?.includes(initiativeDocument) || !existsSync(path.join(root, initiativeDocument))) fail(`${initiativeDocument} must ship in the npm package`);
 }
 if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync(path.join(root, 'RELEASE-EPIC-STORY-LINEAGE.md'))) {
   fail('Epic-to-Story lineage release notes must ship in the npm package');
 }
-checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md', 'apps/desktop/build/icon.ico');
+checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
 
 const allFiles = repositoryFiles();
 const codeowners = spawnSync(process.execPath, ['scripts/generate-codeowners.mjs'], { cwd: root, encoding: 'utf8' });

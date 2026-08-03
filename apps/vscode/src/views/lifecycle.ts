@@ -4,10 +4,10 @@
  */
 import * as vscode from 'vscode';
 import { buildLifecycleTree, type TreeNode } from './tree-model.ts';
-import type { DesktopSnapshot } from '../cli/snapshot.ts';
+import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 
-export type TreeBuilder = (snapshot: DesktopSnapshot | null, error?: Error | null) => TreeNode[];
+export type TreeBuilder = (snapshot: RepositorySnapshot | null, error?: Error | null) => TreeNode[];
 
 export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();

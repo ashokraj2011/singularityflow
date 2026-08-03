@@ -18,22 +18,22 @@ scripts and documentation.
 The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
-- A secure Electron desktop studio for visual workflow, governed-agent, human-authority, template, progress, and document management.
+- A VS Code extension for workspaces, intake, workflow configuration, progress, documents, and approvals.
 - A GitHub Copilot plugin with collision-safe skills and a bundled workflow runtime.
-- A canonical searchable help manual shared by the CLI, Copilot, and Electron desktop.
+- A canonical searchable help manual shared by the CLI, Copilot, and VS Code.
 - Editable feature, bugfix, chore, and Figma-export-to-mobile profiles.
 - Editable governed-agent prompts and artifact templates.
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
-- A clean Copilot CLI handoff: Electron shows phase-aware command guidance, while authoring and questions stay in the user’s normal Copilot session; the installed `/sf-*` aliases can be used directly.
+- A native Copilot handoff: VS Code renders phase-aware governed context while authoring stays in the user’s normal Copilot session; the installed `/sf-*` aliases can be used directly.
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
 For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
-desktop, telemetry, and security boundaries, read
+VS Code, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). For the implementation-level
 path from `/sf-*` through the Node.js launcher, command dispatcher, prompt
 composer, question bridge, and Git publication, read
@@ -41,8 +41,7 @@ composer, question bridge, and Git publication, read
 
 ## Requirements
 
-- Node.js 20 or newer for the CLI. Desktop development and packaging use
-  Node.js 22.12 or newer, matching Electron 43's supported runtime.
+- Node.js 20 or newer for the CLI and VS Code extension build.
 - Git with a configured identity.
 - A Git remote when `git.publish: required` is configured.
 - GitHub CLI authentication is recommended so lifecycle events can record the authenticated GitHub login as well as Git identity.
@@ -283,7 +282,7 @@ repositories keep branching from that repository's own default branch — an Epi
 branch is never created where one does not already exist. See
 [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the full topology.
 
-The Electron app presents **one navigation for every role**. An `Epic planning`
+The VS Code extension presents **one navigation for every role**. An `Epic planning`
 section carries the journey — `Epics`, `Requirements`, `Planning`,
 `Create Stories`, `Copilot CLI handoff`, and `Artifact templates` — alongside
 `Delivery`, `Decisions`, `Configuration`, and `Learn` in the same collapsible
@@ -448,7 +447,7 @@ The single self-contained `install.sh` performs:
 git pull --ff-only
 choose configured, public, or custom npm registry
 npm ci --registry=<selected-registry>
-npm run desktop:build
+npm run vscode:build
 npm test
 npm run check
 npm pack --json
@@ -608,9 +607,9 @@ singularity-flow jira comment ENG-142 --text "Ready for review" --confirm ENG-14
 
 The CLI does not infer a transition or silently skip transition screens that require additional fields.
 
-For corporate desktop use, enable and constrain the connector in `singularity/portfolio.yml`, then open **Jira workspace**. Credentials are validated in Electron’s main process and encrypted with the operating-system credential store; the renderer, Git repository, Copilot context, CLI child environments, low-level request results, and application logs never receive the saved token. The desktop routes main-process requests through Electron's Chromium network stack, which uses the operating-system certificate trust store and managed proxy settings; this supports corporate TLS inspection without disabling certificate validation. Jira requests accept only paths under the configured API base, reject redirects, enforce a 16 MiB response ceiling, require JSON success payloads, and use bounded per-attempt timeouts; the interactive connection check is limited to one retry so a broken VPN, proxy, SSO interception, or URL returns a useful error instead of hanging or appearing connected. Cloud token pagination and Data Center offset pagination are followed up to the requested 500-issue safety ceiling, while repeated issues, repeated tokens, and non-advancing offsets fail instead of producing a misleading snapshot. Large Epic hierarchies are therefore not silently reduced to the first 100 stories. Host and project allowlists, deployment/auth mode, caching, permitted write operations, and owned fields are repository policy. Every desktop Jira request revalidates the repository-selected connection and project scope; initiative adoption and outbound writes use the immutable policy snapshot captured when that initiative started. The app can browse Projects → Epics → child stories, map each story to a repository, and adopt a hash-pinned Jira snapshot into an existing Singularity initiative while preserving separate Work IDs and Jira IDs.
+For corporate use, enable and constrain the connector in `singularity/portfolio.yml`, then run **Singularity Flow: Connect Jira Securely** in VS Code. The token is validated before VS Code stores it through `SecretStorage`; it never enters Git, prompts, logs, or workspace files. The extension exposes it only to the short-lived CLI child process. Host/project allowlists, deployment/auth mode, permitted writes, and owned fields remain repository policy. Use `singularity-flow jira doctor` for the complete read-only diagnostic.
 
-When `singularity/portfolio.yml` is absent, **Jira workspace** first opens the portfolio bootstrap wizard. Configure the Jira deployment, HTTPS host, optional project key, and write posture there; review and publish that repository policy before connecting the user token/PAT in the separate keychain-backed sign-in form.
+When `singularity/portfolio.yml` is absent, initialize or configure the repository from **Configuration** before starting governed Jira intake.
 
 Initiative-planning Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, unchanged Jira `updatedAt` values, and a plan that still matches the pinned connection, deployment, and project policy. Applied operations produce committed receipts, and retries accept only receipts that match the exact reviewed plan. That governed planner excludes status, assignee, sprint, priority, and resolution. A separately invoked `/sflow-jira-update` is an operator action against one exact Story and is not part of the governed initiative write plan.
 
@@ -618,7 +617,7 @@ Initiative-planning Jira writes are never immediate UI mutations. `initiative ji
 
 Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
 
-In the desktop app, open **Delivery → New Story** and leave **Create without
+In VS Code, choose **Lifecycle → Start intake** and leave **Create without
 Jira** selected. Enter a Work ID and title, optionally add Story context,
 source files, an exported folder, or reference URLs, then choose the workflow
 template and session governed agent. **Create Story branch** creates and publishes the
@@ -1162,7 +1161,7 @@ git commit -m "Move Singularity Flow files to visible folder"
 git push
 ```
 
-Singularity Desktop offers the same guarded migration when an older repository is opened. It reopens the migrated repository and treats the complete rename as publishable configuration, so the desktop **Commit & push** action can finish it. The legacy JSON is preserved for audit and existing Git history is not rewritten. See [MIGRATION.md](MIGRATION.md).
+The VS Code extension detects the former control folder and directs the user to the same guarded CLI migration. See [MIGRATION.md](MIGRATION.md).
 
 ## Development and packaging
 
@@ -1173,66 +1172,20 @@ npm run check
 npm pack --dry-run
 ```
 
-### Desktop studio
+### VS Code extension
 
-The Electron app is a visual control plane over the same CLI and Git-backed state. It does not maintain a second workflow database or write runtime state directly.
-
-```bash
-npm run desktop:dev
-npm run desktop:build
-npm run desktop:package:current
-```
-
-To close stale Singularity Flow desktop copies—including development builds
-started from another checkout—and then start this checkout, use:
+The supported visual surface is the VS Code extension. **Workspaces** owns local directories, repositories, and capability scope; **Lifecycle** owns intake, workflow selection, phases, artifacts, progress, and approvals; **Configuration** owns workflows, phases, gates, agents, prompts, skills, templates, integrations, and world-model rules.
 
 ```bash
-./scripts/start-desktop.sh
-# Preview the exact process list without stopping anything
-./scripts/start-desktop.sh --dry-run
+npm run vscode:typecheck
+npm run vscode:build
+npm run vscode:package
+code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-The launcher targets only Singularity Flow desktop process trees. It leaves
-Copilot, Event Horizon, IDEs, and active `singularity-flow` CLI generations
-running. `npm run desktop:start` is an equivalent shortcut.
+The first-run walkthrough configures the local name and role, Jira through VS Code `SecretStorage`, a workspace, and intake. The role filters guidance only; workflow phases select governed agents. **Open Governed Context in Copilot** renders the effective skill, agent prompt, world model, approved inputs, and phase contract into native Copilot chat.
 
-On first launch, a five-step onboarding wizard collects only the local setup needed to begin:
-
-1. Your display name.
-2. Your human role for display and onboarding. It does not select agent instructions or grant approval authority.
-3. A local workspace directory for project workspaces and repository clones.
-4. Any existing Singularity repositories you want to add now (optional).
-5. Jira Cloud or Data Center access, or an explicit **Not using Jira** choice.
-
-Progress is saved locally, so the wizard can be resumed after closing the app. The selected workspace is canonicalized and checked for write access before it is saved. The completed profile is stored in Electron application data and is never committed to a repository. Jira credentials are validated in the main process and encrypted through the operating-system credential store; only connection status is shown to the UI. A new setup cannot finish on stale disconnected state: it requires a verified connection or an explicit **Not using Jira** decision. **Reset saved Jira connection** is always available from the workspace switcher and Jira workspace—not only during recovery. It clears encrypted credentials for this OS account without changing workspace routing, repository configuration, or Git state, then opens Jira setup for immediate reconnection. Repositories and Jira can both be added later, so a name, role, workspace directory, and Jira decision are enough to reach the ready screen.
-
-The wizard also recovers from local folders moving during setup. A missing
-required workspace returns the user to the workspace step; missing optional
-repositories are removed with a visible notice while valid selections are
-preserved. Profile-version mismatches fail closed into a reviewable recovered
-draft, and Jira completion is always decided from the encrypted credential
-store rather than a renderer-supplied flag.
-
-Desktop-local profile, recent-location, workspace-registry, and encrypted Jira
-updates are written atomically and serialized per store. Concurrent UI actions
-therefore preserve every completed update instead of sharing temporary files
-or silently dropping another repository, workspace, or named Jira connection.
-Unknown Jira credential-store versions fail closed into the existing reset and
-reconnect flow.
-
-Create a universal macOS DMG with `npm run desktop:package:mac` on a Mac, or a Windows x64 NSIS installer with `npm run desktop:package:win` on Windows. Local packages are visibly marked unsigned when signing credentials are unavailable. Official signed/notarized installers are produced through the local release scripts; verified output can be uploaded to an internal Artifactory repository. See [DISTRIBUTION.md](DISTRIBUTION.md) for signing secrets, commands, installation, and release verification. `npm run desktop:dist` remains a compatibility alias for current-host packaging.
-
-Open an initialized repository from the app. The studio keeps up to ten recently opened repository locations in its local application data, ordered by last use, so the welcome screen and repository switcher can reopen them with one click; missing locations are identified and entries can be removed without changing the repository. Older hidden control folders are detected and can be migrated to visible `singularity/` after an explicit confirmation. The studio provides a progress dashboard, a remote pending-approval inbox, and a visual designer for workflow profiles, stage sequencing, artifact contracts, approvals, phase inputs, and Markdown artifact templates. The initiative page explicitly shows that default branches are starting baselines and that Singularity never merges initiative or story branches automatically. For the selected work item, **Overview** shows total wall-clock, active, and approval-wait time with a per-phase timing breakdown. It also includes a committed AI cost dashboard with exact/partial/unavailable coverage, total tokens and cost, phase allocation, provider/model attribution, provider-versus-configured pricing sources, and actionable capture diagnostics; it identifies a missing or outdated Copilot telemetry setup and never estimates unavailable values. The inbox fetches committed submissions and safely attaches the selected work-item branch before opening its review bundle. Users can create, copy, reorder, configure, or safely remove workflow elements while inspecting the exact YAML draft. The app also provides supporting-document upload/view, searchable offline help, governed-agent selection, human approval-authority inspection, and configuration commit/push. Renderer sandboxing and a narrow preload API keep filesystem and Git access outside the UI process.
-
-The daily workspace uses the **Singularity** product identity throughout. **Artifact Studio** visualizes the complete phase sequence, generation state, approvals, governed deliverables, and shared artifact repository. **Requirements** provides a three-pane repository tree, full document preview, Git metadata, and Markdown outline. **Impact analysis** renders the current repository/initiative dependency topology and derives risk signals from committed story freshness and interface-contract integrity. These screens are projections of the same Git state; they do not create a parallel state store.
-
-Electron is the durable configuration, evidence, progress, review, and approval
-surface. Its governed phase pages do not run a Copilot ACP backend or retain a
-hidden planning conversation. Requirements, Planning, and other phase pages display the
-repository path, primary `/sflow-*` skill, shell equivalent, upload command,
-and next-step command. Questions, governed-agent-aware authoring, and model interaction
-therefore happen in the already authenticated Copilot CLI. The resulting Git
-artifacts appear in Electron after refresh.
+The CLI workspace registry remains canonical. The extension never creates another workflow or workspace database. The former Electron application is retired and preserved at `desktop-final-v0.9.0`; see [ADR 0004](docs/adr/0004-retire-electron-desktop.md). See [DISTRIBUTION.md](DISTRIBUTION.md) for CLI and VSIX packaging.
 
 Install the personal Copilot plugin with:
 

@@ -17,7 +17,7 @@
  *
  * No `vscode` import: the whole model is testable in a plain Node process.
  */
-import type { DesktopSnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type { RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
 
 export type Verdict = 'aligned' | 'drifted' | 'not-applicable';
 
@@ -273,7 +273,7 @@ function conformanceLevel(initiative: InitiativeSnapshot): ReconciliationLevel {
 }
 
 export function buildReconciliation(
-  snapshot: DesktopSnapshot | null,
+  snapshot: RepositorySnapshot | null,
   mergePlan: MergePlan | null = null
 ): Reconciliation {
   if (!snapshot) return { initiativeId: '', levels: [], empty: 'Reading the repository…' };

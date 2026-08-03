@@ -1,15 +1,14 @@
 /**
  * Derive a text rendition of a pinned binary source.
  *
- * The governed context hands Copilot a filesystem path, and the ACP file reader returns UTF-8. A
+ * The governed context hands Copilot a filesystem path, and native clients commonly read it as UTF-8. A
  * pinned PDF, DOCX or XLSX therefore arrived as mojibake while the sources pane invited exactly
  * those formats — "the specification, research, designs, or spreadsheets this phase must be based
  * on". Requirements could not cite what Copilot could not read.
  *
- * This lives in the Electron layer on purpose. The engine has a single dependency (`yaml`) and
- * `npm run check` asserts no Python and no MCP; adding a document parser there would be a real
- * change in what the engine is. Here the rendition is just another file written beside the cached
- * bytes, and the engine keeps treating it as one.
+ * This stays dependency-light. The engine has a single runtime dependency (`yaml`) and
+ * `npm run check` asserts no Python and no MCP. The rendition is another file written beside the
+ * cached bytes, and the engine keeps treating it as one.
  *
  * DOCX and XLSX are ZIP containers of XML, so Node's own zlib is enough. PDF is not: extracting its
  * text properly needs a font- and encoding-aware parser, and a half-working one would quietly

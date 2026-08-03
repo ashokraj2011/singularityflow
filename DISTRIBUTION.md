@@ -1,147 +1,67 @@
-# Singularity Flow desktop distribution
+# Singularity Flow distribution
 
-Singularity Flow Desktop is packaged with electron-builder as a universal macOS DMG and a Windows x64 NSIS installer. The desktop contains its own CLI runtime. Installing the desktop does not install the global `singularity-flow` command or the Copilot plugin; use `install.sh` for those tools.
+Singularity Flow is distributed as two artifacts:
 
-## Local test packages
+1. the `singularity-flow` npm package, which provides the `sflow` CLI and Copilot plugin;
+2. the Singularity Flow VS Code extension (`.vsix`), which provides Workspaces, Lifecycle, and Configuration.
 
-Install dependencies once from the repository root:
+The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
+`archive/desktop-app`; it is not built, installed, or supported by current releases.
 
-```bash
-npm ci
-```
-
-On macOS:
-
-```bash
-npm run desktop:package:mac
-# equivalent: ./scripts/desktop-release.sh package --platform mac
-```
-
-On Windows PowerShell:
-
-```powershell
-npm run desktop:package:win
-# equivalent:
-./scripts/desktop-release.ps1 package --platform win
-```
-
-`npm run desktop:package:current` chooses macOS or Windows from the current host. `npm run desktop:dist` remains an alias for the same command. Packaging runs the Node tests, deterministic checks, and renderer build before electron-builder.
-
-Use Node.js 22.12 or newer for desktop development and packaging. The root
-dependency policy pins maintained `@electron/asar` and `@electron/get`
-implementations over the older transitive versions still declared by the
-current stable electron-builder. The project `.npmrc` also omits automatically
-installed peer packages because the supported Windows target is NSIS, not
-Squirrel.Windows. If a future release adds a Squirrel target, install
-`electron-builder-squirrel-windows` explicitly and revise that policy together
-with its packaging tests.
-
-Local packaging defaults to signing mode `auto`. Complete credentials produce a signed local package; otherwise the output is visibly named `-unsigned`. Unsigned packages are suitable only for testing and cause Gatekeeper or SmartScreen warnings. Files are written under `apps/desktop/release/local/<version>/` with SHA-256 checksums and `release-manifest.json`.
-
-The source tree must be clean. For a deliberate package of uncommitted development work, add `--allow-dirty`. Rebuilding a populated, version-specific output directory requires `--replace`; only that exact release directory is removed.
-
-## Official signing credentials
-
-Official builds use `--release-mode official --sign required` and fail before packaging if any required credential is absent. Never commit certificates, private keys, passwords, or tokens.
-
-macOS direct distribution requires an Apple Developer ID Application certificate and App Store Connect notarization credentials:
-
-```text
-MAC_CSC_LINK             Base64 certificate, local .p12 path, or secret URL
-MAC_CSC_KEY_PASSWORD     Certificate password
-APPLE_API_KEY_B64        Base64 contents of the App Store Connect .p8 key
-APPLE_API_KEY_ID         App Store Connect key ID
-APPLE_API_ISSUER         App Store Connect issuer ID
-```
-
-The release script decodes `APPLE_API_KEY_B64` into a permission-restricted temporary directory and removes it after electron-builder finishes. `APPLE_API_KEY` may instead point to an existing local `.p8` file.
-
-Windows Authenticode signing uses:
-
-```text
-WIN_CSC_LINK             Base64 certificate, local .pfx path, or secret URL
-WIN_CSC_KEY_PASSWORD     Certificate password
-```
-
-## Official release
-
-Official packages are built from a clean, verified release checkout on the
-native target platform. Every version field in the root package, desktop
-package, lock file, plugin manifest, and marketplace manifest must match the
-release tag.
-
-Example release:
-
-```bash
-git tag -a v0.9.0 -m "Singularity Flow 0.9.0"
-git push origin v0.9.0
-```
-
-Run the full verification and signed packaging commands on the producing hosts:
+## Build and verify
 
 ```bash
 npm ci
-npm test
 npm run check
+npm run test:all
+npm run vscode:typecheck
+npm run vscode:build
 npm run pack:dry
-npm run desktop:package:mac -- --release-mode official --sign required --tag v0.9.0
-npm run desktop:package:win -- --release-mode official --sign required --tag v0.9.0
 ```
 
-Official output contains:
+## Build the VSIX
+
+```bash
+npm run vscode:package
+```
+
+The command builds the extension, stages the matching CLI inside it, and creates:
 
 ```text
-singularity-flow-desktop-<version>-macos-universal.dmg
-singularity-flow-desktop-<version>-macos-universal.zip
-singularity-flow-desktop-<version>-windows-x64-setup.exe
-SHA256SUMS.txt
-release-manifest.json
+apps/vscode/singularity-flow-vscode-<version>.vsix
 ```
 
-The publisher refuses an unverified manifest, a local release, an unsigned artifact, a non-notarized macOS artifact, a size mismatch, or a SHA-256 mismatch.
-
-## Artifactory
-
-Configure a generic Artifactory repository with environment variables:
+Install or replace it locally:
 
 ```bash
-export SINGULARITY_FLOW_ARTIFACTORY_BASE_URL="https://artifacts.company.example/artifactory"
-export SINGULARITY_FLOW_ARTIFACTORY_REPOSITORY="desktop-releases"
-export SINGULARITY_FLOW_ARTIFACTORY_TOKEN="..."
-# Set SINGULARITY_FLOW_ARTIFACTORY_USER only when Basic authentication is required.
+code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-Preview every destination without contacting Artifactory:
+For corporate distribution, upload the VSIX and npm tarball to the approved internal
+Artifactory/registry. A VSIX is platform-neutral and requires no DMG, NSIS installer, code-signing
+certificate, notarization, or custom auto-updater.
+
+## Build the CLI tarball
 
 ```bash
-npm run desktop:publish:artifactory -- \
-  --dir apps/desktop/release/official/0.9.0 \
-  --dry-run
+npm pack
+npm install --global ./singularity-flow-0.9.0.tgz
+singularity-flow plugin install
 ```
 
-Publish after verification:
+`install.sh --registry <URL>` performs the verified CLI/plugin installation using a public or
+corporate npm registry and builds the VS Code extension sources. Repository credentials are never
+placed in registry URLs; configure approved npm authentication in `.npmrc`.
 
-```bash
-npm run desktop:publish:artifactory -- \
-  --dir apps/desktop/release/official/0.9.0
-```
+## Credentials
 
-Files are uploaded with HTTPS PUT to `<repository>/singularity-flow-desktop/<version>/`. Existing files are never overwritten unless `--replace` is supplied explicitly.
+Jira and provider secrets entered in the VS Code extension are stored through VS Code
+`SecretStorage`, backed by the operating-system keychain. The extension injects them only into the
+short-lived CLI child process. The CLI continues to support environment variables for headless and
+automation use.
 
-## Install and uninstall
+## SharePoint status
 
-On macOS, open the DMG, drag **Singularity Flow** to **Applications**, then eject the image. Official packages are signed, notarized, and stapled for offline verification.
-
-On Windows, run the `Setup.exe`. The assisted installer defaults to the current user, can change the installation directory, and can create Desktop and Start Menu shortcuts. Enterprise deployment can install or uninstall silently with `/S`.
-
-The desktop does not currently auto-update. Install a newer signed package over the existing application when upgrading. Uninstalling preserves Electron user data and the recent-repository list; repositories and their `singularity` content are never removed.
-
-## Verification commands
-
-Verify metadata and platform signatures from the producing host:
-
-```bash
-npm run desktop:verify -- --dir apps/desktop/release/official/0.9.0 --release-mode official
-```
-
-macOS verification includes `hdiutil`, `lipo`, `codesign`, `spctl`, and `xcrun stapler`. Windows verification uses `Get-AuthenticodeSignature`. The release manifest records the source commit, package version, Electron and Node versions, build time, platform, architecture, byte size, SHA-256, signature status, and notarization status.
+SharePoint delegated OAuth from the VS Code extension remains unsupported until the corporate
+redirect-flow and proxy spike is completed. Do not treat the retired Electron implementation as a
+supported credential path.

@@ -9,7 +9,7 @@
  *
  * Kept free of any `vscode` import so the shape can be tested without an editor.
  */
-import type { CapabilityNode, DesktopSnapshot } from '../cli/snapshot.ts';
+import type { CapabilityNode, RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceEntry } from './workspaces-model.ts';
 import { workspaceRows } from './workspaces-model.ts';
 import type { TreeNode } from './tree-model.ts';
@@ -139,7 +139,7 @@ export type CapabilityReadiness = Record<string, {
 }>;
 
 export function buildCapabilityTree(
-  snapshot: DesktopSnapshot | null,
+  snapshot: RepositorySnapshot | null,
   unavailable: string | null = null,
   readiness: CapabilityReadiness = {}
 ): TreeNode[] {
@@ -340,7 +340,7 @@ export function workspacePathOf(node: { id?: unknown; path?: unknown } | undefin
  * the map of the folder in front of you.
  */
 export function buildRemoteCapabilityTree(url: string, capabilities: CapabilityNode[]): TreeNode[] {
-  const tree = buildCapabilityTree({ capabilityMap: { capabilities } } as DesktopSnapshot);
+  const tree = buildCapabilityTree({ capabilityMap: { capabilities } } as RepositorySnapshot);
   return [{
     kind: 'message',
     id: 'capabilities:organisation',

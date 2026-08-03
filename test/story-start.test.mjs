@@ -37,7 +37,7 @@ async function repository() {
   return root;
 }
 
-test('desktop Story intake creates durable manual state and resumes an existing branch', async () => {
+test('Story intake creates durable manual state and resumes an existing branch', async () => {
   const root = await repository();
   const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-source-'));
   const sourceFile = path.join(sourceDirectory, 'brief.md');

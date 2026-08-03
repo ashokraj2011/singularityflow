@@ -537,7 +537,7 @@ export async function createPlanningContext(root, {
 } = {}) {
   const definition = await loadDefinition(root);
   const prompt = await planningPrompt(root, definition);
-  if (!prompt.config.enabled) throw new SingularityFlowError('Copilot Studio is disabled by workflow.yml.');
+  if (!prompt.config.enabled) throw new SingularityFlowError('Governed Copilot planning is disabled by workflow.yml.');
   let selectedAgent = agent;
   if (!selectedAgent && scope === 'initiative') {
     const { initiative } = await loadInitiative(root, id);

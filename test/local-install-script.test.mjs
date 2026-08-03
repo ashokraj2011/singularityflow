@@ -18,7 +18,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
-  assert.match(script, /npm run desktop:build/);
+  assert.match(script, /npm run vscode:build/);
   assert.match(script, /npm pack --json/);
   assert.match(script, /npm uninstall --global singularity-flow/);
   assert.match(script, /npm install --global "\$PROJECT_DIR\/\$TARBALL" --registry="\$REGISTRY"/);
@@ -92,7 +92,7 @@ if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-f
   for (const expected of [
     'git pull --ff-only',
     `npm ci --registry=${registry}`,
-    'npm run desktop:build',
+    'npm run vscode:build',
     'npm test',
     'npm run check',
     'npm pack --json',

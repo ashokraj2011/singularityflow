@@ -386,7 +386,7 @@ async function demoRepository({ github = false } = {}) {
  * The engine, staged inside the extension so a packaged install is self-contained.
  *
  * resolveCli already looks for `<extensionPath>/cli/bin/singularity-flow.mjs` — the same layout the
- * desktop app uses for its extraResources. Without this an installed extension finds no engine and
+ * packaged distribution uses for its bundled runtime. Without this an installed extension finds no engine and
  * the first thing a new user meets is a settings path to fill in, which is a poor greeting for a tool
  * whose entire value is that it runs commands for you.
  *

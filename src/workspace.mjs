@@ -343,9 +343,8 @@ export function previewWorkspace({
  * wrong tree, and a repository with no origin cannot be cloned into a workspace at all — which is
  * better said here, while a person is choosing, than during the clone.
  *
- * This lived in the Electron layer, so the CLI and the editor could not use it and would each have
- * needed their own copy of these rules. It belongs to the engine for the same reason
- * `extractSourceText` did.
+ * This belongs to the engine so the CLI and editor use one copy of these rules, for the same reason
+ * `extractSourceText` does.
  */
 export async function workspaceRepositoryDefaults(repository) {
   const requested = path.resolve(repository ?? '');

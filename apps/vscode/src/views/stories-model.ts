@@ -11,7 +11,7 @@
  * requirements. After it, it is also a branch with a head commit and a phase. Showing an intention
  * as though it had a branch would be the more expensive of the two mistakes.
  */
-import type { BreakdownStory, DesktopSnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type { BreakdownStory, RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
 
 export type StoryState = 'planned' | 'seeded' | 'in-progress' | 'complete' | 'merged' | 'blocked';
 
@@ -63,7 +63,7 @@ function stateOf(story: BreakdownStory, child: Record<string, unknown> | undefin
   return child.currentPhase ? 'in-progress' : 'seeded';
 }
 
-export function buildStories(snapshot: DesktopSnapshot | null): Stories {
+export function buildStories(snapshot: RepositorySnapshot | null): Stories {
   const nothing = (empty: string): Stories => ({
     initiativeId: '', title: '', materialized: false, planned: 0, groups: [], order: [], empty
   });

@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { ensureRepositoryWorldModelViews, initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { portfolioWorldModelViews, validatePortfolio } from '../src/initiative-config.mjs';
-import { bootstrapDesktopPortfolio, desktopSnapshot } from '../src/desktop.mjs';
+import { bootstrapWorkspacePortfolio, repositorySnapshot } from '../src/editor.mjs';
 
 // URL.pathname leaves percent-encoded spaces in checkout paths (for example, "package 2").
 // Convert the module URL through the platform-aware helper so the suite is portable.
@@ -77,7 +77,7 @@ test('portfolio bootstrap self-heals a repo with no worldModel block instead of 
   git(['add', '-A'], root);
   git(['commit', '-m', 'initialize'], root);
 
-  const result = await bootstrapDesktopPortfolio(root, {
+  const result = await bootstrapWorkspacePortfolio(root, {
     approvalEmail: 'onboard@example.com',
     repository: { id: 'app', url: 'https://example.com/app.git' }
   });
@@ -103,7 +103,7 @@ test('bootstrap installs initiative templates missing from a repository initiali
   git(['add', '-A'], root);
   git(['commit', '-m', 'initialize'], root);
 
-  await bootstrapDesktopPortfolio(root, {
+  await bootstrapWorkspacePortfolio(root, {
     approvalEmail: 'onboard@example.com',
     repository: { id: 'app', url: 'https://example.com/app.git' }
   });
@@ -122,7 +122,7 @@ test('bootstrap installs initiative templates missing from a repository initiali
   }
 });
 
-test('the desktop snapshot keeps main quiet until Story intake creates an active workflow branch', async () => {
+test('the public snapshot keeps main quiet until Story intake creates an active workflow branch', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-prompt-'));
   const root = path.join(base, 'app');
   await mkdir(root);
@@ -137,7 +137,7 @@ test('the desktop snapshot keeps main quiet until Story intake creates an active
   // Workspace setup and Epic intake happen on main or an Epic branch before any Story has an
   // owning workflow. They must not show a grounding warning: Story intake is the lifecycle
   // boundary that creates the canonical branch and makes the model actionable.
-  const snapshot = await desktopSnapshot(root);
+  const snapshot = await repositorySnapshot(root);
   assert.equal(snapshot.worldModel.timing, 'story-intake');
   assert.equal(snapshot.worldModel.rebuildReason, null);
   assert.equal(snapshot.worldModel.files.length, 0);

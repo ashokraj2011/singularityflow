@@ -41,7 +41,7 @@ function cli(args, env, { allowFailure = false } = {}) {
 }
 
 test('a workspace can be created with no tracker at all', async () => {
-  // The local anchor existed but was reachable only from the desktop app, so a Jira-less team could
+  // The local anchor must remain reachable through the public CLI so a Jira-less team can
   // not create a workspace once the desktop is out of the picture.
   const { base, source, env } = await environment();
   const workspaces = path.join(base, 'workspaces');
@@ -96,7 +96,7 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
 
 test('a repository describes itself, so a workspace never has to be told its URL', async () => {
   // Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing
-  // at the wrong fork, or at a branch nobody uses. These rules lived in the Electron layer, where
+  // at the wrong fork, or at a branch nobody uses. These rules belong in the engine, where
   // neither the CLI nor the editor could reach them.
   const { base, source, env } = await environment();
   const checkout = path.join(base, 'Payments API');

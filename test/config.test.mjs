@@ -109,7 +109,7 @@ test('phase context boundaries default legacy configs to keep and support approv
   assert.throws(() => normalizeContextPolicy({ phaseBoundary: 'new', onApproval: 'compact' }), /must match/);
 });
 
-test('Copilot Studio configuration has bounded, repository-safe defaults', () => {
+test('governed Copilot planning configuration has bounded, repository-safe defaults', () => {
   assert.deepEqual(normalizePlanning(), {
     enabled: true,
     promptSource: 'singularity/prompts/copilot-planning.md',

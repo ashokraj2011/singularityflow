@@ -32,20 +32,18 @@
     "RELEASE-EPIC-STORY-LINEAGE.md",
     "DISTRIBUTION.md",
     "INITIATIVE-ORCHESTRATION.md",
-    "COPILOT-STUDIO.md",
+    "NATIVE-COPILOT.md",
     "WORKSPACES.md",
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/worldmodel-minimal.sh",
     "LICENSE"
   ],
   "workspaces": [
-    "apps/desktop",
     "apps/vscode"
   ],
   "scripts": {
     "test": "npm run test:all",
     "test:cli": "node scripts/run-test-suite.mjs cli",
-    "test:desktop": "node scripts/run-test-suite.mjs desktop",
     "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-suite.mjs all",
     "check": "node scripts/check.mjs",
@@ -55,17 +53,6 @@
     "wm:minimal": "./scripts/worldmodel-minimal.sh",
     "pack:dry": "npm pack --dry-run",
     "install:local": "bash ./install.sh",
-    "desktop:dev": "npm run dev --workspace singularity-flow-desktop",
-    "desktop:start": "./scripts/start-desktop.sh",
-    "desktop:build": "npm run build --workspace singularity-flow-desktop",
-    "desktop:icons": "node scripts/create-windows-icon.mjs",
-    "desktop:dist": "npm run desktop:package:current",
-    "desktop:package:current": "node scripts/desktop-release.mjs package --platform current",
-    "desktop:package:mac": "node scripts/desktop-release.mjs package --platform mac",
-    "desktop:package:win": "node scripts/desktop-release.mjs package --platform win",
-    "desktop:verify": "node scripts/desktop-release.mjs verify",
-    "desktop:release:preflight": "node scripts/desktop-release.mjs preflight",
-    "desktop:publish:artifactory": "node scripts/desktop-release.mjs publish-artifactory",
     "vscode:build": "npm run build --workspace singularity-flow-vscode",
     "vscode:watch": "npm run watch --workspace singularity-flow-vscode",
     "vscode:typecheck": "npm run typecheck --workspace singularity-flow-vscode",
@@ -94,9 +81,5 @@
   },
   "dependencies": {
     "yaml": "^2.9.0"
-  },
-  "overrides": {
-    "@electron/asar": "4.2.1",
-    "@electron/get": "5.0.0"
   }
 }

@@ -12,7 +12,7 @@ test('canonical help document exposes stable comprehensive topics', async () => 
   const document = parseHelpDocument(content);
   assert.equal(document.title, 'Singularity Flow Help');
   assert.ok(document.topics.length >= 20);
-  for (const topic of ['quick-start', 'jira-intake', 'governed-agents-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'electron-desktop', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
+  for (const topic of ['quick-start', 'jira-intake', 'governed-agents-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'vs-code-extension', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
     assert.ok(document.topics.some((item) => item.id === topic), `missing ${topic}`);
   }
   assert.equal(new Set(document.topics.map((item) => item.id)).size, document.topics.length);
@@ -26,7 +26,7 @@ test('help loader returns the full manual or one focused topic', async () => {
   const focused = await loadHelpDocument('jira-intake');
   assert.equal(focused.selectedTopic, 'jira-intake');
   assert.match(focused.content, /## Jira intake/);
-  assert.doesNotMatch(focused.content, /## Electron desktop/);
+  assert.doesNotMatch(focused.content, /## VS Code extension/);
   const sequencing = await loadHelpDocument('sequence-enforcement');
   assert.match(sequencing.content, /exits with code `2`/);
   assert.match(sequencing.content, /Out of sequence/);
@@ -43,15 +43,4 @@ test('user documentation advertises current Copilot skill discovery and qualifie
   }
   assert.match(documents.find(([file]) => file === 'README.md')[1], /\/singularity-flow\/sflow-/);
   assert.match(documents.find(([file]) => file === 'README.md')[1], /copilot plugins list --kind skill/);
-});
-
-test('desktop imports the canonical help manual and exposes searchable help navigation', async () => {
-  const app = await readFile(path.join(root, 'apps/desktop/src/App.jsx'), 'utf8');
-  const desktopPackage = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'));
-  assert.match(app, /import helpMarkdown from '\.\.\/\.\.\/\.\.\/HELP\.md\?raw'/);
-  assert.match(app, /\['help', 'Help & guides'/);
-  assert.match(app, /placeholder="Search help…"/);
-  assert.match(app, /page === 'help'/);
-  assert.match(app, />Open help</);
-  assert.ok(desktopPackage.build.extraResources.some((item) => item.from === '../../HELP.md' && item.to === 'cli/HELP.md'));
 });

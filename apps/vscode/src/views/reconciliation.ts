@@ -2,7 +2,7 @@
  * The reconciliation panel: the four levels, and whether each one currently agrees.
  *
  * Reads the same shared snapshot as every other view, plus one extra call for the merge plan, which
- * `desktop snapshot --json` does not carry. That call is made once per refresh rather than per
+ * `snapshot --json` does not carry. That call is made once per refresh rather than per
  * render, so opening the panel does not start a second conversation with the repository.
  */
 import * as vscode from 'vscode';

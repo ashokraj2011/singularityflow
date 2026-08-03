@@ -10,7 +10,7 @@ Use this skill when a contributor wants to browse Jira hierarchy or connect an e
 ## Safety contract
 
 - Never ask the user to paste an API token or PAT into Copilot chat.
-- Prefer the Electron **Jira workspace** for sign-in; it stores credentials through the operating-system keychain.
+- Prefer the VS Code **Connect Jira** command for sign-in; it stores credentials through VS Code SecretStorage and the operating-system keychain.
 - CLI credentials must already exist in the user environment or protected secret manager.
 - Read operations may run directly.
 - Always preview Epic adoption before changing initiative state.

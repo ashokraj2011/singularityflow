@@ -13,7 +13,7 @@ import { designerHtml, DESIGNER_SCRIPT, type DesignerTab } from './designer-page
 import { buildProfiles, buildTemplateUsage, standingOn } from './designer-model.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
-import type { DesktopSnapshot } from '../cli/snapshot.ts';
+import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
 /** The shape every artifact template in this repository already follows. */
 function starterTemplate(name: string): string {
@@ -105,7 +105,7 @@ export class DesignerPanel {
   }
 
   /** The profile the screen is showing, which is what the authoring actions act on. */
-  private currentProfile(snapshot: DesktopSnapshot | null): { id: string; label: string; phases: string[] } | null {
+  private currentProfile(snapshot: RepositorySnapshot | null): { id: string; label: string; phases: string[] } | null {
     if (!snapshot) return null;
     const profiles = buildProfiles(snapshot);
     const chosen = profiles.find((entry) => entry.id === this.profile) ?? profiles[0];
@@ -120,7 +120,7 @@ export class DesignerPanel {
    * Choosing from the profile's own phases could only ever remove them; the point of the picker is
    * to reach the ones it does not run yet.
    */
-  private everyPhase(snapshot: DesktopSnapshot | null): { id: string; label: string }[] {
+  private everyPhase(snapshot: RepositorySnapshot | null): { id: string; label: string }[] {
     const portfolio = snapshot?.portfolio as {
       initiativePhases?: Record<string, { label?: string }>;
     } | undefined;

@@ -1,6 +1,6 @@
 ---
 name: sflow-logs
-description: Read the Singularity Flow activity log to explain what a command, hook, or Copilot Studio session actually did, including failures and refused tool calls.
+description: Read the Singularity Flow activity log to explain what a command, hook, or native Copilot handoff actually did, including failures and refused tool calls.
 argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N] [--since WHEN]"
 disable-model-invocation: true
 ---
@@ -16,7 +16,7 @@ Start narrow and widen only if needed:
 singularity-flow logs --level error          # what failed
 singularity-flow logs --level warn           # failures and refusals
 singularity-flow logs --event hook           # why a tool call was refused
-singularity-flow logs --event copilot        # what a Copilot Studio turn did
+singularity-flow logs --event copilot        # what a native Copilot handoff did
 singularity-flow logs --tail 200             # more history
 singularity-flow logs --since 2026-07-25     # from a point in time
 singularity-flow logs level                  # effective levels and the log path

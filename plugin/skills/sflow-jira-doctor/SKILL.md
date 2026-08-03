@@ -30,4 +30,4 @@ Summarize:
 - permission, board, and Epic discovery;
 - each recommended corrective action.
 
-Explain that Electron keychain credentials are not exposed to Copilot CLI. A successful desktop Jira sign-in therefore does not by itself configure this command.
+Explain that VS Code SecretStorage values are supplied only to commands launched by the extension. A separate terminal needs its own Jira environment variables.

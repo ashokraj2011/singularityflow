@@ -5,7 +5,7 @@
  * files that talk to the editor. This loads `apps/vscode/dist/extension.cjs` — the artifact that
  * actually ships — with `require('vscode')` intercepted, then activates it against a real
  * Singularity Flow repository built on disk. So it exercises the whole path end to end: activation,
- * repository validation, CLI resolution, a real `desktop snapshot --json` subprocess, the store, and
+ * repository validation, CLI resolution, a real `snapshot --json` subprocess, the store, and
  * the TreeItems the editor would draw.
  *
  * `vscode` is an external in the bundle precisely because the host injects it, which is what makes
@@ -333,7 +333,22 @@ async function demoRepository() {
 
 function context() {
   const root = path.join(packageRoot, 'apps', 'vscode');
-  return { subscriptions: [], extensionPath: root, extensionUri: { fsPath: root } };
+  const values = new Map();
+  return {
+    subscriptions: [],
+    extensionPath: root,
+    extensionUri: { fsPath: root },
+    globalState: {
+      get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
+      update: async (key, value) => { values.set(key, value); }
+    },
+    secrets: {
+      get: async (key) => values.get(`secret:${key}`),
+      store: async (key, value) => { values.set(`secret:${key}`, value); },
+      delete: async (key) => { values.delete(`secret:${key}`); },
+      onDidChange: () => ({ dispose() {} })
+    }
+  };
 }
 
 test('the built extension activates against a real repository and populates the tree', async (t) => {
@@ -354,7 +369,7 @@ test('the built extension activates against a real repository and populates the 
     assert.ok(registered.commands.has(id), `${id} is registered`);
   }
 
-  // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
+  // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
   assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT'],

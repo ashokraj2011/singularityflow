@@ -16,7 +16,7 @@ import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type CapabilityNode,
   type BreakdownStory, type InitiativeOutput, type InitiativeSnapshot,
-  type DesktopSnapshot, type PhaseStatus
+  type RepositorySnapshot, type PhaseStatus
 } from '../cli/snapshot.ts';
 
 export type NodeKind =
@@ -265,7 +265,7 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
   }];
 }
 
-export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Error | null = null): TreeNode[] {
+export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: Error | null = null): TreeNode[] {
   if (error) return configurationFailure(error, 'lifecycle');
   if (!snapshot) {
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
@@ -313,7 +313,7 @@ export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Erro
  * find and made Lifecycle look like a settings drawer rather than the place work moves forward.
  */
 export function buildConfigurationTree(
-  snapshot: DesktopSnapshot | null,
+  snapshot: RepositorySnapshot | null,
   error: Error | null = null
 ): TreeNode[] {
   if (error) return configurationFailure(error, 'configuration');
@@ -338,7 +338,7 @@ export const buildTree = buildLifecycleTree;
  * grounding for prompts. Neither is a stage of anything, and neither belonged in a view about
  * stages.
  */
-function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
+function workflowsNode(snapshot: RepositorySnapshot): TreeNode {
   const portfolio = snapshot.portfolio as {
     initiativeProfiles?: Record<string, { label?: string; phases?: string[] }>;
   } | undefined;
@@ -403,7 +403,7 @@ function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
  * repository with no model grounds prompts on nothing, and that is invisible until the answers are
  * wrong.
  */
-function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
+function worldModelNode(snapshot: RepositorySnapshot): TreeNode {
   const model = snapshot.worldModel;
   const views = model?.views ?? [];
   const built = Boolean(model?.generatedAt);
@@ -476,7 +476,7 @@ function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
  * An empty set is shown rather than hidden, so "there are no agents" is a fact you can read
  * instead of an absence you have to infer.
  */
-function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
+function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
   // Both kinds of agent. The snapshot has carried the packaged ones as `flowSkills` all along
   // and this view showed only the repository's, so a repository that had written none of its own
   // was told it had no agents while eighty-two shipped with the product sat unlisted. The
@@ -564,7 +564,7 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
   return nodes;
 }
 
-function configurationNode(snapshot: DesktopSnapshot): TreeNode {
+function configurationNode(snapshot: RepositorySnapshot): TreeNode {
   const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
   return {
     kind: 'group',
@@ -576,6 +576,23 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       ? `Workflow progress is recorded on the orphan branch '${ledger.branch}'.`
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
+      {
+        kind: 'group', id: 'config:local-profile', label: 'User and integrations',
+        description: 'local · keychain protected', icon: 'account',
+        children: [{
+          kind: 'action', id: 'config:profile', label: 'Configure user profile',
+          description: 'name and role', icon: 'account', runCommand: 'singularityFlow.configureProfile'
+        }, {
+          kind: 'action', id: 'config:jira', label: 'Connect or replace Jira',
+          description: 'VS Code SecretStorage', icon: 'key', runCommand: 'singularityFlow.connectJira'
+        }, {
+          kind: 'action', id: 'config:jira-reset', label: 'Reset saved Jira',
+          description: 'remove keychain secret', icon: 'trash', runCommand: 'singularityFlow.resetJira'
+        }, {
+          kind: 'action', id: 'config:copilot', label: 'Open governed context in Copilot',
+          description: 'native VS Code chat', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+        }]
+      },
       worldModelNode(snapshot),
       {
         kind: 'group', id: 'config:workflow-design', label: 'Workflow and phase design',

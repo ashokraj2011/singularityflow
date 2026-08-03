@@ -7,7 +7,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  commitInitiativeChange, createInitiative, loadInitiative, saveInitiative
+  commitInitiativeChange, createInitiative, initiativePendingPublicationPath, loadInitiative, saveInitiative
 } from '../src/initiative-state.mjs';
 import { registerEpicTextSource } from '../src/epic-sources.mjs';
 import { changes } from '../src/git.mjs';
@@ -204,6 +204,6 @@ test('concurrent append-only initiative commits replay without leaving a conflic
   }).stdout.trim();
   assert.equal(existsSync(path.resolve(fourth, rebaseDirectory)), false);
   const dirty = changes(fourth).trim().split(/\r?\n/).filter(Boolean);
-  assert.equal(dirty.length, 1);
-  assert.match(dirty[0], /publication-pending\.json$/);
+  assert.equal(dirty.length, 0);
+  assert.equal(existsSync(initiativePendingPublicationPath(fourth, unsafe.portfolio, 'INIT-CONCURRENT')), true);
 });

@@ -26,6 +26,13 @@ import {
   materializeCapabilityWorldModelPack,
   resolveLifecycleCapability
 } from './capability-context.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import {
+  clearPendingPublication,
+  localPendingPublicationPath,
+  readPendingPublication,
+  writePendingPublication
+} from './publication-pending.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
 
@@ -245,6 +252,10 @@ export function initiativeStatePath(root, portfolio, id) {
 }
 
 export function initiativePendingPublicationPath(root, portfolio, id) {
+  return localPendingPublicationPath(root, 'initiative', id);
+}
+
+function legacyInitiativePendingPublicationPath(root, portfolio, id) {
   return path.join(initiativeDir(root, portfolio, id), 'publication-pending.json');
 }
 
@@ -617,14 +628,16 @@ export async function createInitiative(root, {
   return { portfolio, initiative };
 }
 
-export async function loadInitiative(root, id = branch(root), portfolio = null) {
+export async function loadInitiative(root, id = undefined, portfolio = null) {
   const definition = portfolio ?? await loadPortfolio(root);
-  const file = await secureInitiativePath(root, definition, id, 'state.json', {
-    label: `Initiative '${id}' state`
-  });
-  if (!file.exists) throw new SingularityFlowError(`No initiative found for ${id}. Expected ${file.relative}.`);
-  if (!file.entry.isFile()) throw new SingularityFlowError(`Initiative '${id}' state must be a regular file: ${file.relative}`);
-  const initiative = validateInitiativeRuntimeState(await readJson(file.absolute), id);
+  const requested = id ?? branch(root);
+  const index = await buildRepositorySubjectIndex(root, { portfolio: definition });
+  const selected = resolveContext(index, { reference: requested, kind: 'initiative', required: false });
+  if (!selected) {
+    const expected = posix(path.relative(root, initiativeStatePath(root, definition, requested)));
+    throw new SingularityFlowError(`No initiative found for ${requested}. Expected ${expected} or a registered branch alias.`);
+  }
+  const initiative = validateInitiativeRuntimeState(await readJson(path.join(root, selected.location.path)), selected.id);
   return { portfolio: definition, initiative };
 }
 
@@ -1150,10 +1163,12 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
   appendOnly = false
 } = {}) {
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
-  const pending = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'publication-pending.json', {
-    label: `Initiative '${initiative.initiative.id}' pending publication`
+  const pending = await readPendingPublication(root, {
+    kind: 'initiative',
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
-  if (pending.exists) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
+  if (pending) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
   const ledgerConfig = normalizeLedgerConfig(initiative.resolution?.ledger ?? {});
   let ledgerIntent = null;
   let ledgerIntentPath = null;
@@ -1224,7 +1239,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
   }
   if (pushed.status !== 0) {
     const reason = (pushed.stderr || pushed.stdout).trim();
-    await writeJson(pending.absolute, {
+    await writePendingPublication(root, { kind: 'initiative', id: initiative.initiative.id, record: {
       schemaVersion: 1,
       initiativeId: initiative.initiative.id,
       branch: initiative.initiative.branch,
@@ -1233,7 +1248,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
       appendOnly,
       createdAt: nowIso(),
       error: reason
-    });
+    } });
     const warning = `Initiative commit ${sha.slice(0, 8)} was retained locally but push failed.`
       + `${reason ? ` Git reported: ${reason}` : ''} `
       + 'Run singularity-flow initiative sync after fixing remote access.';
@@ -1259,17 +1274,22 @@ export async function commitInitiativeChange(root, portfolio, initiative, messag
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative) {
-  const pending = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'publication-pending.json', {
-    label: `Initiative '${initiative.initiative.id}' pending publication`
+  const pending = await readPendingPublication(root, {
+    kind: 'initiative',
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
-  if (!pending.exists) {
+  if (!pending) {
     return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
   }
-  if (!pending.entry.isFile()) throw new SingularityFlowError(`Initiative publication record must be a regular file: ${pending.relative}`);
-  const record = await readJson(pending.absolute);
+  const record = pending.record;
   const result = pushBranch(root, record.remote, record.branch);
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
-  await unlink(pending.absolute);
+  await clearPendingPublication(root, {
+    kind: 'initiative',
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
+  });
   return {
     pending: false,
     pushed: head(root),

@@ -3,9 +3,10 @@ import { existsSync } from 'node:fs';
 import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadSession } from './session.mjs';
-import { loadWorkflow, pendingPublicationPath, validateWorkflow, workflowPath } from './state.mjs';
+import { loadWorkflow, storyPublicationPending, validateWorkflow, workflowPath } from './state.mjs';
 import { run } from './util.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
@@ -57,19 +58,25 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const currentBranch = branch(root);
   const requested = workId ?? currentBranch;
   let workflow = null;
-  if (existsSync(workflowPath(root, definition, requested))) {
+  const subjectIndex = await buildRepositorySubjectIndex(root, { definition });
+  const selected = resolveContext(subjectIndex, {
+    reference: requested,
+    kind: 'story',
+    required: Boolean(workId)
+  });
+  if (selected) {
     try {
-      workflow = await loadWorkflow(root, definition, requested);
+      workflow = await loadWorkflow(root, definition, selected.id);
       const validation = await validateWorkflow(root, definition, workflow);
-      checks.push(check('workflow-state', validation.valid ? 'pass' : 'fail', validation.valid ? `${requested} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${requested} to inspect safe recovery options.`));
-      const pending = existsSync(pendingPublicationPath(root, definition, requested));
+      checks.push(check('workflow-state', validation.valid ? 'pass' : 'fail', validation.valid ? `${selected.id} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${selected.id} to inspect safe recovery options.`));
+      const pending = await storyPublicationPending(root, definition, selected.id);
       checks.push(check('publication', pending ? 'fail' : 'pass', pending ? 'A local lifecycle commit is waiting to be pushed.' : 'No lifecycle publication is pending.', pending ? 'Run singularity-flow sync.' : null));
       const active = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
       const assignmentMode = workflow.resolution?.collaboration?.assignmentMode ?? 'off';
       const assigned = active ? workflow.collaboration?.assignments?.[active.id] : null;
       if (active && assignmentMode !== 'off') checks.push(check('assignment', assigned ? 'pass' : assignmentMode === 'required' ? 'fail' : 'warn', assigned ? `${active.id} is assigned to ${assigned.assignee}.` : `${active.id} is unassigned (${assignmentMode}).`, assigned ? null : `Run singularity-flow assign ${active.id} <assignee>.`));
     } catch (error) {
-      checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, requested)} in Git history.`));
+      checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, selected.id)} in Git history.`));
     }
   } else checks.push(check('workflow-state', 'skip', `No work item is associated with branch '${currentBranch}'.`, 'Run singularity-flow start <WORK-ID> or resume <WORK-ID>.'));
   const session = await loadSession(root, { required: false });

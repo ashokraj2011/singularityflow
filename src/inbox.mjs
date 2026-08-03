@@ -1,8 +1,9 @@
 import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { fetchRemote, fileAtRef, refHead, remoteBranches } from './git.mjs';
-import { validateId } from './state.mjs';
+import path from 'node:path';
+import { fetchRemote, fileAtRef, remoteBranches } from './git.mjs';
 import { table } from './util.mjs';
+import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
 
 function activeApprovals(phase) {
   return (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
@@ -29,28 +30,17 @@ function submittedEvent(workflow, phaseId) {
   return [...(workflow.history ?? [])].reverse().find((item) => item.event === 'phase_submitted' && item.phase === phaseId) ?? null;
 }
 
-function remoteWorkflow(root, definition, remote, id) {
-  const ref = `${remote}/${id}`;
-  const workRoot = String(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
-  const statePath = `${workRoot}/${id}/workflow.json`;
-  const content = fileAtRef(root, ref, statePath);
-  if (!content) return null;
-  const workflow = JSON.parse(content);
-  if (workflow?.workItem?.id !== id || workflow?.workItem?.branch !== id) return null;
-  validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
-  return { workflow, ref, workRoot };
-}
-
 export async function approvalInbox(root, definition, { fetch = true, now = new Date() } = {}) {
   const remote = definition.git?.remote ?? 'origin';
   if (fetch) fetchRemote(root, remote);
   const items = [];
-  for (const id of remoteBranches(root, remote)) {
-    try { validateId(definition, id); } catch { continue; }
+  const refs = remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` }));
+  const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
+  for (const subject of index.list('story')) {
     try {
-      const resolved = remoteWorkflow(root, definition, remote, id);
-      if (!resolved) continue;
-      const { workflow, ref, workRoot } = resolved;
+      const workflow = subject.state;
+      const ref = subject.location.ref;
+      validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
       const phaseId = workflow.currentPhase;
       const phase = phaseId ? workflow.phases?.[phaseId] : null;
       if (!phase || phase.status !== 'awaiting_approval') continue;
@@ -58,9 +48,10 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
       const required = phase.approvalPolicy?.minimum ?? 1;
       const submitted = submittedEvent(workflow, phaseId);
       const minutes = waitingMinutes(phase.submittedAt, now);
+      const workDirectory = path.posix.dirname(subject.location.path);
       items.push({
-        id,
-        title: workflow.workItem?.title ?? id,
+        id: subject.id,
+        title: workflow.workItem?.title ?? subject.id,
         workType: workflow.workItem?.workType ?? 'legacy',
         phase: phaseId,
         phaseLabel: phase.label ?? phaseId,
@@ -75,15 +66,15 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         submittedAgent: submitted?.agent ?? null,
         waitingMinutes: minutes,
         waiting: waitingLabel(minutes),
-        artifact: phase.requiredArtifact?.path ? `${workRoot}/${id}/${phase.requiredArtifact.path}` : null,
+        artifact: phase.requiredArtifact?.path ? `${workDirectory}/${phase.requiredArtifact.path}` : null,
         selfApprovalWarning: approvals.some((item) => item.selfApproval === true),
         remote,
-        commit: refHead(root, ref) ?? null,
+        commit: subject.location.commit ?? null,
         commands: {
-          attach: `singularity-flow session attach ${id}`,
+          attach: `singularity-flow session attach ${subject.id}`,
           review: `singularity-flow phase show ${phaseId}`,
-          approve: `singularity-flow approve ${id} --fetch --phase ${phaseId}`,
-          reject: `singularity-flow reject ${id} --fetch --reason <REASON>`
+          approve: `singularity-flow approve ${subject.id} --fetch --phase ${phaseId}`,
+          reject: `singularity-flow reject ${subject.id} --fetch --reason <REASON>`
         }
       });
     } catch { /* Malformed or mismatched remote branches never enter the reviewer inbox. */ }

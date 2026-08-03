@@ -107,8 +107,9 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.equal(snapshot.definition.sequenceGates.default, 'soft');
   assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
 
-  run(process.execPath, [bin, 'start', 'DESK-1', '--title', 'Editor workflow'], root);
-  snapshot = await repositorySnapshot(root, 'DESK-1');
+  run(process.execPath, [bin, 'start', 'DESK-1', '--ref', 'story/DESK-1-editor', '--title', 'Editor workflow'], root);
+  snapshot = await repositorySnapshot(root);
+  assert.equal(snapshot.selectedWorkId, 'DESK-1');
   assert.equal(snapshot.progress.currentPhase, 'intake');
   assert.equal(snapshot.progress.percentage, 0);
   assert.equal(snapshot.workflow.workItem.workType, 'feature');

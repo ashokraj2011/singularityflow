@@ -23,7 +23,8 @@ import {
   table,
   writeText
 } from './util.mjs';
-import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import {
   approvePhase,
   assertNoPendingPublication,
@@ -33,7 +34,6 @@ import {
   currentPhase,
   loadConfig,
   loadWorkflow,
-  pendingPublicationPath,
   preparePhase,
   preparePhaseInputs,
   publishGeneration,
@@ -43,6 +43,7 @@ import {
   resolveWorkItem,
   saveWorkflow,
   scanArtifacts,
+  storyPublicationPending,
   submitPhase,
   syncPublication,
   validateId,
@@ -752,10 +753,22 @@ async function resumeCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
   const initialConfig = await loadConfig(root);
-  const resolved = await resolveWorkItem(root, initialConfig, reference, { mutation: true });
+  const fetch = optionBoolean(options, 'fetch');
+  const remote = initialConfig.git?.remote ?? 'origin';
+  if (fetch) fetchRemote(root, remote);
+  const refs = [
+    ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
+    ...(fetch ? remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` })) : [])
+  ];
+  const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
+  const refSubject = resolveContext(refIndex, { reference, kind: 'story', required: false, mutation: true });
+  const resolved = refSubject
+    ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
+    : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
   validateId(initialConfig, resolved.workId);
-  if (branch(root) !== resolved.branch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
-  checkout(root, resolved.branch, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  const targetBranch = resolved.selectedBranch ?? resolved.branch;
+  if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
+  checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true });
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, resolved.workId);
   const session = await activatePhaseAgent(
@@ -868,8 +881,10 @@ async function nextStepsCommand(positionals, options) {
     const config = await loadConfig(root);
     const requestedWorkId = positionals[1] ?? null;
     const id = requestedWorkId ?? branch(root);
-    if (existsSync(workflowPath(root, config, id))) {
-      const workflow = await loadWorkflow(root, config, id);
+    const index = await buildRepositorySubjectIndex(root, { definition: config });
+    const selected = resolveContext(index, { reference: id, kind: 'story', required: false });
+    if (selected) {
+      const workflow = await loadWorkflow(root, config, selected.id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
       if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
@@ -903,7 +918,7 @@ async function nextStepsCommand(positionals, options) {
       snapshot = nextStepsSnapshot({
         branch: branch(root),
         workflow,
-        publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id)),
+        publicationPending: await storyPublicationPending(root, config, workflow.workItem.id),
         prerequisites
       });
     } else snapshot = nextStepsSnapshot({ branch: branch(root), requestedWorkId });
@@ -914,7 +929,7 @@ async function nextStepsCommand(positionals, options) {
 
 async function nextCommand(options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
-  if (existsSync(pendingPublicationPath(root, config, workflow.workItem.id))) {
+  if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Next step: publish the retained local commit.');
     return syncCommand();
   }
@@ -1871,7 +1886,7 @@ async function cockpitCommand() {
   const prerequisites = active && workflow.resolution?.collaboration?.assignmentMode !== 'off' && !workflow.collaboration?.assignments?.[active.id]
     ? [{ timing: workflow.resolution.collaboration.assignmentMode === 'required' ? 'now' : 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who coordinates '${active.id}' for cross-terminal handoff.` }]
     : [];
-  process.stdout.write(nextStepsText(nextStepsSnapshot({ branch: branch(root), workflow, publicationPending: existsSync(pendingPublicationPath(root, config, workflow.workItem.id)), prerequisites })));
+  process.stdout.write(nextStepsText(nextStepsSnapshot({ branch: branch(root), workflow, publicationPending: await storyPublicationPending(root, config, workflow.workItem.id), prerequisites })));
   try {
     const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? config.ledger ?? {});
     if (ledger.enabled) {
@@ -1952,17 +1967,14 @@ async function sessionCommand(positionals, options) {
   if (subcommand === 'candidates') {
     const remote = config.git?.remote ?? 'origin';
     fetchRemote(root, remote);
+    const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
+    const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
     const candidates = [];
-    for (const id of remoteBranches(root, remote)) {
-      try { validateId(config, id); } catch { continue; }
-      const ref = `${remote}/${id}`;
-      const content = fileAtRef(root, ref, `${String(config.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`);
-      if (!content) continue;
+    for (const subject of subjectIndex.list('story')) {
       try {
-        const workflow = JSON.parse(content);
-        if (workflow.workItem?.id !== id || workflow.workItem?.branch !== id) continue;
-        validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
-        candidates.push({ id, title: workflow.workItem.title, status: workflow.status, phase: workflow.currentPhase, commit: refHead(root, ref)?.slice(0, 8) ?? '' });
+        const workflow = subject.state;
+        validateDefinition(YAML.parse(fileAtRef(root, subject.location.ref, WORKFLOW_PATH) ?? ''));
+        candidates.push({ id: subject.id, branch: subject.canonicalBranch, title: workflow.workItem.title, status: workflow.status, phase: workflow.currentPhase, commit: subject.location.commit?.slice(0, 8) ?? '' });
       } catch { /* A malformed remote workflow is not selectable. */ }
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(candidates, null, 2));
@@ -1973,50 +1985,55 @@ async function sessionCommand(positionals, options) {
     ]));
   }
   if (subcommand === 'attach') {
-    const id = requirePositional(positionals, 2, 'work or Jira ID');
-    validateId(config, id);
-    const alreadyCurrent = branch(root) === id;
+    const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
     // A new Copilot session may begin after the previous session prepared an unpublished
     // generation. Those governed edits must not make the exact, already-synchronized Story
     // branch impossible to select. We still require a clean tree before changing branches or
     // advancing HEAD; the sole exception below only binds local session metadata in place.
-    if (!alreadyCurrent) assertClean(root);
     const remote = config.git?.remote ?? 'origin';
     fetchRemote(root, remote);
-    const remoteRef = `refs/remotes/${remote}/${id}`;
+    const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
+    const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
+    const subject = resolveContext(subjectIndex, { reference, kind: 'story', mutation: true });
+    const id = subject.id;
+    validateId(config, id);
+    const targetBranch = subject.selectedBranch;
+    const alreadyCurrent = branch(root) === targetBranch;
+    if (!alreadyCurrent) assertClean(root);
+    const remoteName = `${remote}/${targetBranch}`;
+    const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
     const remoteSha = refHead(root, remoteRef);
-    if (!remoteSha) throw new SingularityFlowError(`No committed work-item branch '${id}' exists on ${remote}. Start it with /sflow-start or verify the work/Jira ID.`);
-    const remoteName = `${remote}/${id}`;
-    const itemPath = `${String(config.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '')}/${id}/workflow.json`;
+    if (!remoteSha) throw new SingularityFlowError(`No committed lifecycle branch '${targetBranch}' exists on ${remote}. Start it with /sflow-start or verify the Story reference.`);
+    const itemPath = subject.location.path;
     const remoteWorkflow = fileAtRef(root, remoteName, itemPath);
     const remoteDefinition = fileAtRef(root, remoteName, WORKFLOW_PATH);
     try {
       const parsedWorkflow = JSON.parse(remoteWorkflow ?? 'null');
-      if (parsedWorkflow?.workItem?.id !== id || parsedWorkflow?.workItem?.branch !== id) throw new Error('identity mismatch');
+      if (parsedWorkflow?.workItem?.id !== id) throw new Error('identity mismatch');
       validateDefinition(YAML.parse(remoteDefinition ?? ''));
-    } catch { throw new SingularityFlowError(`Remote branch ${remote}/${id} is not a valid Singularity Flow work-item branch. Expected a matching ${itemPath} and valid ${WORKFLOW_PATH}.`); }
+    } catch { throw new SingularityFlowError(`Remote branch ${remote}/${targetBranch} is not a valid Singularity Flow Story branch. Expected a matching ${itemPath} and valid ${WORKFLOW_PATH}.`); }
     const dirtyInPlace = alreadyCurrent && Boolean(changes(root).trim());
     let materialization;
     if (dirtyInPlace) {
       if (head(root) !== remoteSha) {
         throw new SingularityFlowError(
-          `Local branch '${id}' has uncommitted changes and is not at the exact ${remote}/${id} head. `
+          `Local branch '${targetBranch}' has uncommitted changes and is not at the exact ${remote}/${targetBranch} head. `
           + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
         );
       }
       materialization = 'bound-current-with-local-changes';
     } else {
-      materialization = checkout(root, id, { base: config.defaultBaseBranch, existingOnly: true, remote });
+      materialization = checkout(root, targetBranch, { base: config.defaultBaseBranch, existingOnly: true, remote });
       try { fastForwardTo(root, remoteName); }
-      catch { throw new SingularityFlowError(`Local branch '${id}' cannot fast-forward to ${remote}/${id}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
+      catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
     }
-    if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${id}' contains commits that are not on ${remote}/${id}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
+    if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
     const attachedConfig = await loadConfig(root);
     const workflow = await loadWorkflow(root, attachedConfig, id);
     const session = await activateWorkItemSession(root, attachedConfig, workflow);
     const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Attached to ${id} from ${remote}/${id} at ${remoteSha.slice(0, 8)}.`);
+    console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
     console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     return;
@@ -2953,9 +2970,20 @@ async function initiativeCommand(positionals, options) {
     return;
   }
   if (subcommand === 'resume') {
-    const initiativeId = requirePositional(positionals, 2, 'initiative ID');
-    if (branch(root) !== initiativeId) assertClean(root);
-    checkout(root, initiativeId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+    const reference = requirePositional(positionals, 2, 'initiative ID or branch alias');
+    const fetch = optionBoolean(options, 'fetch');
+    const remote = config.git?.remote ?? 'origin';
+    if (fetch) fetchRemote(root, remote);
+    const refs = [
+      ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
+      ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
+    ];
+    const index = await buildRepositorySubjectIndexFromRefs(root, { definition: config, portfolio, refs });
+    const resolved = resolveContext(index, { reference, kind: 'initiative', mutation: true });
+    const initiativeId = resolved.id;
+    const targetBranch = resolved.selectedBranch;
+    if (branch(root) !== targetBranch) assertClean(root);
+    checkout(root, targetBranch, { base: config.defaultBaseBranch, fetch, existingOnly: true, remote });
     const loaded = await loadInitiative(root, initiativeId);
     const session = await activateInitiativeAgent(
       root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null

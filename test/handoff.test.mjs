@@ -48,7 +48,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
 
-  flow(first, ['start', 'HAND-101', '--title', 'Handoff test']);
+  flow(first, ['start', 'HAND-101', '--ref', 'story/HAND-101-delivery', '--title', 'Handoff test']);
   const intakePath = path.join(first, 'singularity', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
   const intake = (await readFile(intakePath, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete handoff evidence and measurable outcomes for another terminal.');
   await writeFile(intakePath, intake);
@@ -77,8 +77,8 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.match(JSON.parse(started.stdout).additionalContext, /work-item selection is required/);
   const candidates = JSON.parse(flow(second, ['session', 'candidates', '--json']).stdout);
   assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
-  assert.match(flow(second, ['session', 'attach', 'HAND-101']).stdout, /Attached to HAND-101 from origin\/HAND-101/);
-  assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'HAND-101');
+  assert.match(flow(second, ['session', 'attach', 'HAND-101']).stdout, /Attached to HAND-101 from origin\/story\/HAND-101-delivery/);
+  assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'story/HAND-101-delivery');
   let session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.workItemSelectionRequired, false);
   assert.equal(session.selectionRequired, false);
@@ -108,7 +108,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   await writeFile(path.join(second, 'local-only.txt'), 'preserve me\n');
   const dirty = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
   assert.equal(dirty.status, 0);
-  assert.match(dirty.stdout, /Attached to HAND-101 from origin\/HAND-101/);
+  assert.match(dirty.stdout, /Attached to HAND-101 from origin\/story\/HAND-101-delivery/);
   assert.equal(await readFile(path.join(second, 'local-only.txt'), 'utf8'), 'preserve me\n');
   await unlink(path.join(second, 'local-only.txt'));
 
@@ -128,7 +128,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   const aheadHead = run('git', ['rev-parse', 'HEAD'], second).stdout.trim();
   const ahead = spawnSync(process.execPath, [bin, 'session', 'attach', 'HAND-101'], { cwd: second, encoding: 'utf8' });
   assert.equal(ahead.status, 1);
-  assert.match(ahead.stderr, /contains commits that are not on origin\/HAND-101/);
+  assert.match(ahead.stderr, /contains commits that are not on origin\/story\/HAND-101-delivery/);
   assert.equal(run('git', ['rev-parse', 'HEAD'], second).stdout.trim(), aheadHead);
   assert.equal(await readFile(path.join(second, 'ahead.txt'), 'utf8'), 'local commit must survive\n');
 });

@@ -64,6 +64,7 @@ import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 import { ledgerStatus } from './ledger.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -317,10 +318,21 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
   const items = await workItems(root, definition);
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
   const currentBranch = branch(root);
+  const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const changes = changedFiles(root);
   const changeScope = configurationChangeScope(root, definition, portfolio, changes);
-  const selectedId = requestedWorkId ?? items.find((item) => item.branch === currentBranch)?.id ?? null;
-  const selectedInitiativeId = requestedInitiativeId ?? initiatives.find((item) => item.branch === currentBranch)?.id ?? null;
+  const selectedStory = resolveContext(subjectIndex, {
+    reference: requestedWorkId ?? currentBranch,
+    kind: 'story',
+    required: Boolean(requestedWorkId)
+  });
+  const selectedInitiative = resolveContext(subjectIndex, {
+    reference: requestedInitiativeId ?? currentBranch,
+    kind: 'initiative',
+    required: Boolean(requestedInitiativeId)
+  });
+  const selectedId = selectedStory?.id ?? null;
+  const selectedInitiativeId = selectedInitiative?.id ?? null;
   let workflow = null;
   let progress = null;
   let documents = [];
@@ -428,7 +440,7 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
       generatedAt: worldModelManifest?.generated_at ?? null,
       // Main and Epic branches stay quiet. Grounding is requested only after Story intake has
       // created and checked out the canonical Story branch that will own the generated model.
-      rebuildReason: workflow?.workItem?.branch === currentBranch
+      rebuildReason: selectedStory?.branches.includes(currentBranch)
         ? await worldModelRebuildReason(root, definition)
         : null,
       views: viewCatalog.map((id) => ({

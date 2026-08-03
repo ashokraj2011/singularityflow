@@ -27,11 +27,11 @@ async function repository() {
 }
 
 test('cockpit, doctor, workflow simulation, and review provide read-only orientation', async () => {
-  const root = await repository(); flow(root, 'start', 'EASY-1', '--title', 'Reduce workflow friction');
+  const root = await repository(); flow(root, 'start', 'EASY-1', '--ref', 'story/EASY-1-delivery', '--title', 'Reduce workflow friction');
   const cockpit = flow(root).stdout;
   assert.match(cockpit, /Singularity Flow cockpit — EASY-1/); assert.match(cockpit, /Current: Intake/); assert.match(cockpit, /Next actions:/);
   const doctor = JSON.parse(flow(root, 'doctor', '--offline', '--json').stdout);
-  assert.equal(doctor.healthy, true); assert.ok(doctor.checks.some((item) => item.id === 'configuration' && item.status === 'pass'));
+  assert.equal(doctor.healthy, true); assert.equal(doctor.workId, 'EASY-1'); assert.ok(doctor.checks.some((item) => item.id === 'configuration' && item.status === 'pass'));
   const catalog = JSON.parse(flow(root, 'workflow', 'list', '--json').stdout); assert.ok(catalog.some((item) => item.id === 'figma-mobile'));
   const simulation = JSON.parse(flow(root, 'workflow', 'simulate', 'feature', '--json').stdout); assert.equal(simulation[0].phases[0].id, 'intake'); assert.equal(simulation[0].phases.at(-1).id, 'conformance');
   const review = flow(root, 'review', 'intake').stdout; assert.match(review, /# Review bundle — EASY-1 \/ Intake/); assert.match(review, /### Artifact content/); assert.match(review, /Supporting evidence/);

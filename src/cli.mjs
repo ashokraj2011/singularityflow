@@ -3606,11 +3606,12 @@ async function stateCommand(positionals, options) {
   const result = await reconcileStateProjections(root, { ...common, repair });
   if (repair && result.repaired) {
     const subject = result.planes.subject;
+    const repairedPaths = result.repairedPaths ?? [result.repairedPath].filter(Boolean);
     const event = {
       type: 'projection-reconciled',
       phaseId: null,
       generation: null,
-      payload: { projection: result.repairedPath }
+      payload: { projections: repairedPaths }
     };
     if (subject.kind === 'story') {
       const store = new StoryStateStore(root, definition);
@@ -3619,7 +3620,7 @@ async function stateCommand(positionals, options) {
         workflow,
         event,
         `[${subject.id}][state:reconcile] Repair derived projections`,
-        [result.repairedPath]
+        repairedPaths
       );
     } else {
       const store = new InitiativeStateStore(root, portfolio);
@@ -3628,7 +3629,7 @@ async function stateCommand(positionals, options) {
         initiative,
         event,
         `[${subject.id}][state:reconcile] Repair derived projections`,
-        { extraPaths: [result.repairedPath] }
+        { extraPaths: repairedPaths }
       );
     }
     result.planes = await inspectStatePlanes(root, common);

@@ -1822,4 +1822,11 @@ singularity-flow epic journey [INIT-ID] [--json]
 singularity-flow epic merge-plan [--epic INIT-ID] [--json]
 ```
 
+`state reconcile --check` is read-only and compares every declared projection with
+the authoritative lifecycle state: status Markdown, managed artifact metadata,
+approval summaries, review/finalization packets, and ledger intents. Use
+`--repair-projections` to reproduce stale or missing projection bytes and publish one
+audited lifecycle commit. It never creates an approval, artifact, transition, or
+remote receipt.
+
 Run `singularity-flow --help` for the current terse usage list and `singularity-flow help <topic>` for one section of this manual.

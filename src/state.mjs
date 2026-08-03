@@ -40,7 +40,7 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
 } from './publication-pending.mjs';
-import { lifecycleEvent } from './lifecycle-event.mjs';
+import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
@@ -166,7 +166,7 @@ function phaseState(definition, index) {
   };
 }
 
-function managedMetadata(workflow, phase) {
+export function storyArtifactMetadata(workflow, phase) {
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -202,7 +202,7 @@ function managedMetadata(workflow, phase) {
   };
 }
 
-function metadataBlock(metadata) {
+export function artifactMetadataBlock(metadata) {
   return `<!-- singularity-flow:metadata\n${JSON.stringify(metadata, null, 2)}\n-->`;
 }
 
@@ -210,7 +210,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   const file = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
   if (!(await exists(file))) return;
   const text = await readFile(file, 'utf8');
-  const block = metadataBlock(managedMetadata(workflow, phase));
+  const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   const pattern = /<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
   await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
 }
@@ -509,7 +509,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       templateSnapshot: workflow.resolution.templates?.[phase.id]
     });
     text = applyInputsBlock(text, rendered.text, inputs.mode);
-    if (!/<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${metadataBlock(managedMetadata(workflow, phase))}\n\n${text}`;
+    if (!/<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
     if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
@@ -986,7 +986,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     event: envelope,
     commit: { message },
     state: {
-      write: () => saveWorkflow(root, config, workflow),
+      write: (publicationEvent) => {
+        recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
+        return saveWorkflow(root, config, workflow);
+      },
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {

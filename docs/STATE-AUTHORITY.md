@@ -11,7 +11,7 @@ The lifecycle branch owns operational state; local context selects it; the state
 | Local context | `.git/singularity-flow/session.json` and the workspace selection under the user profile | Selects a lifecycle subject and governed agent for this checkout | Yes | No | Recreate it from a selected lifecycle branch; deleting it loses no governed state |
 | Pending publication | `.git/singularity-flow/pending-publication/<kind>--<ID>.json` | Local recovery record for a commit that exists but did not reach its remote | No | Blocks new mutations until synchronized | Retry the recorded fast-forward push; never rewrite or amend the retained commit |
 | Capability state branch / ledger | Configured orphan state branch | Append-only proof, binding, and cross-repository mirror | Read-only fallback only | No | Reconcile from committed lifecycle events; ledger-only subjects remain read-only until their lifecycle branch is available |
-| Human projections | `STATUS.md`, reports, dashboards, and VS Code snapshots | Derived presentation | No | No | Regenerate from authoritative lifecycle state at one captured revision |
+| Human and audit projections | `STATUS.md`, managed artifact metadata, approval summaries, review packets, ledger intents, reports, dashboards, and VS Code snapshots | Derived presentation or exact reproducible audit material | No | No | Regenerate from authoritative lifecycle state and immutable records at one captured revision |
 | Remote systems | Jira, CI, storage providers, GitHub observations | Timestamped evidence and external receipts | By explicit identity/reference | No, unless an exact reviewed write plan says otherwise | Refresh observations and record drift; never silently overwrite Git-owned state |
 
 ## Resolution contract
@@ -36,6 +36,13 @@ Projection repair never invents lifecycle facts. It may only regenerate a declar
 projection from the currently loaded authoritative aggregate. It cannot recreate a
 missing approval, artifact, lifecycle event, or remote receipt, and it cannot use
 the ledger or local session as a substitute for a missing lifecycle branch.
+
+`singularity-flow state reconcile <ID> --check` reports every declared projector and
+its expected and current hash without writing. `--repair-projections` replaces only
+the managed bytes produced by `projectStatusMarkdown`, `ArtifactMetadata`,
+`ApprovalSummary`, `ReviewPacket`, and `LedgerIntent`. Review-packet and ledger-intent
+recipes are captured in lifecycle state when they are created; authored artifact
+content is preserved while only its managed metadata block is replaced.
 
 This development line has no state migration layer. Only the current Story and
 Initiative schemas are accepted; disposable development state must be recreated

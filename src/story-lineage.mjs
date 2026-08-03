@@ -160,7 +160,8 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     branch: submittedBranch,
     sourceTreeSha256: base.sourceTreeSha256,
     path: path.relative(root, file).split(path.sep).join('/'),
-    submittedAt: base.submittedAt
+    submittedAt: base.submittedAt,
+    projection: structuredClone(base)
   });
   await saveWorkflow(root, config, workflow);
   return { packet, path: path.relative(root, file).split(path.sep).join('/') };
@@ -282,7 +283,8 @@ export async function finalizeStoryDelivery(root, config, workflow) {
     sourceTreeSha256: base.sourceTreeSha256,
     branch: base.submittedBranch,
     path: path.relative(root, file).split(path.sep).join('/'),
-    finalizedAt: base.finalizedAt
+    finalizedAt: base.finalizedAt,
+    projection: structuredClone(base)
   });
   workflow.lineage.deliveryStatus = 'finalized_for_review';
   workflow.history.push({

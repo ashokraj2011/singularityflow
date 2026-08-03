@@ -83,15 +83,17 @@ export class InitiativeStateStore {
   }
 
   async load(id) {
-    const aggregate = await loadInitiative(this.root, id, this.portfolio);
+    const loaded = await loadInitiative(this.root, id, this.portfolio);
+    const aggregate = loaded.initiative;
+    const definition = this.portfolio ?? loaded.portfolio;
+    this.portfolio ??= definition;
     const current = revision(
       this.root,
-      aggregate.initiative ?? aggregate,
-      initiativeStatePath(this.root, this.portfolio ?? aggregate.portfolio, id)
+      aggregate,
+      initiativeStatePath(this.root, definition, id)
     );
     attachRevision(aggregate, current);
-    attachRevision(aggregate.initiative, current);
-    return { aggregate, revision: current };
+    return { aggregate, revision: current, definition };
   }
   async loadAggregate(id) { return (await this.load(id)).aggregate; }
   save(initiative) { return saveInitiative(this.root, this.portfolio, initiative); }
@@ -128,7 +130,14 @@ export async function loadStoryAggregate(root, definition, id) {
 }
 
 export async function loadInitiativeAggregate(root, id, portfolio = null) {
-  return new InitiativeStateStore(root, portfolio).loadAggregate(id);
+  const loaded = await new InitiativeStateStore(root, portfolio).load(id);
+  // Preserve the established Initiative helper contract used by CLI/editor
+  // orchestration while the store itself exposes the aggregate directly.
+  return {
+    portfolio: loaded.definition,
+    initiative: loaded.aggregate,
+    revision: loaded.revision
+  };
 }
 
 /**

@@ -93,3 +93,14 @@ export function bindLifecycleEvent(event, sourceCommit) {
     idempotencyHash: idempotency.hash
   };
 }
+
+export function recordPublicationProjection(aggregate, event, ledgerIntent = null) {
+  aggregate.publicationProjections ??= [];
+  if (aggregate.publicationProjections.some((entry) => entry.event?.eventId === event.eventId)) return aggregate;
+  aggregate.publicationProjections.push({
+    schemaVersion: 1,
+    event: structuredClone(event),
+    ledgerIntent: ledgerIntent ? structuredClone(ledgerIntent) : null
+  });
+  return aggregate;
+}

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-03
 - Baseline: `main@ebcb37d`
-- Decision owner: Ashok Raj
+- Decision owner: Singularity Flow maintainers
 
 ## Context
 

@@ -17,6 +17,8 @@ import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
 import { ReconciliationPanel } from './views/reconciliation.ts';
 import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
+import { InboxPanel, type InboxMessage } from './views/inbox.ts';
+import { buildInboxTree } from './views/inbox-model.ts';
 import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
 import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
@@ -164,7 +166,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
-    'singularityFlow.openApprovals', 'singularityFlow.startWork', 'singularityFlow.addSource',
+    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
@@ -207,14 +209,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     drawWorkspaces();
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
+    const inbox = new LifecycleTreeProvider(null, [{
+      kind: 'action', id: 'inbox:unavailable', label: 'Choose a workspace to load the inbox',
+      description: 'select a saved workspace', tooltip: detail, icon: 'root-folder',
+      runCommand: 'singularityFlow.openWorkspaces'
+    }]);
     const configuration = new LifecycleTreeProvider(null, [{
       kind: 'action', id: 'configuration:unavailable', label: 'Choose a workspace to load configuration',
       description: 'select a saved workspace', tooltip: detail, icon: 'root-folder',
       runCommand: 'singularityFlow.openWorkspaces'
     }]);
-    context.subscriptions.push(provider, configuration);
+    context.subscriptions.push(provider, inbox, configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
       treeDataProvider: provider
+    }), vscode.window.createTreeView('singularityFlow.inbox', {
+      treeDataProvider: inbox
     }), vscode.window.createTreeView('singularityFlow.configuration', {
       treeDataProvider: configuration
     }));
@@ -600,11 +609,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(new ConfigurationValidator(client));
 
   const tree = new LifecycleTreeProvider(store);
+  const inboxTree = new LifecycleTreeProvider(store, [], buildInboxTree);
   configurationTree = new LifecycleTreeProvider(
     store, [], (snapshot, error) => buildConfigurationTree(snapshot, error, readiness));
-  context.subscriptions.push(tree, configurationTree);
+  context.subscriptions.push(tree, inboxTree, configurationTree);
   context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
     treeDataProvider: tree,
+    showCollapseAll: true
+  }), vscode.window.createTreeView('singularityFlow.inbox', {
+    treeDataProvider: inboxTree,
     showCollapseAll: true
   }), vscode.window.createTreeView('singularityFlow.configuration', {
     treeDataProvider: configurationTree,
@@ -830,6 +843,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  /** The inbox reuses the exact approval transaction and adds all-phase document navigation. */
+  const onInboxMessage = async (message: InboxMessage): Promise<void> => {
+    if (message.type === 'open-artifact') {
+      return openArtifact(repository, {
+        kind: 'artifact', id: message.artifact.id, label: message.artifact.label,
+        path: message.artifact.path, readOnly: message.artifact.readOnly
+      });
+    }
+    const mapped: ApprovalsMessage = message.type === 'open-approval'
+      ? { type: 'open', approval: message.approval }
+      : { type: message.type, approval: message.approval };
+    return onApprovalsMessage(mapped);
+  };
+
   const onStoriesMessage = async (message: StoriesMessage): Promise<void> => {
     const initiativeId = store.current.snapshot?.initiative?.state.initiative.id ?? '';
     if (message.type === 'materialize') {
@@ -902,6 +929,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); }),
     'singularityFlow.openApprovals':
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
+    'singularityFlow.openInbox':
+      () => InboxPanel.show(context, store, (message) => { void onInboxMessage(message); }),
     'singularityFlow.startWork': startWork,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },

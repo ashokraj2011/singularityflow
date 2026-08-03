@@ -1583,7 +1583,7 @@ test('an ungoverned folder still directs Lifecycle to workspace selection', asyn
     ['singularityFlow.openWorkspaces']);
 });
 
-test('the first workspace selection loads Lifecycle in the same window', async (t) => {
+test('the first explicit workspace selection loads Lifecycle in the same window', async (t) => {
   if (!requireBundle(t)) return;
   // Choosing where you are working is not the same as opening code, and it used to be: selecting a
   // workspace reloaded the window or opened a folder, which threw away every open editor to change
@@ -1614,8 +1614,10 @@ test('the first workspace selection loads Lifecycle in the same window', async (
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
   });
-  assert.equal(provider.getTreeItem(rows[0]).command.command, 'singularityFlow.switchWorkspace',
-    'clicking the row chooses it');
+  assert.equal(provider.getTreeItem(rows[0]).command.command, 'singularityFlow.openWorkspaces',
+    'clicking the row inspects its workspace details without changing the active scope');
+  // The check action is the deliberate scope-changing operation. It is invoked separately here,
+  // just as it is separately contributed on an inactive workspace row in the real tree.
   await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
 
   assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
@@ -1658,8 +1660,8 @@ test('opening a workspace explicitly replaces the current window rather than sca
   const item = provider.getTreeItem(rows[0]);
   assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None,
     'a workspace is a choice, not an expandable folder');
-  assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
-    'clicking the visible workspace row chooses it rather than opening it');
+  assert.equal(item.command.command, 'singularityFlow.openWorkspaces',
+    'clicking the visible row shows details; opening code remains a separate action');
   await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');

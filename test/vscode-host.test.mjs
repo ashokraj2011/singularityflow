@@ -987,6 +987,25 @@ test('the approvals panel opens under the same CSP and leads with what is yours'
   assert.match(panel.webview.html, /Nothing is waiting|Before this phase can close/);
 });
 
+test('the Inbox is a first-class sidebar view and opens the generated-artifact catalog', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  const provider = registered.trees.get('singularityFlow.inbox')?.treeDataProvider;
+  assert.ok(provider, 'the Inbox has a registered sidebar provider');
+  const rows = provider.getChildren();
+  assert.equal(rows[0].runCommand, 'singularityFlow.openInbox');
+  assert.match(rows[0].description, /waiting.*generated/);
+
+  await registered.commands.get('singularityFlow.openInbox')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.inboxPanel');
+  assert.ok(panel, 'the business Inbox panel was created');
+  assert.match(panel.webview.html, /SINGULARITY/);
+  assert.match(panel.webview.html, /Everything generated/);
+  assert.match(panel.webview.html, /Generated artifacts/);
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+});
+
 test('the Stories panel opens and offers the push once a plan exists', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();

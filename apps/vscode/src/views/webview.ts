@@ -135,6 +135,30 @@ export const STYLE = `
   h1 .ico, h2 .ico, h3 .ico { margin-right: .4rem; }
   td .ico, li .ico { margin-right: .35rem; opacity: .85; }
   button .ico { margin-right: .35rem; }
+  .brand-lockup {
+    display: flex; align-items: baseline; gap: .35rem; margin: 1rem 0 .25rem;
+    color: var(--sf-accent); font-size: .72rem; font-weight: 800; letter-spacing: .19em;
+  }
+  .brand-lockup span { font-size: 1rem; letter-spacing: .08em; }
+  .inbox-header { border-bottom: 2px solid var(--sf-accent); padding-bottom: .85rem; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .7rem; margin: 1.1rem 0 1.5rem; }
+  .summary-card { display: grid; gap: .1rem; padding: .85rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .summary-card strong { color: var(--sf-accent); font-size: 1.55rem; line-height: 1.1; }
+  .summary-card span { color: var(--sf-dim); font-size: .8rem; }
+  .summary-card.important { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .section-heading { display: flex; align-items: center; gap: .55rem; }
+  .section-heading h2 { flex: 1; }
+  .count-badge { display: inline-grid; place-items: center; min-width: 1.65rem; height: 1.65rem; padding: 0 .45rem; border-radius: 999px; background: var(--sf-accent-quiet); color: var(--sf-accent); font-weight: 700; }
+  .decision-cards, .artifact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .65rem; }
+  .decision-card { border: var(--sf-border); border-left: 3px solid var(--sf-wait); border-radius: var(--sf-radius); padding: 1rem; background: var(--sf-surface); }
+  .decision-card h3 { margin: .15rem 0; }
+  .eyebrow { color: var(--sf-accent); font-size: .69rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+  button.artifact-card { display: grid; grid-template-columns: 1fr auto; gap: .22rem .7rem; width: 100%; padding: .8rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); border: var(--sf-border); border-radius: var(--sf-radius); }
+  button.artifact-card:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .artifact-title { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+  .artifact-meta { grid-column: 1 / -1; color: var(--sf-dim); font-size: .76rem; }
+  .inbox-phase { border: 0; margin-top: .6rem; }
+  .warning-text { color: var(--sf-wait); }
   * { box-sizing: border-box; }
   body {
     font-family: var(--vscode-font-family);

@@ -18,6 +18,7 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.lifecycle",
+    "onView:singularityFlow.inbox",
     "onView:singularityFlow.configuration",
     "onView:singularityFlow.workspaces",
     "workspaceContains:singularity/workflow.yml",
@@ -67,7 +68,7 @@
       "activitybar": [
         {
           "id": "singularityFlow",
-          "title": "Singularity Flow",
+          "title": "🟢 SINGULARITY FLOW",
           "icon": "media/activity.svg"
         }
       ]
@@ -81,6 +82,10 @@
         {
           "id": "singularityFlow.lifecycle",
           "name": "Lifecycle"
+        },
+        {
+          "id": "singularityFlow.inbox",
+          "name": "Inbox"
         },
         {
           "id": "singularityFlow.configuration",
@@ -160,8 +165,13 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.openInbox",
+        "title": "Singularity Flow: Inbox",
+        "icon": "$(inbox)"
+      },
+      {
         "command": "singularityFlow.openApprovals",
-        "title": "Singularity Flow: Approvals",
+        "title": "Singularity Flow: Approvals (Inbox)",
         "icon": "$(verified)"
       },
       {
@@ -251,7 +261,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "singularityFlow.openApprovals",
+          "command": "singularityFlow.openInbox",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@3"
         },
@@ -278,6 +288,16 @@
         {
           "command": "singularityFlow.refresh",
           "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@9"
+        },
+        {
+          "command": "singularityFlow.openInbox",
+          "when": "view == singularityFlow.inbox",
+          "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.inbox",
           "group": "navigation@9"
         },
         {

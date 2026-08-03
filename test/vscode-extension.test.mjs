@@ -1127,6 +1127,7 @@ test('governed configuration is recognised, and nothing else is', () => {
 });
 
 const { buildApprovals } = await import(source('views/approvals-model.ts'));
+const { buildInbox, buildInboxTree } = await import(source('views/inbox-model.ts'));
 
 /** A snapshot with one artifact awaiting a decision under a named authority. */
 function awaiting({ authorities = ['product-approvers'], members = ['me@example.com'], actor = 'me@example.com', generatedBy = null, chain = null, gateErrors = [] } = {}) {
@@ -1244,6 +1245,40 @@ test('an Epic with nothing outstanding says so rather than showing an empty page
   quiet.initiative.report = { approvals: { byPhase: {} } };
   assert.match(buildApprovals(quiet).empty ?? '', /Nothing is waiting/);
   assert.match(buildApprovals(null).empty, /Reading the repository/);
+});
+
+test('the business inbox joins decisions to every generated artifact without listing empty templates', () => {
+  const shot = awaiting();
+  const generated = shot.initiative.documents.find((document) => document.id === 'business-case');
+  Object.assign(generated, {
+    status: 'published', generation: 2, sha256: 'a'.repeat(64),
+    generatedBy: 'analyst@example.com', content: '# Business case\n'
+  });
+  shot.documents = [{
+    id: 'PHASE-IMPLEMENTATION', type: 'artifact', label: 'Implementation', kind: 'markdown',
+    path: 'singularity/work-items/WORK-123/artifacts/implementation/implementation.md',
+    phase: 'implementation', status: 'approved', generation: 1, sha256: 'b'.repeat(64)
+  }];
+
+  const inbox = buildInbox(shot);
+  assert.equal(inbox.approvals.pending.filter((approval) => approval.standing === 'yours').length, 1);
+  assert.deepEqual(inbox.artifacts.map((artifact) => artifact.label), ['Business case', 'Implementation']);
+  assert.equal(inbox.artifacts.find((artifact) => artifact.label === 'Business case').generation, 2);
+  assert.equal(inbox.artifacts.some((artifact) => artifact.label === 'Scope and outcomes'), false,
+    'declared but unwritten templates are not presented as generated output');
+  assert.deepEqual(inbox.groups.map((group) => group.phase), ['define', 'implementation']);
+});
+
+test('the sidebar inbox exposes the combined page and opens exact generated paths', () => {
+  const shot = structuredClone(snapshot);
+  const output = shot.initiative.documents.find((document) => document.id === 'business-case');
+  Object.assign(output, { status: 'approved', generation: 1, sha256: 'c'.repeat(64) });
+  const tree = buildInboxTree(shot);
+  assert.equal(tree[0].runCommand, 'singularityFlow.openInbox');
+  assert.match(tree[0].description, /1 generated/);
+  const artifact = tree[1].children[0].children[0];
+  assert.equal(artifact.path, output.repositoryPath);
+  assert.equal(artifact.readOnly, true);
 });
 
 const { buildStories } = await import(source('views/stories-model.ts'));

@@ -148,7 +148,7 @@ export class IntakePanel {
         workItems?: {
           id?: string; title?: string; status?: string; workType?: string; currentPhase?: string | null;
         }[];
-      }>(['desktop', 'snapshot', '--json']);
+      }>(['snapshot', '--json']);
       // The phase is the useful half of "in progress", so it is said when there is one.
       const where = (status?: string, phase?: string | null): string =>
         (phase ? `${status ?? 'in progress'} · ${phase}` : status ?? 'in progress');

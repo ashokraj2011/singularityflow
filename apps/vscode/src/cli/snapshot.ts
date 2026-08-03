@@ -212,7 +212,7 @@ export interface InitiativeSummary {
   [key: string]: unknown;
 }
 
-export interface DesktopSnapshot {
+export interface RepositorySnapshot {
   repository?: { root?: string; branch?: string; [key: string]: unknown };
   workItems: WorkItemSummary[];
   initiatives: InitiativeSummary[];

@@ -15,7 +15,7 @@
  */
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
-  type DesktopSnapshot, type InitiativeSnapshot, type PhaseStatus
+  type RepositorySnapshot, type InitiativeSnapshot, type PhaseStatus
 } from '../cli/snapshot.ts';
 
 export interface JourneyStage {
@@ -93,7 +93,7 @@ function waitingOnByPack(blockers: string[]): Map<string, string> {
   return waiting;
 }
 
-export function buildJourney(snapshot: DesktopSnapshot | null): Journey {
+export function buildJourney(snapshot: RepositorySnapshot | null): Journey {
   if (!snapshot) return { ...EMPTY, empty: 'Reading the repository…' };
   const initiative = snapshot.initiative;
   if (!initiative) {

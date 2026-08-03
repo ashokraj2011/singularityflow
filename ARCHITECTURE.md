@@ -141,7 +141,7 @@ Dynamic URL expansion permits only encoded work item, work type, phase, and gene
 
 Sequence guards are named policy controls resolved from global and work-type `sequenceGates`, then pinned into `workflow.resolution`. An absent policy normalizes every gate to `hard`. A hard violation fails without mutation; a soft violation requires an exact interactive confirmation and reconciles runtime state before continuing. The exception record captures prior state, action, reason, identity, agent, and timestamp, and is propagated through history, artifact metadata, status, reports, and governance warnings. Non-interactive processes cannot confirm soft exceptions, and Copilot agent contracts explicitly prohibit self-confirmation.
 
-`HELP.md` is the canonical product manual. The CLI parses its level-two headings into stable topic IDs for `singularity-flow help [TOPIC]`; `/sflow-help` loads those topics for general questions and uses `guide` for work-item-specific questions. The Electron renderer imports the same Markdown at build time and provides local topic search. This keeps help available offline without granting the renderer new filesystem or IPC capabilities.
+`HELP.md` is the canonical product manual. The CLI parses its level-two headings into stable topic IDs for `singularity-flow help [TOPIC]`; Copilot skills and the VS Code extension use the same repository-owned guidance.
 
 ## Progress model
 
@@ -149,33 +149,13 @@ Completion is the number of approved phases divided by the immutable total phase
 
 `report` is another read-only projection over the same committed `workflow.json`. It sorts lifecycle events, pairs each submission with its next approval/rejection, and derives wall-clock phase duration, approval waiting, rework, exact token usage, optional configured cost, and the largest approval-latency bottleneck. Open submissions accrue waiting time through the report timestamp. Markdown, JSON, and script-free HTML renderers do not introduce report state; `--out` writes an explicitly requested file but never commits it. Cost is computed only for exact usage whose exact model name has a non-negative per-million price in workflow YAML, with incomplete coverage marked partial.
 
-## Desktop control plane
+## VS Code control plane
 
-`apps/desktop` is an Electron and React control plane over the CLI. The renderer has no Node integration, runs sandboxed with context isolation, and receives only a narrow preload API. Git, configuration validation, agent sessions, document operations, commits, and pushes are executed through `singularity-flow desktop ...` or existing public CLI commands in a separate process.
-
-Copilot Studio makes Electron an ACP client for the locally authenticated GitHub Copilot CLI:
-
-```mermaid
-flowchart LR
-    UI["Sandboxed Copilot Studio"] --> IPC["Narrow planning IPC"]
-    IPC --> CTX["Deterministic CLI context pack"]
-    CTX --> ACP["Copilot ACP · native Plan mode"]
-    ACP --> UI
-    UI --> REVIEW["Human-reviewed complete artifact"]
-    REVIEW --> GUARD["HEAD + phase + target + input validation"]
-    GUARD --> GIT["Audit bundle + commit + push"]
-    GIT --> GATE["Existing publish / evidence / approval lifecycle"]
-```
-
-The Electron main process owns every issued context-pack handle, spawns `copilot --acp --stdio`, explicitly selects the ACP-advertised Plan mode, and rejects permission requests. It streams only normalized conversation, plan, activity, mode, and exact usage updates through preload. The renderer cannot nominate an arbitrary local context path.
-
-Context creation is read-only and pins the repository branch/HEAD, immutable workflow resolution, phase/generation, agent, target, configurable planning-prompt hash, and every governed source hash under `.git/singularity-flow/planning/`. Promotion fails if HEAD or the active phase moved. A successful promotion copies the exact context, reviewed artifact, and manifest into committed phase context, then uses the existing atomic commit/push protocol. It never submits, approves, materializes, merges, or bypasses the phase gate.
-
-The app may visualize repository state and edit workflow, sequence-gate policy, templates, and repository Agent Markdown, but it does not write `workflow.json`, approvals, generated metadata, lock content, or other runtime state directly. Agent locks are displayed read-only and refreshed through the CLI. Desktop configuration saves are atomic: the CLI validates the complete definition and restores the previous file if a change makes any profile, prompt, template, or agent invalid.
+`apps/vscode` is the supported visual surface over the CLI. It imports no engine modules: every read and mutation runs through `sflow`, so Git remains the only governed state store. Workspaces select local scope, Lifecycle handles intake and active phases, and Configuration edits workflow, agents, prompts, skills, templates, integrations, and world-model policy. Jira and provider tokens use VS Code `SecretStorage` and are injected only into CLI child processes. Native Copilot receives context produced by `sflow wm show-prompt`; the extension never owns a competing model backend.
 
 ## Local project workspace boundary
 
-The optional desktop workspace layer is intentionally outside the governed
+The optional workspace layer is intentionally outside the governed
 domain model:
 
 ```mermaid
@@ -191,8 +171,7 @@ flowchart LR
 The manifest and recent-workspace registry are local conveniences. They contain
 no credential, approval, lifecycle, evidence, or authoritative artifact state.
 Every selected repository lives below the workspace `repos/` boundary. Jira
-tokens remain encrypted by Electron `safeStorage`; normal CLI users supply them
-through the environment. The clone journal supports retry without overwriting an
+tokens entered in VS Code remain in `SecretStorage`; headless CLI users supply them through the environment. The clone journal supports retry without overwriting an
 unrelated directory, while fetch refuses to alter dirty clones.
 
 Jira issue type names are never hard-coded. Workspace anchors are selected by
@@ -200,9 +179,7 @@ Jira `hierarchyLevel >= 1`, allowing an Epic on default Jira hierarchy or a
 configured higher-level item. Child traversal uses `parent`, with legacy Epic
 Link lookup restricted to the Epic compatibility path.
 
-Copilot is keyed to the active lead-repository path. Switching repositories or
-workspaces stops the old backend and clears private context-pack handles before
-starting in the new root, preventing planning-session context from carrying
+Copilot is keyed to the active lead-repository path. Switching repositories or workspaces rebinds the CLI client and refreshes the Git-derived read model, preventing planning-session context from carrying
 across local projects.
 
 ## Transaction and publication model

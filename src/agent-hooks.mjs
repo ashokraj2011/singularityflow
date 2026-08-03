@@ -19,8 +19,8 @@ import {
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
 // hash-bound. It has no work item and never will, so requiring a work-item selection there can
-// never be satisfied — it only starves the session. Copilot Studio composes exactly this kind of
-// context, so without this the studio was deadlocked on every Epic phase by Singularity Flow's own
+// never be satisfied — it only starves the session. Native Copilot handoff composes exactly this
+// kind of context, so without this every Epic phase would deadlock on Singularity Flow's own
 // session hook: Copilot was told a work ID was mandatory and correctly refused to proceed without
 // one, ending the turn with nothing.
 async function activeInitiative(root) {

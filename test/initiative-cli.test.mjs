@@ -114,8 +114,8 @@ test('initiative Copilot selection receipts preserve the explicit profile while 
 
 test('Epic Planning approval is an explicit business review, available outside the desktop', async () => {
   // Planning approval used to throw "must be reviewed and approved in the Singularity Flow desktop
-  // UI", so the plan could not be approved without Electron at all. It is available here now, but the
-  // guard the desktop applied travels with it: approving your own plan requires saying so.
+  // UI", so the plan could not be approved from every surface. It is available here now, while the
+  // self-approval acknowledgement remains explicit.
   const root = await repository();
   execute(root, ['initiative', 'start', 'EPIC-UI', '--title', 'UI approval boundary'], {
     profile: 'epic-planning'

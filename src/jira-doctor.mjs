@@ -37,7 +37,7 @@ function credentialSnapshot(env) {
     required,
     present,
     missing: required.filter((name) => !present[name]),
-    note: 'Electron keychain credentials are intentionally not exposed to the standalone CLI.'
+    note: 'VS Code SecretStorage credentials are injected only into CLI processes launched by the extension.'
   };
 }
 
@@ -68,7 +68,7 @@ async function workspaceSnapshot(env) {
 async function policySnapshot(root) {
   try {
     const portfolio = await loadPortfolio(root, { required: false });
-    if (!portfolio) return { configured: false, enabled: false, projects: [], remediation: 'Add singularity/portfolio.yml or configure the workspace in the desktop app.' };
+    if (!portfolio) return { configured: false, enabled: false, projects: [], remediation: 'Add singularity/portfolio.yml or configure the workspace in the VS Code extension.' };
     return {
       configured: true,
       enabled: portfolio.jira?.enabled === true,

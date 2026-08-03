@@ -11,7 +11,7 @@
  * So every edit offered here is shown with the Epics it would stop. That is the whole point: the
  * files are editable already, and what they cannot tell you is who is standing on them.
  */
-import type { DesktopSnapshot } from '../cli/snapshot.ts';
+import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
 export interface ApprovalPolicy {
   mode?: string;
@@ -75,12 +75,12 @@ interface InitiativeSummary {
 }
 
 /** Epics still running: a closed one has nothing left to stop. */
-function inFlight(snapshot: DesktopSnapshot): InitiativeSummary[] {
+function inFlight(snapshot: RepositorySnapshot): InitiativeSummary[] {
   return ((snapshot.initiatives ?? []) as InitiativeSummary[])
     .filter((entry) => entry.status !== 'complete' && entry.status !== 'closed');
 }
 
-export function buildProfiles(snapshot: DesktopSnapshot): Profile[] {
+export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
   const portfolio = snapshot.portfolio as {
     initiativeProfiles?: Record<string, { label?: string; phases?: string[] }>;
     initiativePhases?: Record<string, {
@@ -115,7 +115,7 @@ export function buildProfiles(snapshot: DesktopSnapshot): Profile[] {
  * Templates with no user are worth seeing rather than hiding: a template nothing points at is
  * either about to be wired up or dead, and only a person can tell which.
  */
-export function buildTemplateUsage(snapshot: DesktopSnapshot): TemplateUsage[] {
+export function buildTemplateUsage(snapshot: RepositorySnapshot): TemplateUsage[] {
   const profiles = buildProfiles(snapshot);
   const running = inFlight(snapshot);
 
@@ -162,7 +162,7 @@ export function buildTemplateUsage(snapshot: DesktopSnapshot): TemplateUsage[] {
  * stops only the Epics that pinned that template. Both are worth saying before the edit rather than
  * discovering at the next phase.
  */
-export function standingOn(snapshot: DesktopSnapshot, file: string): Standing[] {
+export function standingOn(snapshot: RepositorySnapshot, file: string): Standing[] {
   const running = inFlight(snapshot);
   const portfolioPath = snapshot.portfolioPath ?? 'singularity/portfolio.yml';
   const affected = file === portfolioPath || file === (snapshot.definitionPath ?? 'singularity/workflow.yml')

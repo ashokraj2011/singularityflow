@@ -57,7 +57,7 @@ test('plugin provides direct Jira connection, assigned work, sprint board, and g
   assert.match(doctor, /singularity-flow jira doctor --json/);
   assert.match(doctor, /first and only tool call/);
   assert.match(doctor, /Do not create, edit, or delete files/);
-  assert.match(doctor, /Electron keychain credentials are not exposed to Copilot CLI/);
+  assert.match(doctor, /VS Code SecretStorage values are supplied only to commands launched by the extension/);
 
   assert.match(assigned, /singularity-flow jira assigned/);
   assert.match(assigned, /status category not Done/);
@@ -141,7 +141,7 @@ test('Epic Story decisions use exact-packet Copilot selection receipts', async (
 test('legacy Epic planning skill redirects to the canonical Story drafting boundary', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-planning', 'SKILL.md'), 'utf8');
   assert.match(content, /compatibility name for `\/sflow-epic-story-draft`/);
-  assert.match(content, /Stop for exact business approval in a review surface/);
+  assert.match(content, /Stop for exact business approval in the VS Code extension's Approvals view/);
   assert.match(content, /Do not run a second planning sequence/);
 });
 

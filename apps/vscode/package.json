@@ -36,9 +36,33 @@
           "type": "string",
           "default": "",
           "description": "Node executable used to run the CLI. Leave empty to use the Node running the extension host."
+        },
+        "singularityFlow.userName": {
+          "type": "string",
+          "default": "",
+          "description": "Display name used for local guidance. Governed decisions continue to use Git and provider identities."
+        },
+        "singularityFlow.role": {
+          "type": "string",
+          "default": "",
+          "enum": ["", "product-owner", "business-analyst", "product-designer", "architect", "developer", "qa", "security", "delivery-manager", "operations", "other"],
+          "description": "Local role used to simplify guidance. The active governed agent is selected by the workflow phase."
         }
       }
     },
+    "walkthroughs": [
+      {
+        "id": "singularityFlow.gettingStarted",
+        "title": "Get started with Singularity Flow",
+        "description": "Configure your profile, secure integrations, and first governed workspace.",
+        "steps": [
+          { "id": "profile", "title": "Set your name and role", "description": "Choose the local guidance appropriate for your work.", "media": { "markdown": "media/walkthrough/profile.md" }, "completionEvents": ["onCommand:singularityFlow.configureProfile"] },
+          { "id": "jira", "title": "Connect Jira securely", "description": "Store the token in the operating-system keychain through VS Code SecretStorage.", "media": { "markdown": "media/walkthrough/jira.md" }, "completionEvents": ["onCommand:singularityFlow.connectJira"] },
+          { "id": "workspace", "title": "Choose or create a workspace", "description": "Workspaces bind a local directory to capabilities and repositories.", "media": { "markdown": "media/walkthrough/workspace.md" }, "completionEvents": ["onCommand:singularityFlow.switchWorkspace", "onCommand:singularityFlow.createWorkspace"] },
+          { "id": "intake", "title": "Start intake", "description": "Choose the work shape and workflow, then hand governed context to native Copilot.", "media": { "markdown": "media/walkthrough/intake.md" }, "completionEvents": ["onCommand:singularityFlow.startWork"] }
+        ]
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -89,6 +113,26 @@
         "command": "singularityFlow.startWork",
         "title": "Singularity Flow: Start Work",
         "icon": "$(add)"
+      },
+      {
+        "command": "singularityFlow.openCopilot",
+        "title": "Singularity Flow: Open Governed Context in Copilot",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "singularityFlow.configureProfile",
+        "title": "Singularity Flow: Configure User Profile",
+        "icon": "$(account)"
+      },
+      {
+        "command": "singularityFlow.connectJira",
+        "title": "Singularity Flow: Connect Jira Securely",
+        "icon": "$(key)"
+      },
+      {
+        "command": "singularityFlow.resetJira",
+        "title": "Singularity Flow: Reset Saved Jira",
+        "icon": "$(trash)"
       },
       {
         "command": "singularityFlow.openDashboard",

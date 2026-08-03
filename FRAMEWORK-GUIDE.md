@@ -34,7 +34,7 @@ flowchart LR
 | `SKILL.md` | Tells Copilot which deterministic commands and behavioral rules to follow |
 | Node.js CLI | Loads configuration, composes prompts, validates state, and performs lifecycle operations |
 | Git | Durable, distributed workflow state shared across people and terminals |
-| Electron desktop | Visual workspace, configuration, documents, progress, and review |
+| VS Code extension | Workspaces, lifecycle, configuration, documents, progress, and review |
 | Jira | External issue identity, assignment, status, and Epic/Story relationships |
 
 Copilot does not directly mark a phase approved or complete. The CLI performs
@@ -87,7 +87,7 @@ Machine-local state is deliberately kept out of commits:
 
 The local session records the active work item and current governed agent. Caches, raw
 telemetry traces, and short-lived selection receipts also stay under `.git/`.
-Desktop profile and workspace information lives in the Electron application-data
+Workspace selection lives in the CLI workspace registry; local profile preferences live in VS Code settings
 directory; credentials use the operating-system protected credential store.
 
 ## 3. Installation and initialization
@@ -95,7 +95,7 @@ directory; credentials use the operating-system protected credential store.
 The package supplies:
 
 - The `singularity-flow` and `sflow` Node.js CLI.
-- The Electron desktop application.
+- The VS Code extension.
 - GitHub Copilot `/sflow-*` skills.
 - Starter workflows, templates, governed agents, and prompts.
 
@@ -719,22 +719,9 @@ singularity-flow workspace use PAYMENTS --repository api
 singularity-flow workspace current
 ```
 
-## 22. Electron desktop
+## 22. VS Code extension
 
-The desktop is a visual projection and configuration surface. It provides:
-
-- Workspace creation and selection.
-- Repository registry and Jira connection.
-- Epic intake, requirements, planning, and Story progress.
-- Artifact and evidence previews.
-- Approval inbox.
-- Workflow, template, prompt, and governed-agent editors.
-- World-model status.
-- Duration, token, model, and cost dashboards.
-
-The desktop does not replace Git as state storage. Normal authoring stays in the
-user's Copilot CLI: the desktop displays the exact `/sflow-*` command, and
-Refresh reloads the committed branch result.
+The extension is the supported visual surface. Workspaces owns local scope and capabilities; Lifecycle owns intake, workflow choice, active phases, artifacts and approvals; Configuration owns workflows, phases, gates, agents, prompts, skills, templates, integrations and world-model rules. Secure integration tokens use VS Code `SecretStorage`. Governed generation is handed to native Copilot with the complete rendered prompt.
 
 ## 23. Jira
 
@@ -845,7 +832,7 @@ Git-backed, configurable SDLC participant:
 - Git carries the complete shared state.
 - Human identity controls approvals.
 - Jira supplies optional external issue lineage.
-- Electron provides a business-friendly visual surface.
+- VS Code provides the supported visual surface.
 - World-model and input hashes make every generation reproducible and auditable.
 
 For the executable call chain, prompt vocabulary, Copilot question/receipt

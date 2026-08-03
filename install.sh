@@ -11,7 +11,8 @@ usage() {
   printf '%s\n' \
     'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only]' \
     '' \
-    'Pull, build, test, package, and globally install Singularity Flow,' \
+    'Pull, build, test, package, and globally install the Singularity Flow CLI,' \
+    'and build the VS Code extension,' \
     'replace all previous Copilot plugin copies, and enable metadata-only' \
     'Copilot OpenTelemetry for model, token, and cost collection.'
 }
@@ -192,7 +193,7 @@ printf '%s\n' 'Compiling and validating the project...'
 if [[ "$CLI_ONLY" == "on" ]]; then
   npm run test:cli
 else
-  npm run desktop:build
+  npm run vscode:build
   npm test
 fi
 npm run check
@@ -222,5 +223,5 @@ if [[ "$CLI_ONLY" != "on" ]]; then
   copilot plugin list
   printf '%s\n' 'Open a new terminal, then start a new Copilot session to load the refreshed skills and telemetry environment.'
 else
-  printf '%s\n' 'CLI-only installation complete; desktop, Copilot plugin, and telemetry setup were skipped.'
+  printf '%s\n' 'CLI-only installation complete; VS Code was not built and Copilot plugin/telemetry setup was skipped.'
 fi

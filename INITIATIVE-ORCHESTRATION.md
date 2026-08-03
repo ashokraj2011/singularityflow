@@ -15,7 +15,7 @@ flowchart LR
 
 This feature is opt-in. Repositories without `singularity/portfolio.yml` do no initiative processing and make no additional network calls. Existing `singularity/work-items` behavior is unchanged.
 
-In the Electron app, a missing portfolio file is configurable in place: open **Initiatives** or **Jira workspace**, supply the initial approval identity, optional first repository, and optional Jira policy, then select **Create & validate portfolio**. The app copies the complete editable starter profiles into `singularity/portfolio.yml`; it stores no Jira token and does not commit automatically. Review it in Portfolio designer and use **Commit & push** when it is ready to become shared repository policy.
+In VS Code, create or edit `singularity/portfolio.yml` from Configuration, validate it through the CLI, and commit it through the normal configuration review path.
 
 ## Configure the portfolio
 
@@ -362,7 +362,7 @@ Reports group every planned story under its epic even before branch materializat
 
 ## Flow Studio
 
-Open the Electron app with `npm run desktop:dev`, choose the lead repository, and open **Initiatives**. It provides four- or seven-phase flow, three delivery lanes, checklist assurance/freshness, next actions, epic-grouped story progress, Work ID/Jira ID mapping, contract routing, governed documents, duration, and Copilot usage/cost. Its Portfolio designer edits validated YAML. Open **Jira workspace** for secure sign-in, hierarchy browsing, repository mapping, adoption, and reviewed write plans.
+Open the VS Code extension, choose the lead workspace, and use **Lifecycle** for intake, phase progress, checklist evidence, approvals, Story status, and governed documents. Use **Configuration** for portfolio, workflow, agent, prompt, template, integration, and policy design. Jira sign-in is stored through VS Code `SecretStorage`.
 
 After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, contracts, and repository world-model files remain read-only in the designer.
 

@@ -33,7 +33,8 @@ import {
   buildCapabilityTree, buildWorkspaceScopeTree, capabilityIdOf, workspacePathOf,
   type CapabilityReadiness
 } from './views/navigation-trees.ts';
-import type { DesktopSnapshot } from './cli/snapshot.ts';
+import type { RepositorySnapshot } from './cli/snapshot.ts';
+import { SecureCredentials } from './credentials.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -44,6 +45,75 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
+  const secureCredentials = new SecureCredentials(context.secrets);
+  let cliEnvironment = await secureCredentials.environment();
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureProfile', async () => {
+    const settings = vscode.workspace.getConfiguration('singularityFlow');
+    const name = await vscode.window.showInputBox({
+      title: 'Your Singularity Flow profile', prompt: 'Display name',
+      value: settings.get<string>('userName') ?? '', ignoreFocusOut: true
+    });
+    if (name == null) return;
+    const role = await vscode.window.showQuickPick([
+      'product-owner', 'business-analyst', 'product-designer', 'architect', 'developer',
+      'qa', 'security', 'delivery-manager', 'operations', 'other'
+    ], { title: 'Choose your role', placeHolder: 'Role filters guidance; governed agents still come from the phase.' });
+    if (!role) return;
+    await Promise.all([
+      settings.update('userName', name.trim(), vscode.ConfigurationTarget.Global),
+      settings.update('role', role, vscode.ConfigurationTarget.Global),
+      context.globalState.update('onboardingComplete', true)
+    ]);
+    void vscode.window.showInformationMessage(`Singularity Flow profile saved for ${name.trim() || role}.`);
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.connectJira', async () => {
+    const deployment = await vscode.window.showQuickPick([
+      { label: 'Jira Cloud', value: 'cloud' as const },
+      { label: 'Jira Data Center', value: 'data-center' as const }
+    ], { title: 'Jira deployment' });
+    if (!deployment) return;
+    const baseUrl = await vscode.window.showInputBox({
+      title: 'Jira URL', prompt: 'https://company.atlassian.net', ignoreFocusOut: true,
+      validateInput: (value) => { try { return new URL(value).protocol === 'https:' ? null : 'Use HTTPS.'; } catch { return 'Enter a valid HTTPS URL.'; } }
+    });
+    if (!baseUrl) return;
+    const username = await vscode.window.showInputBox({
+      title: deployment.value === 'cloud' ? 'Jira email or username' : 'Jira username (optional for PAT)',
+      ignoreFocusOut: true
+    });
+    if (username == null) return;
+    const token = await vscode.window.showInputBox({
+      title: deployment.value === 'cloud' ? 'Jira API token / PAT' : 'Jira personal access token',
+      password: true, ignoreFocusOut: true, validateInput: (value) => value.trim() ? null : 'A token is required.'
+    });
+    if (!token) return;
+    const candidate = {
+      ...process.env, JIRA_BASE_URL: baseUrl, JIRA_DEPLOYMENT: deployment.value,
+      JIRA_USERNAME: username, JIRA_PAT: token, JIRA_CONNECTION_NAME: 'vscode'
+    };
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const repository = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+      await new SingularityFlowClient({ location, repository, environment: candidate }).run(['jira', 'status', '--json']);
+      await secureCredentials.saveJira({ deployment: deployment.value, baseUrl, username, connectionName: 'vscode' }, token);
+      cliEnvironment = await secureCredentials.environment();
+      void vscode.window.showInformationMessage('Jira connected securely. Reload this window to apply it to every view.', 'Reload')
+        .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Jira was not saved: ${(error as Error).message}`);
+    }
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resetJira', async () => {
+    const choice = await vscode.window.showWarningMessage(
+      'Remove the saved Jira connection from the operating-system keychain?', { modal: true }, 'Reset Jira');
+    if (choice !== 'Reset Jira') return;
+    await secureCredentials.resetJira();
+    cliEnvironment = await secureCredentials.environment();
+    void vscode.window.showInformationMessage('Saved Jira credentials removed.');
+  }));
 
   /**
    * Register the view with a fixed explanation and stop.
@@ -71,7 +141,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner'
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openCopilot'
   ];
   /**
    * The two navigation trees, registered before anything can go wrong.
@@ -441,6 +511,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         extensionPath: context.extensionPath
       }),
       repository,
+      environment: cliEnvironment,
       onOutput: (text) => output.append(text)
     });
   } catch (error) {
@@ -460,7 +531,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // snapshot speed saying "not checked", and fills in when the answer arrives. A tree that waits on
   // the network to show what a repository is called is a tree that is blank when the VPN is off.
   let readiness: CapabilityReadiness = {};
-  const drawCapabilities = (state: { snapshot: DesktopSnapshot | null; error?: Error | null }): void => {
+  const drawCapabilities = (state: { snapshot: RepositorySnapshot | null; error?: Error | null }): void => {
     workspaceCapabilities = buildCapabilityTree(state.snapshot, state.error?.message ?? null, readiness);
     drawWorkspaceScope();
   };
@@ -818,9 +889,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Written through the engine, which validates before it writes — a template is governed
       // configuration like any other, and the editor does not get its own way past that.
-      output.appendLine(`\n$ singularity-flow desktop save ${message.path}`);
+      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
       try {
-        await client.runText(['desktop', 'save', message.path], { input: message.content });
+        await client.runText(['configuration', 'save', message.path], { input: message.content });
         await store.refresh();
         return null;
       } catch (error) {
@@ -828,6 +899,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return (error as Error).message;
       }
     }),
+    'singularityFlow.openCopilot': async () => {
+      try {
+        const prompt = await client.runText(['wm', 'show-prompt']);
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt, isPartialQuery: false });
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not prepare governed Copilot context: ${(error as Error).message}`);
+      }
+    },
     // Both open the same screen, positioned: adding lands on the form for a new capability under
     // whatever was clicked, editing lands on the capability itself.
     'singularityFlow.addCapability': ((node?: TreeNode) => {

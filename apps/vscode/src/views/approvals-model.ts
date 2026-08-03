@@ -11,7 +11,7 @@
  * arrives with the engine's own reason. It must never *hide* an approval the engine would accept,
  * so every uncertain case is treated as actionable.
  */
-import type { ApprovalPolicy, DesktopSnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type { ApprovalPolicy, RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
 
 export type Standing = 'yours' | 'others' | 'blocked';
 
@@ -67,7 +67,7 @@ interface ApprovalRecord {
 const lower = (value: unknown): string => String(value ?? '').trim().toLowerCase();
 
 /** Members of an authority, as lowercase emails. */
-function members(snapshot: DesktopSnapshot, authority: string): Set<string> {
+function members(snapshot: RepositorySnapshot, authority: string): Set<string> {
   const listed = snapshot.portfolio?.approvalAuthorities?.[authority]?.members ?? [];
   return new Set(listed.map((member) => lower(member.email)).filter(Boolean));
 }
@@ -109,7 +109,7 @@ function chainProgress(policy: ApprovalPolicy | undefined, open: { label: string
 
 /** Whose decision this is now, and why it is not yours when it is not. */
 function standingFor(
-  snapshot: DesktopSnapshot,
+  snapshot: RepositorySnapshot,
   actor: string | null,
   policy: ApprovalPolicy | undefined,
   chain: ChainStep[]
@@ -158,7 +158,7 @@ function packTerminalPhase(phaseOrder: string[], members2: string[]): string | n
   return terminal;
 }
 
-export function buildApprovals(snapshot: DesktopSnapshot | null): Approvals {
+export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
   if (!snapshot) return { initiativeId: '', actor: null, pending: [], obstacles: [], empty: 'Reading the repository…' };
   const initiative = snapshot.initiative;
   if (!initiative) {
@@ -170,7 +170,7 @@ export function buildApprovals(snapshot: DesktopSnapshot | null): Approvals {
   return approvalsOf(snapshot, initiative);
 }
 
-function approvalsOf(snapshot: DesktopSnapshot, initiative: InitiativeSnapshot): Approvals {
+function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapshot): Approvals {
   const actor = lower((snapshot.identities as { git?: { email?: string } } | undefined)?.git?.email) || null;
   // `records` in the report is a count; the decisions themselves are grouped by phase.
   const byPhase = (initiative.report as { approvals?: { byPhase?: Record<string, ApprovalRecord[]> } } | undefined)

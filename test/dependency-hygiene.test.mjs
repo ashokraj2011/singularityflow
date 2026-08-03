@@ -4,17 +4,17 @@ import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
 
-test('desktop install graph excludes deprecated Electron packaging dependencies', async () => {
+test('install graph excludes retired Electron packaging dependencies', async () => {
   const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
   const lock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'));
   const npmrc = await readFile(new URL('.npmrc', root), 'utf8');
   const packages = Object.entries(lock.packages ?? {});
 
-  assert.equal(packageJson.overrides?.['@electron/asar'], '4.2.1');
-  assert.equal(packageJson.overrides?.['@electron/get'], '5.0.0');
+  assert.equal(packageJson.overrides, undefined, 'retired Electron overrides must not remain');
+  assert.deepEqual(packageJson.workspaces, ['apps/vscode']);
   assert.match(npmrc, /^omit=peer$/m);
 
-  for (const dependency of ['inflight', 'rimraf', 'boolean']) {
+  for (const dependency of ['electron', 'electron-builder', 'inflight', 'rimraf', 'boolean']) {
     const matches = packages.filter(([path, value]) => {
       if (value.peer === true) return false;
       return path === `node_modules/${dependency}` || path.endsWith(`/node_modules/${dependency}`);

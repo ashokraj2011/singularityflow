@@ -6,10 +6,10 @@ logs, and Copilot process context. Exactly one repository is the lead and
 stores Epic-level artifacts; every participating repository has its own Jira
 board routing, App ID, display name, and optional metadata.
 
-## Create from the desktop
+## Create from VS Code
 
-1. Open any initialized Singularity repository.
-2. Open **Advanced → Workspace configuration**.
+1. Open the Singularity Flow Workspaces view.
+2. Choose **Create a workspace**.
 3. Enter the workspace name and portable ID, then choose a local working
    directory.
 4. Add repositories from local Git checkouts or enter clone URLs manually.
@@ -97,20 +97,17 @@ and freshness cannot be bypassed.
 - Workspace aliases are resolved to one canonical location in the recent list.
   The managed `workspace.json` must be a regular file and cannot be a symlink.
 - Archiving or forgetting a workspace never deletes repositories or documents.
-  Archive is recoverable from the desktop; Forget removes only the local recent
+  Archive is recoverable from VS Code; Forget removes only the local recent
   pointer.
-- Opening another workspace or repository stops the previous Copilot backend
-  and clears its pending planning handles before the new context becomes active.
-- Copilot Studio receives the ready clone roots as its explicit read-only
-  filesystem boundary. It is told to exclude staged documents until governance
-  promotes or registers them.
+- Opening another workspace rebinds every view to its lead repository and refreshes the Git-derived state.
+- Native Copilot receives only the governed prompt assembled for the active repository, workflow phase, and agent.
 - A lost local workspace can be rebuilt from its saved configuration, lead Git
   branch, and participating remote branches.
 - Existing Jira-anchored `workspace.json` files remain readable and resumable.
 
 ## CLI
 
-The Electron app is the recommended experience for the unified workspace
+The VS Code extension is the recommended experience for the unified workspace
 configuration. Existing Jira-anchored CLI commands remain available for
 backward compatibility and corporate automation:
 

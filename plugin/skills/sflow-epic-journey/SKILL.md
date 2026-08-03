@@ -8,5 +8,5 @@ description: Explain the configured Epic lifecycle, current stage, governed arti
 1. Run `singularity-flow epic journey <EPIC-KEY> --json`.
 2. Render Intake → Requirements → Planning → Story publication → developer delivery → Product Owner completion as an arrow flow.
 3. Mark the current stage, completed gates, artifacts, owners, and cross-repository handoffs.
-4. Distinguish business review in a review surface — the editor extension's Approvals screen, or the desktop app — from work performed through Copilot CLI skills.
+4. Distinguish business review in the VS Code extension's Approvals view from work performed through Copilot skills.
 5. Do not change lifecycle state.

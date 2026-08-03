@@ -237,7 +237,7 @@ singularity/work-items/<WORK-ID>/artifacts/visual-verification/evidence/
 
 Record the numeric result in `visual-comparison.md`, for example `Pixel diff: 1.8% — matched within threshold`, then publish the phase. Publication automatically registers and hashes those images. The desktop **Review** page provides side-by-side, overlay-slider, and diff-highlight modes using the registered evidence.
 
-If intake also contains a Figma URL, the desktop shows an **Open in Figma** button and labels it `Live design — may differ from the pinned intake`. It opens the normal browser over HTTPS and uses the viewer's existing Figma login. It is convenience context only: approval remains bound to the committed export. Singularity does not request a Figma access token, call the Figma image API, or embed an Electron webview.
+If intake also contains a Figma URL, open it in the normal browser using the viewer's existing Figma login. Treat it as convenience context labelled `Live design — may differ from the pinned intake`: approval remains bound to the committed export. Singularity does not request a Figma access token or call the Figma image API.
 
 ## 4. Ask what to do next
 

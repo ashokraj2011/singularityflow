@@ -23,7 +23,7 @@ interface ValidationReport {
 /**
  * Ask the engine, and turn the answer into diagnostics on the file that was saved.
  *
- * `desktop validate` reports on the configuration as a whole rather than per line, so the diagnostic
+ * `configuration validate` reports on the configuration as a whole rather than per line, so the diagnostic
  * sits at the top of the file. That is honest about what was checked: the problem may well be a
  * reference between two files, and pointing at a line would invent a precision the check does not
  * have.
@@ -66,7 +66,7 @@ export class ConfigurationValidator implements vscode.Disposable {
   async validate(document: vscode.TextDocument): Promise<void> {
     let report: ValidationReport;
     try {
-      report = await this.client.run<ValidationReport>(['desktop', 'validate', '--json']);
+      report = await this.client.run<ValidationReport>(['configuration', 'validate', '--json']);
     } catch (error) {
       // A non-zero exit is itself the finding: the CLI refuses to report on a configuration it
       // cannot load, and its message is the useful part.

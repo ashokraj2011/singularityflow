@@ -9,7 +9,7 @@
  * The ordering is deliberate: what is broken, then what is waiting on a person, then what is merely
  * true. A dashboard that leads with counts trains people to skim past the one line that mattered.
  */
-import type { DesktopSnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type { RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
 import { phasesInOrder } from '../cli/snapshot.ts';
 
 export type Health = 'pass' | 'warn' | 'fail' | 'skip' | (string & {});
@@ -77,7 +77,7 @@ function epicSection(initiative: InitiativeSnapshot | null | undefined): Dashboa
   };
 }
 
-function approvalSection(snapshot: DesktopSnapshot): DashboardSection {
+function approvalSection(snapshot: RepositorySnapshot): DashboardSection {
   const inbox = snapshot.approvalInbox;
   const waiting = inbox?.count ?? 0;
   return {
@@ -95,7 +95,7 @@ function approvalSection(snapshot: DesktopSnapshot): DashboardSection {
   };
 }
 
-function agentSection(snapshot: DesktopSnapshot): DashboardSection {
+function agentSection(snapshot: RepositorySnapshot): DashboardSection {
   const agents = snapshot.agentStatus ?? [];
   const drifted = agents.filter((agent) => agent.sourceChanged);
   const unlocked = agents.filter((agent) => agent.status === 'local-only');
@@ -113,7 +113,7 @@ function agentSection(snapshot: DesktopSnapshot): DashboardSection {
   };
 }
 
-function governanceSection(snapshot: DesktopSnapshot): DashboardSection {
+function governanceSection(snapshot: RepositorySnapshot): DashboardSection {
   const ledger = snapshot.ledger;
   const enabled = Boolean(ledger?.enabled);
   return {
@@ -129,7 +129,7 @@ function governanceSection(snapshot: DesktopSnapshot): DashboardSection {
   };
 }
 
-export function buildDashboard(snapshot: DesktopSnapshot | null): Dashboard | null {
+export function buildDashboard(snapshot: RepositorySnapshot | null): Dashboard | null {
   if (!snapshot) return null;
   const diagnostics = snapshot.diagnostics;
   const checks = (diagnostics?.checks ?? []) as Check[];

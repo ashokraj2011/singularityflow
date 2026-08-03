@@ -1,7 +1,7 @@
 /**
  * One snapshot, shared by every view, refreshed deliberately.
  *
- * `desktop snapshot --json` is a whole read model in one process launch — cheap enough to call on
+ * `snapshot --json` is a whole read model in one process launch — cheap enough to call on
  * demand, far too expensive for each view to call for itself. More importantly, views that each
  * fetched their own would render different moments of the same repository side by side, which for
  * governance state is not a cosmetic problem: a tree saying "approved" beside a panel saying
@@ -12,12 +12,12 @@
  * to be out of date, and finishing it would only overwrite the newer one.
  */
 import type { SingularityFlowClient } from './cli/client.ts';
-import type { DesktopSnapshot } from './cli/snapshot.ts';
+import type { RepositorySnapshot } from './cli/snapshot.ts';
 
 export type StateListener = (state: WorkspaceState) => void;
 
 export interface WorkspaceState {
-  snapshot: DesktopSnapshot | null;
+  snapshot: RepositorySnapshot | null;
   /** The error from the most recent failed refresh, cleared by the next success. */
   error: Error | null;
   loading: boolean;

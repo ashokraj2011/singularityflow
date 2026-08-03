@@ -72,7 +72,7 @@ const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
 
 async function textFiles(root, relativeRoot, { extensions = null } = {}) {
   const boundary = await secureRepositoryPath(root, relativeRoot, {
-    label: `Desktop content directory '${relativeRoot}'`,
+    label: `Configuration content directory '${relativeRoot}'`,
     type: 'directory'
   });
   if (!boundary.exists) return [];
@@ -83,7 +83,7 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) {
-        throw new SingularityFlowError(`Desktop content cannot include a symbolic link: ${posix(path.relative(canonicalRoot, absolute))}`);
+        throw new SingularityFlowError(`Configuration content cannot include a symbolic link: ${posix(path.relative(canonicalRoot, absolute))}`);
       }
       if (entry.isDirectory()) await visit(absolute);
       else if (entry.isFile()) {
@@ -206,7 +206,7 @@ function configurationChangeScope(root, definition, portfolio, changes) {
   };
 }
 
-async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
+async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   if (!portfolio || !initiativeId) return null;
   const { initiative } = await loadInitiative(root, initiativeId, portfolio);
   const phaseId = initiative.currentPhase ?? initiative.phaseOrder.at(-1);
@@ -311,7 +311,7 @@ async function initiativeDesktopSnapshot(root, portfolio, initiativeId) {
   };
 }
 
-export async function desktopSnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
+export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const items = await workItems(root, definition);
@@ -386,7 +386,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
       assurance: {
         git: 'configured-local',
         github: github ? 'gh-authenticated' : 'unavailable',
-        jira: 'desktop-secure-session'
+        jira: 'vscode-secret-storage'
       }
     },
     telemetry,
@@ -456,7 +456,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     workItems: items,
     initiatives,
     selectedInitiativeId,
-    initiative: await initiativeDesktopSnapshot(root, portfolio, selectedInitiativeId),
+    initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),
     approvalInbox: { remote: definition.git?.remote ?? 'origin', fetched: false, generatedAt: null, count: 0, items: [] },
     selectedWorkId: selectedId,
     workflow,
@@ -470,7 +470,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
   };
 }
 
-export async function bootstrapDesktopPortfolio(root, {
+export async function bootstrapWorkspacePortfolio(root, {
   approvalName = null,
   approvalEmail = null,
   repository = null,
@@ -607,11 +607,11 @@ function exportablePath(definition, relative, portfolio = null) {
     || (portfolio && relative.startsWith(`${initiativeRoot}/`));
 }
 
-export async function saveDesktopFile(root, requestedPath, content) {
+export async function saveConfigurationFile(root, requestedPath, content) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try { validateDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
@@ -634,7 +634,7 @@ export async function saveDesktopFile(root, requestedPath, content) {
     } catch (error) { throw new SingularityFlowError(`Change was not saved because agent mapping validation failed: ${error.message}`); }
   }
   const target = await secureRepositoryPath(root, relative, {
-    label: 'Desktop configuration target',
+    label: 'Editor configuration target',
     type: 'file'
   });
   const existed = target.exists;
@@ -654,11 +654,11 @@ export async function saveDesktopFile(root, requestedPath, content) {
   return { path: relative, changed: changedFiles(root).includes(relative) };
 }
 
-export async function deleteDesktopTemplate(root, requestedPath) {
-  return deleteDesktopFile(root, requestedPath);
+export async function deleteConfigurationTemplate(root, requestedPath) {
+  return deleteConfigurationFile(root, requestedPath);
 }
 
-export async function deleteDesktopFile(root, requestedPath) {
+export async function deleteConfigurationFile(root, requestedPath) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
@@ -670,7 +670,7 @@ export async function deleteDesktopFile(root, requestedPath) {
     || relative.startsWith(`${promptsRoot}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith('.github/agents/');
-  if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
+  if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
   const references = [];
   if (relative.startsWith(`${templatesRoot}/`)) {
     const template = relative.slice(templatesRoot.length + 1);
@@ -701,7 +701,7 @@ export async function deleteDesktopFile(root, requestedPath) {
   }
   if (references.length) throw new SingularityFlowError(`File '${relative}' is still referenced by ${references.join(', ')}. Select a replacement before deleting it.`);
   const target = await secureRepositoryPath(root, relative, {
-    label: 'Desktop configuration file',
+    label: 'Editor configuration file',
     mustExist: true,
     type: 'file'
   });
@@ -709,22 +709,22 @@ export async function deleteDesktopFile(root, requestedPath) {
   return { path: relative, deleted: true, changed: changedFiles(root).includes(relative) };
 }
 
-export async function readDesktopFile(root, requestedPath) {
+export async function readConfigurationFile(root, requestedPath) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
   if (!exportablePath(definition, relative, portfolio)) throw new SingularityFlowError(`File is not an exportable Singularity Flow configuration, world-model, work-item, or initiative file: ${relative}`);
   const target = await secureRepositoryPath(root, relative, {
-    label: 'Desktop export file',
+    label: 'Editor export file',
     mustExist: true,
     type: 'file'
   });
   const content = await readFile(target.absolute);
-  if (content.length > TEXT_FILE_LIMIT) throw new SingularityFlowError(`File exceeds the ${TEXT_FILE_LIMIT}-byte desktop export limit: ${relative}`);
+  if (content.length > TEXT_FILE_LIMIT) throw new SingularityFlowError(`File exceeds the ${TEXT_FILE_LIMIT}-byte editor export limit: ${relative}`);
   return { path: relative, name: path.posix.basename(relative), content: content.toString('utf8'), contentBase64: content.toString('base64'), bytes: content.length };
 }
 
-export async function desktopExportBundle(root) {
+export async function exportConfigurationBundle(root) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope === 'repository' && !agent.source.startsWith('..'));
@@ -748,7 +748,7 @@ export async function desktopExportBundle(root) {
   return { files, repository: path.basename(root), exportedAt: new Date().toISOString(), worldModelRepositoryOwned: true };
 }
 
-export async function validateDesktopConfiguration(root) {
+export async function validateEditorConfiguration(root) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
@@ -766,7 +766,7 @@ export async function validateDesktopConfiguration(root) {
   };
 }
 
-export async function publishDesktopConfiguration(root, message = 'Configure Singularity Flow desktop workflow') {
+export async function publishEditorConfiguration(root, message = 'Configure Singularity Flow workflow') {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const changed = changedFiles(root);
@@ -777,7 +777,7 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
   if (staged.some((file) => !configurationChanges.includes(file))) throw new SingularityFlowError('Publish is blocked because unrelated files are already staged.');
   add(root, configurationChanges);
-  const sha = commit(root, message.trim() || 'Configure Singularity Flow desktop workflow');
+  const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow');
   if ((definition.git?.publish ?? 'required') === 'off') return { sha, pushed: false, files: configurationChanges };
   const remote = definition.git?.remote ?? 'origin';
   const result = pushBranch(root, remote, branch(root));
@@ -785,7 +785,7 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   return { sha, pushed: true, remote, files: configurationChanges };
 }
 
-export async function selectDesktopAgent(root, workId, agent) {
+export async function selectEditorAgent(root, workId, agent) {
   const definition = await loadDefinition(root);
   if (workId) {
     const workflow = await loadWorkflow(root, definition, workId);

@@ -7,5 +7,6 @@ tsconfig.json
 esbuild.mjs
 **/*.map
 .vscodeignore
+.gitignore
 
 # The staged CLI is deliberately NOT ignored: a packaged install has no other way to find an engine.

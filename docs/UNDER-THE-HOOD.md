@@ -1,8 +1,8 @@
 # Singularity Flow under the hood
 
 This document explains how GitHub Copilot, the Singularity Flow Node.js CLI,
-repository configuration, prompts, the world model, Git, Jira, and the Electron
-desktop fit together.
+repository configuration, prompts, the world model, Git, Jira, and the VS Code
+extension fit together.
 
 The shortest accurate description is:
 

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const suite = process.argv[2] ?? 'all';
-const SUITES = ['all', 'cli', 'desktop', 'vscode'];
+const SUITES = ['all', 'cli', 'vscode'];
 if (!SUITES.includes(suite)) throw new Error(`Test suite must be one of: ${SUITES.join(', ')}.`);
 
 /**
@@ -27,9 +27,7 @@ let needsStripping = false;
 for (const name of files) {
   const relative = path.posix.join('test', name);
   const source = await readFile(path.join(root, relative), 'utf8');
-  const kind = source.includes('apps/vscode') ? 'vscode'
-    : source.includes('apps/desktop') ? 'desktop'
-      : 'cli';
+  const kind = source.includes('apps/vscode') ? 'vscode' : 'cli';
   if (suite !== 'all' && suite !== kind) continue;
   if (kind === 'vscode' && !canStripTypes) { skipped.push(relative); continue; }
   if (kind === 'vscode') needsStripping = true;

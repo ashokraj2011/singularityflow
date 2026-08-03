@@ -1,8 +1,8 @@
 /**
- * Constants shared by the engine and the desktop renderer.
+ * Constants shared by the engine and visual clients.
  *
  * These live apart from planning.mjs because that module imports node:crypto and the filesystem,
- * which cannot be bundled into the Electron renderer. Duplicating the values instead would create
+ * which should not be bundled into a webview. Duplicating the values instead would create
  * the second source of truth that the promotion fence and the action vocabulary have each already
  * drifted into once.
  */

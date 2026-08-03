@@ -13,7 +13,7 @@ import {
   CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
-import type { DesktopSnapshot } from './snapshot.ts';
+import type { RepositorySnapshot } from './snapshot.ts';
 
 export interface CliLocation {
   /** The Node executable used to run the CLI. */
@@ -72,6 +72,8 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
 export interface ClientOptions {
   location: CliLocation;
   repository: string;
+  /** Secrets are supplied by VS Code SecretStorage and exist only in the child process. */
+  environment?: NodeJS.ProcessEnv;
   onOutput?: (text: string, stream: OutputStream) => void;
 }
 
@@ -113,15 +115,16 @@ export class SingularityFlowClient {
       args,
       json,
       input,
+      env: this.options.environment,
       timeoutMs,
       onOutput: this.options.onOutput,
       signal
     });
   }
 
-  /** The whole read model in one call, exactly as the desktop consumes it. */
-  snapshot(signal?: AbortSignal): Promise<DesktopSnapshot> {
-    return this.invoke<DesktopSnapshot>(['desktop', 'snapshot', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
+  /** The whole read model in one public, surface-neutral call. */
+  snapshot(signal?: AbortSignal): Promise<RepositorySnapshot> {
+    return this.invoke<RepositorySnapshot>(['snapshot', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
   }
 
   /** Computed impact, reconciled against the published map. */

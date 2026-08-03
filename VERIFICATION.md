@@ -73,12 +73,12 @@ Use this checklist for the agent-only Singularity Flow 0.9.0 development model.
 
 ## Interfaces
 
-- CLI, `/sf-*` and `/sflow-*` skills, Electron, and VS Code show the same current
+- CLI, `/sf-*` and `/sflow-*` skills, and VS Code show the same current
   phase, default agent, documents, approvals, and next valid action.
 - The VS Code Lifecycle view owns intake and progress. Configuration shows
   workflows, agents, templates, world-model state, and mappings for the active
   workspace without opening a new VS Code window.
-- Desktop and VS Code labels say “agent” only for software execution contracts;
+- VS Code labels say “agent” only for software execution contracts;
   people are shown as contributors, reviewers, and authority members.
 
 ## Release commands
@@ -86,7 +86,7 @@ Use this checklist for the agent-only Singularity Flow 0.9.0 development model.
 ```bash
 npm test
 npm run check
-npm run desktop:build
+npm run vscode:build
 npm run vscode:typecheck
 npm run test:vscode
 npm pack --dry-run

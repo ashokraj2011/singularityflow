@@ -74,17 +74,17 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
-  bootstrapDesktopPortfolio,
-  deleteDesktopFile,
-  deleteDesktopTemplate,
-  desktopExportBundle,
-  desktopSnapshot,
-  publishDesktopConfiguration,
-  readDesktopFile,
-  saveDesktopFile,
-  selectDesktopAgent,
-  validateDesktopConfiguration
-} from './desktop.mjs';
+  bootstrapWorkspacePortfolio,
+  deleteConfigurationFile,
+  deleteConfigurationTemplate,
+  exportConfigurationBundle,
+  repositorySnapshot,
+  publishEditorConfiguration,
+  readConfigurationFile,
+  saveConfigurationFile,
+  selectEditorAgent,
+  validateEditorConfiguration
+} from './editor.mjs';
 import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
 import {
   filterLogEntries, LOG_LEVELS, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging
@@ -199,7 +199,7 @@ What it provides:
   - Jira or manual intake with supporting documents
   - Requirements-to-code traceability, verification, and conformance reporting
   - Atomic Git commit/push state transfer, including every approval decision
-  - Remote Markdown agents and an Electron configuration desktop
+  - Remote Markdown agents and a VS Code configuration experience
   - Per-phase token and model usage reporting when the provider exposes it
   - A redacted, machine-local activity log readable from the CLI and Copilot
 
@@ -326,15 +326,11 @@ Usage:
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
   singularity-flow plugin uninstall | list | path
-  singularity-flow desktop snapshot [WORK-ID] --json
-  singularity-flow desktop validate --json
-  singularity-flow desktop save <PATH>          Reads replacement content from stdin
-  singularity-flow desktop read <PATH> --json
-  singularity-flow desktop export-bundle --json
-  singularity-flow desktop delete-file <PATH> --json
-  singularity-flow desktop delete-template <PATH> --json
-  singularity-flow desktop publish [--message TEXT] --json
-  singularity-flow desktop session <AGENT> [--work-id ID] --json
+  singularity-flow snapshot [WORK-ID] --json
+  singularity-flow configuration validate --json
+  singularity-flow configuration save <PATH>    Reads replacement content from stdin
+  singularity-flow desktop snapshot [WORK-ID] --json    Deprecated compatibility alias
+  singularity-flow desktop <SUBCOMMAND>                  Deprecated compatibility namespace
   singularity-flow initiative profiles [--json]
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT]
@@ -969,7 +965,7 @@ async function documentsCommand(positionals, options) {
     console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
-    if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or desktop viewer.');
+    if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
     return;
   }
@@ -1797,7 +1793,7 @@ async function workflowCommand(positionals, options) {
     const id = requirePositional(positionals, 2, 'workflow type');
     const result = await installWorkflow(root, id, { replace: optionBoolean(options, 'replace'), dryRun: optionBoolean(options, 'dry-run') });
     console.log(`${result.dryRun ? 'Would update' : 'Updated'} workflow '${id}':`); result.files.forEach((file) => console.log(`  ${file}`));
-    if (!result.dryRun) console.log('Changes are validated but uncommitted. Review them, then publish from the desktop or commit them through your normal configuration-review path.');
+    if (!result.dryRun) console.log('Changes are validated but uncommitted. Review them, then publish through the VS Code extension or commit them through your normal configuration-review path.');
     return;
   }
   throw new SingularityFlowError(`Unknown workflow subcommand: ${subcommand}`);
@@ -2388,9 +2384,9 @@ async function chooseInitiativeProfile(portfolio, selection = null) {
 }
 
 // Exact confirmation exists so a destructive initiative action is never taken by accident, not so it
-// can only be taken from a terminal. A GUI cannot type into stdin, and the desktop app already passes
-// the confirmation as a parameter over IPC, so `--confirm` is the same contract for every other
-// surface — and matches how `workspace create|archive|update` already take it. The value must still
+// can only be taken from a terminal. A visual client cannot type into stdin, so `--confirm` is the
+// same contract for every surface — and matches how `workspace create|archive|update` already take
+// it. The value must still
 // be exact; supplying the wrong one fails loudly rather than falling back to a prompt.
 async function confirmInitiativeExact(prompt, expected, options = null) {
   const supplied = options ? optionString(options, 'confirm') : undefined;
@@ -3066,8 +3062,8 @@ async function initiativeCommand(positionals, options) {
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       if (!context.valid) throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${context.errors.join('\n- ')}`);
       // Traceability verification and its evidence now live in publishInitiativePhase, so the CLI
-      // and the desktop record the same thing. They used to live here, which is why publishing
-      // from the app left blocking gates unsatisfied and the phase impossible to approve.
+      // and the VS Code extension record the same thing. They used to live here, which is why publishing
+      // from the editor left blocking gates unsatisfied and the phase impossible to approve.
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const publishState = await loadInitiative(root, initiativeId);
       const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
@@ -3183,11 +3179,10 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'approve') {
     const subject = positionals[2] ?? 'phase';
     const phaseId = initiative.currentPhase;
-    // Planning approval was refused here and implemented only in the desktop app's IPC, so the Story
-    // plan could not be approved without Electron at all. The guard the desktop applied — an explicit
-    // acknowledgement that approving your own work is not independent review — is applied here
-    // instead, so the governance property is identical wherever the approval happens. Exact-hash
-    // Exact confirmation is enforced below; the phase agent is activated automatically.
+    // Planning approval is a first-class CLI operation. It retains the explicit acknowledgement
+    // that approving your own work is not independent review, so the governance property is
+    // identical wherever the approval happens. Exact confirmation is enforced below; the phase
+    // agent is activated automatically.
     const approvalActor = String(identity(root).email ?? '').toLowerCase();
     const selfApproval = Boolean(approvalActor) && Object.values(initiative.phases[phaseId]?.outputs ?? {})
       .some((output) => String(output.generatedBy?.email ?? '').toLowerCase() === approvalActor);
@@ -3221,7 +3216,7 @@ async function initiativeCommand(positionals, options) {
     });
     console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     if (result.knowledge?.harvested?.length) {
-      console.log(`Recorded ${result.knowledge.harvested.length} knowledge ${result.knowledge.harvested.length === 1 ? 'entry' : 'entries'} from the approved artifacts.`);
+      console.log(`Recorded ${result.knowledge.harvested.length} knowledge ${result.knowledge.harvested.length === 1 ? 'entry' : 'entries'} from the editorroved artifacts.`);
     }
     if (result.knowledge?.error) console.warn(`Warning: knowledge harvest failed and was skipped: ${result.knowledge.error}`);
     if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
@@ -3397,27 +3392,27 @@ async function initiativeCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown initiative subcommand '${subcommand}'.`);
 }
 
-async function desktopCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'desktop subcommand');
+async function editorCommand(positionals, options, namespace = 'configuration') {
+  const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
   let result;
-  if (subcommand === 'snapshot') result = await desktopSnapshot(root, positionals[2], optionString(options, 'initiative'));
-  else if (subcommand === 'validate') result = await validateDesktopConfiguration(root);
-  else if (subcommand === 'save') result = await saveDesktopFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
-  else if (subcommand === 'read') result = await readDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));
-  else if (subcommand === 'export-bundle') result = await desktopExportBundle(root);
-  else if (subcommand === 'delete-file') result = await deleteDesktopFile(root, requirePositional(positionals, 2, 'configuration path'));
-  else if (subcommand === 'delete-template') result = await deleteDesktopTemplate(root, requirePositional(positionals, 2, 'template path'));
-  else if (subcommand === 'publish') result = await publishDesktopConfiguration(root, optionString(options, 'message'));
+  if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
+  else if (subcommand === 'validate') result = await validateEditorConfiguration(root);
+  else if (subcommand === 'save') result = await saveConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
+  else if (subcommand === 'read') result = await readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
+  else if (subcommand === 'export-bundle') result = await exportConfigurationBundle(root);
+  else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
+  else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));
+  else if (subcommand === 'publish') result = await publishEditorConfiguration(root, optionString(options, 'message'));
   else if (subcommand === 'portfolio-bootstrap') {
     let input = {};
     const text = await stdinText();
     if (text.trim()) {
       try { input = JSON.parse(text); } catch (error) { throw new SingularityFlowError(`Portfolio bootstrap input must be JSON: ${error.message}`); }
     }
-    result = await bootstrapDesktopPortfolio(root, input);
+    result = await bootstrapWorkspacePortfolio(root, input);
   }
-  else if (subcommand === 'session') result = await selectDesktopAgent(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'agent'));
+  else if (subcommand === 'session') result = await selectEditorAgent(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'agent'));
   else if (subcommand === 'planning-context') result = await createPlanningContext(root, {
     scope: optionString(options, 'scope'),
     id: optionString(options, 'id'),
@@ -3505,8 +3500,14 @@ async function desktopCommand(positionals, options) {
     );
     result.pendingPublication = pendingPublication;
   }
-  else throw new SingularityFlowError(`Unknown desktop subcommand: ${subcommand}`);
+  else throw new SingularityFlowError(`Unknown ${namespace} subcommand: ${subcommand}`);
   console.log(JSON.stringify(result, null, 2));
+}
+
+async function snapshotCommand(positionals, options) {
+  const result = await repositorySnapshot(repoRoot(), positionals[1], optionString(options, 'initiative'));
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(JSON.stringify(result, null, 2));
 }
 
 function optionMap(values, label) {
@@ -3773,8 +3774,7 @@ async function workspaceCommand(positionals, options) {
   }
   if (subcommand === 'create') {
     // A workspace does not need a tracker to exist. The local anchor was already implemented but
-    // reachable only from the desktop app, so a Jira-less team could not create one at all once the
-    // desktop is out of the picture.
+    // exposed through the same public CLI so Jira-less teams can create one from any client.
     if (optionBoolean(options, 'local')) {
       const workspaceId = optionString(options, 'id');
       if (!workspaceId) throw new SingularityFlowError('workspace create --local requires --id.');
@@ -5187,7 +5187,9 @@ async function dispatch(command, positionals, options) {
     wm: () => worldModelCommand(repoRoot(), positionals, options),
     jira: () => jiraCommand(positionals, options),
     plugin: () => pluginCommand(positionals, options),
-    desktop: () => desktopCommand(positionals, options),
+    snapshot: () => snapshotCommand(positionals, options),
+    configuration: () => editorCommand(positionals, options, 'configuration'),
+    desktop: () => editorCommand(positionals, options, 'desktop'),
     initiative: () => initiativeCommand(positionals, options),
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),

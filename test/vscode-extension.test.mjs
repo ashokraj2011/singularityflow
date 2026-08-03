@@ -7,9 +7,9 @@
  * in runner.ts. If someone adds an enum or a parameter property, these tests fail loudly at import,
  * which is the intended alarm.
  *
- * The snapshot fixture is a real `desktop snapshot --json`, trimmed to the regions the extension
+ * The snapshot fixture is a real `snapshot --json`, trimmed to the regions the extension
  * types. Its value is that it was produced by the engine: a hand-written fixture only proves the
- * accessors agree with my reading of desktop.mjs, which is the thing most likely to be wrong.
+ * accessors agree with my reading of editor.mjs, which is the thing most likely to be wrong.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -796,8 +796,9 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     const configuration = find(tree, 'configuration');
     assert.ok(configuration, 'configuration is always reachable');
     const children = configuration.children.map((child) => child.id);
-    // The world model leads; workflow and phase creation have one explicit design group.
-    assert.deepEqual(children.slice(0, 2), ['world-model', 'config:workflow-design']);
+    // Local identity/integrations lead, then grounding and the governed design files.
+    assert.deepEqual(children.slice(0, 3),
+      ['config:local-profile', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
       ['config:designer', 'config:workflow', 'config:portfolio']);
@@ -1413,10 +1414,11 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
   assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
 
-  // The world model is inside Configuration, first, because it is the one thing there that is
-  // built rather than edited.
+  // Local identity and integrations lead Configuration; the world model follows as the repository
+  // grounding that is built rather than edited.
   const configuration = find(configurationTree, 'configuration');
-  assert.equal(configuration.children[0].id, 'world-model');
+  assert.equal(configuration.children[0].id, 'config:local-profile');
+  assert.equal(configuration.children[1].id, 'world-model');
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
 
   // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one

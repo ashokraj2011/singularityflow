@@ -15,7 +15,7 @@ function command(executable, args, cwd, { allowFailure = false, selection = true
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Story Developer',
-    ...(selection ? { SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'developer' }) } : {})
+    ...(selection ? { SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'developer' }) } : {})
   };
   const result = spawnSync(executable, args, { cwd, encoding: 'utf8', env });
   if (!allowFailure && result.status !== 0) throw new Error(`${executable} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -91,7 +91,7 @@ test('registered child branches publish hash-bound review packets and unknown br
   );
 
   git(root, ['switch', '-c', 'feature/unregistered']);
-  const blocked = flow(root, ['lens', 'MOB-123'], { allowFailure: true, selection: false });
+  const blocked = flow(root, ['agent', 'MOB-123', '--agent', 'developer'], { allowFailure: true, selection: false });
   assert.notEqual(blocked.status, 0);
   assert.match(blocked.stderr, /not registered for Story 'MOB-123'/);
   assert.match(blocked.stderr, /story branch attach --parent MOB-123/);

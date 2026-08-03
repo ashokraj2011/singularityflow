@@ -10,6 +10,6 @@ disable-model-invocation: true
 3. Show every pending item with its work/Jira ID, title, phase, generation, approval count, waiting time, human authority groups, artifact path, remote commit, and self-approval warning.
 4. Use Copilot's `ask_user` facility to let the contributor select one exact work/Jira ID. Never infer or preselect an item.
 5. Run `singularity-flow session attach <WORK-ID>` for the exact selection. This may create a local tracking branch and fast-forward it, but it must never merge, rebase, reset, stash, or discard local work.
-6. Continue through `/sflow-session` if working-lens selection is required. The contributor must choose the lens; never imply that it changes the approval authority of their identity.
+6. Continue through `/sflow-session` when work-item attachment is required. The phase agent activates automatically and never changes the approval authority of the human identity.
 7. Run `singularity-flow phase show <PHASE> --json` and reproduce every generated text document in the visible response for review. Also mention supporting evidence available through `/sflow-documents`.
 8. Stop after presenting the complete review context. Offer `/sflow-approve` and `/sflow-reject` as explicit next actions, but never decide or approve automatically.

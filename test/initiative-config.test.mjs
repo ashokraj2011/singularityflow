@@ -203,13 +203,13 @@ test('initiative creation snapshots the profile and prepares phase-specific outp
     id: 'INIT-100',
     title: 'Cross-repository onboarding',
     profile: 'initiative-lite',
-    persona: 'product-owner',
+    agent: 'product-owner',
     source: { type: 'manual', description: 'Deliver onboarding across repositories.' }
   });
   assert.equal(initiative.currentPhase, 'define');
   assert.equal(initiative.resolution.profile, 'initiative-lite');
   assert.equal(initiative.resolution.approvalAuthorities['initiative-owners'].members[0].email, 'owner@example.com');
-  const prepared = await prepareInitiativePhase(root, 'INIT-100', 'define', { persona: 'product-owner' });
+  const prepared = await prepareInitiativePhase(root, 'INIT-100', 'define', { agent: 'product-owner' });
   assert.equal(prepared.outputs.length, 3);
   assert.ok(prepared.outputs.every((output) => output.sha256));
   assert.match(await readFile(path.join(root, prepared.outputs[0].path), 'utf8'), /Cross-repository onboarding|INIT-100/);
@@ -225,12 +225,12 @@ test('initiative preparation enforces its immutable template snapshot', async ()
     id: 'INIT-PIN',
     title: 'Pinned initiative',
     profile: 'initiative-lite',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   const template = initiative.resolution.templates['define/business-case'];
   await writeFile(path.join(root, template.path), '# changed after initiative start\n');
   await assert.rejects(
-    () => prepareInitiativePhase(root, 'INIT-PIN', 'define', { persona: 'product-owner' }),
+    () => prepareInitiativePhase(root, 'INIT-PIN', 'define', { agent: 'product-owner' }),
     /changed after INIT-PIN was created/
   );
 });
@@ -254,10 +254,10 @@ test('template-less binary outputs wait for an upload and publish with an action
     id: 'INIT-BINARY',
     title: 'Binary evidence initiative',
     profile: 'initiative-lite',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
 
-  const prepared = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { persona: 'product-owner' });
+  const prepared = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { agent: 'product-owner' });
   const pending = prepared.outputs.find((output) => output.id === 'research-bundle');
   assert.deepEqual(
     { awaitingUpload: pending.awaitingUpload, sha256: pending.sha256, bytes: pending.bytes },
@@ -272,7 +272,7 @@ test('template-less binary outputs wait for an upload and publish with an action
   );
 
   await writeFile(expected, Buffer.from('PK mocked governed bundle'));
-  const uploaded = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { persona: 'product-owner' });
+  const uploaded = await prepareInitiativePhase(root, 'INIT-BINARY', 'define', { agent: 'product-owner' });
   const record = uploaded.outputs.find((output) => output.id === 'research-bundle');
   assert.equal(record.awaitingUpload, false);
   assert.ok(record.sha256);

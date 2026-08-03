@@ -84,7 +84,7 @@ test('an unanswered policy leaves its check unanswered, and answering resolves i
   const root = await repository();
   run('git', ['switch', '-c', 'INIT-1'], { cwd: root });
   await createInitiative(root, {
-    id: 'INIT-1', title: 'Applicability', profile: 'enterprise-delivery', persona: 'product-owner',
+    id: 'INIT-1', title: 'Applicability', profile: 'enterprise-delivery', agent: 'product-owner',
     source: { type: 'manual', description: 'Applicability engine.' }
   });
 
@@ -113,7 +113,7 @@ test('applicability state reports every declared policy and its answer', async (
   const root = await repository();
   run('git', ['switch', '-c', 'INIT-2'], { cwd: root });
   await createInitiative(root, {
-    id: 'INIT-2', title: 'State', profile: 'enterprise-delivery', persona: 'product-owner',
+    id: 'INIT-2', title: 'State', profile: 'enterprise-delivery', agent: 'product-owner',
     source: { type: 'manual', description: 'Applicability state.' }
   });
   let loaded = await loadInitiative(root, 'INIT-2');

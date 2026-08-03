@@ -37,8 +37,8 @@
           "phase 'requirements'",
           "phase 'design-intake'",
           "phase 'design-inventory'",
-          "persona 'product-owner' prompt",
-          "persona 'product-designer' prompt",
+          "agent 'product-owner' prompt",
+          "agent 'product-designer' prompt",
           "Markdown 'singularity/prompts/worldmodel-builder.md'"
         ]
       },
@@ -53,9 +53,9 @@
           "phase 'component-mapping'",
           "phase 'mobile-spec'",
           "phase 'conformance'",
-          "persona 'architect' prompt",
-          "persona 'product-designer' prompt",
-          "persona 'mobile-architect' prompt",
+          "agent 'architect' prompt",
+          "agent 'product-designer' prompt",
+          "agent 'mobile-architect' prompt",
           "Markdown 'singularity/prompts/worldmodel-builder.md'"
         ]
       },
@@ -72,9 +72,9 @@
           "phase 'verification'",
           "phase 'visual-verification'",
           "phase 'conformance'",
-          "persona 'developer' prompt",
-          "persona 'qa' prompt",
-          "persona 'mobile-architect' prompt",
+          "agent 'developer' prompt",
+          "agent 'qa' prompt",
+          "agent 'mobile-architect' prompt",
           "Markdown 'singularity/prompts/worldmodel-builder.md'"
         ]
       },
@@ -89,10 +89,10 @@
           "phase 'verification'",
           "phase 'visual-verification'",
           "phase 'conformance'",
-          "persona 'developer' prompt",
-          "persona 'qa' prompt",
-          "persona 'product-designer' prompt",
-          "persona 'mobile-architect' prompt",
+          "agent 'developer' prompt",
+          "agent 'qa' prompt",
+          "agent 'product-designer' prompt",
+          "agent 'mobile-architect' prompt",
           "Markdown 'singularity/prompts/worldmodel-builder.md'"
         ]
       },
@@ -120,9 +120,9 @@
           "phase 'verification'",
           "phase 'visual-verification'",
           "phase 'conformance'",
-          "persona 'architect' prompt",
-          "persona 'qa' prompt",
-          "persona 'mobile-architect' prompt",
+          "agent 'architect' prompt",
+          "agent 'qa' prompt",
+          "agent 'mobile-architect' prompt",
           "Markdown 'singularity/prompts/worldmodel-builder.md'"
         ]
       }
@@ -174,7 +174,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "scope-and-outcomes": {
               "id": "scope-and-outcomes",
@@ -187,7 +187,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "acceptance-criteria": {
               "id": "acceptance-criteria",
@@ -200,7 +200,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             }
           }
         },
@@ -222,7 +222,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "story-plan": {
               "id": "story-plan",
@@ -235,7 +235,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "interface-contracts": {
               "id": "interface-contracts",
@@ -248,7 +248,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             }
           }
         },
@@ -270,7 +270,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "test-and-ci-report": {
               "id": "test-and-ci-report",
@@ -283,7 +283,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             }
           }
         },
@@ -305,7 +305,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "production-validation": {
               "id": "production-validation",
@@ -318,7 +318,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             },
             "initiative-conformance": {
               "id": "initiative-conformance",
@@ -331,7 +331,7 @@
               "sha256": null,
               "bytes": 0,
               "generatedBy": null,
-              "generatedPersona": null
+              "generatedAgent": null
             }
           }
         }
@@ -1222,7 +1222,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "define",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/business-case.md",
         "content": null
@@ -1238,7 +1238,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "define",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/scope-and-outcomes.md",
         "content": null
@@ -1254,7 +1254,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "define",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/define/acceptance-criteria.md",
         "content": null
@@ -1270,7 +1270,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "plan",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/architecture-summary.md",
         "content": null
@@ -1286,7 +1286,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "plan",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/story-plan.yml",
         "content": null
@@ -1302,7 +1302,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "plan",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/plan/interface-contracts.md",
         "content": null
@@ -1318,7 +1318,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "build",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/build/implementation-index.md",
         "content": null
@@ -1334,7 +1334,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "build",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/build/test-and-ci-report.md",
         "content": null
@@ -1350,7 +1350,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "release",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/release-record.md",
         "content": null
@@ -1366,7 +1366,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "release",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/production-validation.md",
         "content": null
@@ -1382,7 +1382,7 @@
         "sha256": null,
         "bytes": null,
         "generatedBy": null,
-        "generatedPersona": null,
+        "generatedAgent": null,
         "phase": "release",
         "repositoryPath": "singularity/initiatives/INIT-MULTI/artifacts/release/initiative-conformance.md",
         "content": null

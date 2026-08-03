@@ -29,7 +29,7 @@ test('onboarding profile requires only a local name and role while keeping integ
 
 test('onboarding keeps the role but no longer derives a separate experience from it', () => {
   // Business and Engineer were merged into one navigation, so the role selected during
-  // onboarding is recorded for persona suggestions and never routes to a different shell.
+  // onboarding is recorded for agent suggestions and never routes to a different shell.
   assert.equal(normalizeOnboardingProfile({ role: 'product-owner' }).role, 'product-owner');
   assert.equal(normalizeOnboardingProfile({ role: 'developer' }).role, 'developer');
   for (const role of ['product-owner', 'business-analyst', 'developer']) {

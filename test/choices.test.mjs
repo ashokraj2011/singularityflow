@@ -70,14 +70,13 @@ test('one-time selection receipt lets Copilot start work without a persistent TT
   const begun = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-101', '--json']).stdout);
   assert.equal(begun.action, 'start');
   assert.equal(begun.workId, 'CHOICE-101');
-  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['intake-source', 'workflow-template', 'persona']);
+  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['intake-source', 'workflow-template']);
   assert.ok(begun.choiceSets.find((item) => item.id === 'workflow-template').options.some((item) => item.id === 'bugfix'));
   const receiptFile = path.join(root, '.git', 'singularity-flow', 'choices', `${begun.token}.json`);
   assert.equal((await stat(receiptFile)).mode & 0o777, 0o600);
 
   flow(root, ['choices', 'answer', begun.token, 'intake-source', 'manual', '--json']);
-  flow(root, ['choices', 'answer', begun.token, 'workflow-template', 'bugfix', '--json']);
-  const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'persona', 'developer', '--json']).stdout);
+  const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'workflow-template', 'bugfix', '--json']).stdout);
   assert.equal(ready.ready, true);
 
   const started = flow(root, ['start', 'CHOICE-101', '--title', 'Receipt-backed start', '--selection-receipt', begun.token]);
@@ -86,23 +85,22 @@ test('one-time selection receipt lets Copilot start work without a persistent TT
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity', 'work-items', 'CHOICE-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.workItem.workType, 'bugfix');
   const session = JSON.parse(await readFile(path.join(root, '.git', 'singularity-flow', 'session.json'), 'utf8'));
-  assert.equal(session.persona, 'developer');
+  assert.equal(session.agent, 'product-owner');
   assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
 });
 
 test('selection receipts reject incomplete, mismatched, invalid, and stale choices', async () => {
   const root = await repository();
   let receipt = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-201', '--json']).stdout);
-  const invalid = flow(root, ['choices', 'answer', receipt.token, 'persona', 'not-configured', '--json'], { allowFailure: true });
+  const invalid = flow(root, ['choices', 'answer', receipt.token, 'agent', 'not-configured', '--json'], { allowFailure: true });
   assert.equal(invalid.status, 1);
-  assert.match(invalid.stderr, /Unknown working lens/);
+  assert.match(invalid.stderr, /has no choice 'agent'/);
   const incomplete = flow(root, ['start', 'CHOICE-201', '--title', 'Incomplete', '--selection-receipt', receipt.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);
   assert.match(incomplete.stderr, /incomplete: Intake source/);
 
   flow(root, ['choices', 'answer', receipt.token, 'intake-source', 'manual']);
   flow(root, ['choices', 'answer', receipt.token, 'workflow-template', 'feature']);
-  flow(root, ['choices', 'answer', receipt.token, 'persona', 'architect']);
   const mismatch = flow(root, ['start', 'OTHER-201', '--title', 'Mismatch', '--selection-receipt', receipt.token], { allowFailure: true });
   assert.equal(mismatch.status, 1);
   assert.match(mismatch.stderr, /for start CHOICE-201, not start OTHER-201/);
@@ -116,13 +114,12 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   assert.match(stale.stderr, /stale because the repository HEAD changed/);
 });
 
-test('approval receipt keeps persona selection and exact phase confirmation inside Copilot', async () => {
+test('approval receipt keeps exact phase confirmation inside Copilot and uses the phase agent', async () => {
   const root = await repository();
   const workId = 'CHOICE-APPROVE-1';
   const start = JSON.parse(flow(root, ['choices', 'begin', 'start', workId, '--json']).stdout);
   flow(root, ['choices', 'answer', start.token, 'intake-source', 'manual']);
   flow(root, ['choices', 'answer', start.token, 'workflow-template', 'feature']);
-  flow(root, ['choices', 'answer', start.token, 'persona', 'product-owner']);
   flow(root, ['start', workId, '--title', 'Receipt-backed approval', '--selection-receipt', start.token]);
 
   const workflowFile = path.join(root, 'singularity', 'work-items', workId, 'workflow.json');
@@ -138,16 +135,11 @@ test('approval receipt keeps persona selection and exact phase confirmation insi
   assert.equal(begun.approvalContext.phase, 'intake');
   assert.equal(begun.approvalContext.generation, 1);
   assert.ok(begun.approvalContext.artifacts[0].sha256);
-  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['persona', 'phase-confirmation']);
-  assert.deepEqual(
-    begun.choiceSets[0].options.map((item) => item.id),
-    ['developer', 'architect', 'product-owner', 'qa', 'product-designer', 'mobile-architect']
-  );
+  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['phase-confirmation']);
 
   const wrongConfirmation = flow(root, ['choices', 'answer', begun.token, 'phase-confirmation', 'requirements'], { allowFailure: true });
   assert.equal(wrongConfirmation.status, 1);
   assert.match(wrongConfirmation.stderr, /Allowed: intake/);
-  flow(root, ['choices', 'answer', begun.token, 'persona', 'product-owner']);
   const incomplete = flow(root, ['approve', workId, '--selection-receipt', begun.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);
   assert.match(incomplete.stderr, /incomplete: Exact phase confirmation/);
@@ -173,19 +165,19 @@ test('concurrent selection answers preserve every choice and leave no mutation l
     workId: 'CHOICE-CONCURRENT',
     choiceSets: [
       { id: 'workflow', label: 'Workflow', options: [{ id: 'feature', label: 'Feature' }] },
-      { id: 'persona', label: 'Persona', options: [{ id: 'developer', label: 'Developer' }] }
+      { id: 'agent', label: 'Agent', options: [{ id: 'developer', label: 'Developer' }] }
     ]
   });
 
   await Promise.all([
     flowAsync(root, ['choices', 'answer', receipt.token, 'workflow', 'feature', '--json']),
-    flowAsync(root, ['choices', 'answer', receipt.token, 'persona', 'developer', '--json'])
+    flowAsync(root, ['choices', 'answer', receipt.token, 'agent', 'developer', '--json'])
   ]);
 
   const ready = await selectionReceiptStatus(root, receipt.token);
   assert.equal(ready.ready, true);
   assert.equal(ready.answers.workflow.id, 'feature');
-  assert.equal(ready.answers.persona.id, 'developer');
+  assert.equal(ready.answers.agent.id, 'developer');
   const directory = path.join(root, '.git', 'singularity-flow', 'choices');
   assert.deepEqual((await readdir(directory)).filter((file) => file.endsWith('.lock')), []);
   await consumeSelectionReceipt(root, receipt.token);
@@ -196,7 +188,7 @@ test('selection receipt reads reject mismatched tokens, unsupported schemas, and
   const create = () => beginCustomSelectionReceipt(root, {
     action: 'test',
     workId: 'CHOICE-INTEGRITY',
-    choiceSets: [{ id: 'persona', label: 'Persona', options: [{ id: 'developer', label: 'Developer' }] }]
+    choiceSets: [{ id: 'agent', label: 'Agent', options: [{ id: 'developer', label: 'Developer' }] }]
   });
 
   let receipt = await create();

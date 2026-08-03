@@ -128,7 +128,7 @@ test('Jira Epic adoption can create a governed Epic or target a typed existing i
   assert.match(source, />Use existing initiative</);
   assert.match(source, /Use \{selectedEpic\.key\} as the immutable Git identity/);
   assert.match(source, /list="jira-initiative-options"/);
-  assert.ok(source.includes('startEpicWizard(data.repository.root, selectedEpic.key, createProfile, createPersona)'));
+  assert.ok(source.includes('startEpicWizard(data.repository.root, selectedEpic.key, createProfile)'));
   assert.match(source, /refreshInitiatives\(data\.repository\.root\)/);
   assert.match(source, /already exists\. Its latest remote branch was fetched and opened so you can continue/);
   assert.match(source, /Fetch & continue \{alreadyStarted\.id\}/);
@@ -381,9 +381,9 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Artifact path/);
   assert.match(source, /Inputs from earlier stages/);
   assert.match(source, /Copilot session policy/);
-  assert.match(source, /Block mutating tools until work item and lens are selected/);
+  assert.match(source, /Block mutating tools until a work item is selected/);
   assert.match(source, /Create artifact template/);
-  assert.match(source, /Create working lens and prompt/);
+  assert.match(source, /Create repository agent/);
   assert.match(source, /Create repository skill/);
   assert.match(source, /Flow skills <span>\{flowSkills\.length\}<\/span>/);
   assert.match(source, /Customize for this repository/);
@@ -397,7 +397,7 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.match(source, /Repository-owned world model/);
   assert.match(source, /Editable builder prompt/);
   assert.match(source, /World-model views/);
-  assert.match(source, /Once referenced by a stage, working lens, rule, or prompt, the view is protected from deletion/i);
+  assert.match(source, /Once referenced by a stage, governed agent, rule, or prompt, the view is protected from deletion/i);
   assert.match(styles, /Avenir Next/);
   assert.match(styles, /Iowan Old Style/);
   assert.match(styles, /color-scheme: light/);
@@ -433,7 +433,8 @@ test('Electron desktop exposes guided workflow and portable repository configura
   assert.doesNotMatch(source, /function EpicRequirementsView/);
   assert.match(styles, /\.requirements-output-map/);
   assert.match(source, /Create & validate governance/);
-  assert.match(source, /Set your working perspective/);
+  assert.match(source, /Your name and organizational role personalize the interface only/);
+  assert.match(source, /Phase agents and approval authority are configured separately/);
   assert.match(source, /Advanced setup/);
   assert.match(source, /Local workspace/);
   assert.match(source, /Workspace repositories/);
@@ -978,11 +979,11 @@ test('the conversation column survives its conditional children, and a message i
 test('a world-model rebuild cannot lose the views the repository already has', async () => {
   // `wm build` with no --views falls back to `views: auto` — core plus development. Rebuilding
   // from the offer card therefore replaced a five-view model with a one-view one, because
-  // installWorldModel clears the output directory first. Every phase whose persona reads business
+  // installWorldModel clears the output directory first. Every phase whose agent reads business
   // or architecture then reported the world model unavailable.
   const app = await readFile(path.join(packageRoot, 'apps/desktop/src/App.jsx'), 'utf8');
   const resolver = app.slice(app.indexOf('function requiredWorldModelViews()'), app.indexOf('async function generateWorldModel('));
-  assert.match(resolver, /persona\.worldModelViews \?\? \[\]/);
+  assert.match(resolver, /agent\.worldModelViews \?\? \[\]/);
   assert.match(resolver, /file\.path\.includes\('\/views\/'\)/);
   assert.match(app, /const requested = views\?\.length \? views : requiredWorldModelViews\(\)/);
   assert.match(app, /window\.singularity\.generateWorldModel\(repository, local, requested, initiativeId\)/);
@@ -1124,7 +1125,7 @@ test('publication waits on required outputs only, and says which ones', async ()
   // complaint that prompted this.
   assert.match(governance, /pendingRequired/);
   assert.match(governance, /Waiting on \$\{pendingRequired\.length\}/);
-  assert.match(governance, /title=\{!persona \? 'Select a working lens first\.'/);
+  assert.match(governance, /Configure a default governed agent for phase/);
 });
 
 test('a blocked approval says which field is missing, and the strip does not mislabel navigation', async () => {
@@ -1134,7 +1135,7 @@ test('a blocked approval says which field is missing, and the strip does not mis
   // A disabled primary button with its reason in help text above reads as "nothing works". Publish
   // already explained itself; approval did not, which is what made intake look broken.
   assert.match(governance, /const approvalBlocker =/);
-  assert.match(governance, /Select a review working lens first/);
+  assert.match(governance, /has no default governed agent\. Configure one before approval/);
   assert.match(governance, /in the confirmation field to approve this exact document set/);
   // A typo and an empty field are different user problems and must not share one message.
   assert.match(governance, /The confirmation phrase does not match/);
@@ -1286,7 +1287,7 @@ test('the governed contract is composed by the Copilot CLI skill, not sent by El
   const app = await readFile(path.join(packageRoot, 'apps', 'desktop', 'src', 'App.jsx'), 'utf8');
   const skill = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
   assert.doesNotMatch(main, /planning:start|planning:prompt/);
-  assert.match(app, /working lens, world model, pinned sources, approved inputs/);
+  assert.match(app, /governed agent, world model, pinned sources, approved inputs/);
   assert.match(skill, /wm compose --phase/);
 });
 

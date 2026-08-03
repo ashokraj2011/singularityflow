@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Generate an initiative phase
 
 1. Run `singularity-flow initiative status [INIT-ID] --json` and use only its current phase.
-2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected working-lens prompt, required repository world-model views, active prompt-pack Markdown, and approved upstream initiative artifacts.
+2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, required repository world-model views, active agent Markdown, and approved upstream initiative artifacts.
 3. If the command asks for a world-model build, run the exact displayed `singularity-flow wm build --views ... --focus ...` command, then retry. Never substitute a story phase for an initiative phase.
 4. Run `singularity-flow initiative context [PHASE] [--initiative INIT-ID]` and use the complete returned prompt. Do not generate from a summary or from filenames alone.
 5. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]`. Complete every required output, preserve managed metadata, satisfy the checklist contract, and do not invent evidence.

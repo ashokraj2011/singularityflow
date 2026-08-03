@@ -1,11 +1,11 @@
 import { SingularityFlowError } from './util.mjs';
 
 export const COMMAND_REGISTRY = Object.freeze([
-  ['about'], ['help'], ['init'], ['choices'], ['start'], ['resume'], ['lens'], ['session'],
+  ['about'], ['help'], ['init'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['telemetry'], ['guide'],
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['inputs'],
-  ['prompt-packs'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['submit'],
+  ['agents'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['submit'],
   ['approve'], ['reject'], ['sync'], ['ledger'], ['capabilities'], ['migrate-config'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['desktop'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']

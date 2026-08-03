@@ -18,8 +18,8 @@ export function structuredWorldModelViewReferences(definition) {
   for (const [phaseId, phase] of Object.entries(definition.phases ?? {})) {
     for (const view of phase.worldModel?.views ?? []) addReference(references, view, `phase '${phaseId}'`);
   }
-  for (const [personaId, persona] of Object.entries(definition.personas ?? {})) {
-    for (const view of persona.worldModelViews ?? []) addReference(references, view, `persona '${personaId}' prompt`);
+  for (const [agentId, agent] of Object.entries(definition.agents ?? {})) {
+    for (const view of agent.worldModelViews ?? []) addReference(references, view, `agent '${agentId}' prompt`);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes ?? {})) {
     for (const [phaseId, override] of Object.entries(workType.phaseOverrides ?? {})) {

@@ -13,19 +13,19 @@ This delivery adds an opt-in portfolio layer above Singularity Flow’s existing
 - Cross-repository milestone synchronization.
 - Reports for duration, evidence, self-approval, models, tokens, and cost.
 - GitHub Copilot `/sflow-initiative-*` skills with selection receipts.
-- Governed Copilot phase prompts combining persona, repository world model, remote agent Markdown, and approved initiative inputs with committed hash records.
+- Governed Copilot phase prompts combining phase-default Agent Markdown, repository world model, remote dependencies, and approved initiative inputs with committed hash records.
 - Flow Studio initiative dashboard and portfolio designer.
 
 ## Compatibility
 
 - Existing story workflows and `singularity/work-items` are unchanged.
 - Repositories without `singularity/portfolio.yml` perform no initiative work or extra network access.
-- Personas remain prompt behavior. Initiative approval authority is a separate local Git email registry.
+- Governed agents remain execution behavior. Initiative approval authority is a separate local Git email registry.
 - Package, desktop, marketplace, and plugin versions remain `0.8.0`.
 
 ## Security and assurance
 
-Initiative authorization is labeled `configured-local`. It is not cryptographic identity because local Git name/email can be changed. Every decision records actor, persona, channel, exact subject hash, and self-approval status.
+Initiative authorization is labeled `configured-local`. It is not cryptographic identity because local Git name/email can be changed. Every decision records actor, governed agent, channel, exact subject hash, and self-approval status.
 
 External evidence is an observed snapshot, not a competing source of truth. Git branch state remains canonical.
 

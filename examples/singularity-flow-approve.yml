@@ -38,9 +38,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           action=$(printf '%s' "$DECISION_COMMENT" | awk '{print $1}')
           phase=$(printf '%s' "$DECISION_COMMENT" | awk '{print $2}')
-          persona=$(printf '%s' "$DECISION_COMMENT" | awk '{print $4}')
-          test "$(printf '%s' "$DECISION_COMMENT" | awk '{print $3}')" = "as"
-          export SINGULARITY_FLOW_GITHUB_PERSONA="$persona"
           if [ "$action" = "/approve" ]; then
             singularity-flow approve --phase "$phase" --yes
           else

@@ -274,7 +274,7 @@ export function createLedgerIntent({
   capabilityId,
   subject,
   actor,
-  workingLens = null,
+  agent = null,
   authorityGroup = null,
   identityAssurance = null,
   payload = {}
@@ -295,7 +295,7 @@ export function createLedgerIntent({
       githubLogin: actor?.login ?? actor?.githubLogin ?? null,
       identityAssurance: identityAssurance ?? (actor?.email ? 'configured-local' : actor?.login ? 'github-authenticated' : 'unavailable')
     },
-    workingLens,
+    agent,
     authorityGroup,
     payload: canonicalValue(payload),
     createdAt: nowIso()

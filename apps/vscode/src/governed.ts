@@ -18,7 +18,7 @@ import path from 'node:path';
 const GOVERNED = [
   /^singularity\/workflow\.yml$/,
   /^singularity\/portfolio\.yml$/,
-  /^singularity\/personas\/.*\.md$/,
+  /^singularity\/agents\/.*\.md$/,
   /^singularity\/templates\/.*$/,
   /^singularity\/prompts\/.*\.md$/,
   /^\.github\/skills\/.*\.md$/,

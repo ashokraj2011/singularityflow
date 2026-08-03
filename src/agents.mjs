@@ -46,13 +46,20 @@ function validateRemoteUrl(value, label, { dynamic = false } = {}) {
   return value;
 }
 
-function parseFrontmatter(text, file) {
-  if (!text.startsWith('---\n')) return {};
+function parseAgentDocument(text, file) {
+  if (!text.startsWith('---\n')) return { frontmatter: {}, body: text };
   const end = text.indexOf('\n---\n', 4);
   if (end < 0) throw new SingularityFlowError(`Agent frontmatter is not closed: ${file}`);
   const value = YAML.parse(text.slice(4, end)) ?? {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`Agent frontmatter must be an object: ${file}`);
-  return value;
+  return { frontmatter: value, body: text.slice(end + 5) };
+}
+
+function metadataList(metadata, key) {
+  const value = metadata?.[key];
+  if (value == null || value === '' || value === '*' || value === '-') return [];
+  if (typeof value !== 'string') throw new SingularityFlowError(`Agent metadata '${key}' must be a comma-separated string.`);
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
 function rowsForHeading(text, heading, expected) {
@@ -78,10 +85,22 @@ function rowsForHeading(text, heading, expected) {
 }
 
 export function parseAgentDependencies(text, { source = 'agent.md', agentId = null } = {}) {
-  const frontmatter = parseFrontmatter(text, source);
+  const { frontmatter, body } = parseAgentDocument(text, source);
   const id = agentId ?? frontmatter.name ?? path.basename(source).replace(/\.agent\.md$|\.md$/i, '');
-  if (!idPattern(id)) throw new SingularityFlowError(`Prompt pack '${id}' must use lower-case kebab-case.`);
-  const skillRows = rowsForHeading(text, 'Remote skills', ['ID', 'URL', 'Phases', 'Personas', 'Optional', 'Max bytes']);
+  if (!idPattern(id)) throw new SingularityFlowError(`Agent '${id}' must use lower-case kebab-case.`);
+  if (typeof frontmatter.description !== 'string' || !frontmatter.description.trim()) throw new SingularityFlowError(`Agent '${id}' requires a non-empty description.`);
+  if (!body.trim()) throw new SingularityFlowError(`Agent '${id}' requires a non-empty prompt body.`);
+  if (Buffer.byteLength(body, 'utf8') > 30000) throw new SingularityFlowError(`Agent '${id}' prompt body exceeds 30000 bytes.`);
+  const metadata = frontmatter.metadata ?? {};
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new SingularityFlowError(`Agent '${id}' metadata must be an object.`);
+  for (const [key, value] of Object.entries(metadata)) if (typeof value !== 'string') throw new SingularityFlowError(`Agent '${id}' metadata '${key}' must be a string.`);
+  const phases = metadataList(metadata, 'sflow-phases');
+  const defaultFor = metadataList(metadata, 'sflow-default-for');
+  const worldModelViews = metadataList(metadata, 'sflow-world-model-views');
+  for (const phase of [...phases, ...defaultFor]) if (!idPattern(phase)) throw new SingularityFlowError(`Agent '${id}' references invalid phase '${phase}'.`);
+  for (const view of worldModelViews) if (!idPattern(view)) throw new SingularityFlowError(`Agent '${id}' references invalid world-model view '${view}'.`);
+  for (const phase of defaultFor) if (phases.length && !phases.includes(phase)) throw new SingularityFlowError(`Agent '${id}' defaults phase '${phase}' without supporting it.`);
+  const skillRows = rowsForHeading(text, 'Remote skills', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);
   const templateRows = rowsForHeading(text, 'Remote artifact templates', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);
   const generatedRows = rowsForHeading(text, 'Remote generated artifacts', ['ID', 'URL template', 'Phase', 'Target', 'Optional', 'Max bytes']);
   const seen = new Set();
@@ -92,7 +111,7 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     const url = validateRemoteUrl(linkValue(row[urlKey]), `${type} '${row.ID}' URL`, { dynamic });
     return { id: row.ID, type, url, optional: parseBoolean(row.Optional, `${type} '${row.ID}' Optional`), maxBytes: parseMaxBytes(row['Max bytes'], `${type} '${row.ID}' Max bytes`) };
   };
-  const skills = skillRows.map((row) => ({ ...common(row, 'skill', 'URL'), phases: splitList(row.Phases), personas: splitList(row.Personas) }));
+  const skills = skillRows.map((row) => ({ ...common(row, 'skill', 'URL'), phases: splitList(row.Phases) }));
   const templates = templateRows.map((row) => ({ ...common(row, 'template', 'URL'), phases: splitList(row.Phases) }));
   const generated = generatedRows.map((row) => {
     const entry = { ...common(row, 'generated', 'URL template', true), phase: row.Phase };
@@ -101,7 +120,22 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     if (!target.startsWith(`artifacts/${entry.phase}/`) || path.isAbsolute(target) || target.split('/').includes('..') || !target.endsWith('.md')) throw new SingularityFlowError(`Generated artifact '${entry.id}' target must be a Markdown path under artifacts/${entry.phase}/.`);
     return { ...entry, target };
   });
-  return { id, source, frontmatter, skills, templates, generated, dependencies: [...skills, ...templates, ...generated] };
+  return {
+    id,
+    source,
+    label: metadata['sflow-label'] ?? id,
+    description: frontmatter.description.trim(),
+    frontmatter,
+    metadata,
+    phases,
+    defaultFor,
+    worldModelViews,
+    prompt: body.trim(),
+    skills,
+    templates,
+    generated,
+    dependencies: [...skills, ...templates, ...generated]
+  };
 }
 
 async function agentFiles(directory) {
@@ -114,7 +148,8 @@ async function agentFiles(directory) {
 export async function discoverAgents(root) {
   const locations = [
     ['repository', path.join(root, '.github/agents')],
-    ['plugin', path.join(packageRoot, 'plugin/agents')]
+    ['plugin', path.join(packageRoot, 'plugin/agents')],
+    ['bundled', path.join(packageRoot, 'templates/agents')]
   ];
   const agents = new Map();
   for (const [scope, directory] of locations) {
@@ -127,6 +162,38 @@ export async function discoverAgents(root) {
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
+export function validateAgentCatalog(agents, definition) {
+  if (!agents.length) throw new SingularityFlowError('No governed Agent Markdown files were found in .github/agents or the bundled plugin.');
+  const phaseIds = new Set(Object.keys(definition.phases ?? {}));
+  const viewIds = new Set(definition.worldModel?.views ?? []);
+  for (const agent of agents) {
+    for (const phase of [...agent.phases, ...agent.defaultFor]) if (!phaseIds.has(phase)) throw new SingularityFlowError(`Agent '${agent.id}' references unknown phase '${phase}'.`);
+    for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
+  }
+  for (const phaseId of phaseIds) {
+    const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
+    if (!compatible.length) throw new SingularityFlowError(`Phase '${phaseId}' has no compatible governed agent.`);
+    const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
+    if (defaults.length !== 1) throw new SingularityFlowError(`Phase '${phaseId}' requires exactly one default governed agent; found ${defaults.length}.`);
+  }
+  return agents;
+}
+
+export function resolvePhaseAgent(agents, phaseId, { requestedAgent = null, nativeCopilotAgent = null } = {}) {
+  const fallback = agents.find((agent) => agent.defaultFor.includes(phaseId));
+  if (!fallback) throw new SingularityFlowError(`Phase '${phaseId}' has no default governed agent.`);
+  const selected = requestedAgent ? agents.find((agent) => agent.id === requestedAgent) : fallback;
+  if (!selected) throw new SingularityFlowError(`Unknown governed agent '${requestedAgent}'.`);
+  const compatible = !selected.phases.length || selected.phases.includes(phaseId);
+  return {
+    agent: selected,
+    nativeCopilotAgent,
+    source: requestedAgent ? 'session-override' : 'phase-default',
+    compatible,
+    warning: compatible ? null : `Agent '${selected.id}' is not declared for phase '${phaseId}'. Continuing with an audited compatibility override.`
+  };
+}
+
 export function validateAgentMappings(value, { agentIds = null } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} must contain a YAML object.`);
   for (const key of Object.keys(value)) if (!['version', 'mappings'].includes(key)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} contains unknown field '${key}'.`);
@@ -135,11 +202,11 @@ export function validateAgentMappings(value, { agentIds = null } = {}) {
   if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) throw new SingularityFlowError(`${AGENT_MAPPING_PATH} mappings must be an object.`);
   const known = agentIds ? new Set(agentIds) : null;
   const normalized = {};
-  for (const [copilotAgent, promptPack] of Object.entries(mappings)) {
+  for (const [copilotAgent, agentId] of Object.entries(mappings)) {
     if (!copilotAgentPattern(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must use letters, numbers, '.', '_' or '-' and be at most 128 characters.`);
-    if (typeof promptPack !== 'string' || !idPattern(promptPack)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case prompt-pack ID.`);
-    if (known && !known.has(promptPack)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown prompt pack '${promptPack}'.`);
-    normalized[copilotAgent] = promptPack;
+    if (typeof agentId !== 'string' || !idPattern(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case governed agent ID.`);
+    if (known && !known.has(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown governed agent '${agentId}'.`);
+    normalized[copilotAgent] = agentId;
   }
   return { version: 1, mappings: normalized };
 }
@@ -161,32 +228,32 @@ export async function resolveCopilotAgent(root, copilotAgent, { agents = null } 
   const discovered = agents ?? await discoverAgents(root);
   const configured = await loadAgentMappings(root, { agents: discovered });
   const explicit = Object.hasOwn(configured.mappings, copilotAgent);
-  const promptPack = explicit ? configured.mappings[copilotAgent] : copilotAgent;
+  const agentId = explicit ? configured.mappings[copilotAgent] : copilotAgent;
   return {
     copilotAgent,
-    promptPack,
+    agentId,
     source: explicit ? 'configured' : 'same-name',
     mappingPath: configured.path,
-    agent: discovered.find((candidate) => candidate.id === promptPack) ?? null
+    agent: discovered.find((candidate) => candidate.id === agentId) ?? null
   };
 }
 
 export async function agentMappingStatus(root) {
   const agents = await discoverAgents(root);
   const configured = await loadAgentMappings(root, { agents });
-  const rows = Object.entries(configured.mappings).map(([copilotAgent, promptPack]) => ({
-    copilotAgent, promptPack, source: 'configured'
+  const rows = Object.entries(configured.mappings).map(([copilotAgent, agentId]) => ({
+    copilotAgent, agentId, source: 'configured'
   }));
   for (const agent of agents) {
     if (Object.hasOwn(configured.mappings, agent.id)) continue;
-    rows.push({ copilotAgent: agent.id, promptPack: agent.id, source: 'same-name fallback' });
+    rows.push({ copilotAgent: agent.id, agentId: agent.id, source: 'same-name fallback' });
   }
   return { ...configured, rows: rows.sort((left, right) => left.copilotAgent.localeCompare(right.copilotAgent)) };
 }
 
 export async function findAgent(root, id) {
   const agent = (await discoverAgents(root)).find((candidate) => candidate.id === id);
-  if (!agent) throw new SingularityFlowError(`Unknown prompt pack '${id}'. Run singularity-flow prompt-packs list.`);
+  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${id}'. Run singularity-flow agents list.`);
   return agent;
 }
 
@@ -257,7 +324,7 @@ export async function resolveAgentLock(root, agent, { fetchImpl = globalThis.fet
 
 export async function lockAgent(root, agentId, { update = false, accepted = false, fetchImpl = globalThis.fetch, resolution: suppliedResolution = null } = {}) {
   const agent = await findAgent(root, agentId); const lock = await loadLock(root); const existing = lock.agents[agentId];
-  if (existing && !update) throw new SingularityFlowError(`Prompt pack '${agentId}' is already locked. Use --update to review new remote hashes.`);
+  if (existing && !update) throw new SingularityFlowError(`agent '${agentId}' is already locked. Use --update to review new remote hashes.`);
   const resolution = suppliedResolution ?? await resolveAgentLock(root, agent, { fetchImpl });
   if (!accepted) return { agent, resolution, existing, written: false };
   lock.agents[agentId] = resolution; await saveLock(root, lock);
@@ -272,7 +339,7 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
   const locked = lockDependency(lockEntry, dependency);
   if (!locked) {
     if (dependency.optional) return { ...dependency, status: 'unavailable', warning: `Optional ${dependency.type} '${dependency.id}' is not locked.` };
-    throw new SingularityFlowError(`Prompt pack '${agent.id}' ${dependency.type} '${dependency.id}' is not locked. Run singularity-flow prompt-packs lock ${agent.id} --update.`);
+    throw new SingularityFlowError(`Agent '${agent.id}' ${dependency.type} '${dependency.id}' is not locked. Run singularity-flow agents lock ${agent.id} --update.`);
   }
   if (locked.dynamic) return locked;
   if (!locked.sha256) {
@@ -288,7 +355,7 @@ async function materializeLocked(root, agent, lockEntry, dependency, { fetchImpl
     if (dependency.optional) return { ...locked, status: 'unavailable', warning: error.message };
     throw error;
   }
-  if (fetched.sha256 !== locked.sha256) throw new SingularityFlowError(`Remote ${dependency.type} '${dependency.id}' changed (${locked.sha256.slice(0, 12)} → ${fetched.sha256.slice(0, 12)}). Update the prompt-pack lock deliberately.`);
+  if (fetched.sha256 !== locked.sha256) throw new SingularityFlowError(`Remote ${dependency.type} '${dependency.id}' changed (${locked.sha256.slice(0, 12)} → ${fetched.sha256.slice(0, 12)}). Update the agent lock deliberately.`);
   await writeText(destination, fetched.content);
   return { ...locked, path: destination, status: 'ready', cached: false };
 }
@@ -297,8 +364,8 @@ export async function syncAgent(root, agentId, { fetchImpl = globalThis.fetch } 
   const agent = await findAgent(root, agentId);
   if (!agent.dependencies.length) return { agent, dependencies: [], warnings: [] };
   const lock = await loadLock(root); const entry = lock.agents[agentId];
-  if (!entry) throw new SingularityFlowError(`Prompt pack '${agentId}' has remote dependencies but no lock. Run singularity-flow prompt-packs lock ${agentId}.`);
-  if (entry.sourceSha256 !== agent.sha256) throw new SingularityFlowError(`Prompt pack '${agentId}' changed after locking. Run singularity-flow prompt-packs lock ${agentId} --update.`);
+  if (!entry) throw new SingularityFlowError(`Agent '${agentId}' has remote dependencies but no lock. Run singularity-flow agents lock ${agentId}.`);
+  if (entry.sourceSha256 !== agent.sha256) throw new SingularityFlowError(`Agent '${agentId}' changed after locking. Run singularity-flow agents lock ${agentId} --update.`);
   const dependencies = []; const warnings = [];
   for (const dependency of agent.dependencies) {
     const materialized = await materializeLocked(root, agent, entry, dependency, { fetchImpl });
@@ -336,7 +403,7 @@ export function isAgentTemplateReference(value) { return typeof value === 'strin
 export async function materializeAgentTemplate(root, reference, { phaseId = null, ...options } = {}) {
   const { agentId, templateId } = parseAgentTemplateReference(reference); const synced = await syncAgent(root, agentId, options);
   const template = synced.dependencies.find((entry) => entry.type === 'template' && entry.id === templateId);
-  if (!template) throw new SingularityFlowError(`Prompt pack '${agentId}' has no locked remote template '${templateId}'.`);
+  if (!template) throw new SingularityFlowError(`Agent '${agentId}' has no locked remote template '${templateId}'.`);
   if (phaseId && !matches(phaseId, template.phases)) throw new SingularityFlowError(`Remote template '${agentId}/${templateId}' is not scoped to phase '${phaseId}'.`);
   if (template.status !== 'ready') throw new SingularityFlowError(`Remote template '${agentId}/${templateId}' is unavailable.`);
   return { source: 'agent', agent: agentId, resource: templateId, url: template.url, resolvedUrl: template.resolvedUrl, sha256: template.sha256, size: template.size, cachePath: template.path };
@@ -348,12 +415,12 @@ export async function renderAgentSkills(root, workflow, phase, session, { record
   if (!session?.agent) return { text: '', skills: [], warnings: [] };
   const synced = await syncAgent(root, session.agent, { fetchImpl }); const selected = [];
   for (const dependency of synced.dependencies.filter((entry) => entry.type === 'skill')) {
-    if (!matches(phase.id, dependency.phases) || !matches(session.persona, dependency.personas)) continue;
+    if (!matches(phase.id, dependency.phases)) continue;
     if (dependency.status !== 'ready') { if (!dependency.optional) throw new SingularityFlowError(`Required remote skill '${dependency.id}' is unavailable.`); continue; }
     const content = await readFile(dependency.path, 'utf8');
     selected.push({ ...dependency, content });
   }
-  const text = selected.map((entry) => `<!-- prompt-pack skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Prompt-pack skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n');
+  const text = selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n');
   let audit = null;
   if (record && workflow && itemDirectory && selected.length) {
     const generation = phase.generation + 1; const files = [];
@@ -362,7 +429,7 @@ export async function renderAgentSkills(root, workflow, phase, session, { record
       if (!(await exists(target))) { await mkdir(path.dirname(target), { recursive: true }); await copyFile(entry.path, target); }
       files.push({ id: entry.id, type: 'skill', url: entry.url, sha256: entry.sha256, size: entry.size, path: posix(path.relative(root, target)) });
     }
-    audit = { schemaVersion: 1, workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, persona: session.persona, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
+    audit = { schemaVersion: 2, workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
   }
   return { text, skills: selected, warnings: synced.warnings, audit };
@@ -385,13 +452,13 @@ export async function prepareRemoteOutputs(root, workflow, phase, session, { ite
     const recordExists = await exists(recordFile);
     if (recordExists && !refresh) {
       const record = JSON.parse(await readFile(recordFile, 'utf8')); const current = await snapshot(target);
-      if (!current.exists || current.sha256 !== record.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' was edited locally. Use prompt-packs refresh-output ${dependency.id} --replace to replace it.`);
+      if (!current.exists || current.sha256 !== record.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' was edited locally. Use agents refresh-output ${dependency.id} --replace to replace it.`);
       outputs.push(record); continue;
     }
     if (await exists(target) && !replace) {
-      if (!recordExists) throw new SingularityFlowError(`Remote output '${dependency.id}' would overwrite ${dependency.target}. Use prompt-packs refresh-output ${dependency.id} --replace.`);
+      if (!recordExists) throw new SingularityFlowError(`Remote output '${dependency.id}' would overwrite ${dependency.target}. Use agents refresh-output ${dependency.id} --replace.`);
       const previous = JSON.parse(await readFile(recordFile, 'utf8')); const current = await snapshot(target);
-      if (current.sha256 !== previous.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' has local edits. Use prompt-packs refresh-output ${dependency.id} --replace to overwrite them.`);
+      if (current.sha256 !== previous.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' has local edits. Use agents refresh-output ${dependency.id} --replace to overwrite them.`);
     }
     const url = expandUrl(dependency.url, workflow, phase);
     try {
@@ -404,7 +471,7 @@ export async function prepareRemoteOutputs(root, workflow, phase, session, { ite
       warnings.push(`Optional remote output '${dependency.id}' is unavailable: ${error.message}`);
     }
   }
-  if (resourceId && !outputs.some((entry) => entry.resource === resourceId) && !warnings.some((entry) => entry.includes(`'${resourceId}'`))) throw new SingularityFlowError(`Active prompt pack '${session.agent}' has no generated artifact '${resourceId}' for phase ${phase.id}.`);
+  if (resourceId && !outputs.some((entry) => entry.resource === resourceId) && !warnings.some((entry) => entry.includes(`'${resourceId}'`))) throw new SingularityFlowError(`Active agent '${session.agent}' has no generated artifact '${resourceId}' for phase ${phase.id}.`);
   return { outputs, warnings };
 }
 
@@ -447,7 +514,7 @@ export async function verifyAgentIntegrity(root, workflow, phase, { itemDirector
       const current = await snapshot(path.join(root, entry.path));
       if (!current.exists || current.sha256 !== entry.sha256) errors.push(`${phase.id} remote skill snapshot failed integrity: ${entry.id}`);
     }
-    if (!errors.length) passes.push(`remote prompt-pack context verified: ${phase.id} as ${audit.agent}`);
+    if (!errors.length) passes.push(`remote agent context verified: ${phase.id} as ${audit.agent}`);
   }
   return { errors, warnings, passes };
 }

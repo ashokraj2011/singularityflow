@@ -16,8 +16,8 @@ function run(command, args, cwd, env = process.env) {
   return result;
 }
 
-function flow(cwd, args, persona = 'product-owner') {
-  return run(process.execPath, [bin, ...args], cwd, { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Handoff Tester', SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona }) });
+function flow(cwd, args, agent = 'product-owner') {
+  return run(process.execPath, [bin, ...args], cwd, { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Handoff Tester', SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent }) });
 }
 
 function identity(root, name) {
@@ -43,7 +43,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'singularity'], first);
+  run('git', ['add', 'singularity', '.github/agents'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
@@ -81,11 +81,13 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'HAND-101');
   let session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.workItemSelectionRequired, false);
-  assert.equal(session.selectionRequired, true);
-  flow(second, ['lens', 'HAND-101'], 'architect');
+  assert.equal(session.selectionRequired, false);
+  assert.equal(session.ready, true);
+  assert.equal(session.activeAgent, 'product-owner');
+  flow(second, ['agent', 'HAND-101', '--agent', 'architect']);
   session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.ready, true);
-  assert.equal(session.activePersona, 'architect');
+  assert.equal(session.activeAgent, 'architect');
   const workflow = JSON.parse(await readFile(path.join(second, 'singularity', 'work-items', 'HAND-101', 'workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
 

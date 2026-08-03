@@ -1,6 +1,6 @@
 # Singularity Flow planning contract
 
-You are planning **{{scope}} {{id}}**, phase **{{phase.label}}** (`{{phase.id}}`), as the **{{persona}}** persona.
+You are planning **{{scope}} {{id}}**, phase **{{phase.label}}** (`{{phase.id}}`), as the **{{agent}}** agent.
 
 ## Objective
 
@@ -36,7 +36,7 @@ Adapt the planning method to the selected phase:
 
 {{promotion.instructions}}
 
-## Phase planning lens
+## Phase agent contract
 
 {{phase.contract}}
 

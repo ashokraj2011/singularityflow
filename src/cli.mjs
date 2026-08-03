@@ -64,7 +64,7 @@ import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugi
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializationStatus, initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { activateWorkItemSession, loadSession, personaSessionStatus, selectIntakeSource, selectPersona, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadSession, agentSessionStatus, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
@@ -82,7 +82,7 @@ import {
   publishDesktopConfiguration,
   readDesktopFile,
   saveDesktopFile,
-  selectDesktopPersona,
+  selectDesktopAgent,
   validateDesktopConfiguration
 } from './desktop.mjs';
 import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
@@ -93,7 +93,7 @@ import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
-import { copilotAgentStartHook, personaGuardHook, sessionStartPersonaHook } from './persona-hooks.mjs';
+import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import {
@@ -194,12 +194,12 @@ brand and uses the short, collision-safe sflow- command namespace.
 
 What it provides:
   - YAML-defined feature, bugfix, chore, Figma-mobile, and custom workflows
-  - Session working lenses, phase-aware prompts, and repository world-model grounding
+  - Session governed agents, phase-aware prompts, and repository world-model grounding
   - Configurable artifact templates, phase inputs, approvals, and quality gates
   - Jira or manual intake with supporting documents
   - Requirements-to-code traceability, verification, and conformance reporting
   - Atomic Git commit/push state transfer, including every approval decision
-  - Remote Markdown prompt packs and an Electron configuration desktop
+  - Remote Markdown agents and an Electron configuration desktop
   - Per-phase token and model usage reporting when the provider exposes it
   - A redacted, machine-local activity log readable from the CLI and Copilot
 
@@ -233,7 +233,7 @@ Usage:
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
   singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID|BRANCH> [--fetch] [--allow-dirty]
-  singularity-flow lens [WORK-ID]
+  singularity-flow agent [WORK-ID] [--agent ID]
   singularity-flow session status|candidates [--json]
   singularity-flow session attach <WORK-ID> [--json]
   singularity-flow inbox [--offline] [--json]
@@ -276,12 +276,12 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
-  singularity-flow prompt-packs list
-  singularity-flow prompt-packs mappings
-  singularity-flow prompt-packs lock <PACK> [--update]
-  singularity-flow prompt-packs sync <PACK>
-  singularity-flow prompt-packs status [PACK]
-  singularity-flow prompt-packs refresh-output <RESOURCE-ID> [--replace]
+  singularity-flow agents list
+  singularity-flow agents mappings
+  singularity-flow agents lock <PACK> [--update]
+  singularity-flow agents sync <PACK>
+  singularity-flow agents status [PACK]
+  singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -300,8 +300,8 @@ Usage:
   singularity-flow gate [--terminal]
   singularity-flow wm init
   singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep] [--parallel|--no-parallel] [--workers N]
-  singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-persona]
-  singularity-flow wm compose [--persona ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
+  singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]
+  singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
@@ -334,11 +334,11 @@ Usage:
   singularity-flow desktop delete-file <PATH> --json
   singularity-flow desktop delete-template <PATH> --json
   singularity-flow desktop publish [--message TEXT] --json
-  singularity-flow desktop session <PERSONA> [--work-id ID] --json
+  singularity-flow desktop session <AGENT> [--work-id ID] --json
   singularity-flow initiative profiles [--json]
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT]
-    [--profile ID] [--persona ID] [--start-phase ID] [--selection-receipt TOKEN]
+    [--profile ID] [--agent ID] [--start-phase ID] [--selection-receipt TOKEN]
     (--start-phase enters at a later stage; the phases before it are recorded as skipped)
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
@@ -354,7 +354,7 @@ Usage:
   singularity-flow initiative applicability [--json]
   singularity-flow initiative applicability set <POLICY> <yes|no> [--reason TEXT] [--json]
   singularity-flow initiative phase [publish] [PHASE]
-  singularity-flow initiative context [PHASE] [--persona ID] [--dry-run] [--json]
+  singularity-flow initiative context [PHASE] [--agent ID] [--dry-run] [--json]
   singularity-flow initiative documents [PHASE] [--json]
   singularity-flow initiative checklist [PHASE] [--json]
   singularity-flow initiative evidence add <CHECK-ID> --assurance LEVEL [--path FILE | --url URL]
@@ -372,7 +372,7 @@ Usage:
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
   singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
-  singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT [--persona ID]
+  singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT [--agent ID]
   singularity-flow epic sources [list|add|note|answer|verify|materialize] [--epic EPIC-KEY]
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
     [--text TEXT | --text-file FILE]
@@ -490,7 +490,7 @@ function summary(workflow) {
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'complete'}`);
   if (active) {
-    console.log(`Suggested working lens: ${active.owner ?? 'unassigned'}`);
+    console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }
@@ -517,7 +517,7 @@ async function confirm(phase) {
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
-    throw new SingularityFlowError(`Trusting prompt pack '${expected}' requires an interactive terminal and exact pack-name confirmation.`);
+    throw new SingularityFlowError(`Trusting agent '${expected}' requires an interactive terminal and exact pack-name confirmation.`);
   }
   const io = readline.createInterface({ input, output });
   try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
@@ -576,7 +576,7 @@ async function initCommand(options) {
   await worldModelCommand(root, ['wm', 'init'], {});
   console.log(wrote.length
     ? `${repair ? 'Repaired' : 'Created'} ${wrote.join(', ')}`
-    : `Verified ${WORKFLOW_PATH}, templates, prompts, and working lenses; nothing needed repair.`);
+    : `Verified ${WORKFLOW_PATH}, templates, prompts, and governed agents; nothing needed repair.`);
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`Next: review and commit singularity/, push ${workId}, then run singularity-flow start ${workId}.`);
@@ -650,10 +650,10 @@ async function startCommand(positionals, options) {
     selection: receipt?.answers['workflow-template'] ?? optionString(options, 'work-type') ?? seed?.suggestedWorkType ?? null,
     nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
   });
-  const selectedPersona = await selectPersona(root, config, actionActor(root), id, {
-    selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
-    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-  });
+  const resolvedWorkType = resolveWorkType(config, workType);
+  const selectedAgent = await activatePhaseAgent(
+    root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
+  );
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
   const explicitBase = optionString(options, 'base');
@@ -690,8 +690,8 @@ async function startCommand(positionals, options) {
     baseBranch: base,
     canonicalBranch,
     workType,
-    persona: selectedPersona.persona,
-    resolved: resolveWorkType(config, workType),
+    agent: selectedAgent.agent,
+    resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
   await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
@@ -762,12 +762,11 @@ async function resumeCommand(positionals, options) {
   checkout(root, resolved.branch, { base: initialConfig.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, resolved.workId);
-  const session = await selectPersona(root, config, actionActor(root), resolved.workId, {
-    selection: optionString(options, 'persona') ?? null,
-    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-  });
+  const session = await activatePhaseAgent(
+    root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null
+  );
   summary(workflow);
-  console.log(`Active working lens: ${session.persona}`);
+  console.log(`Active governed agent: ${session.agent}`);
   const active = currentPhase(workflow);
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
@@ -775,20 +774,22 @@ async function resumeCommand(positionals, options) {
   }
 }
 
-async function personaCommand(positionals, options = {}) {
+async function agentCommand(positionals, options = {}) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadWorkflow(root, config, positionals[1]);
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
-  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
-    selection: optionString(options, 'persona') ?? null,
-    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
+  const session = await selectAgent(root, config, actionActor(root), workflow.workItem.id, {
+    phaseId: workflow.currentPhase,
+    selection: optionString(options, 'agent') ?? null,
+    nonInteractiveHint: 'Pass --agent <id> to choose one without a terminal.'
   });
-  console.log(`Active working lens: ${config.personas[session.persona].label} (${session.persona})`);
+  console.log(`Active governed agent: ${config.agents[session.agent].label} (${session.agent})`);
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
+  if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
 }
 
 async function statusCommand(positionals, options) {
@@ -802,15 +803,15 @@ async function statusCommand(positionals, options) {
   summary(workflow);
   console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
     const phase = workflow.phases[id];
-    return { index: index + 1, phase: id, owner: phase.owner ?? '', status: phase.status, artifacts: phase.artifacts.length };
+    return { index: index + 1, phase: id, agent: phase.defaultAgent ?? '', status: phase.status, artifacts: phase.artifacts.length };
   }), [
     { key: 'index', label: '#' },
     { key: 'phase', label: 'PHASE' },
-    { key: 'owner', label: 'OWNER' },
+    { key: 'agent', label: 'AGENT' },
     { key: 'status', label: 'STATUS' },
     { key: 'artifacts', label: 'ARTIFACTS' }
   ])}`);
-  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'}; lens ${item.workingLens ?? item.persona ?? 'unavailable'}`));
+  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals.filter((item) => !item.invalidatedAt && item.selfApproval).map((item) => `${id}: ${item.actor?.name ?? 'unknown'}; agent ${item.agent ?? 'unavailable'}`));
   if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
   const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? config.ledger ?? {});
   if (ledger.enabled) {
@@ -877,9 +878,9 @@ async function nextStepsCommand(positionals, options) {
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
       if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
       else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
-      if (active?.status === 'in_progress' && !session?.persona) prerequisites.push({
+      if (active?.status === 'in_progress' && !session?.agent) prerequisites.push({
         timing: 'now', skill: '/sflow-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
-        reason: 'Select the working lens that will remain active for this terminal session before generation.'
+        reason: 'Select the governed agent that will remain active for this terminal session before generation.'
       });
       if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && (workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off') !== 'off') {
         const rebuildReason = await worldModelRebuildReason(root, config);
@@ -888,7 +889,7 @@ async function nextStepsCommand(positionals, options) {
           prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
           prerequisites.push({ timing: 'then', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
         } else {
-          const grounding = await verifyGroundingRecord(root, config, workflow, active, { persona: session?.persona ?? null });
+          const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
           if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
             timing: 'now', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
             reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
@@ -897,11 +898,11 @@ async function nextStepsCommand(positionals, options) {
       }
       if (active?.status === 'in_progress' && session?.agent) {
         const status = (await agentStatus(root, session.agent))[0];
-        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow prompt-packs list', reason: `Active prompt pack '${session.agent}' is no longer available; choose and sync an available pack.` });
-        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs lock ${session.agent}`, reason: `Review and trust the active prompt pack's remote Markdown before generation.` });
-        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs lock ${session.agent} --update`, reason: 'The active prompt-pack Markdown changed after it was locked; review the new dependency hashes.' });
-        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow prompt-packs sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active prompt-pack cache.' });
-        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow prompt-packs refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
+        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available pack.` });
+        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+        else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
+        if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
+        for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
       }
       snapshot = nextStepsSnapshot({
         branch: branch(root),
@@ -1055,53 +1056,59 @@ async function inputsCommand(positionals, options) {
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
 }
 
-async function promptPacksCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'prompt-packs subcommand');
+async function agentsCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'agents subcommand');
   const root = repoRoot();
   if (subcommand === 'list') {
     const agents = await discoverAgents(root);
-    if (!agents.length) return console.log('No repository or bundled prompt packs found.');
+    if (!agents.length) return console.log('No repository or bundled agents found.');
     return console.log(table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
-      { key: 'id', label: 'PACK' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
+      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
     ]));
   }
   if (subcommand === 'mappings') {
     const result = await agentMappingStatus(root);
     console.log(`Copilot agent mappings: ${result.path}${result.exists ? '' : ' (not created; same-name fallback only)'}`);
-    if (!result.rows.length) return console.log('No Copilot agents or Singularity Flow prompt packs were discovered.');
+    if (!result.rows.length) return console.log('No Copilot agents or Singularity Flow agents were discovered.');
     return console.log(table(result.rows, [
       { key: 'copilotAgent', label: 'COPILOT AGENT' },
-      { key: 'promptPack', label: 'FLOW PROMPT PACK' },
+      { key: 'agentId', label: 'FLOW AGENT' },
       { key: 'source', label: 'RESOLUTION' }
     ]));
   }
   if (subcommand === 'lock') {
-    const agentId = requirePositional(positionals, 2, 'prompt pack');
+    const agentId = requirePositional(positionals, 2, 'agent');
     const update = optionBoolean(options, 'update');
     const preview = await lockAgent(root, agentId, { update });
-    console.log(`Prompt pack: ${agentId}\nSource: ${preview.agent.source}\nPack SHA-256: ${preview.agent.sha256}`);
+    console.log(`agent: ${agentId}\nSource: ${preview.agent.source}\nPack SHA-256: ${preview.agent.sha256}`);
     if (preview.resolution.dependencies.length) console.log(table(preview.resolution.dependencies.map((entry) => { const previous = preview.existing?.dependencies?.find((item) => item.id === entry.id && item.type === entry.type); return { id: entry.id, type: entry.type, previous: previous?.sha256?.slice(0, 12) ?? '', sha256: entry.sha256?.slice(0, 16) ?? entry.status ?? 'dynamic', bytes: entry.size ?? '', url: entry.url ?? entry.urlTemplate }; }), [
       { key: 'id', label: 'RESOURCE' }, { key: 'type', label: 'TYPE' }, { key: 'previous', label: 'PREVIOUS' }, { key: 'sha256', label: 'NEW SHA256' }, { key: 'bytes', label: 'BYTES' }, { key: 'url', label: 'URL' }
     ]));
-    if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Prompt-pack lock cancelled.');
+    if (!(await confirmExact(update ? 'This will replace the trusted hashes shown above.' : 'This is the first trust decision for these public HTTPS Markdown dependencies.', agentId))) throw new SingularityFlowError('Agent lock cancelled.');
     await lockAgent(root, agentId, { update, accepted: true, resolution: preview.resolution });
     return console.log(`Locked '${agentId}' in singularity/agents.lock.yml.`);
   }
   if (subcommand === 'sync') {
-    const agentId = requirePositional(positionals, 2, 'prompt pack');
+    const agentId = requirePositional(positionals, 2, 'agent');
     const result = await syncAgent(root, agentId);
-    await setAgentSession(root, result.agent, actionActor(root));
+    const definition = await loadConfig(root);
+    let workflow = null;
+    try { workflow = await loadWorkflow(root, definition); } catch { /* Agent sync is also valid before a work item exists. */ }
+    await setAgentSession(root, definition, actionActor(root), result.agent.id, workflow?.workItem?.id ?? null, {
+      phaseId: workflow?.currentPhase ?? null,
+      source: 'agents-sync'
+    });
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-    console.log(`Active prompt pack: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
+    console.log(`Active agent: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
     return;
   }
   if (subcommand === 'status') {
     const requested = positionals[2] ?? null;
     const rows = await agentStatus(root, requested);
-    if (requested && !rows.length) throw new SingularityFlowError(`Unknown prompt pack '${requested}'.`);
-    if (!rows.length) return console.log('No repository or bundled prompt packs found.');
+    if (requested && !rows.length) throw new SingularityFlowError(`Unknown agent '${requested}'.`);
+    if (!rows.length) return console.log('No repository or bundled agents found.');
     console.log(table(rows.map((entry) => ({ id: entry.id, scope: entry.scope, status: entry.status, source: entry.source, resources: entry.dependencies.length })), [
-      { key: 'id', label: 'PACK' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
+      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
     ]));
     for (const entry of rows) for (const dependency of entry.dependencies) console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}\t${dependency.sha256?.slice(0, 12) ?? ''}`);
     return;
@@ -1120,7 +1127,7 @@ async function promptPacksCommand(positionals, options) {
     refreshed.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
   }
-  throw new SingularityFlowError(`Unknown prompt-packs subcommand: ${subcommand}`);
+  throw new SingularityFlowError(`Unknown agents subcommand: ${subcommand}`);
 }
 
 async function phaseReview(root, config, workflow, phase) {
@@ -1359,17 +1366,16 @@ async function decisionWorkflow(positionals, options, action) {
   const receipt = receiptToken
     ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
     : null;
-  const session = await selectPersona(root, config, actionActor(root), workflow.workItem.id, {
-    selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
-    nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-  });
+  const session = await activatePhaseAgent(
+    root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null
+  );
   for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
     override.actor = session.actor;
-    override.persona = session.persona;
+    override.agent = session.agent;
     const history = workflow.history?.find((event) => event.event === 'sequence_gate_overridden' && event.at === override.at);
     if (history) {
       history.actor = session.actor.login ?? session.actor.email ?? session.actor.name ?? 'interactive-user';
-      history.persona = session.persona;
+      history.agent = session.agent;
     }
   }
   return { root, config, workflow, phase, session, receipt, receiptToken };
@@ -1389,11 +1395,11 @@ async function approveCommand(positionals, options) {
   );
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
-  console.log(`Working lens: ${session.persona} (prompt/audit context only)`);
+  console.log(`governed agent: ${session.agent} (prompt/audit context only)`);
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
-  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; lens ${item.workingLens ?? item.persona ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
+  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
@@ -1405,7 +1411,7 @@ async function approveCommand(positionals, options) {
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; working lens ${result.approval.workingLens}.`);
+  console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
@@ -1414,7 +1420,7 @@ async function approveCommand(positionals, options) {
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; working lens ${session.persona} is audit context only. Approvals from ${target} onward will be invalidated.`);
+  console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
   await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
@@ -1862,7 +1868,7 @@ async function cockpitCommand() {
   const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
   console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
-  console.log(`Working lens: ${session?.workId === workflow.workItem.id ? session.persona : 'not selected'} · Branch: ${workflow.workItem.branch}`);
+  console.log(`governed agent: ${session?.workId === workflow.workItem.id ? session.agent : 'not selected'} · Branch: ${workflow.workItem.branch}`);
   console.log(`Current: ${active ? `${active.label} (${active.status})` : 'workflow complete'}`);
   console.log(`Assignment: ${active ? workflow.collaboration?.assignments?.[active.id]?.assignee ?? 'unassigned' : 'none'}`);
   console.log('\nNext actions:');
@@ -1929,8 +1935,8 @@ async function hookCommand(positionals) {
     if (event === 'agent-start') return console.log(JSON.stringify(await copilotAgentStartHook(root, payload)));
     const config = await loadConfig(root); let workflow = null;
     try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
-    if (event === 'session-start') return console.log(JSON.stringify(await sessionStartPersonaHook(root, config, workflow, payload)));
-    if (event === 'persona-guard') return console.log(JSON.stringify(await personaGuardHook(root, config, workflow, payload)));
+    if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
+    if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
     throw new SingularityFlowError(`Unknown hook event: ${event}`);
   } catch { console.log('{}'); }
 }
@@ -1939,11 +1945,11 @@ async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   let root;
   try { root = repoRoot(); } catch {
-    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: [] };
+    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [] };
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
   }
   if (!existsSync(path.join(root, WORKFLOW_PATH))) {
-    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activePersona: null, choices: [] };
+    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [] };
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
   }
   const config = await loadConfig(root);
@@ -2012,25 +2018,24 @@ async function sessionCommand(positionals, options) {
     const attachedConfig = await loadConfig(root);
     const workflow = await loadWorkflow(root, attachedConfig, id);
     const session = await activateWorkItemSession(root, attachedConfig, workflow);
-    const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, personaSelectionRequired: session.selectionRequired };
+    const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Attached to ${id} from ${remote}/${id} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
-    console.log(session.selectionRequired ? 'Next: choose a working lens with /sflow-lens.' : 'The existing valid working lens is bound to this Copilot session.');
+    console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     return;
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let workflow;
   try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
-  const status = await personaSessionStatus(root, config, workflow);
+  const status = await agentSessionStatus(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
   console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
-  console.log(`Working lens: ${status.activePersona ?? 'not selected'}`);
+  console.log(`governed agent: ${status.activeAgent ?? 'not selected'}`);
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
-  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · working lens: ${status.selectionRequired ? 'required' : status.bound ? 'bound' : 'not required'}`);
-  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · working lens ${status.policy.personaSelection} · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
+  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
+  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
   if (status.workItemSelectionRequired) console.log('Run /sflow-session or singularity-flow session attach <WORK-ID>.');
-  if (status.selectionRequired) console.log('Run /sflow-lens or singularity-flow lens to choose.');
 }
 
 async function inboxCommand(options) {
@@ -2325,19 +2330,38 @@ function initiativeProfileChoices(portfolio) {
   }));
 }
 
-function initiativePersonaChoices(definition) {
-  return Object.entries(definition.personas).map(([id, persona]) => ({
-    id,
-    label: persona.label ?? id,
-    description: persona.description ?? ''
-  }));
+function initiativeStartChoiceSets(portfolio) {
+  return [{ id: 'initiative-profile', label: 'Initiative profile', options: initiativeProfileChoices(portfolio) }];
 }
 
-function initiativeStartChoiceSets(portfolio, definition) {
-  return [
-    { id: 'initiative-profile', label: 'Initiative profile', options: initiativeProfileChoices(portfolio) },
-    { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(definition) }
-  ];
+async function activateInitiativeAgent(root, definition, initiativeId, phase, requestedAgent = null) {
+  const declared = phase?.agents ?? [];
+  const fallback = declared[0] ?? (definition.agents?.['product-owner'] ? 'product-owner' : Object.keys(definition.agents ?? {})[0]);
+  const agent = requestedAgent ?? fallback;
+  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Initiative phase '${phase?.id ?? 'unknown'}' has no valid governed agent.`);
+  if (requestedAgent && declared.length && !declared.includes(requestedAgent)) {
+    console.warn(`Warning: agent '${requestedAgent}' is not declared for initiative phase '${phase.id}'. Continuing with an audited override; human approval authority is unchanged.`);
+  }
+  return setAgentSession(root, definition, actionActor(root), agent, initiativeId, {
+    phaseId: phase?.id ?? null,
+    source: requestedAgent ? 'explicit-override' : 'phase-default'
+  });
+}
+
+async function activatePhaseAgent(root, definition, workId, phase, requestedAgent = null) {
+  const defaultAgent = phase?.defaultAgent
+    ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
+    ?? null;
+  const agent = requestedAgent ?? defaultAgent;
+  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid governed agent.`);
+  const compatible = !phase?.id || !definition.agents[agent].phases.length || definition.agents[agent].phases.includes(phase.id);
+  if (requestedAgent && !compatible) {
+    console.warn(`Warning: agent '${requestedAgent}' is not declared for phase '${phase.id}'. Continuing with an audited prompt override; human approval authority is unchanged.`);
+  }
+  return setAgentSession(root, definition, actionActor(root), agent, workId, {
+    phaseId: phase?.id ?? null,
+    source: requestedAgent ? 'explicit-override' : 'phase-default'
+  });
 }
 
 async function chooseInitiativeProfile(portfolio, selection = null) {
@@ -2423,7 +2447,7 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
   let context = null;
   let receiptAction;
   if (action === 'start') {
-    choiceSets = initiativeStartChoiceSets(portfolio, config);
+    choiceSets = initiativeStartChoiceSets(portfolio);
     receiptAction = 'initiative-start';
   } else if (action === 'approve') {
     const { initiative } = await loadInitiative(root, initiativeId, portfolio);
@@ -2431,10 +2455,7 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
     const subject = positionals[5] ?? 'phase';
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
     const expected = `${phaseId}:${subject}`;
-    choiceSets = [
-      { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(config) },
-      { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
-    ];
+    choiceSets = [{ id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }];
     context = { phase: phaseId, subject, bundleSha256: bundle.sha256 };
     receiptAction = 'initiative-approve';
   } else throw new SingularityFlowError('Initiative choice action must be start or approve.');
@@ -2874,7 +2895,7 @@ async function initiativeCommand(positionals, options) {
     const initiativeId = requirePositional(positionals, 2, 'initiative ID');
     validateInitiativeId(initiativeId);
     if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
-    const choiceSets = initiativeStartChoiceSets(portfolio, config);
+    const choiceSets = initiativeStartChoiceSets(portfolio);
     const receiptToken = optionString(options, 'selection-receipt');
     const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
       action: 'initiative-start',
@@ -2882,14 +2903,10 @@ async function initiativeCommand(positionals, options) {
       choiceSets
     }) : null;
     const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile'] ?? optionString(options, 'profile'));
-    // `--persona` carries the human's choice when there is no terminal to ask in, exactly as
-    // `--profile` already does on this same route and as `epic start --local` already does. Without
-    // it, starting an Initiative was possible only from a TTY — which made the editor's intake
-    // screen offer a lens it could never pass on.
-    const selectedPersona = await selectPersona(root, config, actionActor(root), initiativeId, {
-      selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
-      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-    });
+    const startPhaseId = optionString(options, 'start-phase') ?? portfolio.initiativeProfiles[profile].phases[0];
+    const selectedAgent = await activateInitiativeAgent(
+      root, config, initiativeId, portfolio.initiativePhases[startPhaseId], optionString(options, 'agent') ?? null
+    );
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const source = optionBoolean(options, 'jira')
       ? await getIssue(initiativeId)
@@ -2898,12 +2915,12 @@ async function initiativeCommand(positionals, options) {
     const created = await createInitiative(root, {
       // Enter the lifecycle where the work actually is. The phases before it are recorded as
       // skipped rather than approved — an approval that never happened must never look like one.
-      startPhase: optionString(options, 'start-phase'),
+      startPhase: startPhaseId,
       id: initiativeId,
       title: optionString(options, 'title', source.title ?? initiativeId),
       profile,
       source,
-      persona: selectedPersona.persona,
+      agent: selectedAgent.agent,
       capabilityId: optionString(options, 'capability')
     });
     if (profile === 'epic-planning' && source.type === 'jira') {
@@ -2918,14 +2935,14 @@ async function initiativeCommand(positionals, options) {
           version: source.updatedAt ?? null,
           observedState: `${source.key ?? initiativeId}: ${source.title ?? initiativeId}`
         },
-        persona: selectedPersona.persona
+        agent: selectedAgent.agent
       });
     }
     const started = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
     let current = started;
     if (profile === 'epic-planning') {
-      const completed = await completeEpicIntake(root, initiativeId, { persona: selectedPersona.persona });
+      const completed = await completeEpicIntake(root, initiativeId, { agent: selectedAgent.agent });
       if (completed.advanced) {
         await commitInitiativeChange(root, completed.portfolio, completed.initiative, `[${initiativeId}][epic:intake] sources accepted`);
         current = await loadInitiative(root, initiativeId);
@@ -2944,11 +2961,10 @@ async function initiativeCommand(positionals, options) {
     if (branch(root) !== initiativeId) assertClean(root);
     checkout(root, initiativeId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
     const loaded = await loadInitiative(root, initiativeId);
-    const session = await selectPersona(root, config, actionActor(root), initiativeId, {
-      selection: optionString(options, 'persona') ?? null,
-      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-    });
-    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with working lens ${session.persona}.`);
+    const session = await activateInitiativeAgent(
+      root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null
+    );
+    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with governed agent ${session.agent}.`);
     console.log(initiativeFlowText(initiativeProgress(loaded.initiative)));
     return;
   }
@@ -2982,7 +2998,7 @@ async function initiativeCommand(positionals, options) {
     const session = await loadSession(root, { required: false });
     const result = await restartInitiative(root, initiativeId, {
       reason: optionString(options, 'reason') ?? null,
-      persona: session?.persona ?? null
+      agent: session?.agent ?? null
     });
     const state = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
@@ -3008,7 +3024,7 @@ async function initiativeCommand(positionals, options) {
     const session = await loadSession(root, { required: false });
     const result = await setInitiativeApplicability(root, initiativeId, policyId, ['yes', 'true'].includes(answer), {
       reason: optionString(options, 'reason') ?? null,
-      persona: session?.persona ?? null
+      agent: session?.agent ?? null
     });
     const saved = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, `[${initiativeId}][initiative:applicability] ${policyId}`);
@@ -3034,7 +3050,7 @@ async function initiativeCommand(positionals, options) {
     const session = await loadSession(root, { required: false });
     const result = await selectInitiativePhaseOutputs(root, initiativeId, phaseId, include.split(',').map((value) => value.trim()).filter(Boolean), {
       reason: optionString(options, 'reason') ?? null,
-      persona: session?.persona ?? null
+      agent: session?.agent ?? null
     });
     const state = await loadInitiative(root, initiativeId);
     const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
@@ -3052,13 +3068,13 @@ async function initiativeCommand(positionals, options) {
       // Traceability verification and its evidence now live in publishInitiativePhase, so the CLI
       // and the desktop record the same thing. They used to live here, which is why publishing
       // from the app left blocking gates unsatisfied and the phase impossible to approve.
-      const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
+      const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const publishState = await loadInitiative(root, initiativeId);
       const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     } else {
-      const context = await composeInitiativeContext(root, initiativeId, phaseId, { persona: session?.persona ?? null });
-      const result = await prepareInitiativePhase(root, initiativeId, phaseId, { persona: session?.persona ?? null });
+      const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
+      const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
@@ -3076,7 +3092,7 @@ async function initiativeCommand(positionals, options) {
     const phaseId = positionals[2] ?? initiative.currentPhase;
     const session = await loadSession(root, { required: false });
     const result = await composeInitiativeContext(root, initiativeId, phaseId, {
-      persona: optionString(options, 'persona') ?? session?.persona ?? null,
+      agent: optionString(options, 'agent') ?? session?.agent ?? null,
       dryRun: optionBoolean(options, 'dry-run')
     });
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -3142,7 +3158,7 @@ async function initiativeCommand(positionals, options) {
           observedState: optionString(options, 'observed-state'),
           version: optionString(options, 'source-version')
         },
-        persona: session?.persona ?? null,
+        agent: session?.agent ?? null,
         decision: optionString(options, 'decision'),
         reason: optionString(options, 'reason'),
         supersedes: optionStrings(options, 'supersedes')
@@ -3171,7 +3187,7 @@ async function initiativeCommand(positionals, options) {
     // plan could not be approved without Electron at all. The guard the desktop applied — an explicit
     // acknowledgement that approving your own work is not independent review — is applied here
     // instead, so the governance property is identical wherever the approval happens. Exact-hash
-    // confirmation and working-lens selection are already enforced by the flow below.
+    // Exact confirmation is enforced below; the phase agent is activated automatically.
     const approvalActor = String(identity(root).email ?? '').toLowerCase();
     const selfApproval = Boolean(approvalActor) && Object.values(initiative.phases[phaseId]?.outputs ?? {})
       .some((output) => String(output.generatedBy?.email ?? '').toLowerCase() === approvalActor);
@@ -3184,23 +3200,19 @@ async function initiativeCommand(positionals, options) {
     const receiptToken = optionString(options, 'selection-receipt');
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
     const expected = `${phaseId}:${subject}`;
-    const choiceSets = [
-      { id: 'persona', label: 'Working lens', options: initiativePersonaChoices(config) },
-      { id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }
-    ];
+    const choiceSets = [{ id: 'decision-confirmation', label: 'Exact approval confirmation', options: [{ id: expected, label: `Approve ${expected}`, description: `Approves the exact current hash for ${subject}.` }] }];
     const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
       action: 'initiative-approve',
       workId: initiativeId,
       choiceSets,
       context: { phase: phaseId, subject, bundleSha256: bundle.sha256 }
     }) : null;
-    const session = await selectPersona(root, config, actionActor(root), initiativeId, {
-      selection: receipt?.answers.persona ?? optionString(options, 'persona') ?? null,
-      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-    });
+    const session = await activateInitiativeAgent(
+      root, config, initiativeId, initiative.resolution.phases[phaseId], optionString(options, 'agent') ?? null
+    );
     if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected, options))) throw new SingularityFlowError('Initiative approval cancelled.');
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
-    const result = await approveInitiative(root, { initiativeId, phaseId, subject, persona: session.persona, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
+    const result = await approveInitiative(root, { initiativeId, phaseId, subject, agent: session.agent, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
     // Knowledge harvested by this approval is committed with it. Two commits would let one land
     // without the other, and leaving it unstaged left the working tree dirty — which the next
     // governed command refuses outright, since every one of them starts from a clean checkout.
@@ -3221,7 +3233,7 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'reject') {
     const subject = positionals[2] ?? 'phase';
     const session = await loadSession(root, { required: false });
-    const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), persona: session?.persona ?? null });
+    const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), agent: session?.agent ?? null });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
     console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
@@ -3329,7 +3341,7 @@ async function initiativeCommand(positionals, options) {
         producers: optionStrings(options, 'producer'),
         consumers: optionStrings(options, 'consumer'),
         compatibilityPolicy: optionString(options, 'compatibility', 'explicit-review'),
-        persona: session?.persona ?? null
+        agent: session?.agent ?? null
       });
       const fresh = await loadInitiative(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
@@ -3405,12 +3417,12 @@ async function desktopCommand(positionals, options) {
     }
     result = await bootstrapDesktopPortfolio(root, input);
   }
-  else if (subcommand === 'session') result = await selectDesktopPersona(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'persona'));
+  else if (subcommand === 'session') result = await selectDesktopAgent(root, optionString(options, 'work-id'), requirePositional(positionals, 2, 'agent'));
   else if (subcommand === 'planning-context') result = await createPlanningContext(root, {
     scope: optionString(options, 'scope'),
     id: optionString(options, 'id'),
     phase: optionString(options, 'phase'),
-    persona: optionString(options, 'persona'),
+    agent: optionString(options, 'agent'),
     target: optionString(options, 'target'),
     objective: optionString(options, 'objective', '')
   });
@@ -3426,8 +3438,8 @@ async function desktopCommand(positionals, options) {
       if (!Array.isArray(artifacts)) throw new SingularityFlowError('Artifact set must be a JSON array of { outputId, content }.');
     }
     result = artifacts
-      ? await promotePlanningArtifacts(root, { sessionId: optionString(options, 'session'), persona: optionString(options, 'persona'), artifacts })
-      : await promotePlanningArtifact(root, { sessionId: optionString(options, 'session'), persona: optionString(options, 'persona'), content: input });
+      ? await promotePlanningArtifacts(root, { sessionId: optionString(options, 'session'), agent: optionString(options, 'agent'), artifacts })
+      : await promotePlanningArtifact(root, { sessionId: optionString(options, 'session'), agent: optionString(options, 'agent'), content: input });
   }
   else if (subcommand === 'initiative-materialize-preview') {
     const initiativeId = optionString(options, 'initiative');
@@ -3580,20 +3592,10 @@ function epicReviewChoiceDefinition(review, decision) {
   const storyId = review.story.workId ?? review.story.jiraKey ?? review.story.planId ?? review.story.id;
   const packetSha256 = review.packet.packetSha256;
   const confirmation = `${decision}:${storyId}:${packetSha256}`;
-  if (!review.approval.workingLenses.length) {
-    throw new SingularityFlowError(`No working lens is configured for phase '${review.approval.phase}'.`);
+  if (!review.approval.availableAgents.length || !review.approval.defaultAgent) {
+    throw new SingularityFlowError(`No governed agent is configured for phase '${review.approval.phase}'.`);
   }
-  const choiceSets = [
-    {
-      id: 'persona',
-      label: 'Working lens (audit only)',
-      options: review.approval.workingLenses.map((persona) => ({
-        id: persona.id,
-        label: persona.label,
-        description: `Use the ${persona.label} prompt perspective. Authority comes from the reviewer identity shown separately.`
-      }))
-    }
-  ];
+  const choiceSets = [];
   if (decision === 'reject') {
     choiceSets.push({
       id: 'reject-target',
@@ -4088,15 +4090,10 @@ async function epicCommand(positionals, options) {
           base: optionString(options, 'base', config.defaultBaseBranch),
           actor
         });
-      // The Jira route answers this prompt from a selection receipt, but a receipt is bound to an
-      // identifier that already exists and a local Epic's identifier is minted by the reservation
-      // above — so there is nothing to bind to until the command is already running. `--persona`
-      // carries the human's choice instead, exactly as `--profile` already does on this same route.
-      // A lens is prompt context, not identity or approval authority, so nothing is weakened.
-      const selectedPersona = await selectPersona(root, config, actor, reservation.id, {
-        selection: optionString(options, 'persona') ?? null,
-        nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-      });
+      const firstPhase = portfolio.initiativeProfiles[profile].phases[0];
+      const selectedAgent = await activateInitiativeAgent(
+        root, config, reservation.id, portfolio.initiativePhases[firstPhase], optionString(options, 'agent') ?? null
+      );
       const source = {
         type: 'manual',
         id: reservation.id,
@@ -4109,7 +4106,7 @@ async function epicCommand(positionals, options) {
         title: source.title,
         profile,
         source,
-        persona: selectedPersona.persona,
+        agent: selectedAgent.agent,
         idAuthority: 'local',
         capabilityId: optionString(options, 'capability')
       });
@@ -4124,7 +4121,7 @@ async function epicCommand(positionals, options) {
           version: reservation.reservationCommit,
           observedState: `Local Epic ID ${reservation.id} reserved on its canonical Git branch`
         },
-        persona: selectedPersona.persona
+        agent: selectedAgent.agent
       });
       const started = await loadInitiative(root, reservation.id, created.portfolio);
       const publication = await commitInitiativeChange(
@@ -4662,8 +4659,7 @@ async function epicCommand(positionals, options) {
       const receipt = receiptToken
         ? await resolveCustomSelectionReceipt(root, receiptToken, definition)
         : null;
-      const persona = receipt?.answers.persona
-        ?? await chooseFromOptions('Working lens', definition.choiceSets.find((entry) => entry.id === 'persona').options);
+      const agent = optionString(options, 'agent') ?? review.approval.defaultAgent;
       const targetChoices = definition.choiceSets.find((entry) => entry.id === 'reject-target')?.options ?? [];
       const target = decision === 'reject'
         ? (receipt?.answers['reject-target']
@@ -4680,7 +4676,7 @@ async function epicCommand(positionals, options) {
       const result = await epicReviewDecision(root, initiativeId, story, {
         packetSha256,
         decision,
-        persona,
+        agent,
         target,
         reason: optionString(options, 'reason'),
         channel: receipt ? 'copilot-selection-receipt' : 'terminal'
@@ -4991,11 +4987,10 @@ async function storyFetchCommand(positionals, options) {
     if (!config.workTypes?.[workType]) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
-    const actor = identity(target);
-    const persona = await selectPersona(target, config, actor, storyKey, {
-      selection: optionString(options, 'persona') ?? null,
-      nonInteractiveHint: 'Pass --persona <id> to choose one without a terminal.'
-    });
+    const resolvedWorkType = resolveWorkType(config, workType);
+    const agent = await activatePhaseAgent(
+      target, config, storyKey, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
+    );
     workflow = await createWorkflow(target, config, {
       id: storyKey,
       title: issue.title || seed.story.title || storyKey,
@@ -5012,8 +5007,8 @@ async function storyFetchCommand(positionals, options) {
       },
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
       workType,
-      persona: persona.persona,
-      resolved: resolveWorkType(config, workType),
+      agent: agent.agent,
+      resolved: resolvedWorkType,
       capabilityId: optionString(options, 'capability')
     });
     await commitAndPublish(target, config, workflow, `[${storyKey}][init] start governed Story workflow`);
@@ -5153,7 +5148,7 @@ async function dispatch(command, positionals, options) {
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),
-    lens: () => personaCommand(positionals, options),
+    agent: () => agentCommand(positionals, options),
     session: () => sessionCommand(positionals, options),
     inbox: () => inboxCommand(options),
     finalize: () => finalizeCommand(options),
@@ -5174,7 +5169,7 @@ async function dispatch(command, positionals, options) {
     recover: () => recoverCommand(positionals, options),
     nextsteps: () => nextStepsCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),
-    'prompt-packs': () => promptPacksCommand(positionals, options),
+    'agents': () => agentsCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
     prepare: () => prepareCommand(positionals, options),
     phase: () => phaseCommand(positionals, options),

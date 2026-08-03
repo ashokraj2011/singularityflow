@@ -29,7 +29,7 @@ flowchart LR
 
 | Component | Responsibility |
 |---|---|
-| Human | Selects work, chooses a working lens, confirms exceptions, and approves or rejects |
+| Human | Selects work and workflow, confirms exceptions, and approves or rejects with a real identity |
 | Copilot | Uses governed context to generate or review content |
 | `SKILL.md` | Tells Copilot which deterministic commands and behavioral rules to follow |
 | Node.js CLI | Loads configuration, composes prompts, validates state, and performs lifecycle operations |
@@ -48,7 +48,6 @@ Repository-owned, reviewable state lives in the visible `singularity/` folder:
 singularity/
 ├── workflow.yml
 ├── portfolio.yml
-├── personas/
 ├── prompts/
 ├── templates/
 ├── world-model/
@@ -58,19 +57,22 @@ singularity/
 │   └── EPIC-123/
 ├── seeds/
 └── agents.lock.yml
+.github/
+└── agents/
+    └── <agent-id>.agent.md
 ```
 
 The important entries are:
 
 - `workflow.yml`: Story workflow definition.
 - `portfolio.yml`: optional multi-repository Epic and initiative definition.
-- `personas/`: working-lens prompts.
+- `.github/agents/`: governed execution-role Markdown with phase defaults, tools, instructions, and world-model views.
 - `templates/`: configurable artifact templates.
 - `world-model/`: generated repository understanding.
 - `work-items/`: Story workflow state, artifacts, approvals, and telemetry.
 - `initiatives/`: Epic requirements, plans, evidence, and Story lineage.
 - `seeds/`: approved Epic context passed into generated Story branches.
-- `agents.lock.yml`: trusted hashes for optional remote Markdown prompt packs.
+- `agents.lock.yml`: trusted hashes for optional remote Agent Markdown dependencies.
 
 Machine-local state is deliberately kept out of commits:
 
@@ -83,7 +85,7 @@ Machine-local state is deliberately kept out of commits:
 └── pending-publication state
 ```
 
-The local session records the active work item and working lens. Caches, raw
+The local session records the active work item and current governed agent. Caches, raw
 telemetry traces, and short-lived selection receipts also stay under `.git/`.
 Desktop profile and workspace information lives in the Electron application-data
 directory; credentials use the operating-system protected credential store.
@@ -95,7 +97,7 @@ The package supplies:
 - The `singularity-flow` and `sflow` Node.js CLI.
 - The Electron desktop application.
 - GitHub Copilot `/sflow-*` skills.
-- Starter workflows, templates, working lenses, and prompts.
+- Starter workflows, templates, governed agents, and prompts.
 
 Initialize from the application repository:
 
@@ -141,7 +143,7 @@ The contributor selects:
 
 1. Intake source: Jira or manual.
 2. Work type: feature, bugfix, chore, Figma-mobile, or another configured type.
-3. Working lens: product owner, architect, developer, QA, or another configured lens.
+3. No role picker: the first phase's default governed agent activates automatically.
 
 Manual intake may be explicit:
 
@@ -197,39 +199,32 @@ Every phase may define:
 
 These definitions are editable in `singularity/workflow.yml`.
 
-## 6. Working lenses and human identity
+## 6. Governed agents and human identity
 
-A working lens changes Copilot's perspective:
+A governed agent is Agent Markdown under `.github/agents/`. Its frontmatter
+declares phase scope, automatic phase defaults, tools, and world-model views;
+its body supplies the execution instructions. Every configured phase must have
+exactly one default agent.
 
-```yaml
-personas:
-  architect:
-    prompt: architect.md
-    worldModelViews: [architecture, security]
+Agents are not people. The human's Git/GitHub identity is recorded separately
+and matched against approval-authority groups. Changing agents cannot grant
+approval permission or create an independent review.
 
-  developer:
-    prompt: developer.md
-    worldModelViews: [development, testing]
-```
-
-The configuration key remains `personas`, but the product treats these as
-working lenses. A working lens is not a login, human identity, approval
-permission, or proof of independent review.
-
-The selected lens is stored locally:
+The current phase agent is stored locally:
 
 ```text
 .git/singularity-flow/session.json
 ```
 
-Switch it without committing workflow state:
+Inspect or explicitly override it without committing workflow state:
 
 ```text
-/sflow-lens
+/sf-agent
 ```
 
-Approval identity is evaluated separately from Git identity and, when available,
-authenticated GitHub identity.
+`start`, `resume`, and phase advancement set it automatically from the immutable
+workflow resolution. Approval identity is evaluated from Git identity and, when
+available, authenticated GitHub identity.
 
 ## 7. What a Copilot skill does
 
@@ -315,14 +310,14 @@ The composer combines:
 
 ```text
 Phase contract and artifact template
-+ selected working-lens prompt
++ governed Agent Markdown
 + repository core summary
 + mandatory phase views
-+ additional working-lens views
++ agent-added world-model views
 + relevant domain files
 + exact task guide
 + rule-selected world-model files
-+ active remote prompt-pack Markdown
++ locked remote Agent Markdown dependencies
 + approved upstream artifacts
 + evidence ledger when required
 ```
@@ -361,7 +356,7 @@ singularity/work-items/WORK-123/context/
 
 The record includes:
 
-- Phase, generation, work item, and working lens.
+- Phase, generation, work item, governed agent, and human identity.
 - World-model commit and manifest hash.
 - Model source-tree and current source-tree hashes.
 - Required views and every selected file.
@@ -528,7 +523,7 @@ Approval validates:
 - Distinct-identity threshold.
 - Exact phase confirmation.
 
-Switching working lenses does not create a new identity. Self-approval can be
+Switching governed agents does not create a new identity. Self-approval can be
 allowed, but it is recorded as `selfApproval: true`, shown in status and reports,
 and never described as independent review.
 
@@ -560,7 +555,7 @@ singularity-flow resume WORK-123 --fetch
 
 The CLI fetches the remote, locates the exact branch, permits only safe
 fast-forward synchronization, verifies the remote head, reconstructs state from
-committed files, and asks that terminal for its own working lens.
+committed files, and activates that phase's default governed agent locally.
 
 It does not silently merge, rebase, reset, stash, force-checkout, or discard
 work.
@@ -583,7 +578,7 @@ singularity-flow documents upload --url https://example.com/design
 ```
 
 Each document receives a stable ID, path, MIME type, size, SHA-256, actor,
-working lens, and timestamp. Directory packages retain deterministic relative
+governed agent, human identity, and timestamp. Directory packages retain deterministic relative
 paths and reject symbolic links.
 
 Inspect documents with:
@@ -733,7 +728,7 @@ The desktop is a visual projection and configuration surface. It provides:
 - Epic intake, requirements, planning, and Story progress.
 - Artifact and evidence previews.
 - Approval inbox.
-- Workflow, template, prompt, and working-lens editors.
+- Workflow, template, prompt, and governed-agent editors.
 - World-model status.
 - Duration, token, model, and cost dashboards.
 
@@ -764,30 +759,30 @@ Credentials stay in the operating-system credential store. Jira observations
 are timestamped snapshots. External drift is reported and never silently
 overwrites approved Git state.
 
-## 24. Remote Markdown prompt packs
+## 24. Remote Agent Markdown dependencies
 
 Teams may add public HTTPS Markdown resources for prompt context, templates, or
 generated outputs. Trust and activation are explicit:
 
 ```bash
-singularity-flow prompt-packs lock architecture
-singularity-flow prompt-packs sync architecture
+singularity-flow agents lock architecture
+singularity-flow agents sync architecture
 ```
 
 Trusted hashes are committed in `singularity/agents.lock.yml`; verified bytes
 are cached under `.git/singularity-flow/`. Remote content cannot silently change
-an active generation. Prompt-pack skills are scoped context resources, not
+an active generation. Remote agent skills are scoped context resources, not
 global slash commands or human identities.
 
 Copilot custom agents map automatically through
 `singularity/agent-mappings.yml`. Each key is the Copilot custom-agent ID and
-each value is a discovered Flow prompt-pack ID. If no explicit entry exists,
+each value is a discovered governed agent ID. If no explicit entry exists,
 the exact same-name match remains the fallback. Run
-`singularity-flow prompt-packs mappings` to inspect the effective table.
+`singularity-flow agents mappings` to inspect the effective table.
 
-The plugin's nonblocking `subagentStart` hook records the resolved pack in the
-machine-local session while preserving the work item and working lens.
-Local-only packs and already locked, verified cache entries can be activated
+The plugin's nonblocking `subagentStart` hook records the resolved agent in the
+machine-local session while preserving the work item.
+Local-only agents and already locked, verified cache entries can be activated
 automatically. First trust, hash updates, and network synchronization remain
 explicit contributor actions; unmatched agents are ignored. Mapping never
 changes human identity or approval authority.

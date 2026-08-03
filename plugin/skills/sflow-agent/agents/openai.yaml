@@ -1,0 +1,3 @@
+interface:
+  display_name: "Governed agent"
+  short_description: "Inspect or explicitly override the phase agent"

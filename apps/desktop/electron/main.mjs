@@ -276,7 +276,7 @@ async function openWorkspaceStatus(status, { message = null } = {}) {
           message: [
             workspaceMessage,
             `Initialized Singularity Flow in the lead repository '${path.basename(repository)}'. `
-              + 'The starter workflow, templates, prompts, and personas are local configuration changes ready for review and publication. '
+              + 'The starter workflow, templates, prompts, and agents are local configuration changes ready for review and publication. '
               + 'The repository world model remains optional until you build it.'
           ].filter(Boolean).join(' ')
         };
@@ -737,7 +737,7 @@ function registerHandlers() {
       throw error;
     }
   });
-  trustedHandle('session:persona', (_event, { repository, workId, persona }) => invokeCli(assertRepository(repository), ['desktop', 'session', persona, ...(workId ? ['--work-id', workId] : []), '--json']));
+  trustedHandle('session:agent', (_event, { repository, workId, agent }) => invokeCli(assertRepository(repository), ['desktop', 'session', agent, ...(workId ? ['--work-id', workId] : []), '--json']));
   trustedHandle('initiative:restart', async (event, { repository, initiativeId, confirmation, reason = null }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -786,7 +786,7 @@ function registerHandlers() {
       assurance: 'human-approved',
       verificationMethod: 'human-review',
       source: { observedState: observedState?.trim() || null },
-      persona: session?.persona ?? null,
+      agent: session?.agent ?? null,
       reason: reason?.trim() || null
     });
     const fresh = await loadInitiative(root, initiativeId);
@@ -863,7 +863,7 @@ function registerHandlers() {
     return { remote, fetched: hasRemote(root, remote) };
   });
   trustedHandle('initiative:phase-publish', async (event, {
-    repository, initiativeId, phaseId, persona = null
+    repository, initiativeId, phaseId, agent = null
   }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -874,7 +874,7 @@ function registerHandlers() {
       importCliModule('initiative-evidence.mjs'),
       importCliModule('initiative-state.mjs')
     ]);
-    const result = await publishInitiativePhase(root, initiativeId, phaseId, { persona });
+    const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent });
     const publication = await commitInitiativeChange(
       root,
       result.portfolio,
@@ -884,7 +884,7 @@ function registerHandlers() {
     return { ...result, publication };
   });
   trustedHandle('initiative:phase-approve', async (event, {
-    repository, initiativeId, subject = 'phase', confirmation, persona = null,
+    repository, initiativeId, subject = 'phase', confirmation, agent = null,
     selfApprovalAcknowledged = false
   }) => {
     assertTrustedSender(event);
@@ -917,7 +917,7 @@ function registerHandlers() {
       initiativeId,
       phaseId,
       subject,
-      persona,
+      agent,
       channel: 'desktop'
     });
     const publication = await commitInitiativeChange(
@@ -1271,13 +1271,13 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return epicCheckStory(root, initiativeId, storyId, { packetSha256 });
   });
   trustedHandle('epic:decision', async (event, {
-    repository, initiativeId, storyId, packetSha256, decision, persona, target = null, reason = null
+    repository, initiativeId, storyId, packetSha256, decision, agent, target = null, reason = null
   }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
     const { epicReviewDecision } = await importCliModule('epic-review.mjs');
     return epicReviewDecision(root, initiativeId, storyId, {
-      packetSha256, decision, persona, target, reason
+      packetSha256, decision, agent, target, reason
     });
   });
   trustedHandle('epic:complete', async (event, { repository, initiativeId, confirmation }) => {
@@ -1822,7 +1822,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return assertWorkspaceStoryIssue(routing, await getIssue(key, { connection }));
   });
   trustedHandle('story:start', async (event, {
-    repository, workspace, repositoryId, storyKey, workType, persona
+    repository, workspace, repositoryId, storyKey, workType
   }) => {
     assertTrustedSender(event);
     assertRepository(repository);
@@ -1853,7 +1853,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       { resolveWorkType },
       { assertClean, checkout, identity },
       { commitAndPublish, createWorkflow, loadConfig, loadWorkflow, validateId, workflowPath },
-      { setPersonaSession }
+      { setAgentSession }
     ] = await Promise.all([
       importCliModule('jira.mjs'),
       importCliModule('config.mjs'),
@@ -1872,12 +1872,13 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     }
     validateId(config, source.key);
     if (!config.workTypes?.[workType]) throw new Error(`Unknown Story workflow '${workType ?? ''}'.`);
-    if (!config.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    const resolved = resolveWorkType(config, workType);
+    const agent = resolved.phases[0]?.defaultAgent;
+    if (!config.agents?.[agent]) throw new Error(`Story workflow '${workType}' has no default governed agent for its first phase.`);
     const baseBranch = manifest.repositories?.[repositoryId]?.defaultBranch || config.defaultBaseBranch;
     assertClean(root);
     checkout(root, source.key, { base: baseBranch, fetch: true });
     const actor = identity(root);
-    await setPersonaSession(root, config, actor, persona, source.key);
     let workflow;
     let publication = null;
     let resumed = false;
@@ -1895,8 +1896,8 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
         },
         baseBranch,
         workType,
-        persona,
-        resolved: resolveWorkType(config, workType)
+        agent,
+        resolved
       });
       publication = await commitAndPublish(
         root,
@@ -1905,6 +1906,16 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
         `[${source.key}][init] start ${workType} workflow`
       );
     }
+    const activeAgent = resumed
+      ? workflow.phases?.[workflow.currentPhase]?.defaultAgent
+      : agent;
+    if (!config.agents?.[activeAgent]) {
+      throw new Error(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
+    }
+    await setAgentSession(root, config, actor, activeAgent, source.key, {
+      phaseId: workflow.currentPhase,
+      source: 'phase-default'
+    });
     const opened = await openRepository(root, { workspace: workspaceHealth });
     return {
       ...opened,
@@ -1929,7 +1940,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return jiraCacheWrite(key, await listEpicStories(epicKey, { connection, limit: 100 }));
   });
   trustedHandle('epic:start', async (event, {
-    repository, epicKey, profile = 'epic-planning', persona
+    repository, epicKey, profile = 'epic-planning'
   }) => {
     assertTrustedSender(event);
     const { root, connection } = await governedJiraConnection(repository, { issueKey: epicKey });
@@ -1944,7 +1955,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
         commitInitiativeChange, createInitiative, loadInitiative
       },
       { registerInitiativeEvidence },
-      { setPersonaSession }
+      { setAgentSession }
     ] = await Promise.all([
       importCliModule('jira.mjs'),
       importCliModule('config.mjs'),
@@ -1959,12 +1970,15 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       loadPortfolio(root),
       getIssue(epicKey, { connection })
     ]);
-    if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
-    if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    const selectedProfile = portfolio.initiativeProfiles?.[profile];
+    if (!selectedProfile) throw new Error(`Unknown initiative profile '${profile}'.`);
+    const firstPhaseId = selectedProfile.phases[0];
+    const agent = portfolio.phases?.[firstPhaseId]?.agents?.[0];
+    if (!definition.agents?.[agent]) throw new Error(`Initiative phase '${firstPhaseId}' has no valid governed agent.`);
     assertClean(root);
     const checkoutMode = checkout(root, epicKey, { base: definition.defaultBaseBranch, fetch: true });
     const actor = identity(root);
-    await setPersonaSession(root, definition, actor, persona, epicKey);
+    await setAgentSession(root, definition, actor, agent, epicKey, { phaseId: firstPhaseId, source: 'phase-default' });
     if (!checkoutMode.startsWith('created-from-')) {
       try {
         const existing = await loadInitiative(root, epicKey, portfolio);
@@ -1993,7 +2007,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       title: source.title ?? epicKey,
       profile,
       source,
-      persona,
+      agent,
       idAuthority: 'jira'
     });
     if (profile === 'epic-planning') {
@@ -2008,7 +2022,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
           version: source.updatedAt ?? null,
           observedState: `${source.key ?? epicKey}: ${source.title ?? epicKey}`
         },
-        persona
+        agent
       });
     }
     // Pin the Epic's own attachments as governed sources. A listed attachment is not evidence
@@ -2034,7 +2048,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     let intakePublication = null;
     if (profile === 'epic-planning') {
       const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
-      const completed = await completeEpicIntake(root, epicKey, { persona });
+      const completed = await completeEpicIntake(root, epicKey, { agent });
       if (completed.advanced) {
         intakePublication = await commitInitiativeChange(
           root,
@@ -2068,7 +2082,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     return nextLocalEpicId(root, portfolio, { fetch: true });
   });
   trustedHandle('epic:start-local', async (event, {
-    repository, title, description = '', goal = '', profile = 'epic-planning', persona
+    repository, title, description = '', goal = '', profile = 'epic-planning'
   }) => {
     assertTrustedSender(event);
     const root = assertRepository(repository);
@@ -2080,7 +2094,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       { currentLocalEpicReservation, reserveLocalEpicBranch },
       { commitInitiativeChange, createInitiative, initiativeStartPreflight, loadInitiative },
       { registerInitiativeEvidence },
-      { setPersonaSession }
+      { setAgentSession }
     ] = await Promise.all([
       importCliModule('config.mjs'),
       importCliModule('initiative-config.mjs'),
@@ -2091,8 +2105,11 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       importCliModule('session.mjs')
     ]);
     const [definition, portfolio] = await Promise.all([loadDefinition(root), loadPortfolio(root)]);
-    if (!portfolio.initiativeProfiles?.[profile]) throw new Error(`Unknown initiative profile '${profile}'.`);
-    if (!definition.personas?.[persona]) throw new Error(`Unknown persona '${persona ?? ''}'.`);
+    const selectedProfile = portfolio.initiativeProfiles?.[profile];
+    if (!selectedProfile) throw new Error(`Unknown initiative profile '${profile}'.`);
+    const firstPhaseId = selectedProfile.phases[0];
+    const agent = portfolio.phases?.[firstPhaseId]?.agents?.[0];
+    if (!definition.agents?.[agent]) throw new Error(`Initiative phase '${firstPhaseId}' has no valid governed agent.`);
     await initiativeStartPreflight(root, { profile, idAuthority: 'local' });
     assertClean(root);
     const actor = identity(root);
@@ -2108,13 +2125,13 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       description: String(description ?? '').trim(),
       goal: String(goal ?? '').trim()
     };
-    await setPersonaSession(root, definition, actor, persona, reservation.id);
+    await setAgentSession(root, definition, actor, agent, reservation.id, { phaseId: firstPhaseId, source: 'phase-default' });
     const created = await createInitiative(root, {
       id: reservation.id,
       title: source.title,
       profile,
       source,
-      persona,
+      agent,
       idAuthority: 'local'
     });
     if (profile === 'epic-planning') {
@@ -2129,7 +2146,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
           version: reservation.reservationCommit,
           observedState: `Local Epic ID ${reservation.id} reserved on its canonical Git branch`
         },
-        persona
+        agent
       });
     }
     const started = await loadInitiative(root, reservation.id, created.portfolio);
@@ -2143,7 +2160,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
     let intakePublication = null;
     if (profile === 'epic-planning') {
       const { completeEpicIntake } = await importCliModule('epic-lifecycle.mjs');
-      const completed = await completeEpicIntake(root, reservation.id, { persona });
+      const completed = await completeEpicIntake(root, reservation.id, { agent });
       if (completed.advanced) {
         intakePublication = await commitInitiativeChange(
           root,
@@ -2195,7 +2212,7 @@ async function epicSourceRuntime(root, initiativeId, providerId = null) {
       id: workId,
       source,
       workType: intake.workType,
-      persona: intake.persona,
+      agent: intake.agent,
       files: Array.isArray(intake.files) ? intake.files : [],
       urls: Array.isArray(intake.urls) ? intake.urls : []
     });

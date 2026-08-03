@@ -1,9 +1,9 @@
-version: 1
+version: 2
 inputsMode: record
 
 # Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
 # followed by `/sflow-next`; the new conversation reconstructs its prompt from
-# approved Git artifacts, persona guidance, inputs, and world-model views.
+# approved Git artifacts, governed agent guidance, inputs, and world-model views.
 contextPolicy:
   onApproval: new
   onRejection: keep
@@ -45,7 +45,6 @@ ledger:
   retentionDays: 2555
 
 templatesRoot: singularity/templates
-personaPromptsRoot: singularity/personas
 
 planning:
   enabled: true
@@ -67,9 +66,9 @@ worldModel:
     mode: append
     maxBytes: 32768
     rules: []
-    # Rules add focused context to the active persona prompt. Phase-required
+    # Rules add focused context to the active agent prompt. Phase-required
     # views below are always loaded separately and cannot be removed by rules.
-    # - when: { persona: architect, phase: design }
+    # - when: { agent: architect, phase: design }
     #   include: [domains/payments.md]
     # - when: { changedPaths: "src/api/**" }
     #   include: [domains/api.md]
@@ -103,7 +102,7 @@ documents:
 #       driveId: <graph-drive-id>
 
 collaboration:
-  # Assignments coordinate people but never restrict who may select a persona.
+  # Assignments coordinate people but never grant agent or approval authority.
   assignmentMode: suggested
   approvalReminderAfterHours: 24
   notifications: [terminal]
@@ -121,12 +120,9 @@ logging:
   keep: 3
 
 session:
-  # Selection remains explicit and local. The bundled Copilot hook only offers
-  # nonblocking guidance; deterministic CLI lifecycle gates remain authoritative.
+  # Work-item selection remains explicit and local. Each phase activates its
+  # configured governed agent automatically; /sf-agent is an audited override.
   workItemSelection: prompt
-  personaSelection: prompt
-  promptOnNewSession: true
-  promptOnResume: false
   requireBeforeTools: false
 
 # Human approval groups are matched against the real Git/GitHub identity.
@@ -151,46 +147,6 @@ approvalAuthorities:
     label: Design reviewers
     allowAnyGitIdentity: true
     members: []
-
-# The persisted key remains "personas" because Copilot uses that configuration
-# vocabulary. In the product these are working lenses, never human identities.
-personas:
-  developer:
-    label: Developer
-    description: Implement scoped changes and tests.
-    prompt: developer.md
-    suggestedPhases: [implementation]
-    worldModelViews: [development, testing]
-  architect:
-    label: Architect
-    description: Define boundaries, contracts, risks, and implementation specifications.
-    prompt: architect.md
-    suggestedPhases: [design, implementation-spec, fix-design, fix-spec]
-    worldModelViews: [architecture, security]
-  product-owner:
-    label: Product owner
-    description: Define the problem, scope, and measurable acceptance criteria.
-    prompt: product-owner.md
-    suggestedPhases: [intake, requirements]
-    worldModelViews: [business]
-  qa:
-    label: QA
-    description: Verify acceptance criteria and collect reproducible evidence.
-    prompt: qa.md
-    suggestedPhases: [reproduction, verification, visual-verification, conformance]
-    worldModelViews: [testing, development, security]
-  product-designer:
-    label: Product designer
-    description: Turn exported design evidence into explicit screens, states, interactions, tokens, and review decisions.
-    prompt: product-designer.md
-    suggestedPhases: [design-intake, design-inventory, visual-verification]
-    worldModelViews: [business, architecture, testing]
-  mobile-architect:
-    label: Mobile architect
-    description: Map approved designs to a maintainable mobile design system, navigation model, implementation contract, and test strategy.
-    prompt: mobile-architect.md
-    suggestedPhases: [component-mapping, mobile-spec]
-    worldModelViews: [architecture, development, testing, security]
 
 workTypes:
   feature:
@@ -260,7 +216,6 @@ workTypes:
 phases:
   intake:
     label: Intake
-    suggestedPersonas: [product-owner]
     defaultTemplate: common/intake.md
     artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
     worldModel: { views: [business], depth: quick }
@@ -268,7 +223,6 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake] }
   requirements:
     label: Requirements
-    suggestedPersonas: [product-owner]
     defaultTemplate: feature/requirements.md
     artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
     worldModel: { views: [business], depth: standard }
@@ -276,7 +230,6 @@ phases:
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake, requirements] }
   design:
     label: Architecture and design
-    suggestedPersonas: [architect]
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
     worldModel: { views: [architecture, security], depth: standard }
@@ -284,7 +237,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design] }
   implementation-spec:
     label: Implementation specification
-    suggestedPersonas: [architect, developer]
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
     worldModel: { views: [architecture, development, testing, security], depth: deep }
@@ -292,7 +244,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design, implementation-spec] }
   reproduction:
     label: Reproduction
-    suggestedPersonas: [qa, developer]
     defaultTemplate: bugfix/reproduction.md
     artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
@@ -300,7 +251,6 @@ phases:
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, reproduction] }
   fix-design:
     label: Fix design
-    suggestedPersonas: [architect, developer]
     defaultTemplate: bugfix/fix-design.md
     artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
     worldModel: { views: [architecture, development, security], depth: standard }
@@ -308,7 +258,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design] }
   fix-spec:
     label: Fix specification
-    suggestedPersonas: [architect, developer]
     defaultTemplate: bugfix/fix-spec.md
     artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
     worldModel: { views: [development, testing, security], depth: standard }
@@ -316,7 +265,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design, fix-spec] }
   design-intake:
     label: Design package intake
-    suggestedPersonas: [product-designer]
     defaultTemplate: figma-mobile/design-intake.md
     artifact: { path: artifacts/design-intake/design-package-intake.md, kind: design-intake, minimumBytes: 350 }
     worldModel: { views: [business, architecture], depth: standard }
@@ -324,7 +272,6 @@ phases:
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake] }
   design-inventory:
     label: Screen and design inventory
-    suggestedPersonas: [product-designer]
     defaultTemplate: figma-mobile/design-inventory.md
     artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
     worldModel: { views: [business, architecture], depth: standard }
@@ -332,7 +279,6 @@ phases:
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory] }
   component-mapping:
     label: Mobile component mapping
-    suggestedPersonas: [mobile-architect, product-designer]
     defaultTemplate: figma-mobile/component-mapping.md
     artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
     worldModel: { views: [architecture, development, security], depth: deep }
@@ -340,7 +286,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping] }
   mobile-spec:
     label: Mobile implementation specification
-    suggestedPersonas: [mobile-architect, developer]
     defaultTemplate: figma-mobile/mobile-spec.md
     artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
     worldModel: { views: [architecture, development, testing, security], depth: deep }
@@ -348,7 +293,6 @@ phases:
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec] }
   implementation:
     label: Implementation
-    suggestedPersonas: [developer]
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
@@ -357,7 +301,6 @@ phases:
     qualityCommands: []
   verification:
     label: Verification
-    suggestedPersonas: [qa]
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
     worldModel: { views: [testing, development, security], depth: standard, evidence: true }
@@ -366,7 +309,6 @@ phases:
     qualityCommands: []
   visual-verification:
     label: Mobile visual verification
-    suggestedPersonas: [product-designer, qa]
     defaultTemplate: figma-mobile/visual-verification.md
     artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
     worldModel: { views: [testing, development, security], depth: deep, evidence: true }
@@ -375,7 +317,6 @@ phases:
     qualityCommands: []
   conformance:
     label: Spec-to-code conformance
-    suggestedPersonas: [qa, architect]
     defaultTemplate: common/conformance.md
     artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
     worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
@@ -390,7 +331,7 @@ governance:
     - singularity/agent-mappings.yml
     - singularity/agents.lock.yml
     - singularity/templates
-    - singularity/personas
+    - singularity/agents
     - singularity/prompts
     - .github/agents
     - plugin/agents

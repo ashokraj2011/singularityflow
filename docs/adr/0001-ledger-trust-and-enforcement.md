@@ -15,8 +15,8 @@ repository chooses and snapshots one trust tier:
 | T2 | T1 plus signed ledger commits | Publisher identity proof |
 | T3 | T2 plus mandatory server validation or authenticated merge receipts | Server-enforced admission |
 
-Working lenses are prompt context. Approval authority is resolved independently from
-configured identity groups. An entry records actor, working lens, authority group, and
+Governed agents are prompt and tool context. Approval authority is resolved independently from
+configured identity groups. An entry records actor, governed agent, authority group, and
 identity assurance in separate fields.
 
 `ledger.enforcement: shadow` reports drift. `required` makes unverifiable ledger state

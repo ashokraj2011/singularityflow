@@ -1,6 +1,6 @@
 ---
 name: sflow-doctor
-description: Diagnose Singularity Flow repository, workflow, working-lens, human-identity authority, publication, working-tree, and remote readiness without changing state.
+description: Diagnose Singularity Flow repository, workflow, governed-agent, human-identity authority, publication, working-tree, and remote readiness without changing state.
 argument-hint: "[work ID]"
 disable-model-invocation: true
 ---
@@ -9,7 +9,7 @@ disable-model-invocation: true
 Run `singularity-flow init --check --json` first, then run
 `singularity-flow doctor $ARGUMENTS`. Report each failure with its exact safe
 fix and summarize warnings separately. The initialization check covers the
-workflow, portfolio, templates, prompts, and working-lens files installed on
+workflow, portfolio, templates, prompts, and governed-agent files installed on
 the current branch. Both commands are read-only. Recommend `/sflow-init` when
 assets are missing. Do not reset, stash, switch branches, or edit
 configuration unless the user explicitly asks you to apply a fix.

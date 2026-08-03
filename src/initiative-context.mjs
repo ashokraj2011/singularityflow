@@ -201,7 +201,7 @@ async function knowledgeSections(root) {
   return { included, total: ordered.length, truncated, text };
 }
 
-async function repositoryGrounding(root, definition, phase, persona, mode, profilePhases = [], staleness = null) {
+async function repositoryGrounding(root, definition, phase, agent, mode, profilePhases = [], staleness = null) {
   const warnings = [];
   // Epic planning deliberately runs before repository-specific Story branches exist.
   // In that lifecycle, `off` means "deferred to Story intake", not a degraded prompt,
@@ -211,7 +211,7 @@ async function repositoryGrounding(root, definition, phase, persona, mode, profi
   }
   const requiredViews = unique([
     ...(phase.worldModelViews ?? []),
-    ...(definition.personas[persona]?.worldModelViews ?? [])
+    ...(definition.agents[agent]?.worldModelViews ?? [])
   ]);
   const config = {
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
@@ -285,7 +285,7 @@ async function repositoryGrounding(root, definition, phase, persona, mode, profi
 }
 
 export async function composeInitiativeContext(root, initiativeId, requestedPhase = null, {
-  persona = null,
+  agent = null,
   dryRun = false
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -298,9 +298,9 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const phase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!phase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
   const session = await loadSession(root, { required: false });
-  const selectedPersona = persona ?? (session?.workId === initiativeId ? session.persona : null);
-  if (!selectedPersona || !definition.personas[selectedPersona]) {
-    throw new SingularityFlowError(`Initiative prompt composition requires a selected session working lens for ${initiativeId}. Resume the initiative and choose one.`);
+  const selectedAgent = agent ?? (session?.workId === initiativeId ? session.agent : null);
+  if (!selectedAgent || !definition.agents[selectedAgent]) {
+    throw new SingularityFlowError(`Initiative prompt composition requires the phase agent for ${initiativeId}. Resume the initiative to activate it automatically.`);
   }
   const generation = initiative.phases[phaseId].generation + 1;
   const itemDirectory = await secureInitiativePath(root, portfolio, initiativeId, '', {
@@ -314,7 +314,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   });
   if (!dryRun && existingRecord.exists) {
     const verification = await verifyInitiativeContext(root, portfolio, initiative, phaseId, generation);
-    if (verification.valid && !verification.warnings.length && verification.record?.persona === selectedPersona) {
+    if (verification.valid && !verification.warnings.length && verification.record?.agent === selectedAgent) {
       const prompt = await secureRepositoryPath(root, verification.record.promptPath, {
         label: `Governed initiative prompt for '${phaseId}'`,
         mustExist: true,
@@ -332,18 +332,13 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       };
     }
   }
-  const personaPath = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, definition.personas[selectedPersona].prompt), {
-    label: `Working-lens prompt for '${selectedPersona}'`,
-    mustExist: true,
-    type: 'file'
-  });
-  const personaText = await readFile(personaPath.absolute, 'utf8');
-  const personaSnapshot = await snapshot(personaPath.absolute);
+  const agentProfile = definition.agents[selectedAgent];
+  const agentText = agentProfile.prompt;
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
-  const grounding = await repositoryGrounding(root, definition, phase, selectedPersona, mode,
+  const grounding = await repositoryGrounding(root, definition, phase, selectedAgent, mode,
     Object.values(initiative.resolution?.phases ?? {}),
     initiative.resolution?.worldModelStaleness);
   const capability = await renderCapabilityWorldModelPack(root, initiative.resolution?.capability, {
@@ -356,7 +351,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   // A phase that declares the agents it expects is stating a requirement, not a preference. Running
   // it under a different agent produces artifacts that look governed and were composed by something
   // the phase was not written for — so it is said out loud rather than discovered in review.
-  const agentSession = session?.workId === initiativeId ? session : { persona: selectedPersona };
+  const agentSession = session?.workId === initiativeId ? session : { agent: selectedAgent };
   // The phase's own declaration, pinned into the resolution when the Initiative started — so a
   // later edit to the configuration cannot change what work already under way expected.
   const expectedAgents = phase.agents ?? [];
@@ -409,11 +404,11 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     '',
     phaseContract(initiative, phase),
     '',
-    `## Selected working lens: ${definition.personas[selectedPersona].label}`,
+    `## Selected governed agent: ${definition.agents[selectedAgent].label} (${selectedAgent})`,
     '',
-    `<!-- path=${personaPath.relative} sha256=${personaSnapshot.sha256} -->`,
+    `<!-- path=${agentProfile.source} sha256=${agentProfile.sha256} -->`,
     '',
-    personaText.trim(),
+    agentText.trim(),
     grounding.text,
     capability.text,
     remote.text,
@@ -428,12 +423,12 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     profile: initiative.initiative.profile,
     phase: phaseId,
     generation,
-    persona: selectedPersona,
+    agent: selectedAgent,
     phaseResolutionSha256: initiative.resolution.resolutionSha256,
-    personaPrompt: {
-      path: personaPath.relative,
-      sha256: personaSnapshot.sha256,
-      bytes: personaSnapshot.size
+    agentPrompt: {
+      path: agentProfile.source,
+      sha256: agentProfile.sha256,
+      bytes: Buffer.byteLength(agentText, 'utf8')
     },
     worldModel: grounding.record,
     worldModelFiles: grounding.files,

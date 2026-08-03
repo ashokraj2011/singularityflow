@@ -20,7 +20,7 @@ async function repository() {
   exec('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n');
   await initializeDefinition(root);
-  exec('git', ['add', 'README.md', 'singularity'], root);
+  exec('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   exec('git', ['commit', '-m', 'initial'], root);
   exec('git', ['checkout', '-b', 'PAY-142'], root);
   return root;

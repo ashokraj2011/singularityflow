@@ -168,7 +168,7 @@ export async function invalidateInitiativeCone(root, {
   starts,
   reason,
   cause = 'changed',
-  persona = null
+  agent = null
 } = {}) {
   if (!starts?.length) throw new SingularityFlowError('At least one justification-graph node is required for invalidation.');
   if (!reason?.trim()) throw new SingularityFlowError('Invalidation reason is required.');
@@ -188,7 +188,7 @@ export async function invalidateInitiativeCone(root, {
     affected,
     reason: reason.trim(),
     actor,
-    persona,
+    agent,
     at: nowIso()
   };
   const appended = await appendInitiativeRecord(root, portfolio, initiativeId, 'invalidations', record);
@@ -197,7 +197,7 @@ export async function invalidateInitiativeCone(root, {
   initiative.history.push({
     at: record.at,
     actor: actor.email?.toLowerCase() ?? actor.name,
-    persona,
+    agent,
     event: 'initiative_cone_invalidated',
     phase: reopenedPhase,
     detail: `${starts.join(', ')} affected ${affected.length} nodes${reopenedPhase ? ` and reopened ${reopenedPhase}` : ''}: ${reason.trim()}`
@@ -230,7 +230,7 @@ export async function rejectInitiative(root, {
   phaseId = null,
   subject = 'phase',
   reason,
-  persona = null,
+  agent = null,
   channel = 'terminal'
 } = {}) {
   if (!reason?.trim()) throw new SingularityFlowError('Initiative rejection reason is required.');
@@ -252,7 +252,7 @@ export async function rejectInitiative(root, {
     reason: reason.trim(),
     actor,
     identityAssurance: 'configured-local',
-    persona,
+    agent,
     channel,
     at: nowIso(),
     selfApproval: false
@@ -263,7 +263,7 @@ export async function rejectInitiative(root, {
     starts: [target.node],
     reason: reason.trim(),
     cause: 'rejected',
-    persona
+    agent
   });
   loaded = await loadInitiative(root, initiativeId);
   const reopened = loaded.initiative.phases[selectedPhase];
@@ -277,7 +277,7 @@ export async function rejectInitiative(root, {
   loaded.initiative.history.push({
     at: decision.at,
     actor: actor.email?.toLowerCase() ?? actor.name,
-    persona,
+    agent,
     event: 'initiative_rejected',
     phase: selectedPhase,
     detail: `${target.type}/${target.id}: ${decision.reason}`

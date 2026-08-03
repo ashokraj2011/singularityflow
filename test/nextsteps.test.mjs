@@ -11,13 +11,13 @@ function workflow({ status = 'in_progress', phaseStatus = 'in_progress', generat
     phases: {
       intake: {
         id: 'intake', label: 'Intake', status: phaseStatus, generation,
-        requiredArtifact: { path: 'artifacts/intake/intake.md' }, suggestedPersonas: ['product-owner'],
-        approvalPolicy: { personas: ['product-owner'], minimum: 1 }
+        requiredArtifact: { path: 'artifacts/intake/intake.md' }, defaultAgent: 'product-owner',
+        approvalPolicy: { agents: ['product-owner'], minimum: 1 }
       },
       requirements: {
         id: 'requirements', label: 'Requirements', status: currentPhase ? 'not_started' : 'approved', generation: currentPhase ? 0 : 1,
-        requiredArtifact: { path: 'artifacts/requirements/requirements.md' }, suggestedPersonas: ['product-owner'],
-        approvalPolicy: { personas: ['product-owner'], minimum: 1 }
+        requiredArtifact: { path: 'artifacts/requirements/requirements.md' }, defaultAgent: 'product-owner',
+        approvalPolicy: { agents: ['product-owner'], minimum: 1 }
       }
     },
     history
@@ -87,8 +87,8 @@ test('nextsteps text preserves timing, skill, reason, and CLI command', () => {
 
 test('agent trust and synchronization prerequisites precede generation', () => {
   const prerequisites = [
-    { timing: 'now', skill: null, command: 'singularity-flow prompt-packs lock architecture', reason: 'Trust hashes.' },
-    { timing: 'then', skill: null, command: 'singularity-flow prompt-packs sync architecture', reason: 'Materialize cache.' }
+    { timing: 'now', skill: null, command: 'singularity-flow agents lock architecture', reason: 'Trust hashes.' },
+    { timing: 'then', skill: null, command: 'singularity-flow agents sync architecture', reason: 'Materialize cache.' }
   ];
   const snapshot = nextStepsSnapshot({ workflow: workflow(), prerequisites });
   assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.command), prerequisites.map((item) => item.command));

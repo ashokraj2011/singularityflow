@@ -8,28 +8,28 @@ For the Git-only path with no Jira connection at any point — including local E
 
 ```mermaid
 flowchart LR
-  Person["Contributor chooses work type and persona"] --> Intake["Jira story or manual intake and documents"]
+  Person["Contributor chooses intake and work type"] --> Intake["Jira story or manual intake and documents"]
   Intake --> Profile["Immutable workflow profile snapshot"]
 
   subgraph Prompt["Prompt composition for the active phase"]
     Contract["Phase contract and artifact template"]
-    Persona["Selected persona prompt"]
+    Agent["Phase-default governed Agent Markdown"]
     World["Repository world model: required and rule-selected views"]
-    Agent["Active-agent remote skill Markdown: optional and hash-pinned"]
+    Remote["Locked remote agent Markdown: optional and hash-pinned"]
     Inputs["Approved upstream phase artifacts: optional mode"]
   end
 
   Profile --> Contract
   Contract --> Generation["Generate or edit phase artifact"]
-  Persona --> Generation
-  World --> Generation
   Agent --> Generation
+  World --> Generation
+  Remote --> Generation
   Inputs --> Generation
 
   Generation --> Gate["Deterministic validation and provenance"]
   Gate --> Commit["Atomic lifecycle commit"]
   Commit --> Push["Push work-item branch"]
-  Push --> Review["Reviewer selects approval persona"]
+  Push --> Review["Authorized human reviews exact hashes"]
   Review -->|"Approve"| Next["Advance to next phase"]
   Review -->|"Reject"| Earlier["Return to allowed earlier phase"]
   Earlier --> Prompt
@@ -92,7 +92,7 @@ sequenceDiagram
   actor Reviewer as Reviewer terminal
 
   Author->>CLI: start WORK-123
-  CLI->>Author: Choose intake, workflow, and persona
+  CLI->>Author: Choose intake and workflow; activate phase agent
   CLI->>Branch: Commit and push immutable work-item state
 
   loop Every phase
@@ -103,7 +103,7 @@ sequenceDiagram
     CLI->>Branch: Commit and push generation
     Author->>CLI: submit
     CLI->>Branch: Commit and push approval request
-    Reviewer->>CLI: approve or reject with selected persona
+    Reviewer->>CLI: approve or reject as authorized Git identity
     CLI->>Branch: Commit and push decision
   end
 
@@ -112,7 +112,7 @@ sequenceDiagram
   CLI-->>Reviewer: Reconstructed state from branch files
 ```
 
-No workflow database is required. The branch contains the transferable state; `.git/singularity-flow/session.json` contains only the current terminal's persona and optional active agent.
+No workflow database is required. The branch contains the transferable state; `.git/singularity-flow/session.json` contains only the current work item and governed agent.
 
 ## 1. Install from a clone
 
@@ -157,17 +157,18 @@ git commit -m "Initialize Singularity Flow"
 git push
 ```
 
-Initialization creates editable workflow YAML, artifact templates, persona prompts, and the repository world-model builder prompt.
+Initialization creates editable workflow YAML, artifact templates, governed Agent Markdown, and the repository world-model builder prompt.
 
 ```text
 singularity/
 ├── workflow.yml
-├── personas/
 ├── prompts/
 └── templates/
+.github/
+└── agents/
 ```
 
-Review `singularity/workflow.yml` before starting production work, especially `git.remote`, `git.publish`, work-type phases, personas, approvals, and protected paths.
+Review `singularity/workflow.yml` and `.github/agents/` before starting production work, especially `git.remote`, `git.publish`, work-type phases, phase defaults, approvals, and protected paths.
 
 ## 3. Start a work item
 
@@ -183,11 +184,11 @@ Or from a terminal:
 singularity-flow start WORK-123
 ```
 
-The interactive sequence is always:
+The interactive sequence is:
 
 1. Choose Jira intake or manual description/documents.
 2. Choose a workflow profile: feature, bugfix, chore, or Figma export to mobile app.
-3. Choose a persona for the current terminal.
+3. The first phase's governed agent activates automatically.
 
 When Copilot can ask questions but its shell cannot accept later stdin, `/sflow-start` uses an equivalent one-time receipt instead of sending you to another terminal:
 
@@ -195,7 +196,6 @@ When Copilot can ask questions but its shell cannot accept later stdin, `/sflow-
 singularity-flow choices begin start WORK-123 --json
 singularity-flow choices answer <TOKEN> intake-source manual --json
 singularity-flow choices answer <TOKEN> workflow-template feature --json
-singularity-flow choices answer <TOKEN> persona developer --json
 singularity-flow start WORK-123 --story-file /absolute/story.yml \
   --selection-receipt <TOKEN>
 ```
@@ -217,7 +217,7 @@ The selected work type, resolved phases, input mode, configuration hash, and tem
 
 ### Figma export to mobile app
 
-Choose the `figma-mobile` profile when the design team supplies a directory export instead of a live integration. Start the work item, select the Product designer persona, and import the complete package during `design-intake`:
+Choose the `figma-mobile` profile when the design team supplies a directory export instead of a live integration. Start the work item; its `design-intake` phase activates the Product designer agent automatically. Import the complete package during that phase:
 
 ```bash
 singularity-flow documents upload ./figma-export --kind figma-export
@@ -293,7 +293,7 @@ Publishing performs the following transaction:
 
 ```mermaid
 flowchart LR
-  Prepare["Resolve template, persona, world model, agent skills, and inputs"] --> Edit["Author artifact and permitted code or tests"]
+  Prepare["Resolve template, governed agent, world model, remote dependencies, and inputs"] --> Edit["Author artifact and permitted code or tests"]
   Edit --> Validate["Validate write scope, hashes, metadata, traceability, and quality"]
   Validate --> State["Update workflow state and audit records"]
   State --> Commit["Commit: WORK-ID phase generated N"]
@@ -362,7 +362,7 @@ flowchart LR
   Lock --> LockFile["Committed singularity/agents.lock.yml"]
   LockFile --> Sync["agents sync: verify only, never update trust"]
   Sync --> Cache["Local atomic cache under .git/singularity-flow"]
-  Cache --> Prompt["Phase and persona-scoped prompt context"]
+  Cache --> Prompt["Phase and agent-scoped prompt context"]
   Cache --> Template["Explicit remote template snapshot"]
   Cache --> Output["Generation-scoped remote output snapshot"]
 ```
@@ -372,9 +372,9 @@ Only links inside these exact tables are processed; normal prose links are inert
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Personas | Optional | Max bytes |
-|---|---|---|---|---|---|
-| security-review | https://example.com/security.md | design, verification | architect | false | 65536 |
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| security-review | https://example.com/security.md | design, verification | false | 65536 |
 
 ## Remote artifact templates
 
@@ -422,9 +422,9 @@ Approve from another terminal:
 singularity-flow approve WORK-123 --fetch
 ```
 
-The command fetches the branch, asks for a persona, shows hashes/checks/usage/prior approvals, warns about self-approval, and requires typing the exact phase name.
+The command fetches the branch, activates the submitted phase's governed agent, shows hashes/checks/usage/prior approvals, warns about self-approval, and requires typing the exact phase name.
 
-In Copilot, `/sflow-approve` performs the same review without sending you to another terminal. If its shell has no persistent stdin, it fetches the branch with `choices begin approve`, asks you for an approval-capable persona, requires you to type the exact phase ID, and invokes `approve` with a 15-minute one-time receipt. The receipt is pinned to the branch HEAD, submitted generation, and artifact hashes; it is consumed once and the decision is still committed and pushed atomically.
+In Copilot, `/sflow-approve` performs the same review without sending you to another terminal. If its shell has no persistent stdin, it fetches the branch with `choices begin approve`, requires you to type the exact phase ID, and invokes `approve` with a 15-minute one-time receipt. The receipt is pinned to the branch HEAD, submitted generation, and artifact hashes; it is consumed once and the decision is still committed and pushed atomically.
 
 Reject to an allowed earlier phase:
 
@@ -434,7 +434,7 @@ singularity-flow reject WORK-123 --fetch \
   --reason "Failure behavior is missing"
 ```
 
-Approval authority comes from the selected persona. Accountability comes from the authenticated GitHub/Git identity. Multi-approval thresholds require distinct authenticated identities.
+Approval authority comes from configured human identity groups. The governed agent is audit context only. Multi-approval thresholds require distinct authenticated identities.
 
 ## 9. Resume from another terminal
 
@@ -444,7 +444,7 @@ cd <application-repository>
 singularity-flow resume WORK-123 --fetch
 ```
 
-Resume performs fetch plus fast-forward-only checkout and asks for a persona. It reconstructs the work item from committed branch state.
+Resume performs fetch plus fast-forward-only checkout, reconstructs the work item from committed branch state, and activates the current phase's default governed agent.
 
 If a push previously failed:
 
@@ -481,7 +481,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | Plan safe recovery | — | `singularity-flow recover <WORK-ID> --fetch` |
 | Start work | `/sflow-start WORK-123` | `singularity-flow start WORK-123` |
 | Resume work | `/sflow-resume WORK-123` | `singularity-flow resume WORK-123 --fetch` |
-| Change session persona | `/sflow-persona` | `sflow-persona` |
+| Inspect or override phase agent | `/sf-agent` | `singularity-flow agent <WORK-ID> --agent <ID>` |
 | Select and synchronize session work | `/sflow-session` | `singularity-flow session candidates` then `singularity-flow session attach <ID>` |
 | Inspect Copilot session readiness | `/sflow-session` | `singularity-flow session status` |
 | Review the team approval queue | `/sflow-inbox` | `singularity-flow inbox` |
@@ -510,14 +510,14 @@ Before starting:
 - The application repository has committed `singularity/` configuration.
 - Git identity and the configured remote work.
 - The Copilot plugin was reinstalled and the Copilot session restarted.
-- The intended workflow profile and persona policies were reviewed.
+- The intended workflow profile and Agent Markdown phase defaults were reviewed.
 
 Before approval:
 
 - The generation commit is present on the remote work-item branch.
 - Required quality checks passed.
 - Input and remote-agent provenance warnings were reviewed.
-- The reviewer selected an approval-capable persona.
+- The reviewer Git identity belongs to a configured approval-authority group.
 - Any self-approval is understood to be non-independent review.
 
 Before completion:

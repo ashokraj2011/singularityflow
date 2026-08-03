@@ -17,7 +17,7 @@ function execute(root, args, { allowFailure = false, confirm = null, profile = '
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: actor,
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile }),
     ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
   };
@@ -64,7 +64,7 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(prepared.stdout, /Governed Copilot prompt:/);
   const context = execute(root, ['initiative', 'context', 'define']);
   assert.match(context.stdout, /Governed Copilot prompt — INIT-CLI\/define generation 1/);
-  assert.match(context.stdout, /Selected working lens: Product owner/i);
+  assert.match(context.stdout, /Selected governed agent: Product owner \(product-owner\)/);
   assert.match(git(root, ['ls-files']), /prompt-context-define-gen1\.json/);
   const documents = execute(root, ['initiative', 'documents', 'define']);
   assert.match(documents.stdout, /--- BEGIN .*business-case\.md ---/);
@@ -102,12 +102,11 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(git(root, ['ls-files']), /singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
 });
 
-test('initiative Copilot selection receipts preserve explicit profile and persona choices', async () => {
+test('initiative Copilot selection receipts preserve the explicit profile while the phase agent is automatic', async () => {
   const root = await repository();
   const begun = JSON.parse(execute(root, ['initiative', 'choices', 'begin', 'start', 'INIT-RECEIPT', '--json']).stdout);
-  assert.deepEqual(begun.choiceSets.map((choice) => choice.id), ['initiative-profile', 'persona']);
-  execute(root, ['initiative', 'choices', 'answer', begun.token, 'initiative-profile', 'initiative-lite', '--json']);
-  const ready = JSON.parse(execute(root, ['initiative', 'choices', 'answer', begun.token, 'persona', 'product-owner', '--json']).stdout);
+  assert.deepEqual(begun.choiceSets.map((choice) => choice.id), ['initiative-profile']);
+  const ready = JSON.parse(execute(root, ['initiative', 'choices', 'answer', begun.token, 'initiative-profile', 'initiative-lite', '--json']).stdout);
   assert.equal(ready.ready, true);
   const started = execute(root, ['initiative', 'start', 'INIT-RECEIPT', '--selection-receipt', begun.token]);
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
@@ -187,7 +186,7 @@ test('an Epic chooses which of its phase optional outputs it will produce', asyn
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: actor,
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
       SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' })
     }
   });
@@ -300,32 +299,19 @@ test('without a terminal and without --confirm, the refusal names the escape', a
   assert.match(refused.stderr, /pass --confirm INIT-HINT/);
 });
 
-test('a local Epic can choose its working lens with --persona, and an unknown lens is refused', async () => {
-  // The Jira route answers this prompt from a selection receipt, but a local Epic's identifier is
-  // minted by the reservation inside the command, so there is nothing for a receipt to bind to. These
-  // run without SINGULARITY_FLOW_TEST_SELECTION on purpose: the point is that the public flag works,
-  // not that the suite's backdoor does.
+test('a local Epic activates the first phase agent without a role picker', async () => {
   const root = await repository();
   const bare = (args) => spawnSync(process.execPath, [bin, ...args],
     { cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_TEST_IDENTITY: actor } });
   const local = ['epic', 'start', '--local', '--title', 'Local Epic',
     '--description', 'Described', '--goal', 'A goal'];
 
-  const stranded = bare(local);
-  assert.notEqual(stranded.status, 0);
-  assert.match(stranded.stderr, /Selecting a working lens requires an interactive terminal/);
-  assert.match(stranded.stderr, /Pass --persona <id> to choose one without a terminal\./,
-    'the dead end must name its own way out');
-
-  const unknown = bare([...local, '--persona', 'not-a-lens']);
-  assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Unknown working lens 'not-a-lens'/);
-
-  const started = bare([...local, '--persona', 'product-owner']);
+  const started = bare(local);
   assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
   // The session lives under .git, not in the tree, so read it from there.
   const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
-  assert.equal(session.persona, 'product-owner', 'the flag is what actually selected the lens');
+  assert.equal(session.agent, 'product-owner');
+  assert.equal(session.agentSource, 'phase-default');
 });
 
 test('approval harvests knowledge from the approved artifact, in the same commit', async () => {

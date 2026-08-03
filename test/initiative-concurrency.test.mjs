@@ -45,7 +45,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     id: 'INIT-CONCURRENT',
     title: 'Concurrent appends',
     profile: 'initiative-lite',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   let loaded = await loadInitiative(seed, 'INIT-CONCURRENT');
   await commitInitiativeChange(

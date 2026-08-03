@@ -1,7 +1,7 @@
 {
   "name": "singularity-flow",
   "version": "0.9.0",
-  "description": "Singularity Flow: direct sf-* Copilot skills with YAML-configured work profiles, working lenses, human approval authorities, templates, Git state transfer, and deterministic governance.",
+  "description": "Singularity Flow: direct sf-* Copilot skills with YAML-configured work profiles, governed agents, human approval authorities, templates, Git state transfer, and deterministic governance.",
   "type": "module",
   "bin": {
     "singularity-flow": "bin/singularity-flow.mjs",
@@ -9,7 +9,7 @@
     "sflow-about": "bin/sflow-about.mjs",
     "sflow-inbox": "bin/sflow-inbox.mjs",
     "sflow-next": "bin/sflow-next.mjs",
-    "sflow-lens": "bin/sflow-lens.mjs",
+    "sflow-agent": "bin/sflow-agent.mjs",
     "sflow-wm-minimal": "scripts/worldmodel-minimal.sh"
   },
   "files": [

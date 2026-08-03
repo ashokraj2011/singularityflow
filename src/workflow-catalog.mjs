@@ -71,13 +71,10 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   const next = structuredClone(installed); next.workTypes[id] = structuredClone(profile);
   const phaseIds = new Set(profile.phases);
   for (const phaseId of phaseIds) next.phases[phaseId] ??= structuredClone(starter.phases[phaseId]);
-  const personaIds = new Set();
   const authorityIds = new Set();
   for (const phaseId of phaseIds) {
-    for (const persona of starter.phases[phaseId].suggestedPersonas ?? []) personaIds.add(persona);
     for (const authority of starter.phases[phaseId].approval?.authorities ?? []) authorityIds.add(authority);
   }
-  for (const persona of personaIds) next.personas[persona] ??= structuredClone(starter.personas[persona]);
   next.approvalAuthorities ??= {};
   for (const authority of authorityIds) {
     next.approvalAuthorities[authority] ??= structuredClone(starter.approvalAuthorities[authority]);
@@ -88,7 +85,6 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
     const template = profile.templateOverrides?.[phaseId] ?? starter.phases[phaseId].defaultTemplate;
     if (!template?.startsWith('agent:')) files.push({ source: path.join(packageRoot, 'templates', 'artifacts', template), target: path.join(root, installed.templatesRoot, template) });
   }
-  for (const persona of personaIds) files.push({ source: path.join(packageRoot, 'templates', 'personas', starter.personas[persona].prompt), target: path.join(root, installed.personaPromptsRoot, starter.personas[persona].prompt) });
   const copied = [];
   for (const file of files) if (replace || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
   const changedFiles = [WORKFLOW_PATH, ...copied];

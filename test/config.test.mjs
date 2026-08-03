@@ -13,7 +13,7 @@ import {
   normalizePlanning,
   normalizeSequenceGates,
   normalizeSessionPolicy,
-  personaPrompt,
+  agentPrompt,
   renderArtifactTemplate,
   resolveWorkType,
   snapshotResolution,
@@ -24,7 +24,7 @@ import {
   contextBoundaryHandoff, normalizeContextPolicy
 } from '../src/context-policy.mjs';
 
-test('starter YAML resolves feature, bugfix, and Figma-mobile templates and personas', async () => {
+test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
   const definition = await loadDefinition(root); const feature = resolveWorkType(definition, 'feature'); const bugfix = resolveWorkType(definition, 'bugfix'); const figmaMobile = resolveWorkType(definition, 'figma-mobile');
   assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').template, 'feature/implementation-spec.md');
@@ -32,10 +32,10 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.deepEqual(feature.documents.allowedPhases, ['intake', 'requirements', 'design', 'implementation-spec']);
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
   assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
-  assert.match(await personaPrompt(root, definition, 'architect'), /boundaries, contracts/);
+  assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'record');
   assert.equal(definition.worldModel.grounding, 'enforce');
-  assert.deepEqual(definition.session, { workItemSelection: 'prompt', personaSelection: 'prompt', promptOnNewSession: true, promptOnResume: false, requireBeforeTools: false });
+  assert.deepEqual(definition.session, { workItemSelection: 'prompt', requireBeforeTools: false });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
@@ -48,7 +48,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and pers
   assert.deepEqual(figmaMobile.phases.find((item) => item.id === 'implementation').inputs.map((item) => item.phase), ['component-mapping', 'mobile-spec']);
   assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 2);
   assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
-  assert.match(await personaPrompt(root, definition, 'product-designer'), /exported design package/i);
+  assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
 });
 
@@ -82,13 +82,13 @@ test('artifact rendering enforces the work-item template hash snapshot', async (
   );
 });
 
-test('Copilot session persona policy is configurable and absent configuration stays inert', () => {
-  assert.deepEqual(normalizeSessionPolicy(), { workItemSelection: 'off', personaSelection: 'off', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: false });
-  assert.deepEqual(normalizeSessionPolicy({ workItemSelection: 'prompt', personaSelection: 'reuse', requireBeforeTools: true }), { workItemSelection: 'prompt', personaSelection: 'reuse', promptOnNewSession: false, promptOnResume: false, requireBeforeTools: true });
+test('Copilot session policy configures work selection while phase agents remain automatic', () => {
+  assert.deepEqual(normalizeSessionPolicy(), { workItemSelection: 'off', requireBeforeTools: false });
+  assert.deepEqual(normalizeSessionPolicy({ workItemSelection: 'prompt', requireBeforeTools: true }), { workItemSelection: 'prompt', requireBeforeTools: true });
   assert.throws(() => normalizeSessionPolicy({ workItemSelection: 'always' }), /workItemSelection must be off, reuse, or prompt/);
-  assert.throws(() => normalizeSessionPolicy({ personaSelection: 'always' }), /must be off, reuse, or prompt/);
-  assert.throws(() => normalizeSessionPolicy({ promptOnResume: 'yes' }), /must be boolean/);
-  assert.throws(() => normalizeSessionPolicy({ defaultPersona: 'developer' }), /unknown field/);
+  assert.throws(() => normalizeSessionPolicy({ agentSelection: 'prompt' }), /unknown field 'agentSelection'/);
+  assert.throws(() => normalizeSessionPolicy({ promptOnResume: true }), /unknown field 'promptOnResume'/);
+  assert.throws(() => normalizeSessionPolicy({ defaultAgent: 'developer' }), /unknown field/);
 });
 
 test('phase context boundaries default legacy configs to keep and support approval overrides', () => {
@@ -211,7 +211,7 @@ test('work-type phase overrides merge world model, quality, comparison, and appr
   assert.equal(design.approval.minimum, 2); assert.deepEqual(design.approval.authorities, ['architecture-reviewers']);
 });
 
-test('invalid approval authority reference is rejected independently of working lenses', async () => {
+test('invalid approval authority reference is rejected independently of governed agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-')); await initializeDefinition(root);
   const file = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(file, 'utf8')); definition.phases.design.approval.authorities = ['missing-reviewers'];
   await writeFile(file, YAML.stringify(definition)); await assert.rejects(() => loadDefinition(root), /unknown authority 'missing-reviewers'/);
@@ -226,54 +226,9 @@ test('optional token pricing accepts non-negative per-million rates and rejects 
   assert.throws(() => validateDefinition(definition), /must be a non-negative number/);
 });
 
-test('legacy JSON configuration migrates to YAML without deleting source state', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-')); const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`); await mkdir(previousRoot, { recursive: true });
-  const legacy = { schemaVersion: 1, defaultBaseBranch: 'main', workItemRoot: 'singularity/work-items', idPattern: '^[A-Z0-9-]+$', phases: [{ id: 'requirements', label: 'Requirements', owner: 'product-owner', requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements', minimumBytes: 100 }, qualityCommands: [] }] };
-  await writeFile(path.join(previousRoot, 'config.json'), JSON.stringify(legacy));
-  const stateDir = path.join(previousRoot, 'work-items/LEGACY-1'); await mkdir(stateDir, { recursive: true });
-  await writeFile(path.join(stateDir, 'workflow.json'), JSON.stringify({ schemaVersion: 1, workItem: { id: 'LEGACY-1', title: 'Legacy', branch: 'LEGACY-1' }, status: 'in_progress', currentPhase: 'requirements', phaseOrder: ['requirements'], phases: { requirements: { id: 'requirements', label: 'Requirements', owner: 'product-owner', status: 'in_progress', artifacts: [], checks: [] } }, history: [] }));
-  const result = await migrateLegacyConfig(root); assert.equal(result.migrated, true); assert.equal(result.migratedWorkItems, 1); assert.equal(result.movedStateRoot, true);
-  const migrated = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8')); assert.deepEqual(migrated.workTypes.legacy.phases, ['requirements']);
-  assert.equal(JSON.parse(await readFile(path.join(root, 'singularity/config.json'), 'utf8')).schemaVersion, 1);
-  const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/LEGACY-1/workflow.json'), 'utf8')); assert.equal(state.schemaVersion, 2); assert.equal(state.workItem.workType, 'legacy'); assert.ok(state.resolution.templates.requirements.sha256);
-});
-
-test('hidden modern control root migrates to visible singularity and refreshes active snapshots', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-visible-root-'));
-  await initializeDefinition(root);
-  const stateDir = path.join(root, 'singularity/work-items/WORK-1');
-  await mkdir(stateDir, { recursive: true });
-  await writeFile(path.join(stateDir, 'workflow.json'), `${JSON.stringify({
-    schemaVersion: 2,
-    resolution: {
-      configSha256: 'previous-config-hash',
-      templates: { intake: { path: 'singularity/templates/feature/intake.md', sha256: 'template-hash' } }
-    }
-  }, null, 2)}\n`);
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const hiddenWorkflow = (await readFile(workflowPath, 'utf8')).replaceAll('singularity/', '.singularity/');
-  await writeFile(workflowPath, hiddenWorkflow);
-  await rename(path.join(root, 'singularity'), path.join(root, '.singularity'));
-
-  const result = await migrateLegacyConfig(root);
-  assert.equal(result.migrated, true);
-  assert.equal(result.movedFrom, '.singularity');
-  assert.equal(result.migratedWorkItems, 1);
-  assert.equal(result.rootOnly, true);
-  assert.equal(existsSync(path.join(root, '.singularity')), false);
-  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), true);
-  assert.doesNotMatch(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), /\.singularity\//);
-  const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/WORK-1/workflow.json'), 'utf8'));
-  assert.notEqual(state.resolution.configSha256, 'previous-config-hash');
-  assert.equal(state.resolution.templates.intake.path, 'singularity/templates/feature/intake.md');
-  assert.deepEqual(state.migrations.at(-1).from, '.singularity');
-});
-
-test('control-root migration refuses to combine hidden and visible folders', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-root-conflict-'));
-  await mkdir(path.join(root, 'singularity'), { recursive: true });
-  await mkdir(path.join(root, '.singularity'), { recursive: true });
-  await assert.rejects(() => migrateLegacyConfig(root), /Both singularity\/ and \.singularity\/ exist/);
+test('legacy configuration migration is rejected by the governed-agent clean break', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-'));
+  await assert.rejects(() => migrateLegacyConfig(root), /migration is not available.*governed-agent/i);
 });
 
 test('workflow.yml storage providers normalize and reject invalid SharePoint config', async () => {

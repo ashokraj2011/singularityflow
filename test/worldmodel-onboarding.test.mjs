@@ -54,7 +54,7 @@ test('ensureRepositoryWorldModelViews declares missing views, preserves comments
 
   const declared = await ensureRepositoryWorldModelViews(root, ['business', 'security']);
   // The declared set covers both the requested views and every view the repo's own
-  // phases/personas already reference, so loadDefinition stays valid.
+  // phases/agents already reference, so loadDefinition stays valid.
   assert.ok(declared.includes('business') && declared.includes('security'));
   assert.ok(declared.includes('architecture'), 'repo-referenced views are included');
   assert.deepEqual(declared, [...declared].sort());

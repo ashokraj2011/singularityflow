@@ -13,12 +13,12 @@ function workflow(status = 'in_progress', generation = 0) {
       intake: {
         id: 'intake', label: 'Intake', status: status === 'complete' ? 'approved' : status,
         generation, requiredArtifact: { path: 'artifacts/intake/intake.md' },
-        suggestedPersonas: ['product-owner'], approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
+        defaultAgent: 'product-owner', approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
       },
       requirements: {
         id: 'requirements', label: 'Requirements', status: status === 'complete' ? 'approved' : 'not_started',
         generation: status === 'complete' ? 1 : 0, requiredArtifact: { path: 'artifacts/requirements/requirements.md' },
-        suggestedPersonas: ['product-owner'], approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
+        defaultAgent: 'product-owner', approvalPolicy: { authorities: ['product-approvers'], minimum: 1 }
       }
     },
     history: []

@@ -50,7 +50,7 @@ approvalAuthorities:
         email: architect@example.com
 ```
 
-Approval authority is separate from personas. Personas affect GitHub Copilot prompt composition; initiative authorization matches the normalized local `git user.email`. Reports label this `configured-local` because local Git identity is configurable and is not cryptographic authentication.
+Approval authority is separate from governed agents. Agents affect GitHub Copilot prompt composition; initiative authorization matches the normalized local `git user.email`. Reports label this `configured-local` because local Git identity is configurable and is not cryptographic authentication.
 
 Use Flow Studio’s **Initiatives → Portfolio designer** to inspect profiles, repositories, authorities, and edit validated portfolio YAML.
 
@@ -62,9 +62,9 @@ Install the plugin, open Copilot in the lead repository, and run:
 /sflow-initiative-start INIT-2026-001
 ```
 
-Copilot displays selectable profile and persona options. A one-time selection receipt keeps this flow inside Copilot even when its shell does not provide persistent terminal input. There are no public profile/persona bypass flags.
+Copilot displays selectable profile options. The first initiative phase's governed agent activates automatically. A one-time selection receipt keeps durable human choices inside Copilot even when its shell does not provide persistent terminal input.
 
-The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The selected persona remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
+The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The phase-default agent remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
 
 ### The world model at start
 
@@ -125,9 +125,9 @@ Phase preparation records a complete Copilot prompt under `context/prompts/` plu
 
 ```text
 phase contract
-+ selected persona prompt
++ phase-default governed Agent Markdown
 + required repository world-model views
-+ active-agent remote skill Markdown
++ locked remote Agent Markdown dependencies
 + approved upstream initiative artifacts
 ```
 

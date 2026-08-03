@@ -26,7 +26,7 @@ TODO: List every unplanned screen, component, dependency, asset, token, or behav
 
 ## Approved visual and platform deviations
 
-TODO: List each approved difference, its decision record, approver identity, persona, and rationale.
+TODO: List each approved difference, its decision record, approver identity, agent, and rationale.
 
 ## Self-approval and review independence
 

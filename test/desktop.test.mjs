@@ -15,7 +15,7 @@ import {
   publishDesktopConfiguration,
   readDesktopFile,
   saveDesktopFile,
-  selectDesktopPersona,
+  selectDesktopAgent,
   validateDesktopConfiguration
 } from '../src/desktop.mjs';
 import { migrateLegacyConfig } from '../src/config.mjs';
@@ -28,7 +28,7 @@ function run(command, args, cwd) {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Desktop Tester',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' })
   };
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
@@ -74,10 +74,10 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.deepEqual(snapshot.approvalInbox.items, []);
   assert.equal(snapshot.approvalInbox.fetched, false);
   assert.ok(snapshot.templates.some((item) => item.name === 'feature/design.md'));
-  assert.ok(snapshot.personaPrompts.some((item) => item.name === 'architect.md'));
+  assert.ok(snapshot.agents.some((item) => item.id === 'architect' && item.path.endsWith('architect.agent.md')));
   assert.equal(snapshot.worldModel.repositoryOwned, true);
   assert.equal(snapshot.worldModel.views.length, 7);
-  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').structuredReferences.includes("persona 'architect' prompt"));
+  assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').structuredReferences.includes("agent 'architect' prompt"));
   assert.ok(snapshot.worldModel.views.find((view) => view.id === 'architecture').promptReferences.includes('singularity/prompts/worldmodel-builder.md'));
   assert.equal(snapshot.worldModelPrompt.path, 'singularity/prompts/worldmodel-builder.md');
   assert.equal(snapshot.worldModelPrompt.missing, false);
@@ -96,7 +96,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   assert.equal(startSkill.command, '/sflow-start');
   assert.equal(startSkill.repositoryPath, '.github/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.readOnly, true);
-  assert.match(startSkill.description, /workflow template and prompt-only working lens/i);
+  assert.match(startSkill.description, /workflow template; activate its phase-default agent/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
   assert.equal(snapshot.agentMappings.path, 'singularity/agent-mappings.yml');
@@ -128,7 +128,7 @@ test('desktop snapshot exposes configuration and visual workflow data', async ()
   state.phases.intake.usage = [{
     status: 'exact', source: 'copilot-otel', provider: 'github', model: 'model-alpha-1',
     inputTokens: 1200, outputTokens: 300, cachedInputTokens: 200, totalTokens: 1500,
-    providerCost: 0.0123, costStatus: 'exact', persona: 'product-owner'
+    providerCost: 0.0123, costStatus: 'exact', agent: 'product-owner'
   }];
   state.usage.exactRecords = 1;
   state.usage.unavailableRecords = 0;
@@ -304,23 +304,13 @@ test('desktop snapshot separates publishable configuration from unrelated change
   assert.equal(snapshot.repository.publishReady, false);
 });
 
-test('desktop treats a confirmed legacy control-root migration as publishable configuration', async () => {
+test('desktop rejects legacy control-root migration in the agent-only development release', async () => {
   const root = await repository();
   await rename(path.join(root, 'singularity'), path.join(root, '.singularity'));
   run('git', ['add', '-A'], root);
   run('git', ['commit', '-m', 'legacy hidden control root'], root);
 
-  const migration = await migrateLegacyConfig(root);
-  assert.equal(migration.movedFrom, '.singularity');
-  const snapshot = await desktopSnapshot(root);
-  assert.equal(snapshot.repository.publishReady, true);
-  assert.deepEqual(snapshot.repository.unrelatedChanges, []);
-  assert.ok(snapshot.repository.configurationChanges.some((file) => file.startsWith('.singularity/')));
-  assert.ok(snapshot.repository.configurationChanges.some((file) => file.startsWith('singularity/')));
-
-  const published = await publishDesktopConfiguration(root, 'Move configuration to visible singularity folder');
-  assert.equal(published.pushed, false);
-  assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /visible singularity folder/);
+  await assert.rejects(() => migrateLegacyConfig(root), /migration is not available/i);
 });
 
 test('desktop configuration saves validate atomically and publish scoped changes', async () => {
@@ -343,7 +333,7 @@ test('desktop configuration saves validate atomically and publish scoped changes
   await saveDesktopFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
   const mappingPath = path.join(root, 'singularity/agent-mappings.yml');
   const originalMappings = await readFile(mappingPath, 'utf8');
-  await assert.rejects(() => saveDesktopFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown prompt pack/i);
+  await assert.rejects(() => saveDesktopFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown governed agent/i);
   assert.equal(await readFile(mappingPath, 'utf8'), originalMappings);
   await saveDesktopFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: reviewer\n');
   await assert.rejects(() => deleteDesktopFile(root, '.github/agents/reviewer.agent.md'), /Copilot agent mapping enterprise-reviewer/);
@@ -444,13 +434,13 @@ test('desktop configuration refuses symlinked files and parent directories outsi
   assert.equal(await readFile(secret, 'utf8'), '# outside secret\n');
 });
 
-test('desktop persona selection remains local and requires the active work branch', async () => {
+test('desktop agent selection remains local and requires the active work branch', async () => {
   const root = await repository();
   run(process.execPath, [bin, 'start', 'DESK-2'], root);
-  const session = await selectDesktopPersona(root, 'DESK-2', 'architect');
-  assert.equal(session.persona, 'architect');
+  const session = await selectDesktopAgent(root, 'DESK-2', 'architect');
+  assert.equal(session.agent, 'architect');
   assert.equal(session.workId, 'DESK-2');
-  await assert.rejects(() => selectDesktopPersona(root, 'DESK-2', 'unknown'), /Unknown working lens/);
+  await assert.rejects(() => selectDesktopAgent(root, 'DESK-2', 'unknown'), /Unknown governed agent/);
 });
 
 test('desktop publish --json emits machine-readable stdout even when git commits and pushes', async () => {

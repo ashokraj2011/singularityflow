@@ -8,7 +8,7 @@ import {
   identity,
   refExists
 } from './git.mjs';
-import { setPersonaSession } from './session.mjs';
+import { setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
   createWorkflow,
@@ -67,15 +67,16 @@ function validateStorySource(source, id) {
 /**
  * Desktop-safe Story start path.
  *
- * The UI supplies explicit workflow/working-lens choices, so this function never
- * prompts and never invents defaults. It persists exactly the same workflow,
+ * The UI supplies an explicit workflow choice. Its first phase selects the governed
+ * agent deterministically, so this function never prompts or treats a role as user identity.
+ * It persists exactly the same workflow,
  * source, document, commit, and publication records as the CLI start command.
  */
 export async function startStory(root, {
   id,
   source,
   workType,
-  persona,
+  agent,
   capabilityId = null,
   files = [],
   urls = []
@@ -83,7 +84,9 @@ export async function startStory(root, {
   const definition = await loadDefinition(root);
   validateId(definition, id);
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown working lens '${persona ?? ''}'.`);
+  const resolved = resolveWorkType(definition, workType);
+  const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
+  if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default governed agent for its first phase.`);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);
   const remote = definition.git?.remote ?? 'origin';
@@ -111,7 +114,14 @@ export async function startStory(root, {
         `Branch '${id}' already exists but is not a Singularity Story work item. Choose another Work ID or attach the branch explicitly. ${error.message}`
       );
     }
-    await setPersonaSession(root, definition, actor, persona, id);
+    const resumedAgent = agent || workflow.phases?.[workflow.currentPhase]?.defaultAgent;
+    if (!definition.agents?.[resumedAgent]) {
+      throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
+    }
+    await setAgentSession(root, definition, actor, resumedAgent, id, {
+      phaseId: workflow.currentPhase,
+      source: agent ? 'explicit-override' : 'phase-default'
+    });
     return {
       workId: id,
       resumed: true,
@@ -121,15 +131,15 @@ export async function startStory(root, {
     };
   }
 
-  await setPersonaSession(root, definition, actor, persona, id);
+  await setAgentSession(root, definition, actor, selectedAgent, id, { phaseId: resolved.phases[0]?.id, source: agent ? 'explicit-override' : 'phase-default' });
   const workflow = await createWorkflow(root, definition, {
     id,
     title: normalizedSource.title,
     source: normalizedSource,
     baseBranch: definition.defaultBaseBranch,
     workType,
-    persona,
-    resolved: resolveWorkType(definition, workType),
+    agent: selectedAgent,
+    resolved,
     capabilityId
   });
   const publication = await commitAndPublish(

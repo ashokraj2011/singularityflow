@@ -12,7 +12,7 @@ test('canonical help document exposes stable comprehensive topics', async () => 
   const document = parseHelpDocument(content);
   assert.equal(document.title, 'Singularity Flow Help');
   assert.ok(document.topics.length >= 20);
-  for (const topic of ['quick-start', 'jira-intake', 'working-lenses-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'electron-desktop', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
+  for (const topic of ['quick-start', 'jira-intake', 'governed-agents-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'electron-desktop', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
     assert.ok(document.topics.some((item) => item.id === topic), `missing ${topic}`);
   }
   assert.equal(new Set(document.topics.map((item) => item.id)).size, document.topics.length);

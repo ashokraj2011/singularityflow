@@ -786,7 +786,7 @@ test('an empty repository offers to start an Epic rather than describing the com
 });
 
 test('configuration is shown whether or not an Epic is checked out', () => {
-  // The lifecycle, the approvers and the lenses are properties of the repository, not of an Epic.
+  // The lifecycle, approvers and governed agents are properties of the repository, not of an Epic.
   // A newcomer's problem is not editing these files but knowing they exist and where.
   const withEpic = buildConfigurationTree(snapshot);
   const withoutEpic = buildConfigurationTree({ initiative: null, initiatives: [], workItems: [] });
@@ -799,7 +799,7 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     // edited, and it used to sit in the Lifecycle tree as though it were a stage.
     assert.deepEqual(children.slice(0, 3),
       ['world-model', 'config:workflow', 'config:portfolio']);
-    for (const set of ['config:templates', 'config:prompts', 'config:skills', 'config:personas']) {
+    for (const set of ['config:templates', 'config:skills', 'config:agents']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
   }
@@ -817,15 +817,16 @@ test('the configuration node says whether workflow progress is recorded, and whe
   assert.match(node.tooltip, /orphan branch 'state'/);
 });
 
-test('each working lens is openable as the file that defines it', () => {
-  const withLenses = structuredClone(snapshot);
-  withLenses.definition = {
-    personas: { 'product-owner': { label: 'Product owner' }, developer: { label: 'Developer' } }
-  };
-  const lenses = find(buildConfigurationTree(withLenses), 'config:personas');
-  assert.equal(lenses.description, '2');
-  assert.deepEqual(lenses.children.map((child) => child.label), ['Product owner', 'Developer']);
-  assert.equal(lenses.children[0].path, 'singularity/personas/product-owner.md');
+test('each governed agent is openable as the file that defines it', () => {
+  const withAgents = structuredClone(snapshot);
+  withAgents.agents = [
+    { id: 'product-owner', scope: 'repository', path: '.github/agents/product-owner.agent.md', editable: true },
+    { id: 'developer', scope: 'repository', path: '.github/agents/developer.agent.md', editable: true }
+  ];
+  const agents = find(buildConfigurationTree(withAgents), 'config:agents');
+  assert.equal(agents.description, '2');
+  assert.deepEqual(agents.children.map((child) => child.label), ['product-owner', 'developer']);
+  assert.equal(agents.children[0].path, '.github/agents/product-owner.agent.md');
 });
 
 const {
@@ -1039,11 +1040,10 @@ test('a URL that cannot be read is reported on the form, beside the field it was
 const { isGovernedConfiguration } = await import(source('governed.ts'));
 
 test('the editable file sets appear as groups of openable files', () => {
-  // Artifact templates, lens prompts and prompt packs are the things a team actually wants to change
+  // Artifact templates, skills and agents are the things a team actually wants to change
   // about this product. A template nobody can find is a template nobody edits.
   const authored = structuredClone(snapshot);
   authored.templates = [{ path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md' }];
-  authored.personaPrompts = [{ path: 'singularity/personas/architect.md', name: 'architect.md' }];
   authored.repositorySkills = [];
   authored.agents = [
     { id: 'sflow', scope: 'packaged', path: 'plugin/agents/sflow.md', editable: false },
@@ -1059,7 +1059,7 @@ test('the editable file sets appear as groups of openable files', () => {
   // An empty set is stated rather than hidden.
   const packs = find(tree, 'config:skills');
   assert.equal(packs.description, 'none');
-  assert.match(packs.children[0].label, /No prompt packs/);
+  assert.match(packs.children[0].label, /No skills/);
 
   // A packaged agent is not the team's to change; a repository one is.
   const agents = find(tree, 'config:agents');
@@ -1072,7 +1072,7 @@ test('governed configuration is recognised, and nothing else is', () => {
   const repository = '/repo';
   for (const governed of [
     'singularity/workflow.yml', 'singularity/portfolio.yml',
-    'singularity/personas/architect.md', 'singularity/templates/initiatives/business-case.md',
+    'singularity/agents/architect.md', 'singularity/templates/initiatives/business-case.md',
     'singularity/prompts/copilot-planning.md', '.github/skills/sflow-next/SKILL.md',
     'singularity/agent-mappings.yml'
   ]) {
@@ -1435,9 +1435,9 @@ test('Lifecycle holds work and the shapes work can take; Configuration holds the
   assert.deepEqual(empty.map((node) => node.id), ['no-initiative', 'workflows']);
 });
 
-test('every prompt pack is listed, including the ones that ship with the product', () => {
+test('every agent is listed, including the ones that ship with the product', () => {
   // The snapshot carried `flowSkills` all along and this view read only `repositorySkills`, so a
-  // repository that had written none of its own was told it had no prompt packs while every
+  // repository that had written none of its own was told it had no agents while every
   // packaged pack sat unlisted beside it.
   const withPacks = structuredClone(snapshot);
   withPacks.repositorySkills = [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }];
@@ -1691,8 +1691,7 @@ const INTAKE_CHOICES = {
       phases: ['epic-intake', 'epic-requirements', 'epic-impact', 'epic-planning'] },
     { id: 'enterprise-delivery', label: 'Enterprise delivery', description: '7 governed phases',
       phases: ['discover-define', 'design-iterate', 'pre-inception', 'inception', 'elaboration', 'construction', 'delivery'] }
-  ],
-  lenses: [{ id: 'product-owner', label: 'Product owner' }, { id: 'architect', label: 'Architect' }]
+  ]
 };
 const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
@@ -1739,23 +1738,20 @@ test('an Initiative without a tracker is described here and started from that', 
   ]);
 });
 
-test('every shape that offers a working lens actually passes it', () => {
-  // The form offered a lens for an Initiative and dropped it on the way to the command, which is
-  // how a control comes to look decorative. It is also why `initiative start` needed a --persona
-  // flag at all: without one there was nothing to pass it to.
+test('intake shapes do not ask for a role because each phase owns its agent', () => {
   for (const shape of ['initiative', 'epic']) {
     const form = intake({
       shape, tracker: 'none', id: 'x', title: 'A', description: 'B', goal: 'C',
-      profile: 'epic-planning', lens: 'architect'
+      profile: 'epic-planning'
     });
     assert.deepEqual(intakeProblems(form), [], shape);
-    assert.match(intakeCommand(form).join(' '), /--persona architect/, shape);
-    assert.match(intakeHtml(form), /data-field="lens"/, shape);
+    assert.doesNotMatch(intakeCommand(form).join(' '), /--agent/, shape);
+    assert.doesNotMatch(intakeHtml(form), /data-field="lens"/, shape);
   }
-  // A Story takes no lens, so it offers none and passes none.
+  // A Story follows the same phase-agent contract.
   const story = intake({ shape: 'story', tracker: 'none', id: 'x', title: 'A', description: 'B' });
   assert.doesNotMatch(intakeHtml(story), /data-field="lens"/);
-  assert.doesNotMatch(intakeCommand(story).join(' '), /--persona/);
+  assert.doesNotMatch(intakeCommand(story).join(' '), /--agent/);
 });
 
 test('an Initiative with a tracker is fetched by key, and nothing else is asked', () => {
@@ -1780,7 +1776,7 @@ test('an untracked Epic has no identifier to give: the branch reservation mints 
   const form = intake({
     shape: 'epic', tracker: 'none', title: 'One-tap checkout',
     description: 'Fewer steps to pay', goal: 'Cut abandonment',
-    profile: 'enterprise-delivery', lens: 'product-owner'
+    profile: 'enterprise-delivery'
   });
   assert.equal(mintsIdentifier(form), true);
   assert.equal(intakeIdentifier(form), '');
@@ -1790,8 +1786,7 @@ test('an untracked Epic has no identifier to give: the branch reservation mints 
     '--title', 'One-tap checkout',
     '--description', 'Fewer steps to pay',
     '--goal', 'Cut abandonment',
-    '--profile', 'enterprise-delivery',
-    '--persona', 'product-owner'
+    '--profile', 'enterprise-delivery'
   ]);
   const html = intakeHtml(form);
   assert.doesNotMatch(html, /data-field="id"/);

@@ -15,39 +15,6 @@ function normalizedTemplateName(value) {
   return name;
 }
 
-function normalizedMarkdownName(value, label) {
-  const name = String(value ?? '').trim().replace(/^\/+/, '');
-  if (!name || !name.endsWith('.md') || name.split('/').includes('..')) throw new Error(`${label} must be a relative .md path without "..".`);
-  return name;
-}
-
-export function createPersona(definition, values) {
-  const id = String(values.id ?? '').trim();
-  assertId(id, 'Working-lens ID');
-  if (definition.personas[id]) throw new Error(`Working lens '${id}' already exists.`);
-  const next = clone(definition);
-  next.personas[id] = {
-    label: String(values.label || id).trim() || id,
-    description: String(values.description || `Prompt guidance for the ${values.label || id} working lens.`).trim(),
-    prompt: normalizedMarkdownName(values.prompt || `${id}.md`, 'Working-lens prompt'),
-    suggestedPhases: [],
-    worldModelViews: []
-  };
-  return next;
-}
-
-export function removePersona(definition, id, replacementId) {
-  if (!definition.personas[id]) throw new Error(`Working lens '${id}' does not exist.`);
-  if (Object.keys(definition.personas).length === 1) throw new Error('At least one working lens must remain.');
-  if (!definition.personas[replacementId] || replacementId === id) throw new Error('Choose a different replacement working lens.');
-  const next = clone(definition);
-  for (const phase of Object.values(next.phases)) {
-    if (phase.suggestedPersonas?.includes(id)) phase.suggestedPersonas = [...new Set(phase.suggestedPersonas.map((persona) => persona === id ? replacementId : persona))];
-  }
-  delete next.personas[id];
-  return next;
-}
-
 export function createWorkType(definition, { id, label, copyFrom }) {
   assertId(id, 'Workflow ID');
   if (definition.workTypes[id]) throw new Error(`Workflow '${id}' already exists.`);
@@ -85,8 +52,6 @@ export function createPhase(definition, workTypeId, values) {
   assertId(id, 'Stage ID');
   if (definition.phases[id]) throw new Error(`Stage '${id}' already exists.`);
   if (!definition.workTypes[workTypeId]) throw new Error(`Workflow '${workTypeId}' does not exist.`);
-  const persona = values.persona;
-  if (!definition.personas[persona]) throw new Error('Choose a suggested working lens.');
   const authority = values.authority ?? Object.keys(definition.approvalAuthorities ?? {})[0];
   if (!authority || !definition.approvalAuthorities?.[authority]) throw new Error('Choose an approval authority group.');
   const template = normalizedTemplateName(values.template);
@@ -95,7 +60,6 @@ export function createPhase(definition, workTypeId, values) {
   const next = clone(definition);
   next.phases[id] = {
     label: String(values.label || id).trim() || id,
-    suggestedPersonas: [persona],
     defaultTemplate: template,
     artifact: {
       path: `artifacts/${id}/${artifactFile}`,
@@ -106,8 +70,6 @@ export function createPhase(definition, workTypeId, values) {
     writeScope: values.writeScope === 'source-and-artifact' ? 'source-and-artifact' : 'artifact-only',
     approval: { authorities: [authority], minimum: 1, rejectTo: [id] }
   };
-  const suggested = next.personas[persona].suggestedPhases ??= [];
-  if (!suggested.includes(id)) suggested.push(id);
   return addPhaseToWorkType(next, workTypeId, id);
 }
 
@@ -144,9 +106,6 @@ export function deleteUnusedPhase(definition, phaseId) {
   const next = clone(definition);
   delete next.phases[phaseId];
   if (next.documents?.allowedPhases) next.documents.allowedPhases = next.documents.allowedPhases.filter((id) => id !== phaseId);
-  for (const persona of Object.values(next.personas)) {
-    persona.suggestedPhases = (persona.suggestedPhases ?? []).filter((id) => id !== phaseId);
-  }
   for (const phase of Object.values(next.phases)) {
     if (phase.approval?.rejectTo) phase.approval.rejectTo = phase.approval.rejectTo.filter((id) => id !== phaseId);
     if (phase.inputs) phase.inputs = phase.inputs.filter((entry) => inputPhase(entry) !== phaseId);
@@ -168,10 +127,6 @@ export function setWorkTypeInputs(definition, workTypeId, phaseId, inputs) {
 
 export function templateRepositoryPath(definition, name) {
   return `${String(definition.templatesRoot).replace(/\/$/, '')}/${normalizedTemplateName(name)}`;
-}
-
-export function personaPromptRepositoryPath(definition, name) {
-  return `${String(definition.personaPromptsRoot).replace(/\/$/, '')}/${normalizedMarkdownName(name, 'Working-lens prompt')}`;
 }
 
 export function repositorySkillPath(id) {

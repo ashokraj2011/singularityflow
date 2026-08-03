@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,13 @@ import {
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
 import { groundingMode } from './grounding.mjs';
-import { isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference } from './agents.mjs';
+import {
+  discoverAgents,
+  isAgentTemplateReference,
+  materializeAgentTemplate,
+  parseAgentTemplateReference,
+  validateAgentCatalog
+} from './agents.mjs';
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
@@ -34,7 +40,7 @@ const INITIALIZATION_MAPPINGS = [
   ['capabilities.yml', 'singularity/capabilities.yml'],
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['artifacts', 'singularity/templates'],
-  ['personas', 'singularity/personas'],
+  ['agents', '.github/agents'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
 ];
@@ -44,8 +50,6 @@ export const SEQUENCE_GATE_IDS = [
   'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase', 'binding'
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
-const PERSONA_SELECTION_MODES = new Set(['off', 'reuse', 'prompt']);
-
 function assertId(value, label) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
 }
@@ -100,17 +104,12 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
 
 export function normalizeSessionPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
-  for (const key of Object.keys(value)) if (!['workItemSelection', 'personaSelection', 'promptOnNewSession', 'promptOnResume', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
+  for (const key of Object.keys(value)) if (!['workItemSelection', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
   const workItemSelection = value.workItemSelection ?? 'off';
-  if (!PERSONA_SELECTION_MODES.has(workItemSelection)) throw new SingularityFlowError('session.workItemSelection must be off, reuse, or prompt.');
-  const personaSelection = value.personaSelection ?? 'off';
-  if (!PERSONA_SELECTION_MODES.has(personaSelection)) throw new SingularityFlowError('session.personaSelection must be off, reuse, or prompt.');
-  for (const field of ['promptOnNewSession', 'promptOnResume', 'requireBeforeTools']) if (value[field] != null && typeof value[field] !== 'boolean') throw new SingularityFlowError(`session.${field} must be boolean.`);
+  if (!['off', 'reuse', 'prompt'].includes(workItemSelection)) throw new SingularityFlowError('session.workItemSelection must be off, reuse, or prompt.');
+  if (value.requireBeforeTools != null && typeof value.requireBeforeTools !== 'boolean') throw new SingularityFlowError('session.requireBeforeTools must be boolean.');
   return {
     workItemSelection,
-    personaSelection,
-    promptOnNewSession: value.promptOnNewSession ?? false,
-    promptOnResume: value.promptOnResume ?? false,
     requireBeforeTools: value.requireBeforeTools ?? false
   };
 }
@@ -129,13 +128,12 @@ export function normalizePlanning(value = {}) {
 }
 
 export function validateDefinition(definition) {
-  if (definition?.version !== 1) throw new SingularityFlowError('workflow.yml version must be 1.');
-  if (!definition.personas || !Object.keys(definition.personas).length) throw new SingularityFlowError('workflow.yml must define at least one persona.');
+  if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Legacy role configurations are not supported; recreate the repository configuration with singularity-flow init.');
+  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   assertRelative(definition.workItemRoot ?? 'singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
-  assertRelative(definition.personaPromptsRoot, 'personaPromptsRoot');
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
@@ -190,12 +188,6 @@ export function validateDefinition(definition) {
     if (definition.collaboration.assignmentMode && !['off', 'suggested', 'required'].includes(definition.collaboration.assignmentMode)) throw new SingularityFlowError('collaboration.assignmentMode must be off, suggested, or required.');
     if (definition.collaboration.approvalReminderAfterHours != null && (!Number.isFinite(definition.collaboration.approvalReminderAfterHours) || definition.collaboration.approvalReminderAfterHours < 0)) throw new SingularityFlowError('collaboration.approvalReminderAfterHours must be a non-negative number.');
     for (const channel of definition.collaboration.notifications ?? []) if (!['terminal'].includes(channel)) throw new SingularityFlowError(`Unsupported collaboration notification channel '${channel}'.`);
-  }
-  for (const [id, persona] of Object.entries(definition.personas)) {
-    assertId(id, 'Persona');
-    if (!persona.label || !persona.prompt) throw new SingularityFlowError(`Persona '${id}' requires label and prompt.`);
-    assertRelative(persona.prompt, `Persona '${id}' prompt`);
-    for (const phaseId of persona.suggestedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Persona '${id}' references unknown phase '${phaseId}'.`);
   }
   for (const [id, workType] of Object.entries(definition.workTypes)) {
     assertId(id, 'Work type');
@@ -261,7 +253,6 @@ export async function worldModelPromptViewReferences(root, definition) {
   });
   const locations = [
     definition.templatesRoot,
-    definition.personaPromptsRoot,
     '.github/skills',
     '.github/agents'
   ];
@@ -298,62 +289,19 @@ export async function validateWorldModelPromptViewReferences(root, definition) {
   return references;
 }
 
-function legacyDefinition(config, worldModel = {}) {
-  const personas = {};
-  const phases = {};
-  for (const phase of config.phases ?? []) {
-    const personaId = String(phase.owner ?? 'developer').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'developer';
-    personas[personaId] ??= { label: phase.owner ?? 'Developer', description: `Legacy ${phase.owner ?? 'developer'} working lens`, prompt: `${personaId}.md`, suggestedPhases: [], worldModelViews: [] };
-    personas[personaId].suggestedPhases.push(phase.id);
-    phases[phase.id] = {
-      label: phase.label ?? phase.id,
-      suggestedPersonas: [personaId],
-      defaultTemplate: `legacy/${phase.id}.md`,
-      artifact: { ...(phase.requiredArtifact ?? {}), path: phase.requiredArtifact?.path ?? `artifacts/${phase.id}/${phase.id}.md` },
-      worldModel: worldModel.phases?.[phase.id] ?? { views: [], depth: 'standard' },
-      writeScope: 'source-and-artifact',
-      approval: { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [phase.id] },
-      qualityCommands: phase.qualityCommands ?? []
-    };
-  }
-  return {
-    version: 1,
-    inputsMode: 'off',
-    defaultBaseBranch: config.defaultBaseBranch ?? 'main',
-    workItemRoot: config.workItemRoot ?? 'singularity/work-items',
-    idPattern: config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
-    git: { remote: 'origin', publish: 'off' },
-    templatesRoot: 'singularity/templates',
-    personaPromptsRoot: 'singularity/personas',
-    tokens: { mode: 'exact-or-unavailable' },
-    ledger: normalizeLedgerConfig(),
-    documents: { allowedPhases: Object.keys(phases), maxFileBytes: 26214400, maxPreviewBytes: 1048576 },
-    approvalAuthorities: normalizeApprovalAuthorities(),
-    personas,
-    workTypes: { legacy: { label: 'Legacy workflow', phases: Object.keys(phases), templateOverrides: {} } },
-    phases,
-    governance: {
-      requireAcceptanceCriteriaTags: config.governance?.requireAcceptanceCriteriaTags ?? true,
-      protectedPaths: config.governance?.protectedPaths ?? []
-    },
-    _legacy: true
-  };
-}
-
 export async function loadDefinition(root) {
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration',
     type: 'file'
   });
   if (workflow.exists) {
-    const definition = validateDefinition(YAML.parse(await readFile(workflow.absolute, 'utf8')));
-    for (const [id, persona] of Object.entries(definition.personas)) {
-      const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-        label: `Working-lens prompt for '${id}'`,
-        type: 'file'
-      });
-      if (!prompt.exists) throw new SingularityFlowError(`Working-lens prompt missing for '${id}': ${path.posix.join(definition.personaPromptsRoot, persona.prompt)}`);
-    }
+    const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
+    const agents = await discoverAgents(root);
+    definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+    definition.agentCatalog = agents;
+    definition.agentPromptsRoot = '.github/agents';
+    validateDefinition(definition);
+    validateAgentCatalog(agents, definition);
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
       if (isAgentTemplateReference(phase.template)) continue;
       const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
@@ -365,21 +313,10 @@ export async function loadDefinition(root) {
     await validateWorldModelPromptViewReferences(root, definition);
     return definition;
   }
-  const legacy = await secureRepositoryPath(root, 'singularity/config.json', {
-    label: 'Legacy workflow configuration',
-    type: 'file'
-  });
-  if (!legacy.exists) {
-    if (existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
-      throw new SingularityFlowError(`This repository still uses ${LEGACY_CONTROL_ROOT}/. Run singularity-flow migrate-config to move it to ${CONTROL_ROOT}/.`);
-    }
-    throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
+  if (existsSync(path.join(root, LEGACY_CONTROL_ROOT)) || existsSync(path.join(root, 'singularity/config.json'))) {
+    throw new SingularityFlowError('Legacy workflow configuration is not supported by the governed-agent model. Recreate it with singularity-flow init.');
   }
-  const world = await secureRepositoryPath(root, 'singularity/worldmodel.json', {
-    label: 'Legacy world-model configuration',
-    type: 'file'
-  });
-  return legacyDefinition(await readJson(legacy.absolute), world.exists ? await readJson(world.absolute) : {});
+  throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`);
 }
 
 // Ensure the repository's workflow.yml declares at least `requiredViews` under worldModel.views,
@@ -393,7 +330,12 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
   const text = await readFile(file.absolute, 'utf8');
   const doc = YAML.parseDocument(text);
   const definition = doc.toJSON() ?? {};
-  // A declared worldModel.views must cover every view the repo's own phases/personas/overrides
+  // Agent Markdown owns agent-specific view requirements. Raw workflow.yml does not repeat
+  // those declarations, so onboarding must discover the same effective catalog loadDefinition
+  // will validate after this repair.
+  const agents = await discoverAgents(root);
+  definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+  // A declared worldModel.views must cover every view the repository phase and agent contracts reference,
   // reference (validateDefinition enforces this), plus the views the initiative portfolio needs.
   const referenced = [...structuredWorldModelViewReferences(definition)].map(([view]) => view);
   const wanted = [...new Set([...requiredViews.map(String), ...referenced].filter(Boolean))];
@@ -458,7 +400,7 @@ export async function initializeDefinition(root) {
   // Directory mappings above are skipped once the destination exists, so re-running init on a
   // repository created by an earlier version would never receive template files added since.
   // Merge in any missing ones without overwriting local edits.
-  for (const [source, destination] of [['artifacts', 'singularity/templates'], ['personas', 'singularity/personas']]) {
+  for (const [source, destination] of [['artifacts', 'singularity/templates'], ['agents', '.github/agents']]) {
     if (wrote.includes(destination)) continue;
     for (const file of await copyMissingFiles(path.join(packageRoot, 'templates', source), path.join(root, destination))) {
       wrote.push(path.posix.join(destination, file));
@@ -530,6 +472,7 @@ export function resolveWorkType(definition, workTypeId) {
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({
     ...phase,
+    defaultAgent: definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase.id))?.id ?? null,
     inputs: phase.inputs.map((input) => ({ ...input, path: phaseById[input.phase]?.artifact?.path ?? null }))
   }));
   const documents = { ...(definition.documents ?? {}), ...(workType.documents ?? {}) };
@@ -556,6 +499,16 @@ export async function snapshotResolution(root, definition, resolved) {
     type: 'file'
   });
   const definitionSnapshot = await snapshot(workflow.absolute);
+  const agents = {};
+  for (const agent of definition.agentCatalog ?? []) {
+    agents[agent.id] = {
+      source: agent.source,
+      sha256: agent.sha256,
+      phases: agent.phases,
+      defaultFor: agent.defaultFor,
+      worldModelViews: agent.worldModelViews
+    };
+  }
   const templates = {};
   for (const phase of resolved.phases) {
     if (isAgentTemplateReference(phase.template)) {
@@ -577,80 +530,14 @@ export async function snapshotResolution(root, definition, resolved) {
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
+    agents,
     templates
   };
 }
 
 export async function migrateLegacyConfig(root) {
-  const currentRoot = path.join(root, CONTROL_ROOT);
-  const hiddenRoot = path.join(root, LEGACY_CONTROL_ROOT);
-  const previousRoot = path.join(root, `.${['s', 'd', 'l', 'c'].join('')}`);
-  if (existsSync(currentRoot) && existsSync(hiddenRoot)) {
-    throw new SingularityFlowError(`Both ${CONTROL_ROOT}/ and ${LEGACY_CONTROL_ROOT}/ exist. Consolidate them manually before migration.`);
-  }
-  if (existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(hiddenRoot)) return { migrated: false, reason: `${WORKFLOW_PATH} already exists` };
-  let movedStateRoot = false;
-  let movedFrom = null;
-  const sourceRoot = existsSync(hiddenRoot) ? hiddenRoot : existsSync(previousRoot) ? previousRoot : null;
-  if (!existsSync(currentRoot) && sourceRoot) {
-    movedFrom = path.basename(sourceRoot);
-    await rename(sourceRoot, currentRoot);
-    movedStateRoot = true;
-  }
-  if (movedStateRoot) await rewriteControlRootReferences(currentRoot, movedFrom);
-  if (existsSync(path.join(root, WORKFLOW_PATH))) {
-    const refreshed = movedStateRoot ? await refreshMovedRuntimeSnapshots(root, movedFrom) : { workItems: 0, initiatives: 0 };
-    return {
-      migrated: true,
-      path: WORKFLOW_PATH,
-      migratedWorkItems: refreshed.workItems,
-      migratedInitiatives: refreshed.initiatives,
-      movedStateRoot,
-      movedFrom,
-      rootOnly: true
-    };
-  }
-  const legacyPath = path.join(currentRoot, 'config.json');
-  if (!existsSync(legacyPath)) throw new SingularityFlowError('No singularity/config.json exists to migrate.');
-  const definition = await loadDefinition(root);
-  await mkdir(path.join(root, 'singularity/templates/legacy'), { recursive: true });
-  await mkdir(path.join(root, 'singularity/personas'), { recursive: true });
-  for (const [id, phase] of Object.entries(definition.phases)) {
-    await writeText(path.join(root, 'singularity/templates', phase.defaultTemplate), `# {{work.id}} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`);
-  }
-  for (const [id, persona] of Object.entries(definition.personas)) await writeText(path.join(root, 'singularity/personas', persona.prompt), `Act as ${persona.label}. Follow the active phase contract and cite evidence.\n`);
-  const clean = structuredClone(definition); delete clean._legacy;
-  await writeFile(path.join(root, WORKFLOW_PATH), YAML.stringify(clean));
-  const resolved = resolveWorkType(clean, 'legacy');
-  const resolution = await snapshotResolution(root, clean, resolved);
-  const workRoot = path.join(root, clean.workItemRoot ?? 'singularity/work-items');
-  let migratedWorkItems = 0;
-  if (existsSync(workRoot)) {
-    for (const entry of await readdir(workRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const statePath = path.join(workRoot, entry.name, 'workflow.json');
-      if (!existsSync(statePath)) continue;
-      const state = await readJson(statePath);
-      if (state.schemaVersion === 2) continue;
-      state.schemaVersion = 2;
-      state.workItem.workType = 'legacy'; state.workItem.workTypeLabel = 'Legacy workflow';
-      state.resolution = { ...resolution, workType: 'legacy', workTypeLabel: 'Legacy workflow', documents: resolved.documents, sourceSha256: null, phases: resolved.phases };
-      state.usage = { mode: 'exact-or-unavailable', totalTokens: 0, records: 0, exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {} };
-      state.documents = { count: 0, updatedAt: null };
-      for (const phaseId of state.phaseOrder ?? []) {
-        const phase = state.phases[phaseId]; const definitionPhase = resolved.phases.find((item) => item.id === phaseId);
-        phase.suggestedPersonas ??= definitionPhase?.suggestedPersonas ?? (phase.owner ? [phase.owner] : []);
-        phase.approvalPolicy ??= definitionPhase?.approval ?? { personas: phase.owner ? [phase.owner] : [], minimum: 1, rejectTo: [phaseId] };
-        phase.template ??= definitionPhase?.template ?? null; phase.worldModel ??= definitionPhase?.worldModel ?? {};
-        phase.writeScope ??= definitionPhase?.writeScope ?? 'source-and-artifact'; phase.comparison ??= definitionPhase?.comparison ?? {};
-        phase.generation ??= phase.artifacts?.length ? 1 : 0; phase.generatedBy ??= null; phase.generatedPersona ??= null;
-        phase.usage ??= []; phase.approvals ??= phase.approvedBy ? [{ decision: 'approved', phase: phaseId, actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
-      }
-      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
-      migratedWorkItems += 1;
-    }
-  }
-  return { migrated: true, path: WORKFLOW_PATH, migratedWorkItems, movedStateRoot, movedFrom };
+  void root;
+  throw new SingularityFlowError('Configuration migration is not available in the governed-agent release. Initialize a fresh configuration with singularity-flow init.');
 }
 
 async function rewriteControlRootReferences(directory, movedFrom) {
@@ -763,13 +650,8 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
   return text;
 }
 
-export async function personaPrompt(root, definition, personaId) {
-  const persona = definition.personas[personaId];
-  if (!persona) throw new SingularityFlowError(`Unknown working lens '${personaId}'.`);
-  const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-    label: `Working-lens prompt for '${personaId}'`,
-    mustExist: true,
-    type: 'file'
-  });
-  return readFile(prompt.absolute, 'utf8');
+export async function agentPrompt(root, definition, agentId) {
+  const agent = definition.agents?.[agentId] ?? (await discoverAgents(root)).find((candidate) => candidate.id === agentId);
+  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
+  return agent.prompt;
 }

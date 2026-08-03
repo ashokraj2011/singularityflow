@@ -17,7 +17,7 @@ import {
   resolveWorldModelContext,
   worldModelCommit
 } from './grounding.mjs';
-import { injectPersonaPrompt } from './inject.mjs';
+import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { initiativeBreakdownDocument, validateInitiativeBreakdown } from './initiative-repositories.mjs';
@@ -218,7 +218,7 @@ function workItemPhaseContract(workflow, phase) {
     `- Current phase: ${workflow.currentPhase}`,
     `- Required artifact: ${phase.requiredArtifact.path}`,
     `- Write scope: ${phase.writeScope}`,
-    `- Suggested working lenses: ${phase.suggestedPersonas.join(', ') || 'none'}`,
+    `- Governed agent: ${phase.defaultAgent ?? phase.generatedAgent ?? 'unavailable'}`,
     `- Required approvals: ${phase.approvalPolicy.minimum} distinct human identities from ${phase.approvalPolicy.authorities.join(', ') || 'no authority group'}`,
     `- Quality commands: ${phase.qualityCommands.length ? phase.qualityCommands.join(' · ') : 'none configured'}`,
     `- Phase inputs: ${phase.inputs.length ? phase.inputs.map((input) => `${input.phase}${input.optional ? ' (optional)' : ''}`).join(', ') : 'none'}`
@@ -264,7 +264,7 @@ async function workItemSupportingDocuments(root, definition, workflow) {
   return { text: sections.join('\n'), sources };
 }
 
-async function initiativePlanningParts(root, definition, { id, phaseId, persona, targetId }) {
+async function initiativePlanningParts(root, definition, { id, phaseId, agent, targetId }) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const selectedPhase = phaseId ?? initiative.currentPhase;
   if (!selectedPhase || selectedPhase !== initiative.currentPhase) {
@@ -285,7 +285,7 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
     : phase.outputs.find((output) => output.id === (targetId ?? phase.outputs[0]?.id));
   if (!target) throw new SingularityFlowError(`Unknown planning promotion target '${targetId}' for initiative phase '${selectedPhase}'.`);
   if (!phaseScoped && !PROMOTABLE_KINDS.includes(target.kind)) throw new SingularityFlowError(`Planning cannot promote text into ${target.kind} output '${target.id}'.`);
-  const context = await composeInitiativeContext(root, id, selectedPhase, { persona, dryRun: true });
+  const context = await composeInitiativeContext(root, id, selectedPhase, { agent, dryRun: true });
   const itemDirectory = await secureInitiativePath(root, portfolio, id, '', {
     label: `Initiative '${id}' directory`,
     mustExist: true,
@@ -343,7 +343,7 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
     governed,
     sources: [
       { kind: 'initiative-resolution', path: statePath.relative, sha256: stateInfo.sha256, bytes: stateInfo.size, resolutionSha256: initiative.resolution.resolutionSha256 },
-      { kind: 'persona', ...context.record.personaPrompt },
+      { kind: 'agent', ...context.record.agentPrompt },
       ...context.record.worldModelFiles.map((file) => ({ kind: 'world-model', ...file })),
       ...context.record.inputs.map((file) => ({ kind: 'approved-input', ...file })),
       ...(context.record.epicSources ?? []).map((file) => ({ kind: 'epic-source', ...file })),
@@ -366,12 +366,12 @@ async function initiativePlanningParts(root, definition, { id, phaseId, persona,
   };
 }
 
-async function workItemWorldModel(root, definition, workflow, phase, persona) {
+async function workItemWorldModel(root, definition, workflow, phase, agent) {
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
   if (mode === 'off') return { text: '', files: [], warnings: [], record: { mode, available: false } };
   const requiredViews = unique([
     ...(phase.worldModel?.views ?? []),
-    ...(definition.personas[persona]?.worldModelViews ?? [])
+    ...(definition.agents[agent]?.worldModelViews ?? [])
   ]);
   const config = {
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
@@ -400,7 +400,7 @@ async function workItemWorldModel(root, definition, workflow, phase, persona) {
   }
 }
 
-async function workItemPlanningParts(root, definition, { id, phaseId, persona, targetId }) {
+async function workItemPlanningParts(root, definition, { id, phaseId, agent, targetId }) {
   const workflow = await loadWorkflow(root, definition, id);
   const selectedPhase = phaseId ?? workflow.currentPhase;
   if (!selectedPhase || selectedPhase !== workflow.currentPhase) {
@@ -412,13 +412,13 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
   const itemDirectory = workDir(root, definition, id);
   const itemRelative = workDirRelative(definition, id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
-  const personaResult = await injectPersonaPrompt(root, definition, persona, {
-    persona,
+  const agentResult = await injectAgentPrompt(root, definition, agent, {
+    agent,
     phase: phase.id,
     workType: workflow.workItem.workType,
     labels: []
   });
-  const world = await workItemWorldModel(root, definition, workflow, phase, persona);
+  const world = await workItemWorldModel(root, definition, workflow, phase, agent);
   const capability = await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
     views: phase.worldModel?.views ?? []
   });
@@ -426,7 +426,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
   if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const inputBlock = renderInputsBlock(inputs).text;
   const session = await loadSession(root, { required: false });
-  const remote = await renderAgentSkills(root, workflow, phase, session?.workId === id ? { ...session, persona } : null, { record: false, itemDirectory });
+  const remote = await renderAgentSkills(root, workflow, phase, session?.workId === id ? { ...session, agent } : null, { record: false, itemDirectory });
   const supportingDocuments = await workItemSupportingDocuments(root, definition, workflow);
   const storyPath = path.join(itemDirectory, 'USER-STORY.md');
   const story = await existingText(storyPath);
@@ -437,7 +437,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
   const currentInfo = current ? await snapshot(target) : null;
   const governed = [
     `# Governed story context — ${id}/${selectedPhase}`,
-    `## Selected working lens\n\n${personaResult.text.trim()}`,
+    `## Selected governed agent\n\n${agentResult.text.trim()}`,
     world.text,
     capability.text,
     remote.text,
@@ -446,12 +446,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
     inputBlock,
     current ? `## Current artifact draft\n\n<!-- path=${posix(path.relative(root, target))} -->\n\n${current.trim()}` : ''
   ].filter((section) => section?.trim()).join('\n\n');
-  const personaPath = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, definition.personas[persona].prompt), {
-    label: `Planning working-lens prompt for '${persona}'`,
-    mustExist: true,
-    type: 'file'
-  });
-  const personaInfo = await snapshot(personaPath.absolute);
+  const agentProfile = definition.agents[agent];
   return {
     scope: 'work-item',
     id,
@@ -461,7 +456,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, persona, t
     governed,
     sources: [
       { kind: 'workflow-resolution', path: posix(path.relative(root, statePath)), sha256: stateInfo.sha256, bytes: stateInfo.size, configSha256: workflow.resolution.configSha256 },
-      { kind: 'persona', path: personaPath.relative, sha256: personaInfo.sha256, bytes: personaInfo.size },
+      { kind: 'agent', path: agentProfile.source, sha256: agentProfile.sha256, bytes: Buffer.byteLength(agentProfile.prompt, 'utf8') },
       ...world.files.map((file) => ({ kind: 'world-model', ...file })),
       ...capability.files.map((file) => ({ kind: 'capability-world-model', ...file })),
       ...inputs.records.filter((entry) => entry.status === 'captured').map((entry) => ({ kind: 'approved-input', path: posix(path.join(itemRelative, entry.path)), sha256: entry.sha256, bytes: entry.bytes })),
@@ -492,6 +487,7 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
         return {
           id,
           label: phase.label,
+          defaultAgent: phase.defaultAgent,
           status: phase.status,
           current: id === workflow.currentPhase,
           targets: [{ id: 'artifact', label: phase.label, kind: 'markdown', path: phase.requiredArtifact.path }]
@@ -513,6 +509,7 @@ export async function planningTargetCatalog(root, { workId = null, initiativeId 
         return {
           id: phase.id,
           label: phase.label,
+          defaultAgent: phase.agents?.[0] ?? null,
           status: initiative.phases[phase.id].status,
           current: phase.id === initiative.currentPhase,
           lanes: phase.lanes,
@@ -534,18 +531,27 @@ export async function createPlanningContext(root, {
   scope,
   id,
   phase: phaseId = null,
-  persona,
+  agent,
   target: targetId = null,
   objective = ''
 } = {}) {
   const definition = await loadDefinition(root);
   const prompt = await planningPrompt(root, definition);
   if (!prompt.config.enabled) throw new SingularityFlowError('Copilot Studio is disabled by workflow.yml.');
-  if (!definition.personas[persona]) throw new SingularityFlowError(`Unknown planning working lens '${persona}'.`);
+  let selectedAgent = agent;
+  if (!selectedAgent && scope === 'initiative') {
+    const { initiative } = await loadInitiative(root, id);
+    const selectedPhase = phaseId ?? initiative.currentPhase;
+    selectedAgent = initiative.resolution.phases.find((candidate) => candidate.id === selectedPhase)?.agents?.[0] ?? null;
+  } else if (!selectedAgent && scope === 'work-item') {
+    const workflow = await loadWorkflow(root, definition, id);
+    selectedAgent = workflow.phases[phaseId ?? workflow.currentPhase]?.defaultAgent ?? null;
+  }
+  if (!definition.agents[selectedAgent]) throw new SingularityFlowError(`No governed agent is configured for planning phase '${phaseId ?? 'current'}'.`);
   const parts = scope === 'initiative'
-    ? await initiativePlanningParts(root, definition, { id, phaseId, persona, targetId })
+    ? await initiativePlanningParts(root, definition, { id, phaseId, agent: selectedAgent, targetId })
     : scope === 'work-item'
-      ? await workItemPlanningParts(root, definition, { id, phaseId, persona, targetId })
+      ? await workItemPlanningParts(root, definition, { id, phaseId, agent: selectedAgent, targetId })
       : null;
   if (!parts) throw new SingularityFlowError("Planning scope must be 'initiative' or 'work-item'.");
   const fitted = utf8Prefix(parts.governed, prompt.config.maxContextBytes);
@@ -554,7 +560,7 @@ export async function createPlanningContext(root, {
     id: parts.id,
     'phase.id': parts.phase.id,
     'phase.label': parts.phase.label,
-    persona: definition.personas[persona].label,
+    agent: definition.agents[selectedAgent].label,
     objective: objective.trim() || `Produce a decision-ready ${parts.target.label} for ${parts.phase.label}.`,
     'promotion.target': parts.target.id === PHASE_SCOPE
       ? parts.outputs.map((output) => `${output.label} (${output.id}, ${output.kind}) → ${output.path}`).join('\n')
@@ -582,7 +588,7 @@ export async function createPlanningContext(root, {
     profile: parts.profile,
     phase: parts.phase,
     generation: parts.generation,
-    persona,
+    agent: selectedAgent,
     objective: objective.trim() || null,
     target: parts.target,
     outputs: parts.outputs ?? [],
@@ -687,9 +693,9 @@ function parsePromotedYaml(text, label) {
 }
 
 // Promote one artifact. Kept as the narrow entry point for single-target sessions.
-export async function promotePlanningArtifact(root, { sessionId, content, persona = null } = {}) {
+export async function promotePlanningArtifact(root, { sessionId, content, agent = null } = {}) {
   if (!content?.trim()) throw new SingularityFlowError('Reviewed planning output is empty.');
-  return promotePlanningArtifacts(root, { sessionId, persona, artifacts: [{ outputId: null, content }] });
+  return promotePlanningArtifacts(root, { sessionId, agent, artifacts: [{ outputId: null, content }] });
 }
 
 /**
@@ -703,14 +709,14 @@ export async function promotePlanningArtifact(root, { sessionId, content, person
  * Every artifact is validated against the immutable phase resolution before anything is written,
  * so a bad set fails whole rather than half-applying.
  */
-export async function promotePlanningArtifacts(root, { sessionId, artifacts = [], persona = null } = {}) {
+export async function promotePlanningArtifacts(root, { sessionId, artifacts = [], agent = null } = {}) {
   if (!Array.isArray(artifacts) || !artifacts.length) throw new SingularityFlowError('No reviewed artifacts were supplied.');
   const pack = await loadPlanningPack(root, sessionId);
   const actor = identity(root);
-  if (persona && persona !== pack.manifest.persona) {
-    throw new SingularityFlowError(`Planning context was composed with working lens '${pack.manifest.persona}', not '${persona}'. Rebuild the context to change the lens.`);
+  if (agent && agent !== pack.manifest.agent) {
+    throw new SingularityFlowError(`Planning context was composed with governed agent '${pack.manifest.agent}', not '${agent}'. Rebuild the context to use a different agent.`);
   }
-  const selectedPersona = pack.manifest.persona;
+  const selectedAgent = pack.manifest.agent;
   const promotedAt = nowIso();
 
   if (pack.manifest.scope === 'initiative') {
@@ -734,7 +740,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     const duplicate = resolved.map((item) => item.definition.id).find((id, index, all) => all.indexOf(id) !== index);
     if (duplicate) throw new SingularityFlowError(`Artifact '${duplicate}' was supplied more than once.`);
 
-    const prepared = await prepareInitiativePhase(root, initiative.initiative.id, definition.id, { persona: selectedPersona });
+    const prepared = await prepareInitiativePhase(root, initiative.initiative.id, definition.id, { agent: selectedAgent });
     const fresh = prepared.initiative;
     const generation = fresh.phases[definition.id].generation + 1;
     const auditRelative = path.join('context', 'planning', `${definition.id}-gen${generation}`, sessionId);
@@ -759,7 +765,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
         sha256: current.sha256,
         bytes: current.size,
         generatedBy: actor,
-        generatedPersona: selectedPersona
+        generatedAgent: selectedAgent
       });
 
       // A promoted story plan also drives materialization, so its executable form is written too.
@@ -794,7 +800,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
       fresh.history.push({
         at: promotedAt,
         actor: actorKey(actor),
-        persona: selectedPersona,
+        agent: selectedAgent,
         event: 'planning_artifact_promoted',
         phase: definition.id,
         detail: `${targetDefinition.id}@${current.sha256.slice(0, 12)}`
@@ -812,7 +818,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     await writeText(committedContextPath.absolute, await readFile(pack.contextPath, 'utf8'));
     await writeJson(auditManifestPath.absolute, {
       ...portableAuditManifest(pack.manifest, committedContextPath.relative),
-      promotion: { at: promotedAt, actor, persona: selectedPersona, artifacts: promoted, breakdown: breakdownPath?.relative ?? null }
+      promotion: { at: promotedAt, actor, agent: selectedAgent, artifacts: promoted, breakdown: breakdownPath?.relative ?? null }
     });
     await saveInitiative(root, portfolio, fresh);
     const summary = promoted.map((item) => item.target).join(', ');
@@ -856,7 +862,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     promotion: {
       at: promotedAt,
       actor,
-      persona: selectedPersona,
+      agent: selectedAgent,
       target: posix(path.relative(root, target)),
       sha256: current.sha256,
       planningArtifact: posix(path.relative(root, planPath)),
@@ -866,7 +872,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   workflow.history.push({
     at: promotedAt,
     actor: actorKey(actor),
-    persona: selectedPersona,
+    agent: selectedAgent,
     event: 'planning_artifact_promoted',
     phase: phase.id,
     detail: `${current.sha256.slice(0, 12)}`

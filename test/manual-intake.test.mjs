@@ -15,7 +15,7 @@ function run(command, args, cwd) {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Manual Intake Tester',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'product-owner' })
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' })
   };
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -35,7 +35,7 @@ async function repository() {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity'], root);
+  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   return root;
 }

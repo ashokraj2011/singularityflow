@@ -85,8 +85,8 @@ Each entry carries a stable operation key made from Work ID, event type, phase,
 generation, and the full published source commit. Event IDs provide correlation while
 the operation key makes retries and independent-machine recovery idempotent.
 Semantic details such as phase, generation,
-actor, authority group, working lens, and publication commit remain separate fields;
-working lenses never grant approval authority.
+actor, authority group, governed agent, and publication commit remain separate fields;
+agents never grant approval authority.
 
 ## Verification
 

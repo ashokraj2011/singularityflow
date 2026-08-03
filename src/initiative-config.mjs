@@ -403,11 +403,15 @@ function normalizePhase(phase, id) {
   unique(outputs.map((output) => output.id), `Initiative phase '${id}' output IDs`);
   unique(outputs.map((output) => output.path), `Initiative phase '${id}' output paths`);
   unique(checklist.map((check) => check.id), `Initiative phase '${id}' checklist IDs`);
+  const agents = array(phase.agents ?? [], `Initiative phase '${id}' agents`)
+    .map((agent) => safeId(agent, `Initiative phase '${id}' agent`));
+  unique(agents, `Initiative phase '${id}' agents`);
   return {
     id,
     label: phase.label ?? id.replaceAll('-', ' '),
     lanes: [...(phase.lanes ?? [])],
     worldModelViews: [...(phase.worldModelViews ?? [])],
+    agents,
     outputs,
     checklist,
     bundleApproval: normalizedApproval(phase.bundleApproval ?? {}, `Initiative phase '${id}' bundle approval`)
@@ -692,6 +696,7 @@ function resolveProfilePhase(portfolio, profile, phaseId, order) {
     ...override,
     label: override.label ?? phase.label,
     worldModelViews: override.worldModelViews ?? phase.worldModelViews,
+    agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,
     checklist: phase.checklist,

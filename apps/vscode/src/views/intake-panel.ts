@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
-  type InFlight, type IntakeForm, type LensChoice, type ProfileChoice, type Shape, type Tracker
+  type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 
@@ -79,22 +79,20 @@ export class IntakePanel {
   }
 
   /**
-   * What the repository actually offers: its profiles, its working lenses, whether a tracker is
+   * What the repository actually offers: its profiles, whether a tracker is
    * configured, and what is already under way.
    *
-   * Each is separately best effort. A repository with no lenses is a repository with no lenses, not
-   * a screen that fails to open.
+   * Each is separately best effort, so a temporarily unavailable tracker does not stop local work.
    */
   private async load(): Promise<void> {
-    const [profiles, lenses, tracker, inFlight] = await Promise.all([
-      this.profiles(), this.lenses(), this.tracker(), this.inFlight()
+    const [profiles, tracker, inFlight] = await Promise.all([
+      this.profiles(), this.tracker(), this.inFlight()
     ]);
     this.update({
       profiles,
       // Defaulted so the form is not blocked on a choice with one sensible answer, but still shown,
       // because it decides the phases for the life of the work.
       profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
-      lenses,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
@@ -117,18 +115,6 @@ export class IntakePanel {
       }));
     } catch (error) {
       this.output.appendLine(`No delivery profiles could be read: ${(error as Error).message}`);
-      return [];
-    }
-  }
-
-  private async lenses(): Promise<LensChoice[]> {
-    try {
-      const snapshot = await this.client.run<{
-        definition?: { personas?: Record<string, { label?: string }> };
-      }>(['desktop', 'snapshot', '--json']);
-      return Object.entries(snapshot.definition?.personas ?? {})
-        .map(([id, persona]) => ({ id, label: persona?.label ?? id }));
-    } catch {
       return [];
     }
   }
@@ -210,11 +196,6 @@ export class IntakePanel {
     if ((message.type === 'draft' || message.type === 'field') && typeof message.value === 'string') {
       const field = String(message.field);
       const value = message.value;
-      if (field === 'lens') {
-        const lens = this.form.lenses.find((entry) => entry.id === value);
-        this.update({ lens: lens?.id ?? null });
-        return;
-      }
       const writable = ['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria'];
       if (!writable.includes(field)) return;
       if (message.type === 'draft') {

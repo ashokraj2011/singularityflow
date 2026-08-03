@@ -32,7 +32,7 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow report \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow nextsteps \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inputs \[PHASE\]/);
-    assert.match(result.stdout, /singularity-flow lens \[WORK-ID\]/);
+    assert.match(result.stdout, /singularity-flow agent \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
   }
@@ -72,12 +72,12 @@ test('package exposes the standalone sflow-about executable', async () => {
   assert.match(await readFile(path.join(root, 'bin/sflow-about.mjs'), 'utf8'), /main\(\['about'/);
 });
 
-test('package exposes the canonical sflow-lens executable', async () => {
+test('package exposes the canonical sflow-agent executable', async () => {
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  assert.equal(packageJson.bin['sflow-lens'], 'bin/sflow-lens.mjs');
+  assert.equal(packageJson.bin['sflow-agent'], 'bin/sflow-agent.mjs');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  assert.equal(lock.packages[''].bin['sflow-lens'], 'bin/sflow-lens.mjs');
-  assert.match(await readFile(path.join(root, 'bin/sflow-lens.mjs'), 'utf8'), /main\(\['lens'/);
+  assert.equal(lock.packages[''].bin['sflow-agent'], 'bin/sflow-agent.mjs');
+  assert.match(await readFile(path.join(root, 'bin/sflow-agent.mjs'), 'utf8'), /main\(\['agent'/);
 });
 
 test('help command loads the canonical manual and focused topics', () => {

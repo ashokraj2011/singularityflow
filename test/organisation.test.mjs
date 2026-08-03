@@ -245,12 +245,12 @@ test('no governed command is reachable only from a terminal', async () => {
 
   const missing = [];
   lines.forEach((line, index) => {
-    if (!line.includes('selectPersona(')) return;
+    if (!line.includes('selectAgent(')) return;
     // The escape is on the options object, within a few lines of the call.
     const block = lines.slice(index, index + 8).join('\n');
-    if (!/options, 'persona'/.test(block)) missing.push(index + 1);
+    if (!/options, 'agent'/.test(block)) missing.push(index + 1);
   });
-  assert.deepEqual(missing, [], `selectPersona with no --persona escape at line(s) ${missing.join(', ')}`);
+  assert.deepEqual(missing, [], `selectAgent with no --agent escape at line(s) ${missing.join(', ')}`);
 
   // The same for the exact-confirmation guard: its refusal names --confirm as the way through, and
   // a call site that does not pass its options makes that instruction a lie.
@@ -340,7 +340,7 @@ test('a seeded Story supplies its own intake, work type and lens', async () => {
   for (const hint of [
     /Pass --jira, or --title with --description/,
     /Pass --work-type <id> to choose one without a terminal/,
-    /Pass --persona <id> to choose one without a terminal/
+    /Pass --agent <id> to choose one without a terminal/
   ]) assert.match(cli, hint);
 });
 

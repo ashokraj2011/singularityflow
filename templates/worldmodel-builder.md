@@ -335,7 +335,7 @@ For product managers, business analysts, domain experts, and business-facing age
 
 Answer: what capabilities the repository provides; who the users, actors, and external systems are; the major business workflows; the business entities and vocabulary; where business rules are implemented; what has financial, legal, or customer impact; what behavior is uncertain; what a proposed change might affect.
 
-Include: capability map; actors and personas visible in the code; business workflows; entities and vocabulary; business rules and policy locations; user-visible failure behavior; compliance or data-sensitivity indicators; business-impact map; unknown business assumptions; suggested questions for domain owners.
+Include: capability map; actors and user archetypes visible in the code; business workflows; entities and vocabulary; business rules and policy locations; user-visible failure behavior; compliance or data-sensitivity indicators; business-impact map; unknown business assumptions; suggested questions for domain owners.
 
 Exclude: class-by-class implementation, full test inventory, low-level CI details, internal utilities unless they enforce business policy.
 

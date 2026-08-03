@@ -29,7 +29,7 @@ export async function registerInterfaceContract(root, {
   producers = [],
   consumers = [],
   compatibilityPolicy = 'explicit-review',
-  persona = null
+  agent = null
 } = {}) {
   safeContractId(contractId, 'Contract ID');
   safeContractId(String(version), 'Contract version');
@@ -73,7 +73,7 @@ export async function registerInterfaceContract(root, {
     compatibilityPolicy,
     status: 'active',
     registeredAt: nowIso(),
-    persona
+    agent
   };
   const manifest = await secureInitiativePath(
     root,
@@ -88,7 +88,7 @@ export async function registerInterfaceContract(root, {
   initiative.history.push({
     at: record.registeredAt,
     actor: initiative.initiative.createdBy.email?.toLowerCase() ?? initiative.initiative.createdBy.name,
-    persona,
+    agent,
     event: 'initiative_contract_registered',
     phase: initiative.currentPhase,
     detail: `${key} ${record.sha256.slice(0, 12)}`
@@ -101,7 +101,7 @@ export async function registerInterfaceContract(root, {
       starts: [initiativeNode('contract', prior.id, prior.version)],
       reason: `Contract ${contractId} advanced from version ${prior.version} to ${version}.`,
       cause: 'contract-version-changed',
-      persona
+      agent
     }));
   }
   return { contract: record, invalidations };

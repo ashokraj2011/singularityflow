@@ -118,7 +118,7 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
   const { initializeDefinition, loadDefinition } = await import('../src/config.mjs');
   const { createInitiative } = await import('../src/initiative-state.mjs');
   const { composeInitiativeContext } = await import('../src/initiative-context.mjs');
-  const { setPersonaSession } = await import('../src/session.mjs');
+  const { setAgentSession } = await import('../src/session.mjs');
 
   const root = await make(path.join(os.tmpdir(), 'sflow-knowledge-forward-'));
   run('git', ['init', '-b', 'main'], { cwd: root });
@@ -152,13 +152,13 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
 
   run('git', ['switch', '-c', 'INIT-FWD'], { cwd: root });
   await createInitiative(root, {
-    id: 'INIT-FWD', title: 'Forward', profile: 'enterprise-delivery', persona: 'product-owner',
+    id: 'INIT-FWD', title: 'Forward', profile: 'enterprise-delivery', agent: 'product-owner',
     source: { type: 'manual', description: 'Feed forward.' }
   });
   const definition = await loadDefinition(root);
-  await setPersonaSession(root, definition, 'T <t@example.com>', 'product-owner', 'INIT-FWD');
+  await setAgentSession(root, definition, 'T <t@example.com>', 'product-owner', 'INIT-FWD');
   const composed = await composeInitiativeContext(root, 'INIT-FWD', 'discover-define', {
-    persona: 'product-owner', dryRun: true
+    agent: 'product-owner', dryRun: true
   });
 
   assert.match(composed.rendered, /## Prior knowledge/);

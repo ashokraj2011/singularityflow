@@ -41,7 +41,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     for (const document of manifest.documents ?? []) {
       if (seen.has(document.id)) errors.push(`duplicate document ID: ${document.id}`); seen.add(document.id);
       if (!(workflow.resolution.documents?.allowedPhases ?? []).includes(document.phase)) errors.push(`${document.id} was uploaded outside the immutable document phase policy`);
-      if (!document.addedBy || !document.persona) errors.push(`${document.id} is missing actor or persona attribution`);
+      if (!document.addedBy || !document.agent) errors.push(`${document.id} is missing actor or agent attribution`);
       if (document.type === 'file') {
         const current = await snapshot(path.join(root, document.path));
         if (!current.exists || current.size !== document.size || current.sha256 !== document.sha256) errors.push(`document integrity failed: ${document.id} (${document.path})`);
@@ -85,8 +85,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       const agentContextRelative = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `agents-${phase.id}-gen${generation}.json`);
       if (await exists(path.join(root, agentContextRelative))) {
-        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote prompt-pack context was not committed with ${phaseId} generation ${generation}`);
-        else if (found) passes.push(`remote prompt-pack audit: ${phaseId} generation ${generation}`);
+        if (found && run('git', ['cat-file', '-e', `${found[0]}:${agentContextRelative}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`remote agent context was not committed with ${phaseId} generation ${generation}`);
+        else if (found) passes.push(`remote agent audit: ${phaseId} generation ${generation}`);
       }
       for (const output of (phase.remoteOutputs ?? []).filter((entry) => entry.generation === generation)) {
         const outputRecord = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
@@ -110,7 +110,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (!authority.authorized) errors.push(`${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`);
       else if (decision.authorityGroup !== authority.authorityGroup) errors.push(`${phaseId} approval authority record does not match the pinned policy`);
       if (!decision.identityAssurance) errors.push(`${phaseId} approval is missing identity-assurance metadata`);
-      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; working lens '${decision.workingLens ?? decision.persona ?? 'unavailable'}' is audit context, not independent review`);
+      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; governed agent '${decision.agent ?? 'unavailable'}' is execution context, not independent review`);
     }
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));

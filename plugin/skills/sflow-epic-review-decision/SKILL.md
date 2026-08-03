@@ -11,7 +11,7 @@ disable-model-invocation: true
 2. Run `singularity-flow epic review-choice begin <DECISION> <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256> --json`.
 3. Ask the user to select every returned choice:
    - current reviewer identity and matched approval authority group;
-   - working lens for prompt/audit context;
+   - governed agent for prompt/audit context;
    - rejection target when rejecting;
    - exact packet confirmation.
 4. Record each answer with `singularity-flow epic review-choice answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
@@ -21,4 +21,4 @@ disable-model-invocation: true
    - reject: `singularity-flow epic review reject <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256> --selection-receipt <TOKEN> --reason "<REASON>"`.
 7. Show the Story commit, Epic aggregation commit, push results, and self-approval warning.
 
-Never approve unless exact-SHA checks are ready and the reviewer identity is authorized. Never infer a working lens, target, packet, or confirmation.
+Never approve unless exact-SHA checks are ready and the reviewer identity is authorized. Never infer a governed agent, target, packet, or confirmation.

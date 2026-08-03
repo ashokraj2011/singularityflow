@@ -7,13 +7,10 @@ import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import {
   addPhaseToWorkType,
-  createPersona,
   createPhase,
   createWorkType,
   deleteUnusedPhase,
-  personaPromptRepositoryPath,
   removePhaseFromWorkType,
-  removePersona,
   removeWorkType,
   repositorySkillPath,
   setWorkTypeInputs,
@@ -46,7 +43,6 @@ test('workflow designer creates stages with artifact, approval, template, and in
     artifactFile: 'security-review.md',
     kind: 'security-evidence',
     minimumBytes: 350,
-    persona: 'architect',
     authority: 'architecture-reviewers',
     template: 'common/conformance.md',
     writeScope: 'artifact-only'
@@ -57,8 +53,8 @@ test('workflow designer creates stages with artifact, approval, template, and in
   assert.deepEqual(stage.approval.authorities, ['architecture-reviewers']);
   assert.equal(created.workTypes.chore.phases.at(-1), 'security-review');
   assert.deepEqual(created.workTypes.chore.phaseOverrides['security-review'].inputs, ['conformance']);
-  assert.ok(created.personas.architect.suggestedPhases.includes('security-review'));
-  assert.doesNotThrow(() => validateDefinition(created));
+  assert.equal(stage.defaultAgent, undefined);
+  assert.equal(stage.suggestedAgents, undefined);
 });
 
 test('workflow designer adds, sequences, removes, and cleans stage definitions safely', async () => {
@@ -76,7 +72,6 @@ test('workflow designer adds, sequences, removes, and cleans stage definitions s
   const withoutFeature = removePhaseFromWorkType(removed, 'feature', 'design');
   const deleted = deleteUnusedPhase(withoutFeature, 'design');
   assert.equal(deleted.phases.design, undefined);
-  assert.ok(!deleted.personas.architect.suggestedPhases.includes('design'));
   assert.doesNotThrow(() => validateDefinition(deleted));
 });
 
@@ -85,21 +80,6 @@ test('workflow designer normalizes safe template repository paths', async () => 
   assert.equal(templateRepositoryPath(original, 'security/review.md'), 'singularity/templates/security/review.md');
   assert.throws(() => templateRepositoryPath(original, '../review.md'), /without "\.\."/);
   assert.throws(() => templateRepositoryPath(original, 'review.txt'), /relative \.md path/);
-});
-
-test('workflow designer creates personas and safely rewrites persona references', async () => {
-  const original = await definition();
-  const created = createPersona(original, { id: 'security-reviewer', label: 'Security reviewer', description: 'Review controls.', prompt: 'security/security-reviewer.md' });
-  assert.equal(created.personas['security-reviewer'].prompt, 'security/security-reviewer.md');
-  assert.equal(personaPromptRepositoryPath(created, created.personas['security-reviewer'].prompt), 'singularity/personas/security/security-reviewer.md');
-  const referenced = structuredClone(created);
-  referenced.phases.design.suggestedPersonas.push('security-reviewer');
-  const removed = removePersona(referenced, 'security-reviewer', 'architect');
-  assert.equal(removed.personas['security-reviewer'], undefined);
-  assert.ok(removed.phases.design.suggestedPersonas.includes('architect'));
-  assert.deepEqual(removed.phases.design.approval.authorities, ['architecture-reviewers']);
-  assert.doesNotThrow(() => validateDefinition(removed));
-  assert.throws(() => createPersona(original, { id: 'Bad ID' }), /kebab-case/);
 });
 
 test('workflow designer normalizes repository skill paths', () => {

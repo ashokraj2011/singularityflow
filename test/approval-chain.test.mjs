@@ -41,7 +41,7 @@ function as(actor, root, args, { allowFailure = false, confirm = null } = {}) {
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: actor.name,
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
       SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'enterprise-delivery' }),
       ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
     }

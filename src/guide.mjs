@@ -8,7 +8,7 @@ function nextActions(workflow, phase) {
     { skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' }
   ];
   if (phase.status === 'awaiting_approval') return [
-    { skill: '/sflow-approve', command: `singularity-flow approve ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; choose any working lens for prompt perspective.` },
+    { skill: '/sflow-approve', command: `singularity-flow approve ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` },
     { skill: '/sflow-reject', command: `singularity-flow reject ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` }
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
@@ -36,7 +36,7 @@ export function workflowGuide(workflow) {
         label: phase.label,
         status: phase.status,
         artifact: phase.requiredArtifact?.path ?? null,
-        suggestedPersonas: phase.suggestedPersonas ?? [],
+        agent: phase.defaultAgent ?? null,
         approvalAuthorities: phase.approvalPolicy?.authorities ?? [],
         approvalsRequired: phase.approvalPolicy?.minimum ?? 0
       };
@@ -53,7 +53,7 @@ export function guideText(guide) {
     `Current phase: ${guide.currentPhase ?? 'complete'}`,
     '',
     'Workflow template:',
-    ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Suggested working lenses: ${phase.suggestedPersonas.join(', ') || 'any'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),
+    ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Governed agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),
     '',
     'What to do next:',
     ...guide.nextActions.map((action) => `- ${action.skill}: ${action.reason}\n  CLI: ${action.command}`)

@@ -3,7 +3,8 @@
 Singularity Flow is distributed as two artifacts:
 
 1. the `singularity-flow` npm package, which provides the `sflow` CLI and Copilot plugin;
-2. the Singularity Flow VS Code extension (`.vsix`), which provides Workspaces, Lifecycle, and Configuration.
+2. the Singularity Flow VS Code extension (`.vsix`), which provides Workspaces,
+   Lifecycle, Inbox, and Configuration.
 
 The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
 `archive/desktop-app`; it is not built, installed, or supported by current releases.

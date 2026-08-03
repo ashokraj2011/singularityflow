@@ -134,7 +134,7 @@ Prose is expensive and imprecise for machine readers. Every view (full tier) mus
 ## Facts {#dev.facts}
 
 ```yaml
-components: [cli-engine, desktop-app]
+components: [cli-engine, vscode-extension]
 entrypoints:
   - { id: cli-main, path: src/cli.mjs, line: 42, invocation: "sflow <command>" }
 key_symbols:
@@ -505,7 +505,7 @@ Create `manifest.json`:
     "verification":        { "views": ["testing"], "tier": "full" },
     "conformance":         { "views": ["testing", "security"], "tier": "brief" }
   },
-  "persona_map": {
+  "agent_map": {
     "product-owner":  { "views": ["business"], "tier": "brief" },
     "business-analyst": { "views": ["business"], "tier": "full" },
     "architect":      { "views": ["architecture", "security"], "tier": "full" },

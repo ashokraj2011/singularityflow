@@ -24,7 +24,9 @@
 
 Store implementation screenshots and pixelmatch/overlay diff images inside `artifacts/visual-verification/evidence/`. Use descriptive names such as `checkout-actual.png` and `checkout-pixelmatch-diff.png`. `singularity-flow phase publish visual-verification` automatically registers, hashes, commits, and pushes every changed file under this phase directory.
 
-The desktop Review page presents the pinned design export, implementation screenshot, and diff evidence in side-by-side, overlay-slider, and diff-highlight modes. Approval is always against the pinned design hash, not the live Figma URL.
+The VS Code Inbox and artifact viewer present the pinned design export,
+implementation screenshot, and diff evidence together. Approval is always against
+the registered pinned hashes, not the live Figma URL.
 
 ## Design-system and accessibility checks
 

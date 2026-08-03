@@ -1,11 +1,17 @@
-# Singularity Flow Lite 0.9.0
+# Singularity Flow 0.9.0
 
 The optional [Capability Ledger](./CAPABILITY-LEDGER.md) records high-value Story
 and Initiative lifecycle events on an unrelated `state` orphan branch.
 Durable work-branch intents let another machine reconcile a missing ledger append
 after partial publication.
 
-Singularity Flow Lite is a Git-native SDLC workflow for GitHub Copilot. A repository-owned YAML file defines work types, phase sequences, artifact templates, prompt-only governed agents, human approval authority groups, world-model views, and publication policy. Generated artifacts and lifecycle decisions are committed to a work-item branch and pushed after every operation, so another terminal can safely resume from Git. Its preferred direct Copilot skills use the short `sf-` prefix.
+Singularity Flow is a Git-native SDLC workflow for GitHub Copilot. A
+repository-owned YAML file defines work types, phase sequences, artifact
+templates, governed agents, human approval authority groups, world-model views,
+and publication policy. Generated artifacts and lifecycle decisions are committed
+to a work-item branch and pushed after every operation, so another terminal or VS
+Code session can safely resume from Git. Its preferred direct Copilot skills use
+the short `sf-` prefix.
 
 **Singularity Flow** is the product under the **Singularity** brand. The installer
 creates personal aliases such as `/sf-start`, `/sf-submit`, and `/sf-about`, so
@@ -31,7 +37,8 @@ The package contains:
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
-For a complete explanation of the runtime, prompt composition, world model,
+Start with the [documentation map](docs/README.md) and
+[glossary](docs/GLOSSARY.md). For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). For the implementation-level
@@ -67,13 +74,16 @@ from the bootstrap branch; direct access to `main` is not required.
 Initialization installs:
 
 ```text
+.github/
+└── agents/
+    ├── architect.agent.md
+    ├── developer.agent.md
+    ├── product-owner.agent.md
+    └── qa.agent.md
 singularity/
 ├── workflow.yml
-├── agents/
-│   ├── architect.md
-│   ├── developer.md
-│   ├── product-owner.md
-│   └── qa.md
+├── portfolio.yml
+├── capabilities.yml
 ├── prompts/
 │   ├── worldmodel-builder.md
 │   └── copilot-planning.md
@@ -85,6 +95,9 @@ singularity/
 ```
 
 These files are ordinary reviewed repository files and remain fully editable.
+Agent Markdown follows GitHub Copilot's repository-agent convention under
+`.github/agents/`; `singularity/agents.lock.yml` is reserved for optional
+trust-pinned remote Markdown dependencies.
 Initialization can be audited or safely repeated on any branch:
 
 ```bash
@@ -1186,7 +1199,24 @@ npm pack --dry-run
 
 ### VS Code extension
 
-The supported visual surface is the VS Code extension. **Workspaces** owns local directories, repositories, and capability scope; **Lifecycle** owns intake, workflow selection, phases, artifacts, progress, and approvals; **Configuration** owns workflows, phases, gates, agents, prompts, skills, templates, integrations, and world-model rules.
+The supported visual surface is the VS Code extension:
+
+- **Workspaces** selects local project context and shows the directory, lead
+  repository, repository health, Jira routing, metadata, and capability scope.
+  Selecting a row stays in the current VS Code window; opening a repository is a
+  separate explicit action. The workspace editor changes its display name and
+  selects governed capabilities already available in its materialized repository
+  boundary. Use Copy workspace when that boundary must change.
+- **Lifecycle** owns Story/Initiative intake, workflow selection, the phase rail,
+  generated artifacts, progress, checks, submissions, and approvals.
+- **Inbox** brings generated Markdown, JSON, YAML, registered evidence, review
+  packets, and pending decisions into one business-friendly view. Its portfolio
+  dashboard summarizes capabilities, repositories, Jira routes, open work,
+  approvals, diagnostics, and world-model health.
+- **Configuration** contains the Workflow and Artifact Designers; governed Agent,
+  Prompt, Skill, and Prompt Pack Designers; capability mapping; integrations;
+  approval policy; and world-model rules. Configuration affects future work;
+  active work follows its immutable pinned resolution.
 
 ```bash
 npm run vscode:typecheck
@@ -1195,7 +1225,13 @@ npm run vscode:package
 code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-The first-run walkthrough configures the local name and role, Jira through VS Code `SecretStorage`, a workspace, and intake. The role filters guidance only; workflow phases select governed agents. **Open Governed Context in Copilot** renders the effective skill, agent prompt, world model, approved inputs, and phase contract into native Copilot chat.
+The first-run walkthrough configures the local name and guidance role, Jira through
+VS Code `SecretStorage`, a workspace, and intake. The guidance role only filters
+the interface; workflow phases select governed agents. **Open Governed Context in
+Copilot** renders the effective skill, agent instructions, prompt pack, world model,
+approved inputs, artifact template, and phase contract into native Copilot chat.
+Use `/sf-show-prompt` or `sflow wm show-prompt --phase <PHASE>` to inspect the same
+composition before authoring.
 
 To summon a reviewer who is not keeping VS Code open, add `teams-webhook` to
 `collaboration.notifications` in `singularity/workflow.yml`, then run
@@ -1205,7 +1241,11 @@ webhook in `SecretStorage`; terminal-only users may set
 or lifecycle records. A notification is sent only after the corresponding commit
 and push, and delivery failure is a warning rather than lifecycle authority.
 
-The CLI workspace registry remains canonical. The extension never creates another workflow or workspace database. The former Electron application is retired and preserved at `desktop-final-v0.9.0`; see [ADR 0004](docs/adr/0004-retire-electron-desktop.md). See [DISTRIBUTION.md](DISTRIBUTION.md) for CLI and VSIX packaging.
+The CLI workspace registry remains canonical. The extension never creates another
+workflow or workspace database. See the complete [VS Code guide](docs/VS-CODE.md).
+The former Electron application is retired and preserved at
+`desktop-final-v0.9.0`; see [ADR 0004](docs/adr/0004-retire-electron-desktop.md).
+See [DISTRIBUTION.md](DISTRIBUTION.md) for CLI and VSIX packaging.
 
 Install the personal Copilot plugin with:
 

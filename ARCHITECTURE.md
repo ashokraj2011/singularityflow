@@ -1,9 +1,51 @@
-# Singularity Flow Lite 0.9.0 architecture
+# Singularity Flow 0.9.0 architecture
 
 > **State model:** The lifecycle branch owns operational state; local context selects it; the state branch proves and mirrors it; every mutation passes through one deterministic publication transaction.
 
 The authority and recovery rules behind that sentence are normative in
 [State authority](docs/STATE-AUTHORITY.md).
+
+## Product boundary
+
+Singularity Flow has one deterministic engine and two supported user surfaces.
+
+```mermaid
+flowchart TB
+  H["People: product, architecture, engineering, QA"] --> V["VS Code extension"]
+  H --> C["Copilot /sf-* skills"]
+  H --> T["sflow CLI"]
+  V --> T
+  C --> T
+  T --> X["Configuration + immutable resolution"]
+  X --> P["Prompt composition"]
+  P --> AI["Native GitHub Copilot authoring"]
+  T --> U["Publication unit of work"]
+  U --> G["Lifecycle Git branch"]
+  G --> R["Remote Git state transfer"]
+  T <--> J["Jira and configured evidence providers"]
+  G -. proof intent .-> L["Optional orphan state ledger"]
+```
+
+The VS Code extension is the primary visual surface. It communicates only through
+`sflow` snapshots and commands; it never imports lifecycle internals or stores a
+second copy of workflow state. Copilot is the probabilistic authoring surface. The
+CLI is the sole lifecycle controller. The Electron application was retired by
+[ADR 0004](docs/adr/0004-retire-electron-desktop.md).
+
+## Concept separation
+
+| Concept | Responsibility | Must not be used as |
+|---|---|---|
+| Human identity | Attribution and approval authority | A prompt/execution configuration |
+| Governed agent | Phase-specific Copilot behavior, tools, and views | A human approver or authorization role |
+| Skill | Named `/sf-*` interaction and CLI playbook | Workflow state |
+| Prompt / prompt pack | Reusable instructions assembled into context | Repository facts |
+| World model | Hash-bound repository facts and topology | Policy or human instructions |
+| Workflow | Phase order, artifacts, inputs, checks, and gates | Generated content |
+| Workspace | Local project/capability selection | Shared lifecycle authority |
+| Capability | Organisational ownership and inherited policy | A local clone or user role |
+
+See the [glossary](docs/GLOSSARY.md) for the full vocabulary.
 
 ## Capability ledger plane
 
@@ -40,11 +82,12 @@ See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 
 ## System boundary
 
-Singularity Flow separates probabilistic generation from deterministic lifecycle control:
+Singularity Flow separates probabilistic generation from deterministic lifecycle
+control:
 
 ```mermaid
 flowchart LR
-  U["Contributor in Copilot or terminal"] --> S["Phase skill + phase-default agent"]
+  U["Contributor in Copilot, VS Code, or terminal"] --> S["Phase skill + phase-default agent"]
   S --> W["Routed world-model context"]
   S --> I["Approved phase inputs"]
   S --> D["Pinned active-agent Markdown"]
@@ -56,7 +99,25 @@ flowchart LR
   R --> O["Another terminal or GitHub decision"]
 ```
 
-Skills generate content; the CLI alone owns `workflow.json`, `STATUS.md`, managed metadata, approval records, state transitions, commits, and publication.
+Skills and native Copilot generate content; the CLI alone owns `workflow.json`,
+`STATUS.md`, managed metadata, approval records, state transitions, commits, and
+publication.
+
+## State planes and authority
+
+| Plane | Examples | Authority |
+|---|---|---|
+| Repository definition | `workflow.yml`, `portfolio.yml`, `capabilities.yml`, `.github/agents/`, prompts, templates | Defines future work |
+| Lifecycle branch | Story `workflow.json`; Initiative `state.json`; artifacts and approvals | Operational source of truth for active work |
+| Local context | workspace registry, session, locks, caches, pending-publication marker | Selects or protects work; never shared authority |
+| External observation | Jira, GitHub checks/PRs, storage providers | Timestamped evidence; Git records what was observed |
+| Proof ledger | Optional orphan `state` branch | Append-only proof/mirror; never operational read/write path |
+
+Every mutating command resolves the subject, obtains a subject-local lock, verifies
+the expected revision and pending-publication state, applies a deterministic
+transition, validates projections, stages an allowlist, creates one commit, and
+performs a normal fast-forward push. A failed push retains the local commit and
+writes recovery state below `.git/singularity-flow/pending-publication/`.
 
 ## Repository definition and immutable resolution
 
@@ -156,7 +217,25 @@ Completion is the number of approved phases divided by the immutable total phase
 
 ## VS Code control plane
 
-`apps/vscode` is the supported visual surface over the CLI. It imports no engine modules: every read and mutation runs through `sflow`, so Git remains the only governed state store. Workspaces select local scope, Lifecycle handles intake and active phases, and Configuration edits workflow, agents, prompts, skills, templates, integrations, and world-model policy. Jira and provider tokens use VS Code `SecretStorage` and are injected only into CLI child processes. Native Copilot receives context produced by `sflow wm show-prompt`; the extension never owns a competing model backend.
+`apps/vscode` is the supported visual surface over the CLI. It imports no engine
+modules: every read and mutation runs through `sflow`, so Git remains the only
+governed state store.
+
+- Workspaces selects local scope and shows repository/capability health.
+- Lifecycle handles intake, workflow selection, phases, generated artifacts,
+  progress, and decisions.
+- Inbox aggregates artifacts, review packets, approvals, and capability-level
+  portfolio progress.
+- Configuration provides visual designers for workflows, artifact templates,
+  agents, prompts, skills, prompt packs, capabilities, integrations, and
+  world-model policy.
+
+Revisioned scoped snapshots prevent an older asynchronous response from replacing
+newer UI state. File watching refreshes visual projections when work is performed
+from a terminal or another process. Jira and provider tokens use VS Code
+`SecretStorage` and are injected only into CLI child processes. Native Copilot
+receives context produced by `sflow wm show-prompt`; the extension never owns a
+competing model backend. See [VS Code guide](docs/VS-CODE.md).
 
 ## Local project workspace boundary
 
@@ -229,6 +308,24 @@ Publication commit information that is not knowable before a commit is represent
 Requirements establish `AC-n` identifiers. Implementation specifications establish `SPEC-nnn` items mapped to acceptance criteria. Verification supplies tests and evidence. Conformance joins these ledgers to exact file/line evidence and one of five verdicts: `matched`, `partial`, `missing`, `deviated`, or `unplanned`.
 
 The final tree hash excludes `singularity` state and hashes tracked source/test content. A later source/test change invalidates the conformance report. The deterministic gate also validates configuration/template snapshots, final-generation input/agent records, remote template/output provenance, artifacts, approval identities and agents, thresholds, rejection effects, self-approval disclosure, protected paths, and—under required publication—the remote branch head.
+
+## Security and trust boundaries
+
+- Git publication uses normal fast-forward pushes; no lifecycle command
+  force-pushes or rewrites history.
+- Credentials remain in VS Code `SecretStorage` or process environment and are
+  redacted from logs, prompts, state, and Git.
+- Remote Markdown is inert unless declared in exact dependency tables, explicitly
+  locked, hash-verified, HTTPS-fetched, size-bounded, and materialized inside its
+  allowed target.
+- Artifact and evidence paths are constrained below their governed roots and must
+  be regular files rather than symlink escapes.
+- Approval authority is tied to real configured identities. A governed agent never
+  grants authority.
+- Repository world-model generation occurs in a detached analysis worktree; source
+  modifications from the model process are rejected.
+- Worktree locks prevent local read-modify-write races, while Git fast-forward
+  rejection remains the cross-machine concurrency arbiter.
 
 ## Migration boundary
 

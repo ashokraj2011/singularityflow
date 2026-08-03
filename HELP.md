@@ -10,11 +10,17 @@ Use this manual in three places:
 
 The short command reference is available with `singularity-flow --help`.
 
-For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff, phase-input, and remote-agent diagrams, open `HOW-TO.md` in the repository.
+For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff,
+phase-input, and remote-agent diagrams, open `HOW-TO.md`. The complete navigation
+map is `docs/README.md`; terminology is defined in `docs/GLOSSARY.md`; and the
+supported visual surface is documented in `docs/VS-CODE.md`.
 
 ## VS Code first-run onboarding
 
-Open **Help: Welcome** and select **Get started with Singularity Flow**. The walkthrough configures your local display name and role, connects Jira through VS Code `SecretStorage`, selects or creates a workspace, and starts intake.
+Open **Help: Welcome** and select **Get started with Singularity Flow**. The
+walkthrough configures your local display name and guidance role, optionally
+connects Jira through VS Code `SecretStorage`, selects or creates a workspace, and
+starts intake.
 
 The role filters local guidance only. Governed agents come from the selected workflow phase, while approvals continue to use Git and provider identities. The CLI workspace registry remains the canonical workspace store; VS Code does not create a competing database. Jira tokens and provider secrets remain in the operating-system keychain and are exposed only to short-lived `sflow` child processes.
 
@@ -160,24 +166,20 @@ Requirements has one approval over requirements, traceability, and impact
 analysis. Planning has one approval over the editable Story list, parent
 specification, and every per-Story specification.
 
-There is **one navigation for every role**. The retired Electron app previously split
-into a Business experience and an Engineer experience with separate menus, which
-meant the Epic planning journey was reachable only from one and the configuration
-tools only from the other. Both are now the same sidebar:
+There is **one navigation for every contributor**. The VS Code activity-bar view
+uses four stable areas:
 
 ```text
-Epic planning   Epics · Requirements · Planning · Create Stories ·
-                Copilot CLI handoff · Artifact templates
-Delivery        Overview · Artifact studio · Impact analysis · Documents
-Decisions       Approval inbox · Review bundle
-Configuration   Workspace configuration · Portfolio designer · Workflow designer ·
-                governed agents & authority · Prompts & skills · Repository model · agents
-Learn           Help & guides
+Workspaces      Local directory · selected capabilities · repositories · health
+Lifecycle       Intake · workflow selection · phases · artifacts · progress · decisions
+Inbox           Generated documents · review packets · approvals · portfolio dashboard
+Configuration   Workflow/Artifact Designers · agents · prompts · skills · prompt packs ·
+                capabilities · integrations · world-model rules
 ```
 
-The role chosen during onboarding still suggests an initial planning agent; it
-no longer routes to a different shell, and there is no experience to switch
-between. The active workspace and the Copilot service control sit together in the
+The guidance role chosen during onboarding can filter instructions, but workflow
+phases choose governed agents. It never grants approval authority. The active
+workspace and native Copilot handoff sit together in the
 top bar, so both stay visible on every page. Collapse or expand the sidebar with
 ⌘/Ctrl+B.
 
@@ -1499,7 +1501,9 @@ Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The d
 - `tokens`: exact-or-unavailable mode and optional pricing
 - `governance`: protected paths and traceability rules
 
-Template resolution is work-type override, then phase default, then configuration error. Keep templates in `singularity/templates/` and agent prompts in `singularity/agents/`.
+Template resolution is work-type override, then phase default, then configuration
+error. Keep templates in `singularity/templates/`, reusable prompts in
+`singularity/prompts/`, and governed agents in `.github/agents/*.agent.md`.
 
 Validate changes before publishing:
 
@@ -1512,13 +1516,19 @@ Process files are protected during phase generation. Change them in a dedicated 
 
 ## VS Code extension
 
-The supported visual surface is the Singularity Flow VS Code extension. Its three areas have distinct responsibilities:
+The supported visual surface is the Singularity Flow VS Code extension. Its four areas have distinct responsibilities:
 
-- **Workspaces**: local directory, repositories, and capability scope.
+- **Workspaces**: local directory, repositories, capability scope, and health.
 - **Lifecycle**: intake, workflow selection, phases, artifacts, progress, and approvals.
-- **Configuration**: workflows, phases, gates, agents, prompts, skills, templates, integrations, and world-model rules.
+- **Inbox**: generated artifacts, review packets, decisions, and capability-level portfolio progress.
+- **Configuration**: visual workflow/artifact and agent/prompt/skill/prompt-pack designers, capabilities, integrations, and world-model rules.
 
-Build and install the extension with `npm run vscode:package`, then `code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force`. Jira secrets entered through **Singularity Flow: Connect Jira Securely** use VS Code `SecretStorage`. Use **Open Governed Context in Copilot** to render the full skill, phase agent, world model, approved inputs, and task context into native Copilot chat.
+Build and install the extension with `npm run vscode:package`, then
+`code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force`.
+Jira secrets entered through **Singularity Flow: Connect Jira Securely** use VS
+Code `SecretStorage`. Use **Open Governed Context in Copilot** to render the full
+skill, phase agent, prompts, world model, approved inputs, artifact template, and
+task context into native Copilot chat. See [docs/VS-CODE.md](docs/VS-CODE.md).
 
 The Electron application is retired and preserved only at `desktop-final-v0.9.0`.
 

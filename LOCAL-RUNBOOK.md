@@ -48,12 +48,13 @@ To run fully offline instead, set `git: { publish: off }` in `singularity/workfl
 
 ## 1. Workspace (optional)
 
-`workspace create` is Jira-anchored: it requires `--jira KEY` and `--confirm KEY` even offline. A local workspace anchor exists but is reachable only from Singularity Desktop. Offline creation works with a synthetic key when `--hierarchy-level` is supplied:
+Create a local workspace without Jira by supplying `--local --id`. When a governed
+capability map exists in a lead repository, choose capabilities and let Flow derive
+the repositories:
 
 ```bash
-singularity-flow workspace create \
-  --jira LOCAL-1 --hierarchy-level 1 --issue-type Epic \
-  --title "Local workspace" --site local \
+singularity-flow workspace create --local \
+  --id LOCAL-1 --name "Local workspace" \
   --base "$HOME/flow/workspaces" \
   --lead app --repository app="$HOME/flow/origin.git" \
   --confirm LOCAL-1
@@ -449,7 +450,9 @@ singularity-flow gate --terminal
 1. Configure a remote, or set `git.publish: off` before `start`.
 2. Run `init --work-id <ID>` from the target application repository, then commit `singularity/` on that Work-ID branch before `start`; it is hash-pinned and protected afterwards.
 3. Ensure a clean tree before `start`, `resume`, `session attach`, `choices begin approve`, `approve --selection-receipt`, `epic start --local`, and `finalize`.
-4. Reserve a terminal for `start`, `lens`, `resume`, `approve`, `reject`, and `epic start --local`.
+4. Reserve an interactive terminal for durable contributor choices such as
+   `start`, selection receipts, soft-gate confirmation, `approve`, `reject`, and
+   `epic start --local`; phase agents are resolved by the workflow.
 5. Consume selection receipts without committing in between; they expire in 15 minutes and are single use.
 6. Run `wm compose` before every `phase publish` while grounding is enforced, using the same `--task` text as `wm build`.
 7. Replace every template placeholder and exceed the phase's minimum byte count.

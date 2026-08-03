@@ -75,9 +75,13 @@ Use this checklist for the agent-only Singularity Flow 0.9.0 development model.
 
 - CLI, `/sf-*` and `/sflow-*` skills, and VS Code show the same current
   phase, default agent, documents, approvals, and next valid action.
-- The VS Code Lifecycle view owns intake and progress. Configuration shows
-  workflows, agents, templates, world-model state, and mappings for the active
-  workspace without opening a new VS Code window.
+- The VS Code Workspaces view selects and edits local context without opening a
+  new window; Lifecycle owns intake and progress; Inbox shows artifacts and
+  approvals; Configuration exposes workflow/artifact and
+  agent/prompt/skill/prompt-pack designers plus capabilities and world-model state.
+- The capability portfolio dashboard aggregates repositories, Jira routes, open
+  governed work, pending approvals, diagnostics, and world-model health without
+  becoming a new state store.
 - VS Code labels say “agent” only for software execution contracts;
   people are shown as contributors, reviewers, and authority members.
 

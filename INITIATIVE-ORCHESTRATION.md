@@ -52,7 +52,8 @@ approvalAuthorities:
 
 Approval authority is separate from governed agents. Agents affect GitHub Copilot prompt composition; initiative authorization matches the normalized local `git user.email`. Reports label this `configured-local` because local Git identity is configurable and is not cryptographic authentication.
 
-Use Flow Studio’s **Initiatives → Portfolio designer** to inspect profiles, repositories, authorities, and edit validated portfolio YAML.
+Use VS Code **Configuration** to inspect Initiative profiles, repositories,
+authorities, capabilities, and validated portfolio YAML.
 
 ## Start from GitHub Copilot
 
@@ -68,13 +69,20 @@ The start operation checks the ID and authority groups, creates the exact initia
 
 ### The world model at start
 
-Impact analysis is only as good as the repository world model it reads. After the initiative branch is created and its scaffold committed, Singularity Flow checks whether that model is missing, uncommitted, or stale for the current source tree, and reports the reason rather than blocking the start. Flow Studio then offers to build it:
+Impact analysis is only as good as the repository world model it reads. After the
+Initiative branch is created and its scaffold committed, Singularity Flow checks
+whether that model is missing, uncommitted, or stale for the current source tree,
+and reports the reason rather than blocking the start. Build it from the CLI or
+the VS Code Lifecycle action:
 
 ```bash
 singularity-flow wm build --local     # commit to this branch without pushing
 ```
 
-Building on the initiative branch means the model is committed there and pushed with that branch, instead of landing on the default branch. Skipping is allowed; the model can be built later from the **World model** page or the CLI.
+Building on the Initiative branch means the model is committed there and pushed
+with that branch, instead of landing on the default branch. It can also be built
+against any selected branch before a Work ID exists; the CLI records the exact
+repository commit in its manifest.
 
 ### Which branch a story starts from
 
@@ -360,7 +368,7 @@ remain visible without preventing the gate.
 
 Reports group every planned story under its epic even before branch materialization, then show Work ID, Jira ID, repository, status, current phase, and percentage progress. They also show phase progress/duration, evidence assurance/freshness, invalidations, local identity assurance, self-approval, contracts, and captured Copilot models/tokens/provider cost. Initiative-level and child-story telemetry are combined; cost is `exact` only when every observed telemetry source has provider cost, otherwise it is `partial` or `unavailable`. Unavailable values remain unavailable; Singularity Flow never guesses them.
 
-## Flow Studio
+## VS Code experience
 
 Open the VS Code extension, choose the lead workspace, and use **Lifecycle** for intake, phase progress, checklist evidence, approvals, Story status, and governed documents. Use **Configuration** for portfolio, workflow, agent, prompt, template, integration, and policy design. Jira sign-in is stored through VS Code `SecretStorage`.
 

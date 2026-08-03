@@ -34,7 +34,7 @@ flowchart LR
 | `SKILL.md` | Tells Copilot which deterministic commands and behavioral rules to follow |
 | Node.js CLI | Loads configuration, composes prompts, validates state, and performs lifecycle operations |
 | Git | Durable, distributed workflow state shared across people and terminals |
-| VS Code extension | Workspaces, lifecycle, configuration, documents, progress, and review |
+| VS Code extension | Workspaces, lifecycle, inbox/portfolio, configuration, documents, progress, and review |
 | Jira | External issue identity, assignment, status, and Epic/Story relationships |
 
 Copilot does not directly mark a phase approved or complete. The CLI performs
@@ -365,7 +365,7 @@ The record includes:
 - Freshness and task information.
 
 In enforced mode, publication fails if the composition is missing, stale, built
-for the wrong lens, omits a required view, or differs from the recorded prompt
+for the wrong governed agent, omits a required view, or differs from the recorded prompt
 or manifest.
 
 ## 11. Approved phase inputs
@@ -689,20 +689,24 @@ specification. A standalone Story does not require the Epic layer.
 
 ## 21. Local multi-repository workspaces
 
-A workspace is a local project context around one or more repository clones:
+A workspace is a local project context defined by a working directory and selected
+governed capabilities. Participating repositories are derived from what those
+capabilities deliver; explicitly listed repositories remain available for an
+unmapped bootstrap case:
 
 ```text
 Workspace
+├── selected capabilities
 ├── one lead repository
-├── participating repository clones
-├── per-repository Jira routing
-├── App IDs and metadata
+├── derived participating repository clones
+├── capability-owned Jira routing and metadata
 ├── local document staging
 └── caches
 ```
 
-The workspace is the containing project context, not an individual clone.
-Exactly one lead repository owns Epic-level artifacts.
+The workspace is the containing project context, not an individual clone and not
+an authority for workflow state. Exactly one lead repository owns Epic-level
+artifacts and the optional state branch.
 
 Copilot:
 
@@ -715,13 +719,20 @@ Terminal:
 
 ```bash
 singularity-flow workspace list
-singularity-flow workspace use PAYMENTS --repository api
+singularity-flow workspace use PAYMENTS
 singularity-flow workspace current
 ```
 
 ## 22. VS Code extension
 
-The extension is the supported visual surface. Workspaces owns local scope and capabilities; Lifecycle owns intake, workflow choice, active phases, artifacts and approvals; Configuration owns workflows, phases, gates, agents, prompts, skills, templates, integrations and world-model rules. Secure integration tokens use VS Code `SecretStorage`. Governed generation is handed to native Copilot with the complete rendered prompt.
+The extension is the supported visual surface. Workspaces owns local scope and
+repository/capability health; Lifecycle owns intake, workflow choice, active phases,
+artifacts and decisions; Inbox owns review attention and the capability portfolio
+dashboard; Configuration owns visual workflow/artifact and
+agent/prompt/skill/prompt-pack designers, capabilities, integrations and
+world-model rules. Secure integration tokens use VS Code `SecretStorage`.
+Governed generation is handed to native Copilot with the complete rendered prompt.
+See [docs/VS-CODE.md](docs/VS-CODE.md).
 
 ## 23. Jira
 

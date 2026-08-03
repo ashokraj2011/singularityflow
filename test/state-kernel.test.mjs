@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,8 +13,9 @@ import { StoryStateStore } from '../src/state-stores.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from '../src/state-planes.mjs';
 import { evaluateSequence, applySequenceDecision } from '../src/sequence.mjs';
 import { loadDefinition } from '../src/config.mjs';
-import { bindLifecycleEvent, lifecycleEvent } from '../src/lifecycle-event.mjs';
+import { bindLifecycleEvent, lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
 import { createLedgerIntent, ledgerIdempotencyKey } from '../src/ledger.mjs';
+import { saveWorkflow, workDir } from '../src/state.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -131,6 +133,83 @@ test('revisioned stores and state planes distinguish authority from projections'
   });
   assert.equal(repaired.repaired, true);
   assert.equal(repaired.planes.projections.status.current, true);
+});
+
+test('reconciler repairs every declared Story projection without changing canonical state', async () => {
+  const root = await repository();
+  const definition = await loadDefinition(root);
+  const store = new StoryStateStore(root, definition);
+  const workflow = await store.loadAggregate('KERNEL-1');
+  const phase = workflow.phases[workflow.currentPhase];
+  const directory = workDir(root, definition, workflow.workItem.id);
+  const artifact = path.join(directory, phase.requiredArtifact.path);
+  await mkdir(path.dirname(artifact), { recursive: true });
+  await writeFile(artifact, '# Governed artifact\n\nAuthored content remains intact.\n');
+  phase.approvals = [{
+    decision: 'approved',
+    phase: phase.id,
+    generation: 1,
+    at: '2026-08-03T00:00:00.000Z',
+    actor: { name: 'Kernel Tester', email: 'kernel@example.com' },
+    agent: 'developer',
+    authorityGroup: 'default-reviewers',
+    identityAssurance: 'configured-local',
+    selfApproval: false
+  }];
+  const packetBase = {
+    schemaVersion: 1,
+    workId: workflow.workItem.id,
+    phase: phase.id,
+    generation: 1,
+    status: 'awaiting_review'
+  };
+  const packetSha256 = createHash('sha256').update(JSON.stringify(packetBase)).digest('hex');
+  workflow.lineage ??= { schemaVersion: 1, canonicalBranch: workflow.workItem.branch, childBranches: [] };
+  workflow.lineage.submissions = [{
+    packetSha256,
+    phase: phase.id,
+    generation: 1,
+    path: `singularity/work-items/KERNEL-1/submissions/${phase.id}/${packetSha256}.json`,
+    projection: packetBase
+  }];
+  const event = lifecycleEvent({
+    type: 'approval-requested',
+    subject: { kind: 'story', id: workflow.workItem.id, branch: workflow.workItem.branch },
+    phaseId: phase.id,
+    generation: 1,
+    actor: { name: 'Kernel Tester', email: 'kernel@example.com' }
+  });
+  const intent = createLedgerIntent({
+    eventId: event.eventId,
+    eventType: event.type,
+    capabilityId: 'kernel',
+    subject: { workId: workflow.workItem.id, phase: phase.id, generation: 1 },
+    actor: event.actor
+  });
+  recordPublicationProjection(workflow, event, intent);
+  await saveWorkflow(root, definition, workflow);
+  const canonical = await readFile(path.join(directory, 'workflow.json'), 'utf8');
+
+  const repaired = await reconcileStateProjections(root, {
+    definition,
+    reference: workflow.workItem.id,
+    repair: true
+  });
+  assert.deepEqual(
+    new Set(repaired.repairedPaths.map((entry) => entry.includes('/approvals/') ? 'ApprovalSummary'
+      : entry.includes('/submissions/') ? 'ReviewPacket'
+        : entry.includes('/ledger-intents/') ? 'LedgerIntent'
+          : 'ArtifactMetadata')),
+    new Set(['ArtifactMetadata', 'ApprovalSummary', 'ReviewPacket', 'LedgerIntent'])
+  );
+  assert.equal(await readFile(path.join(directory, 'workflow.json'), 'utf8'), canonical);
+  assert.match(await readFile(artifact, 'utf8'), /singularity-flow:metadata/);
+  assert.match(await readFile(artifact, 'utf8'), /Authored content remains intact/);
+  assert.equal(repaired.planes.projections.stale, 0);
+  assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'ArtifactMetadata'));
+  assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'ApprovalSummary'));
+  assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'ReviewPacket'));
+  assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'LedgerIntent'));
 });
 
 test('snapshot coordinator rejects a mixed repository revision', async () => {

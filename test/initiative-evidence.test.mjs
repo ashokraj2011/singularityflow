@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { initializeDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import {
   approveInitiative,
   durationMilliseconds,
@@ -18,6 +18,7 @@ import {
   createInitiative, loadInitiative, prepareInitiativePhase, saveInitiative
 } from '../src/initiative-state.mjs';
 import { run, snapshot } from '../src/util.mjs';
+import { reconcileStateProjections } from '../src/state-planes.mjs';
 
 async function repository({ freshness = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-evidence-'));
@@ -101,6 +102,19 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
   assert.equal(approvals.length, 2);
   assert.ok(evidence.every((entry) => path.basename(entry.path) === `${entry.sha256}.json`));
   assert.ok(approvals.every((entry) => entry.record.identityAssurance === 'configured-local'));
+  const summaryPath = path.join(root, 'singularity/initiatives/INIT-EVIDENCE/approvals/SUMMARY.json');
+  const summary = JSON.parse(await readFile(summaryPath, 'utf8'));
+  assert.equal(summary.decisions.length, 2);
+  await writeFile(summaryPath, '{"tampered":true}\n');
+  const reconciled = await reconcileStateProjections(root, {
+    definition: await loadDefinition(root),
+    portfolio: loaded.portfolio,
+    reference: 'INIT-EVIDENCE',
+    kind: 'initiative',
+    repair: true
+  });
+  assert.ok(reconciled.repairedPaths.some((entry) => entry.endsWith('/approvals/SUMMARY.json')));
+  assert.equal(reconciled.planes.projections.stale, 0);
 
   await prepareInitiativePhase(root, 'INIT-EVIDENCE', 'plan');
   const approvedInput = phaseApproval.initiative.phases.define.outputs['scope-and-outcomes'];

@@ -50,6 +50,7 @@ export async function appendInitiativeRecord(root, portfolio, initiativeId, cate
     type: 'file'
   });
   if (!target.exists) await writeText(target.absolute, canonicalJson(record));
+  if (category === 'approvals') await writeInitiativeApprovalSummary(root, portfolio, initiativeId);
   return { sha256, path: target.relative, record };
 }
 
@@ -74,6 +75,37 @@ export async function readInitiativeRecords(root, portfolio, initiativeId, categ
     records.push({ sha256: actual, path: target.relative, record });
   }
   return records.sort((left, right) => String(left.record.at ?? left.record.observedAt ?? '').localeCompare(String(right.record.at ?? right.record.observedAt ?? '')));
+}
+
+export function initiativeApprovalSummary(initiativeId, records) {
+  return {
+    schemaVersion: 1,
+    initiativeId,
+    decisions: records.map(({ sha256, path: recordPath, record }) => ({
+      sha256,
+      path: recordPath,
+      decision: record.decision ?? record.type ?? null,
+      phase: record.phaseId ?? record.phase ?? null,
+      subjectType: record.subject?.type ?? null,
+      subjectId: record.subject?.id ?? null,
+      subjectHash: record.subject?.sha256 ?? null,
+      actor: record.actor ?? null,
+      agent: record.agent ?? null,
+      authorityGroup: record.subject?.authorityGroup ?? null,
+      selfApproval: record.selfApproval === true,
+      at: record.at ?? null
+    }))
+  };
+}
+
+export async function writeInitiativeApprovalSummary(root, portfolio, initiativeId) {
+  const records = await readInitiativeRecords(root, portfolio, initiativeId, 'approvals');
+  const target = await secureInitiativePath(root, portfolio, initiativeId, path.join('approvals', 'SUMMARY.json'), {
+    label: `Initiative '${initiativeId}' approval summary`,
+    type: 'file'
+  });
+  await writeText(target.absolute, canonicalJson(initiativeApprovalSummary(initiativeId, records)));
+  return target.relative;
 }
 
 export function durationMilliseconds(value) {

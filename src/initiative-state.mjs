@@ -30,7 +30,7 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
 } from './publication-pending.mjs';
-import { lifecycleEvent } from './lifecycle-event.mjs';
+import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
@@ -56,6 +56,7 @@ function sameValue(left, right) {
 function appendOnlyStateShape(value) {
   const copy = structuredClone(value);
   delete copy.history;
+  delete copy.publicationProjections;
   if (copy.sources) {
     delete copy.sources.records;
     if (Object.values(copy.sources).every((entry) => entry == null)) delete copy.sources;
@@ -77,6 +78,23 @@ function mergeAppendOnlyState(base, left, right) {
     const byTime = String(a.at ?? '').localeCompare(String(b.at ?? ''));
     return byTime || JSON.stringify(stableJson(a)).localeCompare(JSON.stringify(stableJson(b)));
   });
+  const publications = new Map();
+  for (const record of [
+    ...(base.publicationProjections ?? []),
+    ...(left.publicationProjections ?? []),
+    ...(right.publicationProjections ?? [])
+  ]) {
+    const eventId = record.event?.eventId;
+    if (!eventId) throw new SingularityFlowError('Append-only publication projection is missing event.eventId.');
+    const previous = publications.get(eventId);
+    if (previous && !sameValue(previous, record)) {
+      throw new SingularityFlowError(`Concurrent publication event '${eventId}' has different projection recipes.`);
+    }
+    publications.set(eventId, record);
+  }
+  merged.publicationProjections = [...publications.values()].sort((a, b) =>
+    String(a.event?.createdAt ?? '').localeCompare(String(b.event?.createdAt ?? ''))
+      || String(a.event?.eventId ?? '').localeCompare(String(b.event?.eventId ?? '')));
   if (left.sources || right.sources) {
     merged.sources = structuredClone(left.sources ?? right.sources);
     merged.sources.records = Math.max(
@@ -646,8 +664,8 @@ function inputSummary(initiative, phaseDefinition, outputDefinition) {
   return lines.length ? lines.join('\n') : '- No declared initiative artifact inputs.';
 }
 
-function metadata(initiative, phase, output, definition) {
-  return JSON.stringify({
+export function initiativeArtifactMetadata(initiative, phase, output, definition) {
+  return {
     schemaVersion: 1,
     initiativeId: initiative.initiative.id,
     profile: initiative.initiative.profile,
@@ -660,7 +678,7 @@ function metadata(initiative, phase, output, definition) {
     resolutionSha256: initiative.resolution.resolutionSha256,
     template: initiative.resolution.templates[outputKey(phase.id, output.id)] ?? null,
     consumes: definition.consumes
-  }, null, 2);
+  };
 }
 
 export async function verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId) {
@@ -944,6 +962,8 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       label: `Initiative output '${phaseId}/${output.id}'`,
       type: 'file'
     });
+    const projectionMetadata = output.projectionMetadata
+      ?? initiativeArtifactMetadata(initiative, phase, output, definition);
     // A generated output is rendered from committed state on every preparation, not filled in from
     // a blank template. Regenerating rather than preserving an edit is deliberate: the artifact is
     // a projection, and a hand-edit would be a claim that quietly disagrees with the data.
@@ -1005,7 +1025,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
         '{{output.id}}': output.id,
         '{{output.label}}': output.label,
         '{{inputs}}': inputSummary(initiative, phaseDefinition, definition),
-        '{{metadata}}': metadata(initiative, phase, output, definition)
+        '{{metadata}}': JSON.stringify(projectionMetadata, null, 2)
       };
       for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
       await writeText(target.absolute, text);
@@ -1016,13 +1036,17 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       });
     }
     const current = await snapshot(target.absolute);
+    const artifactText = await readFile(target.absolute, 'utf8');
+    const tracksProjectionMetadata = Boolean(output.projectionMetadata)
+      || /<!-- singularity-flow:initiative-metadata\n[\s\S]*?\n-->/.test(artifactText);
     Object.assign(output, {
       status: 'draft',
       generation: phase.generation + 1,
       sha256: current.sha256,
       bytes: current.size,
       generatedBy: actor,
-      generatedAgent: agent
+      generatedAgent: agent,
+      ...(tracksProjectionMetadata ? { projectionMetadata: structuredClone(projectionMetadata) } : {})
     });
     prepared.push({
       id: output.id,
@@ -1210,7 +1234,10 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
     state: {
       // saveInitiative revalidates the runtime aggregate and regenerates STATUS.md,
       // so the authoritative state and its projection enter the commit together.
-      write: () => saveInitiative(root, portfolio, initiative)
+      write: (publicationEvent) => {
+        recordPublicationProjection(initiative, publicationEvent, ledgerIntent);
+        return saveInitiative(root, portfolio, initiative);
+      }
     },
     publication: { mode, remote, branch: initiative.initiative.branch },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),

@@ -159,6 +159,24 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.equal(Object.hasOwn(envelope, 'configuration'), false);
 });
 
+test('configuration inventory remains visible when a legacy workflow blocks lifecycle loading', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const legacy = YAML.parse(await readFile(workflowPath, 'utf8'));
+  legacy.version = 1;
+  await writeFile(workflowPath, YAML.stringify(legacy));
+
+  await assert.rejects(() => repositorySnapshot(root), /version must be 2/);
+  const scoped = await repositorySnapshot(root, null, null, { included: ['configuration'] });
+  assert.equal(scoped.configuration.configurationValid, false);
+  assert.match(scoped.configuration.configurationError, /version must be 2/);
+  assert.equal(scoped.configuration.definition.version, 1);
+  assert.ok(scoped.configuration.flowSkills.length > 50);
+  assert.ok(scoped.configuration.agents.some((agent) => agent.id === 'architect'));
+  assert.ok(scoped.configuration.templates.length > 0);
+  assert.ok(scoped.configuration.agentPrompts.length > 0);
+});
+
 test('visual editor bootstraps governed portfolio and Jira policy without storing credentials', async () => {
   const root = await repository();
   await unlink(path.join(root, 'singularity/portfolio.yml'));

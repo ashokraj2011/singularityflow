@@ -127,6 +127,21 @@ export class SingularityFlowClient {
     return this.invoke<RepositorySnapshot>(['snapshot', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
   }
 
+  /**
+   * Read editable configuration even when its lifecycle schema is obsolete or invalid.
+   * The engine returns inventory, never an operational lifecycle snapshot, so this cannot
+   * accidentally make invalid configuration runnable.
+   */
+  async configurationSnapshot(signal?: AbortSignal): Promise<RepositorySnapshot> {
+    const envelope = await this.invoke<{ configuration?: Partial<RepositorySnapshot> }>(
+      ['snapshot', '--include', 'configuration', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
+    return {
+      workItems: [], initiatives: [], selectedWorkId: null, selectedInitiativeId: null,
+      initiative: null, workflow: null,
+      ...(envelope.configuration ?? {})
+    };
+  }
+
   /** Computed impact, reconciled against the published map. */
   impact(initiativeId?: string, signal?: AbortSignal): Promise<unknown> {
     const args = ['epic', 'impact', '--json'];

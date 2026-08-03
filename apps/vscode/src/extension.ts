@@ -29,6 +29,7 @@ import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
+import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
@@ -321,8 +322,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     const list = (): Promise<WorkspaceEntry[]> =>
       registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
-    const details = (workspacePath: string): Promise<WorkspaceStatus> =>
-      registry.run<WorkspaceStatus>(['workspace', 'open', workspacePath, '--json']);
+    const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
+      const status = await registry.run<WorkspaceStatus>(['workspace', 'open', workspacePath, '--json']);
+      const lead = status.repositories.find((repository) =>
+        repository.id === status.workspace.leadRepository || repository.role === 'lead');
+      if (!lead?.url) return status;
+      try {
+        const organisation = await registry.run<{
+          capabilities?: RemoteCapability[] | null;
+          repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+        }>(['capability', 'organisation', lead.url, '--json']);
+        return {
+          ...status,
+          availableCapabilities: capabilityChoices(
+            organisation.capabilities ?? [], organisation.repositories ?? {}
+          ).map(({ id, name, depth, ancestors, repository }) => ({
+            id, name, depth, ancestors, repository
+          }))
+        };
+      } catch (error) {
+        // Workspace health is still useful when the remote map is temporarily unreachable. The
+        // edit screen names the limitation without hiding everything else it already read.
+        return {
+          ...status,
+          warnings: [
+            ...(status.warnings ?? []),
+            { code: 'capability-map-unavailable', message: `Capabilities could not be refreshed: ${(error as Error).message}` }
+          ]
+        };
+      }
+    };
 
     const onMessage = async (message: WorkspacesMessage): Promise<string | null> => {
       if (message.type === 'create') {

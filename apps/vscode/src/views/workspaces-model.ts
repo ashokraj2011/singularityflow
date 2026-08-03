@@ -51,6 +51,22 @@ export interface WorkspaceStatus {
     stagedDocuments?: number;
     worldModels?: number;
   };
+  /**
+   * The capability map read through the workspace's lead repository.
+   *
+   * `workspace open` owns repository health. The extension adds this optional inventory from
+   * `capability organisation` so editing a workspace chooses governed capability identifiers
+   * instead of accepting free text.
+   */
+  availableCapabilities?: WorkspaceCapabilityChoice[];
+}
+
+export interface WorkspaceCapabilityChoice {
+  id: string;
+  name: string;
+  depth: number;
+  ancestors: string[];
+  repository: string | null;
 }
 
 export interface WorkspaceRepositoryStatus {
@@ -156,4 +172,24 @@ export function duplicateCommand(row: WorkspaceRow, id: string, base: string | n
 export function renameCommand(row: WorkspaceRow, name: string): string[] {
   return ['workspace', 'update', row.directory, '--name', name.trim(),
     '--confirm', row.anchorKey, '--json'];
+}
+
+/**
+ * The one workspace edit exposed by the VS Code screen.
+ *
+ * A workspace may change its friendly name and the governed capabilities it includes. Its working
+ * directory and already-materialized repository boundary remain fixed; changing either is a copy or
+ * replacement, never an in-place mutation that strands checkouts.
+ */
+export function updateCommand(
+  row: WorkspaceRow,
+  name: string,
+  capabilities: string[]
+): string[] {
+  const args = ['workspace', 'update', row.directory, '--name', name.trim()];
+  for (const capability of [...new Set(capabilities.map((value) => value.trim()).filter(Boolean))].sort()) {
+    args.push('--capability', capability);
+  }
+  args.push('--confirm', row.anchorKey, '--json');
+  return args;
 }

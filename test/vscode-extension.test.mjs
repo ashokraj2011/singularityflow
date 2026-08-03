@@ -1535,6 +1535,7 @@ test('every agent is listed, including the ones that ship with the product', () 
 const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
 const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
+const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
 const capabilityFixture = [{
@@ -1668,6 +1669,34 @@ test('the capability screen shows declared beside effective, and names the overr
   // Policy is not editable here, and the screen says where it is edited rather than staying silent.
   assert.equal(/data-field="policy/.test(html), false);
   assert.match(html, /singularity\/capabilities\.yml/);
+});
+
+test('the capability screen opens with a portfolio dashboard above the editable map', () => {
+  const dashboard = buildCapabilityDashboard({
+    capabilityMap: { capabilities: capabilityFixture },
+    workItems: [{ id: 'PAY-1', status: 'in_progress' }],
+    initiatives: [{ id: 'PAY-EPIC', status: 'complete' }],
+    approvalInbox: { count: 2, fetched: true },
+    diagnostics: { healthy: true },
+    worldModel: { root: 'singularity/world-model', generatedAt: '2026-08-04T00:00:00.000Z', rebuildReason: null, views: [] }
+  });
+  assert.deepEqual({
+    capabilities: dashboard.capabilities,
+    delivery: dashboard.deliveryCapabilities,
+    repositories: dashboard.repositories,
+    jiraRoutes: dashboard.jiraRoutes,
+    openWork: dashboard.openWork,
+    approvals: dashboard.approvals
+  }, { capabilities: 3, delivery: 1, repositories: 1, jiraRoutes: 1, openWork: 1, approvals: 2 });
+
+  const html = capabilitiesHtml(capabilityFixture, null, null, null, dashboard);
+  assert.match(html, /Capability portfolio/);
+  assert.match(html, /Organisation at a glance/);
+  assert.match(html, /open governed work/);
+  assert.match(html, /awaiting approvals/);
+  assert.match(html, /data-select="commerce"/);
+  assert.ok(html.indexOf('Capability portfolio') < html.indexOf('<th>Capability</th>'),
+    'the dashboard appears above the editable tree');
 });
 
 test('a repository with no capability map offers to describe the first capability', () => {
@@ -1960,7 +1989,7 @@ test('a refused start is reported on the form that caused it', () => {
   assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
 });
 
-const { duplicateCommand, duplicateDirectory, duplicateProblems, renameCommand, workspaceRows } =
+const { duplicateCommand, duplicateDirectory, duplicateProblems, renameCommand, updateCommand, workspaceRows } =
   await import(source('views/workspaces-model.ts'));
 const { workspacesHtml, EMPTY_DRAFT: EMPTY_COPY } = await import(source('views/workspaces-page.ts'));
 
@@ -2026,19 +2055,23 @@ test('the copy and rename commands are what the engine expects', () => {
   assert.deepEqual(renameCommand(commerce, ' Commerce platform '),
     ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
       '--confirm', 'commerce', '--json']);
+  assert.deepEqual(updateCommand(commerce, ' Commerce platform ', ['payments', 'checkout', 'payments']),
+    ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
+      '--capability', 'checkout', '--capability', 'payments',
+      '--confirm', 'commerce', '--json']);
 });
 
-test('the selected workspace offers rename, copy and forget, and says what each costs', () => {
+test('the selected workspace offers edit, copy and forget, and says what each costs', () => {
   const rows = workspaceRows(REGISTRY);
   const html = workspacesHtml(rows, '/work/commerce', { ...EMPTY_COPY, id: 'commerce-spike' }, null);
-  assert.match(html, /data-rename="\/work\/commerce"/);
+  assert.match(html, /data-edit="\/work\/commerce"/);
   assert.match(html, /data-duplicate="\/work\/commerce"/);
   assert.match(html, /data-forget="\/work\/commerce"/);
   assert.match(html, /data-switch="\/work\/commerce"/, 'switching is available directly on the row');
   assert.doesNotMatch(html, /data-open="\/work\/commerce"/, 'there is no separate, ambiguous Open action');
   assert.match(html, /The copy would be created at \/work\/commerce-spike/);
   assert.match(html, /leaves the directory alone/, 'forgetting is not deleting, and says so');
-  assert.match(html, /working\s*\n?\s*directory is not/, 'renaming does not move anything');
+  assert.match(html, /Repository origins and the directory itself stay fixed/, 'editing does not move anything');
 });
 
 test('workspace details show its directory, capabilities, repositories and Jira context', () => {
@@ -2069,6 +2102,29 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /APP-1001/);
   assert.match(html, /projectKey/);
   assert.match(html, /available/);
+
+  const editStatus = {
+    ...status,
+    availableCapabilities: [
+      { id: 'checkout', name: 'Checkout', depth: 0, ancestors: [], repository: null },
+      { id: 'payments', name: 'Payments', depth: 1, ancestors: ['checkout'], repository: 'platform' },
+      { id: 'settlement', name: 'Settlement', depth: 0, ancestors: [], repository: 'platform' },
+      { id: 'risk', name: 'Risk', depth: 0, ancestors: [], repository: 'risk' }
+    ]
+  };
+  const editing = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, editStatus, false, null, {
+    open: true, name: 'Commerce delivery', capabilities: ['checkout'], busy: false
+  });
+  assert.match(editing, /Edit workspace/);
+  assert.match(editing, /data-field="edit-name"/);
+  assert.match(editing, /data-edit-remove="checkout"/);
+  assert.doesNotMatch(editing, /<option value="payments"/,
+    'a child already covered by a selected capability is not redundantly offered');
+  assert.match(editing, /<option value="settlement"/);
+  assert.doesNotMatch(editing, /<option value="risk"/,
+    'capabilities needing an unmaterialized repository are not offered as an unsafe in-place edit');
+  assert.match(editing, /needs repositories this workspace has not materialized/);
+  assert.match(editing, /data-edit-save="\/work\/commerce"/);
 });
 
 test('the page carries the directories it needs to answer without a round trip', () => {

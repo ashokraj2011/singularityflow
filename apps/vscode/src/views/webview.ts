@@ -146,6 +146,13 @@ export const STYLE = `
   .summary-card strong { color: var(--sf-accent); font-size: 1.55rem; line-height: 1.1; }
   .summary-card span { color: var(--sf-dim); font-size: .8rem; }
   .summary-card.important { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .capability-dashboard { margin-top: 1rem; padding: 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: linear-gradient(135deg, var(--sf-accent-quiet), transparent 58%); }
+  .capability-dashboard h3 { font-size: 1.1rem; margin: .05rem 0; }
+  .capability-root-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .7rem; margin-top: 1rem; }
+  button.capability-root-card { display: grid; gap: .25rem; padding: .95rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); border: var(--sf-border); border-radius: var(--sf-radius); }
+  button.capability-root-card:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .capability-root-card strong { font-size: 1rem; }
+  .capability-root-card span:not(.eyebrow) { color: var(--sf-dim); font-size: .78rem; }
   .section-heading { display: flex; align-items: center; gap: .55rem; }
   .section-heading h2 { flex: 1; }
   .count-badge { display: inline-grid; place-items: center; min-width: 1.65rem; height: 1.65rem; padding: 0 .45rem; border-radius: 999px; background: var(--sf-accent-quiet); color: var(--sf-accent); font-weight: 700; }

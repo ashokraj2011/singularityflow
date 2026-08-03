@@ -7,7 +7,7 @@
  */
 import {
   duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
-  type WorkspaceRepositoryStatus
+  type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
@@ -101,6 +101,7 @@ function detailHtml(
   row: WorkspaceRow,
   rows: WorkspaceRow[],
   draft: DuplicateDraft,
+  edit: WorkspaceEditDraft,
   status: WorkspaceStatus | null,
   loading: boolean,
   detailError: string | null
@@ -118,12 +119,14 @@ function detailHtml(
   ${workspaceDetails(status, loading, detailError)}
 
   <h2>${icon('document')}Manage local workspace</h2>
-  <p>
-    <label>Name <input type="text" value="${escape(row.name)}" data-field="name" size="34"></label>
-    <button class="secondary" data-rename="${escape(row.path)}">Rename</button>
-  </p>
-  <p class="muted">A workspace is a local convenience, so its name is editable. The working
-    directory is not: it was fixed when the workspace was created, and moving it is a copy.</p>
+  ${edit.open
+    ? workspaceEditHtml(row, status, edit)
+    : `<div class="card">
+      <div class="card-head"><strong>${escape(row.name)}</strong><span class="grow"></span>
+        <button data-edit="${escape(row.path)}">Edit workspace</button></div>
+      <p class="muted">Change its name or the capabilities this local working directory is for.
+        Repository origins and the directory itself stay fixed after materialization.</p>
+    </div>`}
 
   <h2>${icon('git')}Copy this workspace</h2>
   <p class="question">The same capabilities, repositories and lead, in a different working
@@ -150,7 +153,79 @@ function detailHtml(
 
 export interface DuplicateDraft { id: string; base: string; busy: boolean }
 
+export interface WorkspaceEditDraft {
+  open: boolean;
+  name: string;
+  capabilities: string[];
+  busy: boolean;
+}
+
 export const EMPTY_DRAFT: DuplicateDraft = { id: '', base: '', busy: false };
+export const EMPTY_EDIT_DRAFT: WorkspaceEditDraft = {
+  open: false, name: '', capabilities: [], busy: false
+};
+
+function capabilityLabel(choice: WorkspaceCapabilityChoice | undefined, id: string): string {
+  return choice?.name ?? id;
+}
+
+/** The editable part of a workspace: its label and which governed capabilities it covers. */
+function workspaceEditHtml(
+  row: WorkspaceRow,
+  status: WorkspaceStatus | null,
+  edit: WorkspaceEditDraft
+): string {
+  const choices = status?.availableCapabilities ?? [];
+  const selected = new Set(edit.capabilities);
+  const materializedRepositories = new Set((status?.repositories ?? []).map((repository) => repository.id));
+  const covered = (choice: WorkspaceCapabilityChoice): boolean =>
+    selected.has(choice.id) || choice.ancestors.some((ancestor) => selected.has(ancestor));
+  const withinBoundary = (choice: WorkspaceCapabilityChoice): boolean => choices
+    .filter((entry) => entry.id === choice.id || entry.ancestors.includes(choice.id))
+    .every((entry) => !entry.repository || materializedRepositories.has(entry.repository));
+  const offered = choices.filter((choice) => !covered(choice) && withinBoundary(choice));
+  const outsideBoundary = choices.filter((choice) => !covered(choice) && !withinBoundary(choice));
+  const problems = [
+    ...(!edit.name.trim() ? ['Give the workspace a name.'] : []),
+    ...(!edit.capabilities.length ? ['Choose at least one capability.'] : [])
+  ];
+
+  return `<div class="card yours">
+    <div class="card-head"><strong>Edit workspace</strong><span class="grow"></span>
+      <span class="pill">local configuration</span></div>
+    <div class="form-grid">
+      <label class="field span-2"><span>Name</span>
+        <input type="text" value="${escape(edit.name)}" data-field="edit-name">
+      </label>
+      <label class="field span-2"><span>Add capability</span>
+        <span class="card-foot"><select data-edit-capability-pick>
+          <option value="">Choose a capability…</option>
+          ${offered.map((choice) => `<option value="${escape(choice.id)}">${'&nbsp;&nbsp;'.repeat(choice.depth)}${escape(choice.name)}${choice.repository ? ` (${escape(choice.repository)})` : ''}</option>`).join('')}
+        </select><button class="secondary" data-edit-add="1"${offered.length ? '' : ' disabled'}>Add</button></span>
+      </label>
+    </div>
+    ${edit.capabilities.length ? `<table>
+      <thead><tr><th>Capability</th><th>Coverage</th><th></th></tr></thead>
+      <tbody>${edit.capabilities.map((id) => {
+        const choice = choices.find((entry) => entry.id === id);
+        const beneath = choices.filter((entry) => entry.ancestors.includes(id));
+        return `<tr><td>${icon('capability')}<strong>${escape(capabilityLabel(choice, id))}</strong></td>
+          <td class="muted">${beneath.length ? `Includes ${beneath.length} beneath it` : (choice?.repository ? `Ships from ${escape(choice.repository)}` : 'Grouping')}</td>
+          <td><button class="link" data-edit-remove="${escape(id)}">Remove</button></td></tr>`;
+      }).join('')}</tbody>
+    </table>` : '<p class="blockers">Choose at least one capability.</p>'}
+    ${!choices.length ? `<p class="muted">The full capability map is not available right now.
+      Existing selections can still be preserved while the workspace name is changed.</p>` : ''}
+    ${outsideBoundary.length ? `<p class="muted">${escape(outsideBoundary.length)} additional ${outsideBoundary.length === 1 ? 'capability needs' : 'capabilities need'} repositories this workspace has not materialized. Copy or replace the workspace to change that boundary.</p>` : ''}
+    ${problems.length ? `<p class="blockers">${problems.map(escape).join(' ')}</p>` : ''}
+    <p class="card-foot">
+      <button data-edit-save="${escape(row.path)}"${problems.length || edit.busy ? ' disabled' : ''}>${edit.busy ? 'Saving…' : 'Save workspace'}</button>
+      <button class="secondary" data-edit-cancel="1"${edit.busy ? ' disabled' : ''}>Cancel</button>
+    </p>
+    <p class="muted">The working directory and existing repository checkouts cannot be changed in
+      place. Use Copy workspace when those boundaries need to move.</p>
+  </div>`;
+}
 
 export function workspacesHtml(
   rows: WorkspaceRow[],
@@ -159,7 +234,8 @@ export function workspacesHtml(
   error: string | null,
   status: WorkspaceStatus | null = null,
   loading = false,
-  detailError: string | null = null
+  detailError: string | null = null,
+  edit: WorkspaceEditDraft = EMPTY_EDIT_DRAFT
 ): string {
   const row = rows.find((entry) => entry.path === selected) ?? null;
   const collisions = rows.filter((entry) => entry.collides);
@@ -188,7 +264,7 @@ export function workspacesHtml(
   </section>
 
   <section>${row
-    ? detailHtml(row, rows, draft, status, loading, detailError)
+    ? detailHtml(row, rows, draft, edit, status, loading, detailError)
     : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>
   <div hidden data-context="${escape(JSON.stringify({
     parent: row ? row.directory.split('/').slice(0, -1).join('/') : '',
@@ -199,7 +275,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -209,6 +285,16 @@ export const WORKSPACES_SCRIPT = `
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
+    else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
+    else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });
+    else if (data.editAdd !== undefined) {
+      const pick = document.querySelector('[data-edit-capability-pick]');
+      if (pick && pick.value) vscode.postMessage({ type: 'edit-capability', id: pick.value, selected: true });
+    }
+    else if (data.editRemove !== undefined) vscode.postMessage({ type: 'edit-capability', id: data.editRemove, selected: false });
+    else if (data.editSave !== undefined) vscode.postMessage({
+      type: 'edit-save', path: data.editSave, name: value('edit-name')
+    });
     else if (data.duplicate !== undefined) {
       vscode.postMessage({ type: 'duplicate', path: data.duplicate, id: value('copy-id'), base: value('copy-base') });
     }
@@ -240,6 +326,10 @@ export const WORKSPACES_SCRIPT = `
   };
   document.addEventListener('input', (event) => {
     const field = event.target.dataset?.field;
+    if (field === 'edit-name') {
+      vscode.postMessage({ type: 'edit-draft', field, value: event.target.value });
+      return;
+    }
     if (field !== 'copy-id' && field !== 'copy-base') return;
     vscode.postMessage({ type: 'draft', field, value: event.target.value });
     affordances();

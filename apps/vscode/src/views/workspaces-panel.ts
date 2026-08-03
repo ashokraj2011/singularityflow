@@ -8,9 +8,12 @@
  */
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
-import { EMPTY_DRAFT, workspacesHtml, WORKSPACES_SCRIPT, type DuplicateDraft } from './workspaces-page.ts';
 import {
-  duplicateCommand, duplicateProblems, renameCommand, workspaceRows,
+  EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
+  type DuplicateDraft, type WorkspaceEditDraft
+} from './workspaces-page.ts';
+import {
+  duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
   type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
 } from './workspaces-model.ts';
 
@@ -31,6 +34,7 @@ export class WorkspacesPanel {
   private rows: WorkspaceRow[] = [];
   private selected: string | null = null;
   private draft: DuplicateDraft = { ...EMPTY_DRAFT };
+  private edit: WorkspaceEditDraft = { ...EMPTY_EDIT_DRAFT };
   private error: string | null = null;
   private detailError: string | null = null;
   private details: WorkspaceStatus | null = null;
@@ -51,7 +55,10 @@ export class WorkspacesPanel {
     this.loadDetails = loadDetails;
     this.rows = workspaceRows(entries);
     this.selected = selected;
-    this.panel.webview.onDidReceiveMessage((raw: unknown) => { void this.receive(raw); }, null, this.disposables);
+    // Return the promise so sequential UI events (typing, then immediately saving) are observed in
+    // order by hosts and test doubles that support async listeners. VS Code itself ignores the
+    // return value, but the edit-save message also carries the current field value as a safeguard.
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => this.receive(raw), null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     if (selected) void this.select(selected);
@@ -86,7 +93,7 @@ export class WorkspacesPanel {
       'Workspaces',
       workspacesHtml(
         this.rows, this.selected, this.draft, this.error,
-        this.details, this.detailsLoading, this.detailError
+        this.details, this.detailsLoading, this.detailError, this.edit
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
@@ -110,6 +117,7 @@ export class WorkspacesPanel {
     const request = ++this.detailRequest;
     this.selected = path;
     this.draft = { ...EMPTY_DRAFT };
+    this.edit = { ...EMPTY_EDIT_DRAFT };
     this.error = null;
     this.detailError = null;
     this.details = null;
@@ -137,7 +145,7 @@ export class WorkspacesPanel {
   private async receive(raw: unknown): Promise<void> {
     const message = raw as {
       type?: unknown; path?: unknown; id?: unknown; base?: unknown; name?: unknown;
-      field?: unknown; value?: unknown;
+      field?: unknown; value?: unknown; selected?: unknown;
     };
 
     if (message?.type === 'select') {
@@ -153,10 +161,64 @@ export class WorkspacesPanel {
       return;
     }
 
+    if (message?.type === 'edit-draft' && message.field === 'edit-name'
+      && typeof message.value === 'string' && this.edit.open) {
+      this.edit.name = message.value;
+      return;
+    }
+
+    if (message?.type === 'edit-cancel') {
+      this.edit = { ...EMPTY_EDIT_DRAFT };
+      this.error = null;
+      return this.render();
+    }
+
+    if (message?.type === 'edit-capability' && typeof message.id === 'string' && this.edit.open) {
+      const known = (this.details?.availableCapabilities ?? []).some((choice) => choice.id === message.id)
+        || this.edit.capabilities.includes(message.id);
+      if (!known) return;
+      const capabilities = new Set(this.edit.capabilities);
+      if (message.selected === true) capabilities.add(message.id);
+      else capabilities.delete(message.id);
+      this.edit.capabilities = [...capabilities];
+      this.error = null;
+      return this.render();
+    }
+
     if (message?.type === 'create') { await this.onMessage({ type: 'create' }); return; }
 
     const row = this.rowFor(message?.path);
     if (!row) return;
+
+    if (message.type === 'edit') {
+      this.edit = {
+        open: true,
+        name: this.details?.workspace.name ?? row.name,
+        capabilities: [...(this.details?.workspace.capabilities ?? [])],
+        busy: false
+      };
+      this.error = null;
+      return this.render();
+    }
+
+    if (message.type === 'edit-save') {
+      const name = (typeof message.name === 'string' ? message.name : this.edit.name).trim();
+      const capabilities = this.edit.capabilities.map((value) => value.trim()).filter(Boolean);
+      if (!this.edit.open || !name || !capabilities.length || this.edit.busy) return;
+      this.edit.busy = true;
+      this.error = null;
+      this.render();
+      const failure = await this.onMessage({
+        type: 'run', command: updateCommand(row, name, capabilities), title: `Updating ${row.name}`
+      });
+      this.error = failure;
+      if (failure) {
+        this.edit = { ...this.edit, busy: false };
+        return this.render();
+      }
+      this.edit = { ...EMPTY_EDIT_DRAFT };
+      return this.refresh();
+    }
 
     if (message.type === 'switch') { await this.onMessage({ type: 'switch', row }); return; }
 

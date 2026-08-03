@@ -10,6 +10,7 @@ import {
 } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
+import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
 const FIELDS = ['name', 'kind', 'parent', 'repository', 'jira.projectKey', 'jira.board', 'teams'] as const;
@@ -35,6 +36,37 @@ function treeHtml(tree: CapabilityNode[], selected: string | null): string {
           <td class="muted">${escape((row.teams ?? []).join(', ') || '—')}</td>
         </tr>`).join('')}</tbody>
     </table>`;
+}
+
+function dashboardHtml(dashboard: CapabilityDashboard): string {
+  const diagnosticClass = dashboard.diagnostics === 'healthy' ? 'ok'
+    : dashboard.diagnostics === 'needs-attention' ? 'bad' : '';
+  return `<section class="plain capability-dashboard">
+    <div class="card-head">
+      <div><p class="eyebrow">Capability portfolio</p><h3>Organisation at a glance</h3></div>
+      <span class="grow"></span>
+      <span class="pill ${diagnosticClass}">${dashboard.diagnostics.replace('-', ' ')}</span>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-card important"><strong>${escape(dashboard.capabilities)}</strong><span>capabilities</span></div>
+      <div class="summary-card"><strong>${escape(dashboard.deliveryCapabilities)}</strong><span>delivery capabilities</span></div>
+      <div class="summary-card"><strong>${escape(dashboard.repositories)}</strong><span>repositories</span></div>
+      <div class="summary-card"><strong>${escape(dashboard.jiraRoutes)}</strong><span>Jira routes</span></div>
+      <div class="summary-card"><strong>${escape(dashboard.openWork)}</strong><span>open governed work</span></div>
+      <div class="summary-card${dashboard.approvals ? ' important' : ''}"><strong>${escape(dashboard.approvals)}</strong><span>awaiting approvals</span></div>
+    </div>
+    <p class="meta">Repository grounding: <strong>${dashboard.worldModel}</strong>. Open work and
+      approvals are portfolio signals from the active lead repository; capability cards below show
+      only ownership declared by the capability map.</p>
+    ${dashboard.roots.length ? `<div class="capability-root-grid">${dashboard.roots.map((root) => `
+      <button class="capability-root-card" data-select="${escape(root.id)}">
+        <span class="eyebrow">${escape(root.kind)}</span>
+        <strong>${escape(root.name)}</strong>
+        <span>${escape(root.capabilities)} capabilities · ${escape(root.deliveryCapabilities)} deliver</span>
+        <span>${escape(root.repositories.length)} repositories · ${escape(root.jiraProjects.length)} Jira routes</span>
+        <span>${root.teams.length ? escape(root.teams.join(', ')) : 'No teams recorded'}</span>
+      </button>`).join('')}</div>` : ''}
+  </section>`;
 }
 
 function kindSelect(current = 'business'): string {
@@ -187,7 +219,8 @@ export function bodyHtml(
   tree: CapabilityNode[],
   selected: string | null,
   adding: { parent: string | null } | null,
-  error: string | null
+  error: string | null,
+  dashboard?: CapabilityDashboard
 ): string {
   return `
   <header>
@@ -196,6 +229,7 @@ export function bodyHtml(
       capability rather than to a workspace: they stay true regardless of who has cloned what.</p>
   </header>
   ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
+  ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
     ${treeHtml(tree, selected)}
     ${flattenCapabilities(tree).length && !adding

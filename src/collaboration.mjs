@@ -1,6 +1,6 @@
 import { branch, changes, fetchOrigin, hasUpstream, pullFastForward } from './git.mjs';
-import { currentPhase, pendingPublicationPath, saveWorkflow, syncPublication } from './state.mjs';
-import { exists, nowIso } from './util.mjs';
+import { currentPhase, saveWorkflow, storyPublicationPending, syncPublication } from './state.mjs';
+import { nowIso } from './util.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -34,7 +34,7 @@ export function watchText(item) {
 
 export async function recoveryPlan(root, config, workflow, { fetch = false } = {}) {
   const actions = [];
-  const pending = await exists(pendingPublicationPath(root, config, workflow.workItem.id));
+  const pending = await storyPublicationPending(root, config, workflow.workItem.id);
   if (branch(root) !== workflow.workItem.branch) actions.push({ id: 'branch', safe: true, automatic: false, detail: `Switch to ${workflow.workItem.branch} with singularity-flow resume ${workflow.workItem.id} --fetch.` });
   if (pending) actions.push({ id: 'publish', safe: true, automatic: true, detail: 'Retry the retained lifecycle commit with singularity-flow sync.' });
   if (fetch && branch(root) === workflow.workItem.branch && hasUpstream(root) && !changes(root).trim()) actions.push({ id: 'fast-forward', safe: true, automatic: true, detail: 'Fetch and fast-forward the current work-item branch.' });

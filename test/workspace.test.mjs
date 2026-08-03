@@ -338,10 +338,14 @@ test('active workspace context resolves friendly references and adds governed St
   await rememberWorkspace(registry, created.workspace, created.status);
 
   const lead = created.status.leadRepositoryPath;
-  run('git', ['checkout', '-b', 'MOB-123'], { cwd: lead });
+  run('git', ['checkout', '-b', 'feature/mobile-ui'], { cwd: lead });
   await mkdir(path.join(lead, 'singularity', 'work-items', 'MOB-123'), { recursive: true });
-  await writeFile(path.join(lead, 'singularity', 'work-items', 'MOB-123', 'state.json'), JSON.stringify({
-    workItem: { id: 'MOB-123' }
+  await writeFile(path.join(lead, 'singularity', 'work-items', 'MOB-123', 'workflow.json'), JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'MOB-123', branch: 'MOB-123-mobile', title: 'Mobile Story' },
+    lineage: { canonicalBranch: 'MOB-123-mobile', childBranches: [{ name: 'feature/mobile-ui' }] },
+    phaseOrder: [],
+    phases: {}
   }));
 
   const byKey = await resolveWorkspaceReference(registry, 'pay-100');

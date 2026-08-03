@@ -1,9 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
 import { readWorkspace, readWorkspaceRegistry, workspaceStatus } from './workspace.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = 1;
 
@@ -65,18 +65,9 @@ export async function resolveWorkspaceReference(registryFile, reference) {
 
 async function detectedStory(repositoryPath, branchName) {
   if (!branchName) return null;
-  for (const directory of ['singularity/work-items', '.singularity/work-items']) {
-    const stateFile = path.join(repositoryPath, directory, branchName, 'state.json');
-    if (!existsSync(stateFile)) continue;
-    try {
-      const state = JSON.parse(await readFile(stateFile, 'utf8'));
-      const candidate = state?.workItem?.id ?? state?.workflow?.workItem?.id ?? branchName;
-      return portableStoryId(candidate);
-    } catch {
-      return portableStoryId(branchName);
-    }
-  }
-  return null;
+  const index = await buildRepositorySubjectIndex(repositoryPath);
+  const resolved = resolveContext(index, { reference: branchName, kind: 'story', required: false });
+  return resolved ? portableStoryId(resolved.id) : null;
 }
 
 export function workspacePromptLabel(context) {

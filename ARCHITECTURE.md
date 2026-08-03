@@ -1,5 +1,10 @@
 # Singularity Flow Lite 0.9.0 architecture
 
+> **State model:** The lifecycle branch owns operational state; local context selects it; the state branch proves and mirrors it; every mutation passes through one deterministic publication transaction.
+
+The authority and recovery rules behind that sentence are normative in
+[State authority](docs/STATE-AUTHORITY.md).
+
 ## Capability ledger plane
 
 The opt-in capability ledger is a separate orphan Git history. Story and Initiative

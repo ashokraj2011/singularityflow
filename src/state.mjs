@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -35,6 +35,14 @@ import {
   materializeCapabilityWorldModelPack,
   resolveLifecycleCapability
 } from './capability-context.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import {
+  clearPendingPublication,
+  hasPendingPublication,
+  localPendingPublicationPath,
+  readPendingPublication,
+  writePendingPublication
+} from './publication-pending.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -52,7 +60,11 @@ export function sourcePath(root, config, id) { return path.join(workDir(root, co
 export function userStoryPath(root, config, id) { return path.join(workDir(root, config, id), 'USER-STORY.md'); }
 export function approvalPath(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', `${phase}.json`); }
 export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
-export function pendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
+function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
+export function pendingPublicationPath(root, _config, id) { return localPendingPublicationPath(root, 'story', id); }
+export async function storyPublicationPending(root, config, id) {
+  return hasPendingPublication(root, { kind: 'story', id, legacyPath: legacyPendingPublicationPath(root, config, id) });
+}
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
@@ -399,44 +411,43 @@ function upgradeWorkflow(workflow) {
 }
 
 export async function loadWorkflow(root, config, id = undefined) {
-  let resolved = id ?? branch(root);
-  let file = workflowPath(root, config, resolved);
-  if (id == null && !(await exists(file))) {
+  const index = await buildRepositorySubjectIndex(root, { definition: config });
+  let selected = resolveContext(index, {
+    reference: id ?? branch(root),
+    kind: 'story',
+    required: false
+  });
+  if (id == null && !selected) {
     const session = await loadSession(root, { required: false });
-    if (session?.workId) {
-      resolved = session.workId;
-      file = workflowPath(root, config, resolved);
-    }
+    if (session?.workId) selected = resolveContext(index, { reference: session.workId, kind: 'story', required: false });
   }
-  if (!(await exists(file))) throw new SingularityFlowError(`No workflow found for ${resolved}. Expected ${posix(path.relative(root, file))}.`);
+  if (!selected) {
+    const requested = id ?? branch(root);
+    throw new SingularityFlowError(`No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`);
+  }
+  const file = path.join(root, selected.location.path);
   const workflow = upgradeWorkflow(await readJson(file));
-  invariant(workflow.workItem?.id === resolved, `Workflow ID does not match ${resolved}.`);
+  invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
   return workflow;
 }
 
-export async function resolveWorkItem(root, config, idOrRef = branch(root), { mutation = false } = {}) {
+export async function resolveWorkItem(root, config, idOrRef = branch(root), { mutation = false, creation = false } = {}) {
   const requested = String(idOrRef ?? '').trim();
   if (!requested) throw new SingularityFlowError('Enter a Work ID or canonical/child branch reference.');
-  const direct = workflowPath(root, config, requested);
-  if (await exists(direct)) {
-    const workflow = upgradeWorkflow(await readJson(direct));
-    return { workId: workflow.workItem.id, branch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch, workflow, source: 'working-tree' };
-  }
-
-  const workRoot = path.join(root, config.workItemRoot ?? 'singularity/work-items');
-  if (await exists(workRoot)) {
-    for (const entry of await readdir(workRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const file = workflowPath(root, config, entry.name);
-      if (!(await exists(file))) continue;
-      const workflow = upgradeWorkflow(await readJson(file));
-      if (workflowBranchNames(workflow).includes(requested)) {
-        return { workId: workflow.workItem.id, branch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch, workflow, source: 'working-tree' };
-      }
-    }
+  const index = await buildRepositorySubjectIndex(root, { definition: config });
+  const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false, mutation });
+  if (indexed) {
+    const workflow = upgradeWorkflow(indexed.state);
+    return {
+      workId: workflow.workItem.id,
+      branch: indexed.canonicalBranch,
+      selectedBranch: indexed.selectedBranch,
+      workflow,
+      source: indexed.source
+    };
   }
 
   const ledgerConfig = normalizeLedgerConfig(config.ledger ?? {});
@@ -447,11 +458,15 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
         entry.eventType === 'binding'
         && (entry.subject?.workId === requested || entry.subject?.branch === requested));
       if (binding) {
+        if (mutation) {
+          throw new SingularityFlowError(`Work item '${binding.subject.workId}' is known only from the capability ledger. Fetch its lifecycle branch before mutating it.`);
+        }
         return {
           workId: binding.subject.workId,
           branch: binding.subject.branch ?? binding.subject.workId,
           workflow: null,
           source: 'ledger',
+          readOnly: true,
           entryHash: binding.hash
         };
       }
@@ -461,7 +476,8 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
       }
     }
   }
-  return { workId: requested, branch: requested, workflow: null, source: 'fallback' };
+  if (creation) return { workId: requested, branch: requested, workflow: null, source: 'creation-fallback' };
+  throw new SingularityFlowError(`No governed Story matches '${requested}'. Use a creation command to reserve a new Work ID.`);
 }
 
 export function currentPhase(workflow) {
@@ -472,7 +488,7 @@ export function currentPhase(workflow) {
 }
 
 export async function assertNoPendingPublication(root, config, workflow, action = 'continue') {
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) {
+  if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     await enforceSequenceGate(root, workflow, 'publicationPending', action, {
       reason: 'Publication is pending because a retained local lifecycle commit has not reached its configured remote.'
     });
@@ -939,8 +955,8 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
 }
 
 export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
-  const pending = pendingPublicationPath(root, config, workflow.workItem.id);
-  if (await exists(pending)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
+  const legacyPending = legacyPendingPublicationPath(root, config, workflow.workItem.id);
+  if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   let ledgerIntent = null;
   let ledgerIntentPath = null;
@@ -1007,7 +1023,7 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
   const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, targetBranch);
   if (result.status !== 0) {
     const error = (result.stderr || result.stdout).trim();
-    await writeJson(pending, { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error });
+    await writePendingPublication(root, { kind: 'story', id: workflow.workItem.id, record: { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error } });
     if (mode === 'warn') {
       const warning = `Commit ${sha.slice(0, 8)} was retained locally; publication is pending: ${error}`;
       console.warn(`Warning: ${warning}`);
@@ -1015,7 +1031,7 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
     }
     throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
   }
-  if (await exists(pending)) await unlink(pending);
+  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPending });
   let ledger = null;
   if (ledgerIntent) {
     try {
@@ -1033,9 +1049,10 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
 }
 
 export async function syncPublication(root, config, workflow) {
-  const pending = pendingPublicationPath(root, config, workflow.workItem.id); const record = (await exists(pending)) ? await readJson(pending) : { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
+  const pending = await readPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id) });
+  const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
-  if (await exists(pending)) await unlink(pending);
+  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id) });
   const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
   return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
 }
@@ -1069,7 +1086,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
   else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
-  if (await exists(pendingPublicationPath(root, config, workflow.workItem.id))) errors.push('Publication is pending; run singularity-flow sync.');
+  if (await storyPublicationPending(root, config, workflow.workItem.id)) errors.push('Publication is pending; run singularity-flow sync.');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   if (ledgerConfig.enabled) {
     try {

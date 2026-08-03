@@ -160,6 +160,11 @@
         "icon": "$(symbol-structure)"
       },
       {
+        "command": "singularityFlow.openInstructionDesigner",
+        "title": "Singularity Flow: Agent, Prompt & Skill Designer",
+        "icon": "$(hubot)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"
@@ -326,9 +331,14 @@
           "group": "navigation@0"
         },
         {
-          "command": "singularityFlow.doctor",
+          "command": "singularityFlow.openInstructionDesigner",
           "when": "view == singularityFlow.configuration",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.doctor",
+          "when": "view == singularityFlow.configuration",
+          "group": "navigation@2"
         },
         {
           "command": "singularityFlow.refresh",

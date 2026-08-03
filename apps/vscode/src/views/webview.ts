@@ -377,9 +377,41 @@ export const STYLE = `
   details { margin-top: 1rem; }
   summary { cursor: pointer; color: var(--sf-link); }
   .markdown-preview { max-height: 20rem; overflow: auto; white-space: pre-wrap; padding: .75rem; background: var(--vscode-textCodeBlock-background); border-radius: var(--sf-radius); }
+
+  /* Instruction designer: a compact library at left and a generous visual canvas at right. */
+  .instruction-tabs { display: flex; gap: .45rem; margin: 1rem 0; overflow-x: auto; }
+  .instruction-tabs button span { margin-left: .35rem; opacity: .75; }
+  .relationship-strip { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; padding: .65rem .8rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-accent-quiet); }
+  .relationship-strip span { padding: .25rem .5rem; border-radius: 999px; background: var(--vscode-editor-background); font-size: .78rem; }
+  .instruction-studio { display: grid; grid-template-columns: minmax(14rem, .72fr) minmax(0, 2fr); gap: 1rem; margin-top: 1rem; align-items: start; border: 0; }
+  .instruction-library { position: sticky; top: .75rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); padding: .75rem; max-height: calc(100vh - 2rem); overflow: auto; }
+  .library-head { display: flex; align-items: center; gap: .5rem; }
+  .library-head > div { flex: 1; }
+  .library-head h2 { color: var(--vscode-foreground); font-size: .95rem; text-transform: none; letter-spacing: 0; margin: .1rem 0 .55rem; }
+  .instruction-library input[type="search"] { width: 100%; padding: .45rem .6rem; border: var(--sf-border); border-radius: var(--sf-radius); color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  .instruction-list { display: grid; gap: .35rem; margin-top: .6rem; }
+  button.instruction-item { display: grid; justify-content: stretch; gap: .15rem; width: 100%; text-align: left; color: var(--vscode-foreground); background: transparent; border: var(--sf-border); border-radius: var(--sf-radius); padding: .65rem; }
+  button.instruction-item:hover, button.instruction-item.selected { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .instruction-item span, .instruction-item small { color: var(--sf-dim); font-weight: 400; font-size: .75rem; }
+  .instruction-item small { text-transform: uppercase; letter-spacing: .08em; }
+  .instruction-editor { border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); padding: 1rem 1.15rem 1.25rem; }
+  .instruction-editor h1 { margin-top: .1rem; }
+  .choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .4rem; }
+  .choice { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .6rem; border: var(--sf-border); border-radius: var(--sf-radius); }
+  .choice input { margin-top: .25rem; }
+  .choice span { display: grid; }
+  .choice small { color: var(--sf-dim); }
+  .composition-map { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-top: 1rem; padding: .75rem; border-radius: var(--sf-radius); background: var(--sf-accent-quiet); }
+  .composition-map strong { width: 100%; }
+  .composition-map span { border: var(--sf-border); border-radius: 999px; padding: .3rem .55rem; background: var(--vscode-editor-background); }
+  .pack-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .55rem; }
+  .pack-meta span { display: grid; gap: .2rem; padding: .65rem; border: var(--sf-border); border-radius: var(--sf-radius); }
+  .pack-preview { max-height: 32rem; overflow: auto; white-space: pre-wrap; padding: .9rem; border-radius: var(--sf-radius); background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: .8rem; }
   input:disabled, select:disabled { opacity: .7; }
   @media (max-width: 820px) {
     .artifact-studio { grid-template-columns: 1fr; }
+    .instruction-studio { grid-template-columns: 1fr; }
+    .instruction-library { position: static; max-height: 22rem; }
     .document-preview { position: static; }
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }

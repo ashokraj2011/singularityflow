@@ -826,7 +826,7 @@ test('configuration is shown whether or not an Epic is checked out', () => {
       ['config:local-profile', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
-      ['config:designer', 'config:workflow', 'config:portfolio']);
+      ['config:designer', 'config:instruction-designer', 'config:workflow', 'config:portfolio']);
     for (const set of ['config:templates', 'config:skills', 'config:agents']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
@@ -2356,6 +2356,10 @@ const { buildProfiles, buildTemplateUsage, consequence, standingOn } =
 const { designerHtml } = await import(source('views/designer-page.ts'));
 const { newArtifactDraft, renderArtifactTemplate, sectionFor, validateArtifactDraft } =
   await import(source('views/artifact-designer-model.ts'));
+const {
+  instructionCatalog, parseAgent, parseSkill, renderAgent, renderSkill, validateAgent, validateSkill
+} = await import(source('views/instruction-designer-model.ts'));
+const { instructionDesignerHtml } = await import(source('views/instruction-designer-page.ts'));
 
 const DESIGN_SNAPSHOT = {
   portfolioPath: 'singularity/portfolio.yml',
@@ -2481,4 +2485,46 @@ test('the artifact designer emits traceable Markdown and validates unsafe paths'
   assert.match(markdown, /\{\{inputs\}\}/);
   draft.fileName = '../outside.md';
   assert.match(validateArtifactDraft(draft).join(' '), /safe \.md path/);
+});
+
+test('the instruction designer separates agents, prompts, repository skills and packaged prompt packs', () => {
+  const instructionSnapshot = {
+    definition: {
+      phases: { design: { label: 'Design', agents: ['architect'], worldModel: { views: ['architecture'] } } },
+      planning: { promptSource: 'singularity/prompts/planning.md' },
+      worldModel: { views: ['architecture', 'security'], promptSource: 'singularity/prompts/worldmodel-builder.md' }
+    },
+    portfolio: { initiativePhases: {} },
+    worldModel: { views: [{ id: 'development', references: [] }] },
+    agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true,
+      content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "architecture,security"\n---\n\n# Architect\n\nUse evidence.` }],
+    prompts: [{ path: 'singularity/prompts/planning.md', name: 'planning.md', content: '# Planning' }],
+    repositorySkills: [{ path: '.github/skills/sf-review/SKILL.md', name: 'SKILL.md', content: `---\nname: sf-review\ndescription: Review work.\nargument-hint: "[ID]"\ndisable-model-invocation: false\n---\n\n# Review` }],
+    flowSkills: [{ id: 'sf-help', path: 'plugin/skills/sf-help/SKILL.md', repositoryPath: '.github/skills/sf-help/SKILL.md', description: 'Explain Flow.', content: '# Help' }]
+  };
+  const catalog = instructionCatalog(instructionSnapshot);
+  assert.equal(catalog.agents.length, 1);
+  assert.equal(catalog.prompts.length, 1);
+  assert.equal(catalog.skills.length, 1);
+  assert.equal(catalog.packs.length, 1);
+  assert.deepEqual(catalog.worldModelViews, ['architecture', 'development', 'security']);
+  assert.deepEqual(catalog.promptUsage['singularity/prompts/planning.md'], ['Copilot planning']);
+
+  const parsed = parseAgent(catalog.agents[0].content, 'architect');
+  assert.deepEqual(parsed.phases, ['design']);
+  assert.deepEqual(parsed.worldModelViews, ['architecture', 'security']);
+  assert.deepEqual(validateAgent(parsed), []);
+  assert.match(renderAgent(parsed), /## Remote generated artifacts/);
+
+  const skill = parseSkill(instructionSnapshot.repositorySkills[0].content, 'sf-review');
+  assert.deepEqual(validateSkill(skill), []);
+  assert.match(renderSkill(skill), /disable-model-invocation: false/);
+
+  const html = instructionDesignerHtml(catalog, {
+    tab: 'agents', selected: catalog.agents[0], agent: parsed, prompt: null, skill: null, errors: [], notice: null
+  });
+  assert.match(html, /Agents, prompts &amp; skills/);
+  assert.match(html, /Prompt composition/);
+  assert.match(html, /Phase contract/);
+  assert.match(html, /Repository world-model views/);
 });

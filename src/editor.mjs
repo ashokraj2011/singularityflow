@@ -69,6 +69,7 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
+const PROMPTS_ROOT = 'singularity/prompts';
 const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
 
 async function textFiles(root, relativeRoot, { extensions = null } = {}) {
@@ -426,6 +427,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     portfolioText,
     templates: await textFiles(root, definition.templatesRoot),
     agentPrompts: await textFiles(root, definition.agentPromptsRoot),
+    prompts: await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     flowSkills: await bundledFlowSkills(),
     planning: {
@@ -626,6 +628,7 @@ async function configurationSlice(root) {
     portfolioText,
     templates: await textFiles(root, templatesRoot),
     agentPrompts: await textFiles(root, agentPromptsRoot, { extensions: ['.md'] }),
+    prompts: await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     flowSkills: await bundledFlowSkills(),
     agents: agents.map((agent) => ({
@@ -838,6 +841,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
     || relative.startsWith(`${posix(definition.agentPromptsRoot).replace(/\/$/, '')}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
+    || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || (promptSource && promptSource !== 'builtin' && relative === posix(promptSource))
     || relative === DEFAULT_PLANNING_PROMPT
@@ -919,6 +923,7 @@ export async function deleteConfigurationFile(root, requestedPath) {
     || relative.startsWith(`${initiativeTemplatesRoot}/`)
     || relative.startsWith(`${promptsRoot}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
+    || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative.startsWith('.github/agents/');
   if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
   const references = [];
@@ -986,6 +991,7 @@ export async function exportConfigurationBundle(root) {
     portfolio ? [{ path: PORTFOLIO_PATH, content: await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') }] : [],
     await textFiles(root, definition.templatesRoot),
     await textFiles(root, definition.agentPromptsRoot),
+    await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
     await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
     await exists(path.join(root, AGENT_MAPPING_PATH)) ? [{ path: AGENT_MAPPING_PATH, content: await readFile(path.join(root, AGENT_MAPPING_PATH), 'utf8') }] : [],

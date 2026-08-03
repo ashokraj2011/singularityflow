@@ -1652,6 +1652,30 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
+test('the instruction designer exposes all four libraries and saves repository prompts through the engine', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await registered.commands.get('singularityFlow.openInstructionDesigner')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.instructionDesigner');
+  assert.ok(panel, 'the instruction designer panel was created');
+  assert.match(panel.webview.html, /Agents, prompts &amp; skills/);
+  assert.match(panel.webview.html, /Prompt packs/);
+  assert.match(panel.webview.html, /Prompt composition/);
+  assert.match(panel.webview.html, /default-src 'none'/);
+
+  await panel.post({ type: 'tab', tab: 'prompts' });
+  assert.match(panel.webview.html, /Repository library/);
+  await panel.post({ type: 'new' });
+  await panel.post({ type: 'save-prompt', id: 'demo-impact', body: '# Impact\n\nUse repository evidence.' });
+  const created = path.join(root, 'singularity/prompts/demo-impact.md');
+  await until(() => (existsSync(created) ? true : null));
+  assert.equal(readFileSync(created, 'utf8'), '# Impact\n\nUse repository evidence.\n');
+
+  await panel.post({ type: 'tab', tab: 'packs' });
+  assert.match(panel.webview.html, /Packaged library/);
+  assert.match(panel.webview.html, /Copy into repository/);
+});
+
 test('a window with nothing open keeps workspace setup out of Lifecycle', async (t) => {
   if (!requireBundle(t)) return;
   // Everything Singularity Flow does needs a repository, so a state that explains that and offers

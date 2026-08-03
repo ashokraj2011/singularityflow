@@ -25,6 +25,7 @@ import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilitie
 import { IntakePanel } from './views/intake-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
+import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
@@ -170,7 +171,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openCopilot'
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openCopilot'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -957,6 +959,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Written through the engine, which validates before it writes — a template is governed
       // configuration like any other, and the editor does not get its own way past that.
+      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
+      try {
+        await client.runText(['configuration', 'save', message.path], { input: message.content });
+        await store.refresh();
+        return null;
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }),
+    'singularityFlow.openInstructionDesigner': () => InstructionDesignerPanel.show(context, store, async (message) => {
       output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
       try {
         await client.runText(['configuration', 'save', message.path], { input: message.content });

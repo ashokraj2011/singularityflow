@@ -183,6 +183,7 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
+import { factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 
 const VERSION = '0.9.0';
@@ -226,6 +227,7 @@ Usage:
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
+  singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY"] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
@@ -578,6 +580,45 @@ async function initCommand(options) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`Next: review and commit singularity/, push ${workId}, then run singularity-flow start ${workId}.`);
   }
+}
+
+function renderFactoryResetPlan(plan) {
+  console.log(`Singularity Flow factory reset — ${plan.completed ? 'complete' : 'preview'}`);
+  console.log(`Repository: ${plan.repository}`);
+  console.log(`Branch: ${plan.branch ?? 'detached'} · HEAD ${String(plan.head ?? 'unborn').slice(0, 12)}`);
+  console.log(`Npm package: ${plan.packageVersion ?? 'unknown'}`);
+  console.log('\nRemove:');
+  for (const item of plan.remove) console.log(`- ${item}`);
+  console.log('\nReplace:');
+  for (const item of plan.replace) console.log(`- ${item}`);
+  console.log('\nPreserve:');
+  for (const item of plan.preserve) console.log(`- ${item}`);
+  if (plan.uncommittedResetPaths.length) {
+    console.log('\nWARNING: these uncommitted reset-scope changes will be discarded:');
+    for (const item of plan.uncommittedResetPaths) console.log(`- ${item}`);
+  }
+  if (!plan.completed) {
+    console.log(`\nConfirmation required: ${plan.confirmation}`);
+    console.log(`Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+  } else {
+    console.log('\nThe replacement is intentionally uncommitted.');
+    for (const item of plan.next) console.log(`Next: ${item}`);
+  }
+}
+
+async function factoryResetCommand(options) {
+  const root = repoRoot();
+  const dryRun = optionBoolean(options, 'dry-run');
+  if (dryRun && options.confirm != null) throw new SingularityFlowError('factory-reset --dry-run does not accept --confirm. Review the preview first.');
+  const result = dryRun
+    ? await factoryResetPlan(root, { packageVersion: VERSION })
+    : await factoryResetRepository(root, {
+      confirmation: optionString(options, 'confirm'),
+      packageVersion: VERSION
+    });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else renderFactoryResetPlan(result);
+  return result;
 }
 
 async function helpCommand(positionals, options) {
@@ -5152,7 +5193,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (command !== 'logs') {
+  if (!['logs', 'factory-reset'].includes(command)) {
     const log = await commandLogger(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
@@ -5173,6 +5214,7 @@ async function dispatch(command, positionals, options) {
     about: () => console.log(ABOUT),
     help: () => helpCommand(positionals, options),
     init: () => initCommand(options),
+    'factory-reset': () => factoryResetCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

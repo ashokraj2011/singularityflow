@@ -1634,6 +1634,26 @@ The review bundle contains the artifact in full, input provenance, checks, appro
 
 ## Safe recovery and Copilot session guidance
 
+### Factory-reset repository state
+
+`init --repair` is additive and preserves customization. When a genuinely clean
+restart is required, use the guarded factory reset instead:
+
+```bash
+singularity-flow factory-reset --dry-run --json
+singularity-flow factory-reset --confirm "RESET <repository-folder-name>"
+singularity-flow init --check --json
+```
+
+The preview lists every removed, replaced, and preserved scope plus any
+uncommitted reset-scope files. The confirmed operation removes `singularity/`,
+legacy `.singularity/`, and `.git/singularity-flow/`; installs workflow,
+portfolio, capability, agent-mapping, template, prompt, and packaged-agent files
+from the currently installed npm package; and leaves the result uncommitted.
+Application source, Git history, workspace clones, the global workspace
+registry, and non-packaged custom agents are preserved. Use
+`/sf-factory-reset` in Copilot for the same guarded flow.
+
 ```bash
 singularity-flow recover WORK-123 --fetch
 singularity-flow recover WORK-123 --fetch --apply

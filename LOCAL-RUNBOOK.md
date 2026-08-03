@@ -119,6 +119,27 @@ singularity-flow init --repair
 singularity-flow doctor --offline
 ```
 
+### Factory reset
+
+Use factory reset only when you intentionally want to discard every governed
+workflow, artifact, prompt customization, repository world model, and local
+Singularity session in this clone and return to the installed npm package
+defaults. Run it from the target application repository:
+
+```bash
+cd ~/flow/app
+git rev-parse --show-toplevel
+singularity-flow factory-reset --dry-run
+singularity-flow factory-reset --confirm "RESET app"
+singularity-flow init --check
+git status --short
+```
+
+The confirmation value is printed by the preview and uses the actual repository
+folder name. Factory reset does not commit the replacement. It also does not
+delete application source, Git history, workspace clones, the global workspace
+registry, or custom repository agents not bundled with Singularity Flow.
+
 In Copilot CLI, `/sflow-init` performs the same check-and-repair sequence and
 shows every added file for review. To recover or initialize an existing Work
 ID from another terminal, use:

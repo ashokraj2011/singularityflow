@@ -240,6 +240,15 @@ test('every skill has valid matching frontmatter', async () => {
   }
 });
 
+test('factory-reset skill requires preview and contributor-owned exact confirmation', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-factory-reset', 'SKILL.md'), 'utf8');
+  assert.match(content, /factory-reset --dry-run --json/);
+  assert.match(content, /complete `remove`, `replace`, `preserve`/);
+  assert.match(content, /must explicitly.*exact `confirmation`/s);
+  assert.match(content, /Never supply the confirmation yourself/);
+  assert.match(content, /intentionally uncommitted/);
+});
+
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);

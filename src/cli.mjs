@@ -4,7 +4,7 @@ import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
 import {
-  addPhase, defineWorkflow, editPhase, editWorkflow, listProfiles, listWorkflows
+  addPhase, defineWorkflow, editPhase, editWorkflow, listProfiles, listWorkflows, upsertPhaseOutput
 } from './workflow-authoring.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import YAML from 'yaml';
@@ -276,6 +276,10 @@ Usage:
     (a phase runs nowhere until a workflow lists it)
   singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b]
     (--governs is inferred from where the phases already live, and rarely needed)
+  singularity-flow workflow phase output add <PHASE> <OUTPUT> --label TEXT --kind markdown --path FILE --template FILE
+    [--optional] [--consumes phase/output,...]
+  singularity-flow workflow phase output edit <PHASE> <OUTPUT> [--label TEXT] [--kind KIND] [--path FILE]
+    [--template FILE] [--optional] [--consumes phase/output,...]
   singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
     (add and upgrade are the former names and still work)
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
@@ -1803,6 +1807,26 @@ async function workflowCommand(positionals, options) {
 
   if (subcommand === 'phase') {
     const action = positionals[2];
+    if (action === 'output') {
+      const outputAction = positionals[3];
+      if (!['add', 'edit'].includes(outputAction)) throw new SingularityFlowError('Use workflow phase output add|edit.');
+      const phaseId = requirePositional(positionals, 4, 'phase ID');
+      const outputId = requirePositional(positionals, 5, 'output ID');
+      const list = (option) => (optionString(options, option) ?? '')
+        .split(',').map((entry) => entry.trim()).filter(Boolean);
+      const changes = {};
+      for (const field of ['label', 'kind', 'path', 'template']) {
+        if (optionString(options, field) != null) changes[field] = optionString(options, field);
+      }
+      if (optionString(options, 'consumes') != null) changes.consumes = list('consumes');
+      if (options.optional !== undefined) changes.required = !optionBoolean(options, 'optional');
+      const result = await upsertPhaseOutput(root, phaseId, outputId, changes, {
+        action: outputAction,
+        governs: optionString(options, 'governs', 'initiative')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      return console.log(`${outputAction === 'add' ? 'Added' : 'Updated'} output ${result.phaseId}/${result.outputId} in ${result.path}.`);
+    }
     const id = requirePositional(positionals, 3, 'phase ID');
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);

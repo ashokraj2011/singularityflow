@@ -12,8 +12,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
+import { initializeDefinition } from '../src/config.mjs';
 import {
-  addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows
+  addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput
 } from '../src/workflow-authoring.mjs';
 
 /** A portfolio with commentary in it, because keeping that is half the point. */
@@ -177,18 +178,18 @@ test('composing a phase says when the session agent is not what it expects', asy
  * button. The actions now run the same commands the CLI runs, so the validation that refuses an
  * incoherent profile is one implementation rather than two that drift.
  */
-test('the designer creates and reorders through the engine, not its own writer', async () => {
+test('the designer creates workflows, phases, and artifacts through the engine', async () => {
   const panel = await readFile(new URL('../apps/vscode/src/views/designer.ts', import.meta.url), 'utf8');
   const page = await readFile(new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url), 'utf8');
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
 
-  // Three actions on the screen, and each posts intent rather than content.
-  for (const action of ['data-reorder', 'data-new-profile', 'data-new-phase']) {
+  // The visible builder owns the authoring interaction; the engine still owns persistence.
+  for (const action of ['data-new-workflow', 'data-new-phase', 'data-workflow-phase-action', 'data-add-workflow-phase']) {
     assert.match(page, new RegExp(action), `${action} is offered`);
   }
-  assert.match(panel, /'workflow', 'edit', profile\.id, '--phases'/);
-  assert.match(panel, /'workflow', 'create', id\.trim\(\), '--phases'/);
-  assert.match(panel, /'workflow', 'phase', 'add', id\.trim\(\)/);
+  assert.match(panel, /\['workflow', this\.workflowDraft\.isNew \? 'create' : 'edit'/);
+  assert.match(panel, /\['workflow', 'phase', this\.phaseDraft\.isNew \? 'add' : 'edit'/);
+  assert.match(panel, /\['workflow', 'phase', 'output', action/);
 
   // Run through the governed action path, so a refusal comes back from the engine rather than being
   // decided in the editor.
@@ -196,14 +197,36 @@ test('the designer creates and reorders through the engine, not its own writer',
   assert.match(extension, /if \(message\.type === 'run'\) \{/);
   assert.match(extension, /runGovernedAction\(client, \{ command: message\.command/);
 
-  // Phases are picked and ordered, because that is what choosing a lifecycle is — not a text field
-  // of comma-separated identifiers this screen is already showing.
-  assert.match(panel, /canPickMany: true/);
-  assert.match(panel, /Chosen in the order you pick them/);
-  // Every phase the portfolio defines, not just the ones already in the profile: picking from those
-  // could only ever remove them.
-  assert.match(panel, /private everyPhase\(/);
-  assert.match(panel, /It runs nowhere until a workflow lists it/);
+  // No QuickPick or InputBox hides the sequence from the person assembling it.
+  assert.doesNotMatch(panel, /showQuickPick|showInputBox/);
+  assert.match(page, /data-workflow-sequence/);
+  assert.match(page, /data-section-canvas/);
+  assert.match(page, /Live document preview/);
+});
+
+test('phase output authoring preserves initiative YAML comments and supports Story artifacts', async () => {
+  const root = await repository();
+  await upsertPhaseOutput(root, 'define', 'source-catalog', {
+    label: 'Source catalog', path: 'source-catalog.md', template: 'initiatives/source-catalog.md', required: false
+  });
+  await upsertPhaseOutput(root, 'build', 'business-case', {
+    label: 'Business case', path: 'business-case.md', template: 'initiatives/business-case.md', required: true
+  });
+  const edited = await upsertPhaseOutput(root, 'build', 'business-case', {
+    label: 'Approved business case', consumes: ['define/source-catalog']
+  }, { action: 'edit' });
+  assert.equal(edited.output.label, 'Approved business case');
+  assert.deepEqual((await portfolio(root)).initiativePhases.build.outputs[0].consumes, ['define/source-catalog']);
+  assert.match(await readFile(path.join(root, 'singularity', 'portfolio.yml'), 'utf8'), /# What each stage produces/);
+
+  const storyRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-output-'));
+  await initializeDefinition(storyRoot);
+  const story = await upsertPhaseOutput(storyRoot, 'design', 'design', {
+    label: 'Technical design', path: 'artifacts/design/technical-design.md', template: 'common/technical-design.md'
+  }, { action: 'edit', governs: 'story' });
+  assert.equal(story.output.label, 'Technical design');
+  const definition = YAML.parse(await readFile(path.join(storyRoot, 'singularity', 'workflow.yml'), 'utf8'));
+  assert.equal(definition.phases.design.defaultTemplate, 'common/technical-design.md');
 });
 
 /**

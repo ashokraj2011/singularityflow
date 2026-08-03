@@ -351,7 +351,14 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
 
   if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
   if (changes.label !== undefined) document.setIn([store.phases, id, 'label'], changes.label);
-  for (const field of ['worldModelViews', 'lanes', 'agents']) {
+  if (changes.worldModelViews !== undefined) {
+    const modelPath = store.governs === 'story'
+      ? [store.phases, id, 'worldModel', 'views']
+      : [store.phases, id, 'worldModelViews'];
+    if (!changes.worldModelViews.length) document.deleteIn(modelPath);
+    else document.setIn(modelPath, changes.worldModelViews);
+  }
+  for (const field of ['lanes', 'agents']) {
     if (changes[field] === undefined) continue;
     if (!changes[field].length) document.deleteIn([store.phases, id, field]);
     else document.setIn([store.phases, id, field], changes[field]);
@@ -364,4 +371,78 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
     .filter(([, workflow]) => (workflow?.phases ?? []).includes(id))
     .map(([workflowId]) => workflowId);
   return { phaseId: id, governs: store.governs, path: store.file, usedBy };
+}
+
+/**
+ * Add or change one artifact produced by an Initiative phase.
+ *
+ * Story phases keep their single `artifact` contract. Initiative phases may produce several named
+ * outputs, which is the shape the visual artifact designer needs to edit without re-emitting the
+ * whole portfolio document (and losing its comments). The result still passes through the normal
+ * portfolio validator before it reaches disk.
+ */
+export async function upsertPhaseOutput(root, phaseId, outputId, changes = {}, {
+  action = 'add', governs = 'initiative'
+} = {}) {
+  const phase = requireId(phaseId, 'A phase identifier');
+  const output = requireId(outputId, 'An output identifier');
+  if (!['add', 'edit'].includes(action)) throw new SingularityFlowError(`Output action must be add or edit, not '${action}'.`);
+
+  const store = storeFor(governs);
+  const { file, document } = await loadIn(root, store);
+  const content = document.toJS() ?? {};
+  const definition = content[store.phases]?.[phase];
+  if (!definition) throw new SingularityFlowError(`Unknown ${governs} phase '${phase}'.`);
+  if (store.governs === 'story') {
+    if (output !== phase) {
+      throw new SingularityFlowError(`Story phase '${phase}' has one artifact contract, whose output ID is '${phase}'.`);
+    }
+    if (changes.label !== undefined) document.setIn([store.phases, phase, 'label'], changes.label);
+    if (changes.kind !== undefined) document.setIn([store.phases, phase, 'artifact', 'kind'], changes.kind);
+    if (changes.path !== undefined) document.setIn([store.phases, phase, 'artifact', 'path'], changes.path);
+    if (changes.template !== undefined) document.setIn([store.phases, phase, 'defaultTemplate'], changes.template);
+    await saveIn(file, document, store);
+    return {
+      phaseId: phase, outputId: output, governs, action: 'edit', path: store.file,
+      output: {
+        id: phase,
+        label: changes.label ?? definition.label ?? phase,
+        kind: changes.kind ?? definition.artifact?.kind ?? 'markdown',
+        path: changes.path ?? definition.artifact?.path,
+        template: changes.template ?? definition.defaultTemplate,
+        required: true
+      }
+    };
+  }
+  const outputs = Array.isArray(definition.outputs) ? definition.outputs : [];
+  const index = outputs.findIndex((entry) => entry?.id === output);
+  if (action === 'add' && index >= 0) {
+    throw new SingularityFlowError(`Output '${phase}/${output}' already exists. Use workflow phase output edit to change it.`);
+  }
+  if (action === 'edit' && index < 0) throw new SingularityFlowError(`Unknown output '${phase}/${output}'.`);
+
+  const previous = index >= 0 ? outputs[index] : {};
+  const next = {
+    ...previous,
+    id: output,
+    label: changes.label ?? previous.label ?? output,
+    kind: changes.kind ?? previous.kind ?? 'markdown',
+    path: changes.path ?? previous.path ?? `${output}.md`,
+    ...(changes.template !== undefined
+      ? (changes.template ? { template: changes.template } : {})
+      : (previous.template ? { template: previous.template } : {})),
+    ...(changes.required !== undefined ? { required: Boolean(changes.required) }
+      : (previous.required !== undefined ? { required: previous.required } : {})),
+    ...(changes.consumes !== undefined
+      ? (changes.consumes.length ? { consumes: changes.consumes } : {})
+      : (previous.consumes?.length ? { consumes: previous.consumes } : {}))
+  };
+  if (changes.template === '') delete next.template;
+  if (changes.consumes?.length === 0) delete next.consumes;
+
+  const updated = [...outputs];
+  if (index < 0) updated.push(next); else updated[index] = next;
+  document.setIn([store.phases, phase, 'outputs'], document.createNode(updated));
+  await saveIn(file, document, store);
+  return { phaseId: phase, outputId: output, governs, action, path: store.file, output: next };
 }

@@ -19,7 +19,6 @@
   "activationEvents": [
     "onView:singularityFlow.lifecycle",
     "onView:singularityFlow.configuration",
-    "onView:singularityFlow.capabilities",
     "onView:singularityFlow.workspaces",
     "workspaceContains:singularity/workflow.yml",
     "workspaceContains:workspace.json"
@@ -62,10 +61,6 @@
         {
           "id": "singularityFlow.configuration",
           "name": "Configuration"
-        },
-        {
-          "id": "singularityFlow.capabilities",
-          "name": "Capabilities"
         }
       ]
     },
@@ -233,12 +228,12 @@
         },
         {
           "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.capabilities",
+          "when": "view == singularityFlow.workspaces",
           "group": "navigation@0"
         },
         {
           "command": "singularityFlow.openCapabilities",
-          "when": "view == singularityFlow.capabilities",
+          "when": "view == singularityFlow.workspaces",
           "group": "navigation@1"
         },
         {
@@ -268,7 +263,7 @@
         },
         {
           "command": "singularityFlow.mapCapability",
-          "when": "view == singularityFlow.capabilities",
+          "when": "view == singularityFlow.workspaces",
           "group": "9_setup@0"
         }
       ],
@@ -305,12 +300,12 @@
         },
         {
           "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.capabilities && viewItem =~ /^sflow\\.capabilit(y|ies\\.empty)$/",
+          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.capabilit(y|ies\\.empty)$/",
           "group": "inline@0"
         },
         {
           "command": "singularityFlow.editCapability",
-          "when": "view == singularityFlow.capabilities && viewItem == sflow.capability",
+          "when": "view == singularityFlow.workspaces && viewItem == sflow.capability",
           "group": "inline@1"
         },
         {

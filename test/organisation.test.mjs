@@ -418,12 +418,15 @@ test('choosing a workspace is what scopes the rest', async () => {
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(extension, /\['workspace', 'use', target, '--json'\]/);
 
-  // Choosing costs nothing: no folder is opened and no window is reloaded, so looking at another
-  // workspace is not an act that throws away every open editor.
+  // Choosing never opens a folder or creates another window. If activation started with no active
+  // workspace, the same window reloads once so Lifecycle and Configuration can bind to the selected
+  // repository instead of remaining stuck in their empty state.
   const selecting = extension.slice(extension.indexOf('async function selectWorkspace'),
     extension.indexOf("registerCommand('singularityFlow.openWorkspace'"));
-  assert.doesNotMatch(selecting, /reloadWindow|vscode\.openFolder/,
-    'selecting a workspace neither reloads the window nor opens a folder');
+  assert.doesNotMatch(selecting, /vscode\.openFolder/,
+    'selecting a workspace never opens a folder or creates another window');
+  assert.match(selecting, /if \(!workspaceSelected\.length\)[\s\S]*reloadWindow/,
+    'the first selection reloads the same window only when repository services were never created');
 
   // Resolution consults the active workspace before the open folder, not after it.
   const active = extension.indexOf('const active = await activeWorkspaceLead(context, output);');
@@ -465,9 +468,9 @@ test('choosing a workspace is what scopes the rest', async () => {
     assert.ok(field in shape, `\`workspace current --json\` emits '${field}'`);
   }
 
-  // And the empty state leads with choosing one rather than with anything else.
+  // Lifecycle now points up to the Workspace surface instead of duplicating its setup actions.
   const tree = await readFile(new URL('../apps/vscode/src/views/tree-model.ts', import.meta.url), 'utf8');
-  assert.match(tree, /label: 'Choose a workspace to work in', description: 'start here'/);
+  assert.match(tree, /label: 'Select a workspace above to start intake', description: 'workspace required'/);
 });
 
 /**

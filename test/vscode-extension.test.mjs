@@ -329,23 +329,24 @@ test('a repository that will not load offers the file to fix and the full report
 });
 
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
-  const [node] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
+  const [node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
   assert.match(node.label, /Nothing is checked out/);
   assert.equal(node.description, '2 available');
-  // Offered as an action rather than a command to retype; the tooltip no longer carries one.
-  assert.equal(node.contextValue, 'sflow.start');
+  assert.equal(node.contextValue, 'sflow.lifecycle.empty');
+  assert.equal(start.runCommand, 'singularityFlow.startWork');
 });
 
 test('a repository with nothing started at all offers the command that starts something', () => {
-  const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  const [node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.match(node.label, /No work has been started/);
-  assert.equal(node.contextValue, 'sflow.start');
+  assert.equal(start.contextValue, 'sflow.start');
+  assert.equal(start.label, 'Start intake');
 });
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
-  // The work in flight, and the shapes work can take. Repository configuration has its own view.
-  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'workflows']);
+  // Once intake has selected a workflow, Lifecycle shows only that work and its phases.
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -780,9 +781,10 @@ test('pinned sources appear in the tree, and an empty list reads as a finding', 
 });
 
 test('an empty repository offers to start an Epic rather than describing the command', () => {
-  const [node] = buildTree({ initiative: null, initiatives: [], workItems: [] });
-  assert.equal(node.contextValue, 'sflow.start');
-  assert.doesNotMatch(node.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
+  const [, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  assert.equal(start.contextValue, 'sflow.start');
+  assert.equal(start.runCommand, 'singularityFlow.startWork');
+  assert.doesNotMatch(start.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
 });
 
 test('configuration is shown whether or not an Epic is checked out', () => {
@@ -794,11 +796,11 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     const configuration = find(tree, 'configuration');
     assert.ok(configuration, 'configuration is always reachable');
     const children = configuration.children.map((child) => child.id);
-    // workflow and portfolio first: they define everything the other sets are instances of.
-    // The world model leads: it is the one thing under Configuration that is built rather than
-    // edited, and it used to sit in the Lifecycle tree as though it were a stage.
-    assert.deepEqual(children.slice(0, 3),
-      ['world-model', 'config:workflow', 'config:portfolio']);
+    // The world model leads; workflow and phase creation have one explicit design group.
+    assert.deepEqual(children.slice(0, 2), ['world-model', 'config:workflow-design']);
+    const design = find(tree, 'config:workflow-design');
+    assert.deepEqual(design.children.map((child) => child.id),
+      ['config:designer', 'config:workflow', 'config:portfolio']);
     for (const set of ['config:templates', 'config:skills', 'config:agents']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
@@ -1403,10 +1405,10 @@ test('a capability map that does not validate reports the engine reason', () => 
  * in. Workflows stayed: the question a workflow answers — what kind of work is this? — is asked at
  * the moment of starting, in this view, and a list of what you can start is not a settings file.
  */
-test('Lifecycle holds work and the shapes work can take; Configuration holds the rest', () => {
+test('Lifecycle owns intake and active phases; Configuration owns their design', () => {
   const lifecycle = buildTree(snapshot);
   const configurationTree = buildConfigurationTree(snapshot);
-  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI', 'workflows']);
+  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI']);
   assert.equal(find(lifecycle, 'configuration'), undefined, 'settings do not crowd the intake view');
   assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
   assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
@@ -1415,24 +1417,24 @@ test('Lifecycle holds work and the shapes work can take; Configuration holds the
   // built rather than edited.
   const configuration = find(configurationTree, 'configuration');
   assert.equal(configuration.children[0].id, 'world-model');
-  assert.equal(find(configurationTree, 'workflows'), undefined, 'workflows are offered where work starts');
+  assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
 
   // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one
   // opens the file that defines it rather than being a label that does nothing.
   const withWorkflows = structuredClone(snapshot);
   withWorkflows.portfolio = { initiativeProfiles: { 'epic-planning': { label: 'Epic planning', phases: ['a', 'b'] } } };
   withWorkflows.definition = { ...withWorkflows.definition, workTypes: { feature: { label: 'Feature', phases: ['x'] } } };
-  const workflows = find(buildTree(withWorkflows), 'workflows');
+  const intake = buildTree({ ...withWorkflows, initiative: null, initiatives: [], workItems: [] });
+  const workflows = find(intake, 'workflows');
   assert.equal(workflows.description, '2');
   assert.deepEqual(workflows.children.map((child) => child.label), ['Epic planning', 'Feature']);
   assert.match(workflows.children[0].description, /^initiative · a → b$/);
   assert.match(workflows.children[1].description, /^story · x$/);
-  assert.match(workflows.children[0].path, /portfolio\.yml$/);
-  assert.match(workflows.children[1].path, /workflow\.yml$/);
+  assert.equal(workflows.children[0].path, undefined, 'Lifecycle chooses; Configuration edits');
+  assert.equal(workflows.children[1].path, undefined, 'Lifecycle chooses; Configuration edits');
 
   // A workflow is still listed before anything has been started: it is how you choose what to start.
-  const empty = buildTree({ ...withWorkflows, initiative: null, initiatives: [], workItems: [] });
-  assert.deepEqual(empty.map((node) => node.id), ['no-initiative', 'workflows']);
+  assert.deepEqual(intake.map((node) => node.id), ['no-initiative', 'start-intake', 'workflows']);
 });
 
 test('every agent is listed, including the ones that ship with the product', () => {
@@ -1958,7 +1960,7 @@ test('the page carries the directories it needs to answer without a round trip',
   assert.doesNotMatch(html, /<script/);
 });
 
-const { buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
+const { buildCapabilityTree, buildWorkspaceScopeTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
 test('workspaces are direct one-click selectors with their repository context in the tooltip', () => {
@@ -2001,6 +2003,20 @@ test('an empty registry offers the one thing to do about it', () => {
   const [empty] = buildWorkspaceTree([]);
   assert.equal(empty.contextValue, 'sflow.workspaces.empty');
   assert.match(empty.label, /No workspaces yet/);
+});
+
+test('workspace scope keeps the local directory and capabilities together', () => {
+  const capabilities = [{
+    kind: 'group', id: 'capability:commerce', label: 'Commerce', icon: 'type-hierarchy'
+  }];
+  const tree = buildWorkspaceScopeTree(REGISTRY, capabilities);
+  const scope = tree.find((node) => node.id === 'workspace:scope');
+  assert.equal(scope.label, 'commerce scope');
+  assert.equal(scope.description, 'local directory + capabilities');
+  assert.equal(scope.children[0].label, 'Local directory');
+  assert.equal(scope.children[0].description, '/work/commerce');
+  assert.equal(scope.children[1].label, 'Capabilities');
+  assert.deepEqual(scope.children[1].children, capabilities);
 });
 
 /** What a capability shows about itself, and what it contains — the same split the commands make. */

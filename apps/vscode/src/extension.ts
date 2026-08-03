@@ -30,7 +30,7 @@ import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import {
-  buildCapabilityTree, buildRemoteCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf,
+  buildCapabilityTree, buildWorkspaceScopeTree, capabilityIdOf, workspacePathOf,
   type CapabilityReadiness
 } from './views/navigation-trees.ts';
 import type { DesktopSnapshot } from './cli/snapshot.ts';
@@ -80,11 +80,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * the lead repository, so until there is one the tree says that rather than being absent — a
    * contributed view with no provider reports on the extension rather than on the folder.
    */
-  const capabilityTree = new NodeTreeProvider();
   const workspaceTree = new NodeTreeProvider();
-  context.subscriptions.push(capabilityTree, workspaceTree);
+  let workspaceEntries: WorkspaceEntry[] = [];
+  let workspaceCapabilities: TreeNode[] = [];
+  const drawWorkspaceScope = (): void =>
+    workspaceTree.replace(buildWorkspaceScopeTree(workspaceEntries, workspaceCapabilities));
+  context.subscriptions.push(workspaceTree);
   context.subscriptions.push(
-    vscode.window.createTreeView('singularityFlow.capabilities', { treeDataProvider: capabilityTree }),
     vscode.window.createTreeView('singularityFlow.workspaces', { treeDataProvider: workspaceTree })
   );
 
@@ -113,11 +115,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The same sentence the view is showing, so a command and the tree never disagree about why
     // there is nothing to act on.
     unavailableReason = detail;
-    capabilityTree.replace(buildCapabilityTree(null, detail));
-    // The map is not in the open folder — it is in the lead repository. So a window with nothing
-    // open is not a window with nothing to show, and saying otherwise sends people looking for a
-    // checkout they were never meant to need.
-    void showMappedOrganisation();
+    workspaceCapabilities = [];
+    drawWorkspaceScope();
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
     const configuration = new LifecycleTreeProvider(null, [{
@@ -132,30 +131,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       treeDataProvider: configuration
     }));
   };
-
-  /**
-   * Show the capability map of an organisation already mapped, when the open folder has none.
-   *
-   * Best effort by design: no lead remembered, an unreachable remote or a lead with no map all leave
-   * the tree saying what it already says. This can only add.
-   */
-  async function showMappedOrganisation(): Promise<void> {
-    try {
-      const location = resolveCli({ extensionPath: context.extensionPath });
-      const client = new SingularityFlowClient({
-        location, repository: process.cwd(), onOutput: () => {}
-      });
-      const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
-      const url = leads.find((lead) => lead.url)?.url;
-      if (!url) return;
-      const organisation = await client.run<{ capabilities?: unknown[] }>(
-        ['capability', 'organisation', url, '--json']);
-      if (!organisation.capabilities?.length) return;
-      capabilityTree.replace(buildRemoteCapabilityTree(url, organisation.capabilities as never));
-    } catch (error) {
-      output.appendLine(`No mapped organisation to show: ${(error as Error).message}`);
-    }
-  }
 
   /**
    * Create a workspace, then offer its append-only state branch and open the lead repository.
@@ -301,10 +276,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const entries = await new SingularityFlowClient({
         location, repository: process.cwd(), onOutput: () => {}
       }).run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
-      workspaceTree.replace(buildWorkspaceTree(entries));
+      workspaceEntries = entries;
+      drawWorkspaceScope();
     } catch (error) {
       output.appendLine(`Could not read the workspace registry: ${(error as Error).message}`);
-      workspaceTree.replace(buildWorkspaceTree([]));
+      workspaceEntries = [];
+      drawWorkspaceScope();
     }
   };
   /**
@@ -334,6 +311,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => chooser.run(['workspace', 'use', target, '--json'])
       );
       await refreshWorkspaceTree();
+      // When activation began without a selected workspace, Lifecycle and Configuration were
+      // registered with their honest empty-state providers and the repository services below were
+      // never created. Reload this same window once so extension activation can bind those views to
+      // the newly selected lead repository. This is not "Open workspace" and never creates another
+      // VS Code window.
+      if (!workspaceSelected.length) {
+        void vscode.window.showInformationMessage(
+          `${name} selected. Loading its Lifecycle and Configuration in this window.`);
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+        return;
+      }
       for (const follow of workspaceSelected) await follow(leadPath, name);
     } catch (error) {
       void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
@@ -472,8 +460,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // snapshot speed saying "not checked", and fills in when the answer arrives. A tree that waits on
   // the network to show what a repository is called is a tree that is blank when the VPN is off.
   let readiness: CapabilityReadiness = {};
-  const drawCapabilities = (state: { snapshot: DesktopSnapshot | null; error?: Error | null }): void =>
-    capabilityTree.replace(buildCapabilityTree(state.snapshot, state.error?.message ?? null, readiness));
+  const drawCapabilities = (state: { snapshot: DesktopSnapshot | null; error?: Error | null }): void => {
+    workspaceCapabilities = buildCapabilityTree(state.snapshot, state.error?.message ?? null, readiness);
+    drawWorkspaceScope();
+  };
 
   const refreshReadiness = async (): Promise<void> => {
     try {

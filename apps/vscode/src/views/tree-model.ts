@@ -200,38 +200,18 @@ export function unavailableTree(
     ...(contextValue ? { contextValue } : {}),
     children: [
       { kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' },
-      // A state that explains itself and offers nothing is a dead end. Work happens in a workspace,
-      // so choosing one leads — and every row here works from a window with nothing open, which is
-      // exactly where this state occurs.
+      // Lifecycle is deliberately not another workspace-setup surface. The Workspaces view above
+      // owns local directories and capability mapping; this view begins at intake once one is
+      // selected. Repeating create/map actions here made the three concepts look interchangeable.
       {
         kind: 'action', id: 'unavailable:workspaces',
-        label: 'Choose a workspace to work in', description: 'start here',
-        tooltip: 'A workspace is the capabilities being worked on and the directory they are worked '
-          + 'in. Everything else is scoped to it.',
+        label: 'Select a workspace above to start intake', description: 'workspace required',
+        tooltip: 'Workspace selection establishes the local directory and capability scope. '
+          + 'Lifecycle then starts intake and asks which workflow to use.',
         icon: 'root-folder', runCommand: 'singularityFlow.openWorkspaces'
       },
-      {
-        kind: 'action', id: 'unavailable:create', label: 'Create a workspace',
-        icon: 'add', runCommand: 'singularityFlow.createWorkspace'
-      },
-      {
-        kind: 'action', id: 'unavailable:bootstrap',
-        label: 'Map a capability',
-        tooltip: 'Describe what this organisation builds and which repository each part ships from. '
-          + 'Nothing is checked out. Do this first if there is nothing to build a workspace from.',
-        icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
-      },
-      ...(leadRepository ? [{
-        kind: 'action' as const, id: 'unavailable:lead',
-        label: 'Open this workspace\'s lead repository',
-        description: leadRepository.split('/').at(-1),
-        icon: 'repo', openPath: leadRepository, runCommand: 'singularityFlow.openWorkspace'
-      }] : []),
-      ...(contextValue === 'sflow.uninitialized' ? [{
-        kind: 'action' as const, id: 'unavailable:init',
-        label: 'Initialize Singularity Flow in this folder',
-        icon: 'add', runCommand: 'singularityFlow.init'
-      }] : [])
+      // Creating, opening, initializing and capability-mapping are all workspace concerns and are
+      // intentionally offered by the Workspaces view instead of being repeated here.
     ]
   }];
 }
@@ -305,16 +285,24 @@ export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Erro
       tooltip: available
         ? 'Check out a governed branch, or start something new.'
         : 'An Initiative, an Epic or a Story — with or without a tracker.',
-      // The one thing to do from an empty repository, offered rather than described. A tree that
-      // explains a command you must retype into a terminal is a worse tree than one with a button.
+      contextValue: 'sflow.lifecycle.empty'
+    }, {
+      kind: 'action',
+      id: 'start-intake',
+      label: 'Start intake',
+      description: 'choose work and workflow',
+      tooltip: 'Choose Initiative, Epic or Story intake, then select the configured workflow that '
+        + 'will govern its phases.',
+      icon: 'play-circle',
+      runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
     }, workflowsNode(snapshot)];
   }
 
-  // Work, and the shapes work can take. Both belong here: a workflow is not configuration in the
-  // sense the other files are — it is the list of things you can start, and the question it answers
-  // ("what kind of work is this?") is asked at the moment of starting, in this view.
-  return [initiativeNode(initiative), workflowsNode(snapshot)];
+  // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
+  // phases; showing every other configured workflow beside it made Configuration and Lifecycle look
+  // like duplicate workflow browsers.
+  return [initiativeNode(initiative)];
 }
 
 /**
@@ -378,7 +366,7 @@ function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
   return {
     kind: 'group',
     id: 'workflows',
-    label: 'Workflows',
+    label: 'Choose a workflow during intake',
     icon: 'git-merge',
     description: rows.length ? `${rows.length}` : 'none',
     tooltip: 'The shapes work can take here. A workflow is an ordered list of phases; which of them '
@@ -393,10 +381,8 @@ function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
         description: `${row.governs} · ${row.phases.join(' → ')}`,
         tooltip: `${row.id}\nDefined in ${row.path}. Edit it in the Designer or in the file.`,
         icon: row.governs === 'initiative' ? 'rocket' : 'git-branch',
-        // Opens where it is written. A row naming a workflow and doing nothing when clicked is the
-        // kind of dead end that makes a tree feel like a picture of the product.
-        path: row.path,
-        contextValue: 'sflow.workflow'
+        // Lifecycle presents the available choice. Editing its definition belongs in Configuration.
+        contextValue: 'sflow.workflow.choice'
       }))
       : [{
         kind: 'message' as const,
@@ -510,7 +496,7 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
     files: Array<{ path: string; name: string; scope?: string; description?: string }>;
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
-    { id: 'skills', label: 'Skills', icon: 'book', files: packs }
+    { id: 'skills', label: 'Skills and prompt packs', icon: 'book', files: packs }
   ];
 
   const nodes: TreeNode[] = sets.map((set) => ({
@@ -542,7 +528,7 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
   nodes.push({
     kind: 'group',
     id: 'config:agents',
-    label: 'Agents',
+    label: 'Agents and prompts',
     description: agents.length ? `${agents.length}` : 'none',
     icon: 'hubot',
     children: [
@@ -592,14 +578,20 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
     children: [
       worldModelNode(snapshot),
       {
-        kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
-        description: 'phases, agent defaults, grounding', icon: 'layers',
-        path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'
-      },
-      {
-        kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml',
-        description: 'profiles, approvers, repositories', icon: 'organization',
-        path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
+        kind: 'group', id: 'config:workflow-design', label: 'Workflow and phase design',
+        description: 'workflows, phases, gates', icon: 'symbol-structure',
+        children: [{
+          kind: 'action', id: 'config:designer', label: 'Open Workflow Designer',
+          description: 'visual editor', icon: 'layout', runCommand: 'singularityFlow.openDesigner'
+        }, {
+          kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
+          description: 'Story workflows, phases, agent defaults, grounding', icon: 'layers',
+          path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'
+        }, {
+          kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml',
+          description: 'Initiative profiles, gates, approvers, repositories', icon: 'organization',
+          path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
+        }]
       },
       ...fileSetNodes(snapshot)
     ]

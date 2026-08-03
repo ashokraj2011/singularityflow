@@ -10,6 +10,7 @@
  */
 import * as vscode from 'vscode';
 import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
+import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -129,10 +130,14 @@ export class CapabilitiesPanel {
 
   private render(): void {
     const map = this.store.current.snapshot?.capabilityMap;
+    const dashboard = buildCapabilityDashboard(this.store.current.snapshot);
     const token = nonce();
     this.panel.webview.html = page(
       'Capabilities',
-      bodyHtml(map?.capabilities ?? [], this.selected, this.adding, this.error ?? map?.error ?? null),
+      bodyHtml(
+        map?.capabilities ?? [], this.selected, this.adding,
+        this.error ?? map?.error ?? null, dashboard
+      ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       SCRIPT

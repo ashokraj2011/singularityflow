@@ -1047,6 +1047,10 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
   assert.ok(panel, 'a capabilities panel was created');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.match(panel.webview.html, /Capability portfolio/);
+  assert.match(panel.webview.html, /Organisation at a glance/);
+  assert.ok(panel.webview.html.indexOf('Capability portfolio') < panel.webview.html.indexOf('data-select="enterprise"'),
+    'the capability dashboard is above the map');
   // A fresh repository is seeded with a root and a product beneath it.
   assert.match(panel.webview.html, /data-select="enterprise"/);
   assert.match(panel.webview.html, /data-select="product"/);
@@ -1437,8 +1441,12 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   await until(() => (panel.webview.html.includes('commerce-spike') ? true : null));
   assert.doesNotMatch(panel.webview.html, /shared directory/);
 
-  // Renaming is an edit a local thing is allowed to have.
-  await panel.post({ type: 'rename', path: workspaceRoot, name: 'Commerce platform' });
+  // Editing is explicit and keeps all current capabilities while changing the local label.
+  await panel.post({ type: 'edit', path: workspaceRoot });
+  assert.match(panel.webview.html, /data-field="edit-name"/);
+  assert.match(panel.webview.html, /data-edit-remove="payments"/);
+  await panel.post({ type: 'edit-draft', field: 'edit-name', value: 'Commerce platform' });
+  await panel.post({ type: 'edit-save', path: workspaceRoot });
   await until(() => (panel.webview.html.includes('Commerce platform') ? true : null));
   assert.match(readFileSync(path.join(workspaceRoot, 'workspace.json'), 'utf8'), /Commerce platform/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');

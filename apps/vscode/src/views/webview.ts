@@ -305,7 +305,62 @@ export const STYLE = `
   .sources { padding-left: 1.15rem; }
   .empty { padding: 3.5rem 0; color: var(--sf-dim); text-align: center; }
   .remedy { margin: .5rem 0 0; font-size: .9em; color: var(--sf-dim); }
-`;
+
+  /* Workflow and artifact studio. Dense enough for configuration work, but each action still has
+     one obvious place and keyboard-accessible controls. */
+  .designer-tabs { display: flex; gap: .55rem; border: 0; margin: 1.1rem 0; }
+  .toolbar-row { display: flex; align-items: end; gap: .65rem; flex-wrap: wrap; margin: .65rem 0; }
+  .toolbar-row h2 { margin: 0; }
+  .field.full { grid-column: 1 / -1; }
+  .field.compact { display: grid; min-width: 16rem; }
+  .field textarea { width: 100%; box-sizing: border-box; }
+  .checkbox-field { grid-template-columns: auto 1fr; align-items: center; align-content: center; }
+  .form-actions { display: flex; gap: .6rem; align-items: center; margin-top: 1.15rem; }
+  .add-row { display: flex; gap: .55rem; margin-top: .7rem; align-items: center; }
+  .add-row select { min-width: 18rem; }
+  .empty-state { color: var(--sf-dim); border: 1px dashed var(--sf-dim); border-radius: var(--sf-radius); padding: 1rem; }
+  .raw-escape { margin-top: 1rem; }
+  .workflow-summary { border: var(--sf-border); border-radius: calc(var(--sf-radius) + 2px); padding: 1rem 1.15rem; background: var(--sf-surface); }
+  .workflow-summary h3 { font-size: 1.15rem; margin-top: .1rem; }
+  .workflow-rail { display: flex; align-items: center; gap: .45rem; overflow-x: auto; padding: 1rem 0 .75rem; }
+  .rail-node { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .45rem; white-space: nowrap; padding: .45rem .75rem; border: var(--sf-border); border-radius: 999px; background: var(--vscode-editor-background); }
+  .rail-node b, .step-number { display: inline-grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 50%; color: var(--sf-on-accent); background: var(--sf-accent); font-size: .75rem; flex: 0 0 auto; }
+  .rail-arrow { color: var(--sf-dim); }
+  .sequence-builder { display: grid; gap: .45rem; }
+  .sequence-row { display: flex; align-items: center; gap: .65rem; padding: .55rem .65rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
+  .icon-button { width: 2rem; height: 2rem; padding: 0; border-radius: 6px; background: transparent; border-color: var(--vscode-input-border, rgba(128,128,128,.35)); color: var(--vscode-foreground); }
+  .icon-button:hover:not(:disabled) { background: var(--sf-accent-quiet); border-color: var(--sf-accent); }
+  .icon-button.danger { color: var(--sf-bad); }
+  .template-inventory { margin-top: 1.25rem; }
+  .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .55rem; }
+  button.template-tile { display: grid; justify-content: stretch; text-align: left; gap: .2rem; border-radius: var(--sf-radius); background: var(--sf-surface); color: var(--vscode-foreground); border: var(--sf-border); padding: .75rem; }
+  button.template-tile:hover { background: var(--sf-accent-quiet); border-color: var(--sf-accent); }
+  .template-tile span { color: var(--sf-dim); font-size: .78rem; font-weight: 400; }
+  .artifact-studio { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(16rem, .8fr); gap: 1rem; align-items: start; border: 0; }
+  .artifact-form { margin-top: 0; }
+  .section-canvas { display: grid; gap: .55rem; }
+  .section-block { display: grid; grid-template-columns: auto 1fr auto; gap: .65rem; align-items: start; padding: .65rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
+  .section-block[draggable="true"] { cursor: grab; }
+  .section-block[draggable="true"]:active { cursor: grabbing; }
+  .drag-handle { color: var(--sf-dim); padding-top: .45rem; letter-spacing: -.2rem; }
+  .section-fields { display: grid; gap: .35rem; min-width: 0; }
+  .section-fields input, .section-fields textarea { width: 100%; box-sizing: border-box; }
+  .section-actions { display: flex; gap: .25rem; }
+  .document-preview { position: sticky; top: 1rem; border: var(--sf-border); border-radius: calc(var(--sf-radius) + 3px); padding: 1.25rem; background: var(--vscode-editor-background); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+  .document-preview h1 { font-size: 1.35rem; border-bottom: var(--sf-border); padding-bottom: .7rem; }
+  .document-preview h2 { color: var(--vscode-foreground); font-size: .9rem; text-transform: none; letter-spacing: 0; margin-top: 1rem; }
+  .preview-placeholder { min-height: 2.3rem; padding: .55rem; border: 1px dashed var(--vscode-input-border, rgba(128,128,128,.35)); border-radius: 5px; color: var(--sf-dim); font-size: .8rem; }
+  details { margin-top: 1rem; }
+  summary { cursor: pointer; color: var(--sf-link); }
+  .markdown-preview { max-height: 20rem; overflow: auto; white-space: pre-wrap; padding: .75rem; background: var(--vscode-textCodeBlock-background); border-radius: var(--sf-radius); }
+  input:disabled, select:disabled { opacity: .7; }
+  @media (max-width: 820px) {
+    .artifact-studio { grid-template-columns: 1fr; }
+    .document-preview { position: static; }
+    .workflow-rail { align-items: stretch; }
+    .section-actions { flex-direction: column; }
+  }
+  `;
 
 /** Wrap a rendered body in the document shell, with the CSP and nonce already applied. */
 export function page(title: string, body: string, csp: string, token: string, script = ''): string {

@@ -46,6 +46,8 @@ export interface Phase {
 export interface Profile {
   id: string;
   label: string;
+  description: string;
+  governs: 'story' | 'initiative';
   phases: Phase[];
 }
 
@@ -81,8 +83,19 @@ function inFlight(snapshot: RepositorySnapshot): InitiativeSummary[] {
 }
 
 export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
+  const definition = snapshot.definition as {
+    workTypes?: Record<string, {
+      label?: string; description?: string; phases?: string[]; templateOverrides?: Record<string, string>;
+    }>;
+    phases?: Record<string, {
+      label?: string;
+      artifact?: { path?: string; kind?: string };
+      defaultTemplate?: string;
+      approval?: ApprovalPolicy;
+    }>;
+  } | undefined;
   const portfolio = snapshot.portfolio as {
-    initiativeProfiles?: Record<string, { label?: string; phases?: string[] }>;
+    initiativeProfiles?: Record<string, { label?: string; description?: string; phases?: string[] }>;
     initiativePhases?: Record<string, {
       label?: string;
       outputs?: PhaseOutput[];
@@ -92,9 +105,37 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
   } | undefined;
   const phases = portfolio?.initiativePhases ?? {};
 
-  return Object.entries(portfolio?.initiativeProfiles ?? {}).map(([id, profile]) => ({
+  const storyProfiles = Object.entries(definition?.workTypes ?? {}).map(([id, profile]) => ({
     id,
     label: profile.label ?? id,
+    description: profile.description ?? '',
+    governs: 'story' as const,
+    phases: (profile.phases ?? []).map((phaseId, order) => {
+      const phase = definition?.phases?.[phaseId];
+      const template = profile.templateOverrides?.[phaseId] ?? phase?.defaultTemplate ?? null;
+      return {
+        id: phaseId,
+        label: phase?.label ?? phaseId,
+        order,
+        outputs: [{
+          id: phaseId,
+          label: phase?.label ?? phaseId,
+          kind: phase?.artifact?.kind ?? 'markdown',
+          path: phase?.artifact?.path,
+          template,
+          required: true,
+          approval: phase?.approval
+        }],
+        checklist: [],
+        bundleApproval: phase?.approval
+      };
+    })
+  }));
+  const initiativeProfiles = Object.entries(portfolio?.initiativeProfiles ?? {}).map(([id, profile]) => ({
+    id,
+    label: profile.label ?? id,
+    description: profile.description ?? '',
+    governs: 'initiative' as const,
     phases: (profile.phases ?? []).map((phaseId, order) => {
       const phase = phases[phaseId];
       return {
@@ -107,6 +148,7 @@ export function buildProfiles(snapshot: RepositorySnapshot): Profile[] {
       };
     })
   }));
+  return [...storyProfiles, ...initiativeProfiles];
 }
 
 /**

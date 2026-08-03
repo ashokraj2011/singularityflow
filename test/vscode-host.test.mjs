@@ -1598,16 +1598,27 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.match(panel.webview.html, /Intake|Discover/);
 
   await panel.post({ type: 'tab', tab: 'templates' });
-  assert.match(panel.webview.html, /New template/);
+  assert.match(panel.webview.html, /Artifact template designer/);
+  assert.match(panel.webview.html, /Live document preview/);
   assert.match(panel.webview.html, /data-template-filter/);
 
-  // A name the engine would refuse is refused here, before anything is written.
-  await panel.post({ type: 'create-template', name: '../escape.md' });
+  const artifact = {
+    type: 'save-artifact', phase: 'initiative:discover-define', outputId: 'release-checklist',
+    outputLabel: 'Release checklist', outputPath: 'release-checklist.md',
+    fileName: 'initiatives/release-checklist.md', title: 'Release checklist',
+    purpose: 'Confirm release scope and evidence.', required: true,
+    sections: [
+      { kind: 'checklist', title: 'Completion checklist', guidance: 'Name the exact evidence.' },
+      { kind: 'evidence', title: 'Evidence', guidance: 'Use the approved phase inputs.' }
+    ]
+  };
+  // A path the designer refuses never reaches configuration save.
+  await panel.post({ ...artifact, fileName: '../escape.md' });
   await settle();
-  assert.match(panel.webview.html, /may contain letters, numbers/);
+  assert.match(panel.webview.html, /safe \.md path/);
   assert.equal(existsSync(path.join(root, 'singularity/templates/initiatives/escape.md')), false);
 
-  await panel.post({ type: 'create-template', name: 'release-checklist.md' });
+  await panel.post(artifact);
   // Written beside the templates a profile already points at, not beside whichever file happened to
   // be first — this repository's templates root holds work-item templates too, and an initiative
   // artifact written among those is a file nothing can ever reference.
@@ -1616,8 +1627,8 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   const text = readFileSync(created, 'utf8');
   // Written in the shape every other artifact template follows, so it is usable immediately.
   assert.match(text, /singularity-flow:initiative-metadata/);
-  assert.match(text, /\{\{initiative\.id\}\} — \{\{output\.label\}\}/);
-  assert.match(text, /## Open questions/);
+  assert.match(text, /\{\{initiative\.id\}\} — Release checklist/);
+  assert.match(text, /## Completion checklist/);
   assert.match(text, /\{\{inputs\}\}/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });

@@ -64,7 +64,17 @@ export class WorkspaceStore {
         this.publish({ snapshot, error: null, loading: false });
       } catch (error) {
         if (this.controller !== controller) return;
-        this.publish({ error: error instanceof Error ? error : new Error(String(error)), loading: false });
+        const failure = error instanceof Error ? error : new Error(String(error));
+        // A broken lifecycle definition must block Lifecycle, but it must not hide the files needed
+        // to repair it. Ask the engine for its validation-independent configuration inventory.
+        try {
+          const recovery = await this.client.configurationSnapshot(controller.signal);
+          if (this.controller !== controller) return;
+          this.publish({ snapshot: recovery, error: failure, loading: false });
+        } catch {
+          if (this.controller !== controller) return;
+          this.publish({ error: failure, loading: false });
+        }
       }
     })();
 

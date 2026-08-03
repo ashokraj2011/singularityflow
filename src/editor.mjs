@@ -561,8 +561,32 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
 }
 
 async function configurationSlice(root) {
-  const definition = await loadDefinition(root);
-  const portfolio = await loadPortfolio(root, { required: false });
+  const errors = [];
+  const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
+    label: 'Workflow configuration',
+    type: 'file'
+  });
+  const definitionText = workflowFile.exists ? await readFile(workflowFile.absolute, 'utf8') : '';
+  let definition = {};
+  if (definitionText) {
+    try { definition = YAML.parse(definitionText) ?? {}; }
+    catch (error) { errors.push(`Workflow configuration cannot be parsed: ${error.message}`); }
+  } else errors.push(`Missing ${WORKFLOW_PATH}.`);
+  try { definition = await loadDefinition(root); }
+  catch (error) { errors.push(error.message); }
+
+  const portfolioFile = await secureRepositoryPath(root, PORTFOLIO_PATH, {
+    label: 'Portfolio configuration',
+    type: 'file'
+  });
+  const portfolioText = portfolioFile.exists ? await readFile(portfolioFile.absolute, 'utf8') : null;
+  let portfolio = null;
+  if (portfolioText) {
+    try { portfolio = YAML.parse(portfolioText); }
+    catch (error) { errors.push(`Portfolio configuration cannot be parsed: ${error.message}`); }
+    try { portfolio = await loadPortfolio(root, { required: false }); }
+    catch (error) { errors.push(error.message); }
+  }
   const agentMappings = await secureRepositoryPath(root, AGENT_MAPPING_PATH, {
     label: 'Copilot agent mapping file',
     type: 'file'
@@ -573,15 +597,25 @@ async function configurationSlice(root) {
   });
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
+  const templatesRoot = typeof definition.templatesRoot === 'string'
+    ? definition.templatesRoot
+    : 'singularity/templates';
+  const agentPromptsRoot = typeof definition.agentPromptsRoot === 'string'
+    ? definition.agentPromptsRoot
+    : typeof definition.personaPromptsRoot === 'string'
+      ? definition.personaPromptsRoot
+      : '.github/agents';
   return {
+    configurationValid: errors.length === 0,
+    configurationError: errors.length ? [...new Set(errors)].join(' ') : null,
     definition,
     definitionPath: WORKFLOW_PATH,
-    definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
+    definitionText,
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
-    portfolioText: portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null,
-    templates: await textFiles(root, definition.templatesRoot),
-    agentPrompts: await textFiles(root, definition.agentPromptsRoot),
+    portfolioText,
+    templates: await textFiles(root, templatesRoot),
+    agentPrompts: await textFiles(root, agentPromptsRoot, { extensions: ['.md'] }),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     flowSkills: await bundledFlowSkills(),
     agents: agents.map((agent) => ({

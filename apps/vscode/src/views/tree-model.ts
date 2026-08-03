@@ -244,8 +244,9 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
     id: view === 'lifecycle' ? 'error' : 'configuration:error',
     label: error.message,
     icon: 'error',
-    tooltip: 'Singularity Flow refused to read this repository. Nothing else can be shown until the '
-      + 'configuration loads, so this is the only thing here.'
+    tooltip: view === 'configuration'
+      ? 'Singularity Flow refused to use this configuration. Its files remain visible below so it can be repaired.'
+      : 'Singularity Flow refused to run this lifecycle until the configuration is repaired.'
   }, ...(named ? [{
     kind: 'artifact' as const,
     id: `${view}:error:open`,
@@ -316,14 +317,17 @@ export function buildConfigurationTree(
   snapshot: RepositorySnapshot | null,
   error: Error | null = null
 ): TreeNode[] {
-  if (error) return configurationFailure(error, 'configuration');
+  if (error && !snapshot) return configurationFailure(error, 'configuration');
   if (!snapshot) {
     return [{
       kind: 'message', id: 'configuration:loading', label: 'Reading repository configuration…',
       icon: 'loading~spin'
     }];
   }
-  return [configurationNode(snapshot)];
+  return [
+    ...(error ? configurationFailure(error, 'configuration') : []),
+    configurationNode(snapshot)
+  ];
 }
 
 /** Kept as the public lifecycle builder for callers compiled against the earlier name. */
@@ -496,6 +500,10 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
     files: Array<{ path: string; name: string; scope?: string; description?: string }>;
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
+    {
+      id: 'prompts', label: 'Prompts and instructions', icon: 'comment-discussion',
+      files: snapshot.agentPrompts ?? snapshot.personaPrompts ?? []
+    },
     { id: 'skills', label: 'Skills and prompt packs', icon: 'book', files: packs }
   ];
 
@@ -571,7 +579,9 @@ function configurationNode(snapshot: RepositorySnapshot): TreeNode {
     id: 'configuration',
     label: 'Configuration',
     icon: 'settings-gear',
-    description: ledger?.enabled ? `state on ${ledger.branch ?? 'ledger'}` : 'no state branch',
+    description: snapshot.configurationValid === false
+      ? 'repair required'
+      : ledger?.enabled ? `state on ${ledger.branch ?? 'ledger'}` : 'no state branch',
     tooltip: ledger?.enabled
       ? `Workflow progress is recorded on the orphan branch '${ledger.branch}'.`
       : 'No append-only workflow ledger is enabled for this repository.',

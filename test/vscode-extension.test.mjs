@@ -328,6 +328,31 @@ test('a repository that will not load offers the file to fix and the full report
   assert.equal(vague[1].runCommand, 'singularityFlow.doctor');
 });
 
+test('Configuration keeps workflows agents prompts and skills visible while Lifecycle is blocked', () => {
+  const refused = new Error('workflow.yml version must be 2. Legacy role configurations are not supported.');
+  const recovery = {
+    initiative: null, initiatives: [], workItems: [], workflow: null,
+    configurationValid: false,
+    definitionPath: 'singularity/workflow.yml',
+    definition: { version: 1, workTypes: { feature: { phases: ['intake'] } } },
+    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
+    agentPrompts: [{ path: '.github/agents/architect.agent.md', name: 'architect.agent.md' }],
+    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }],
+    flowSkills: [{ id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md' }],
+    agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true }]
+  };
+  const lifecycle = buildTree(recovery, refused);
+  assert.equal(find(lifecycle, 'configuration'), undefined, 'invalid configuration still blocks lifecycle authority');
+
+  const configuration = buildConfigurationTree(recovery, refused);
+  assert.ok(find(configuration, 'configuration'), 'the configuration inventory remains available');
+  assert.ok(find(configuration, 'config:workflow-design'));
+  assert.ok(find(configuration, 'config:templates'));
+  assert.ok(find(configuration, 'config:prompts'));
+  assert.ok(find(configuration, 'config:skills'));
+  assert.ok(find(configuration, 'config:agents'));
+});
+
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
   const [node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
   assert.match(node.label, /Nothing is checked out/);

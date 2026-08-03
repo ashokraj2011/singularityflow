@@ -259,12 +259,16 @@ export interface RepositorySnapshot {
     [key: string]: unknown;
   };
   definitionPath?: string;
+  /** Validation may fail while the configuration inventory remains safely readable. */
+  configurationValid?: boolean;
+  configurationError?: string | null;
   /**
    * The editable file sets: artifact templates, working-lens prompts, repository skills and prompt
    * packs. They arrive with their contents, but the extension only reads their paths — editing
    * happens in ordinary editor tabs, against the files on disk.
    */
   templates?: Array<{ path: string; name: string; bytes?: number }>;
+  agentPrompts?: Array<{ path: string; name: string; bytes?: number }>;
   personaPrompts?: Array<{ path: string; name: string; bytes?: number }>;
   repositorySkills?: Array<{ path: string; name: string; bytes?: number }>;
   /**

@@ -431,6 +431,36 @@ test('the built extension activates against a real repository and populates the 
   assert.deepEqual(registered.errors, [], 'activation raised no error dialogs');
 });
 
+test('a legacy workflow blocks Lifecycle but leaves all repairable configuration visible', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.version = 1;
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const lifecycleProvider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
+
+  const configurationProvider = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const roots = configurationProvider.getChildren();
+  assert.match(roots[0].label, /version must be 2/);
+  const configuration = roots.find((node) => node.id === 'configuration');
+  assert.ok(configuration, 'Configuration inventory remains present below the validation finding');
+  const groups = configurationProvider.getChildren(configuration).map((node) => node.id);
+  assert.ok(groups.includes('config:workflow-design'), 'workflow and phase files remain visible');
+  assert.ok(groups.includes('config:templates'), 'artifact templates remain visible');
+  assert.ok(groups.includes('config:prompts'), 'prompts remain visible');
+  assert.ok(groups.includes('config:skills'), 'skills and prompt packs remain visible');
+  assert.ok(groups.includes('config:agents'), 'agents remain visible');
+  assert.deepEqual(registered.errors, [], 'degraded configuration is rendered rather than raised as an editor error');
+});
+
 test('a folder that is not a Singularity Flow repository still gets a provider that says so', async (t) => {
   if (!requireBundle(t)) return;
   // This test previously asserted that NO tree was registered, which is exactly what made VS Code

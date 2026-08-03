@@ -30,10 +30,8 @@ import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import {
-  buildCapabilityTree, buildWorkspaceScopeTree, capabilityIdOf, workspacePathOf,
-  type CapabilityReadiness
+  buildWorkspaceTree, capabilityIdOf, workspacePathOf, type CapabilityReadiness
 } from './views/navigation-trees.ts';
-import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { SecureCredentials } from './credentials.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -172,18 +170,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openCopilot'
   ];
-  /**
-   * The two navigation trees, registered before anything can go wrong.
-   *
-   * Workspaces are machine-wide and are populated whatever the open folder is. Capabilities need
-   * the lead repository, so until there is one the tree says that rather than being absent — a
-   * contributed view with no provider reports on the extension rather than on the folder.
-   */
+  /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
   let workspaceEntries: WorkspaceEntry[] = [];
-  let workspaceCapabilities: TreeNode[] = [];
-  const drawWorkspaceScope = (): void =>
-    workspaceTree.replace(buildWorkspaceScopeTree(workspaceEntries, workspaceCapabilities));
+  const drawWorkspaces = (): void => workspaceTree.replace(buildWorkspaceTree(workspaceEntries));
   context.subscriptions.push(workspaceTree);
   context.subscriptions.push(
     vscode.window.createTreeView('singularityFlow.workspaces', { treeDataProvider: workspaceTree })
@@ -214,8 +204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The same sentence the view is showing, so a command and the tree never disagree about why
     // there is nothing to act on.
     unavailableReason = detail;
-    workspaceCapabilities = [];
-    drawWorkspaceScope();
+    drawWorkspaces();
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
     const configuration = new LifecycleTreeProvider(null, [{
@@ -378,11 +367,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         location, repository: process.cwd(), onOutput: () => {}
       }).run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
       workspaceEntries = entries;
-      drawWorkspaceScope();
+      drawWorkspaces();
     } catch (error) {
       output.appendLine(`Could not read the workspace registry: ${(error as Error).message}`);
       workspaceEntries = [];
-      drawWorkspaceScope();
+      drawWorkspaces();
     }
   };
   /**
@@ -586,20 +575,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
     }
   });
-  // The capability tree is the map as the lead repository states it, so it follows the snapshot
-  // rather than being refreshed by whoever happened to change it.
-  //
-  // Readiness — does the orphan state branch exist, is there a world model — is not in the map and
-  // not in the snapshot. It is one `ls-remote` per repository against remotes that may be slow or
-  // unreachable, so it is asked once beside the render rather than inside it: the tree appears at
-  // snapshot speed saying "not checked", and fills in when the answer arrives. A tree that waits on
-  // the network to show what a repository is called is a tree that is blank when the VPN is off.
+  // Capability readiness is remote-derived status (state branch and world-model availability), not
+  // configuration. Read it after the local snapshot so Configuration renders immediately and then
+  // gains the remote status without delaying activation when VPN access is unavailable.
   let readiness: CapabilityReadiness = {};
-  const drawCapabilities = (state: { snapshot: RepositorySnapshot | null; error?: Error | null }): void => {
-    workspaceCapabilities = buildCapabilityTree(state.snapshot, state.error?.message ?? null, readiness);
-    drawWorkspaceScope();
-  };
-
+  let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (): Promise<void> => {
     try {
       const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
@@ -609,25 +589,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['capability', 'organisation', url, '--readiness', '--json']);
       if (!organisation.readiness) return;
       readiness = organisation.readiness;
-      drawCapabilities(store.current);
+      configurationTree?.refresh();
     } catch (error) {
-      // Every repository being unreachable is a normal state on a laptop, and it is not a reason to
-      // interrupt: the tree already says "not checked", which is exactly what is true.
       output.appendLine(`Capability readiness could not be read: ${(error as Error).message}`);
     }
   };
-
-  context.subscriptions.push(store.onDidChange(drawCapabilities));
-  drawCapabilities(store.current);
-  void refreshReadiness();
-
   // Governed configuration is edited in ordinary tabs; saving one asks the engine whether the result
   // is still valid, so a broken workflow.yml is reported where it was typed rather than by a command
   // failing later for a reason that looks unrelated.
   context.subscriptions.push(new ConfigurationValidator(client));
 
   const tree = new LifecycleTreeProvider(store);
-  const configurationTree = new LifecycleTreeProvider(store, [], buildConfigurationTree);
+  configurationTree = new LifecycleTreeProvider(
+    store, [], (snapshot, error) => buildConfigurationTree(snapshot, error, readiness));
   context.subscriptions.push(tree, configurationTree);
   context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
     treeDataProvider: tree,
@@ -636,6 +610,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeDataProvider: configurationTree,
     showCollapseAll: true
   }));
+  void refreshReadiness();
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'singularityFlow.refresh';
@@ -929,9 +904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
     'singularityFlow.startWork': startWork,
     'singularityFlow.addSource': addSource,
-    // Refresh asks the remotes again too: the state branch somebody just created is the whole reason
-    // they would press it.
-    'singularityFlow.refresh': async () => { void refreshReadiness(); await store.refresh(); },
+    'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },
     'singularityFlow.openArtifact':
       ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,
     'singularityFlow.runAction': runNode as never,

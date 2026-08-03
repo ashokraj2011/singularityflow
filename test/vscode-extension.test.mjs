@@ -1450,6 +1450,12 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   assert.equal(configuration.children[0].id, 'config:local-profile');
   assert.equal(configuration.children[1].id, 'world-model');
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
+  const capabilities = find(configurationTree, 'config:capabilities');
+  assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');
+  assert.equal(capabilities.children[0].runCommand, 'singularityFlow.addCapability');
+  assert.equal(capabilities.children[0].label, 'Add capability');
+  assert.equal(capabilities.children[1].runCommand, 'singularityFlow.openCapabilities');
+  assert.ok(find(configurationTree, 'config:capabilities:file'), 'the governed YAML remains directly openable');
 
   // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one
   // opens the file that defines it rather than being a label that does nothing.
@@ -2024,7 +2030,7 @@ test('the page carries the directories it needs to answer without a round trip',
   assert.doesNotMatch(html, /<script/);
 });
 
-const { buildCapabilityTree, buildWorkspaceScopeTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
+const { buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
 test('workspace rows open their details while selection remains a separate action', () => {
@@ -2066,20 +2072,6 @@ test('an empty registry offers the one thing to do about it', () => {
   const [empty] = buildWorkspaceTree([]);
   assert.equal(empty.contextValue, 'sflow.workspaces.empty');
   assert.match(empty.label, /No workspaces yet/);
-});
-
-test('workspace scope keeps the local directory and capabilities together', () => {
-  const capabilities = [{
-    kind: 'group', id: 'capability:commerce', label: 'Commerce', icon: 'type-hierarchy'
-  }];
-  const tree = buildWorkspaceScopeTree(REGISTRY, capabilities);
-  const scope = tree.find((node) => node.id === 'workspace:scope');
-  assert.equal(scope.label, 'commerce scope');
-  assert.equal(scope.description, 'local directory + capabilities');
-  assert.equal(scope.children[0].label, 'Local directory');
-  assert.equal(scope.children[0].description, '/work/commerce');
-  assert.equal(scope.children[1].label, 'Capabilities');
-  assert.deepEqual(scope.children[1].children, capabilities);
 });
 
 /** What a capability shows about itself, and what it contains — the same split the commands make. */

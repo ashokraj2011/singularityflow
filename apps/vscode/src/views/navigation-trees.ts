@@ -62,62 +62,6 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
 }
 
 /**
- * The complete workspace surface: saved local directories plus the capabilities of the selected
- * one. A capability is not a fourth top-level product area; it is the scope a workspace was created
- * to work on. Keeping both in one view makes that relationship visible instead of merely true in
- * workspace.json.
- */
-export function buildWorkspaceScopeTree(
-  entries: WorkspaceEntry[],
-  capabilityRoots: TreeNode[] = []
-): TreeNode[] {
-  const workspaces = buildWorkspaceTree(entries);
-  const active = entries.find((entry) => Boolean(entry.active));
-  const mappedCapabilities = capabilityRoots.filter((node) => node.id.startsWith('capability:'));
-  return [...workspaces, {
-    kind: 'group',
-    id: 'workspace:scope',
-    label: active ? `${active.name} scope` : 'Workspace scope',
-    description: active ? 'local directory + capabilities' : 'select a workspace',
-    tooltip: active
-      ? `Local directory: ${active.path}\nCapabilities mapped to this workspace are listed below.`
-      : 'Select a saved workspace above. Its local directory and capabilities become the scope for Lifecycle and Configuration.',
-    icon: 'symbol-namespace',
-    contextValue: 'sflow.workspace.scope',
-    children: active ? [{
-      kind: 'message',
-      id: 'workspace:scope:directory',
-      label: 'Local directory',
-      description: active.path,
-      tooltip: active.path,
-      icon: 'folder'
-    }, {
-      kind: 'group',
-      id: 'workspace:scope:capabilities',
-      label: 'Capabilities',
-      description: mappedCapabilities.length ? `${mappedCapabilities.length}` : 'none mapped',
-      tooltip: 'What this workspace is allowed to plan and deliver.',
-      icon: 'type-hierarchy',
-      contextValue: capabilityRoots.length ? 'sflow.capability' : 'sflow.capabilities.empty',
-      children: capabilityRoots.length ? capabilityRoots : [{
-        kind: 'message',
-        id: 'workspace:scope:capabilities:empty',
-        label: 'No capabilities are mapped to this workspace',
-        description: 'add one',
-        icon: 'info',
-        contextValue: 'sflow.capabilities.empty'
-      }]
-    }] : [{
-      kind: 'message',
-      id: 'workspace:scope:empty',
-      label: 'Select a workspace above',
-      description: 'establishes local and capability scope',
-      icon: 'info'
-    }]
-  }];
-}
-
-/**
  * What the organisation builds, as the tree it already is.
  *
  * A capability that names a repository is a leaf that ships; one that does not groups the

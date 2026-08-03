@@ -14,10 +14,10 @@
  */
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
-  type CapabilityNode,
   type BreakdownStory, type InitiativeOutput, type InitiativeSnapshot,
   type RepositorySnapshot, type PhaseStatus
 } from '../cli/snapshot.ts';
+import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
 
 export type NodeKind =
   | 'message' | 'initiative' | 'phase' | 'pack' | 'artifact'
@@ -317,7 +317,8 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
  */
 export function buildConfigurationTree(
   snapshot: RepositorySnapshot | null,
-  error: Error | null = null
+  error: Error | null = null,
+  readiness: CapabilityReadiness = {}
 ): TreeNode[] {
   if (error && !snapshot) return configurationFailure(error, 'configuration');
   if (!snapshot) {
@@ -328,7 +329,7 @@ export function buildConfigurationTree(
   }
   return [
     ...(error ? configurationFailure(error, 'configuration') : []),
-    configurationNode(snapshot)
+    configurationNode(snapshot, readiness)
   ];
 }
 
@@ -580,7 +581,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
   return nodes;
 }
 
-function configurationNode(snapshot: RepositorySnapshot): TreeNode {
+function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityReadiness = {}): TreeNode {
   const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
   return {
     kind: 'group',
@@ -628,8 +629,55 @@ function configurationNode(snapshot: RepositorySnapshot): TreeNode {
           path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
         }]
       },
+      capabilityConfigurationNode(snapshot, readiness),
       ...fileSetNodes(snapshot)
     ]
+  };
+}
+
+/**
+ * What the organisation builds belongs to Configuration, not to the workspace selector.
+ *
+ * A workspace answers "where am I working?". The capability map is governed repository
+ * configuration that answers "what does this organisation build?". Keeping the editor actions and
+ * the map together also makes adding the first capability discoverable instead of hiding it behind
+ * a synthetic workspace-scope row.
+ */
+function capabilityConfigurationNode(snapshot: RepositorySnapshot, readiness: CapabilityReadiness): TreeNode {
+  const roots = buildCapabilityTree(snapshot, null, readiness);
+  const count = snapshot.capabilityMap?.capabilities?.length ?? 0;
+  return {
+    kind: 'group',
+    id: 'config:capabilities',
+    label: 'Capabilities',
+    description: count ? `${count} mapped` : 'none mapped',
+    tooltip: `The governed capability map is stored in ${snapshot.capabilityMapPath ?? 'singularity/capabilities.yml'}.`,
+    icon: 'type-hierarchy',
+    contextValue: 'sflow.capabilities',
+    children: [{
+      kind: 'action',
+      id: 'config:capabilities:add',
+      label: 'Add capability',
+      description: 'define what the organisation builds',
+      tooltip: 'Create a root capability or add one beneath an existing capability.',
+      icon: 'add',
+      runCommand: 'singularityFlow.addCapability'
+    }, {
+      kind: 'action',
+      id: 'config:capabilities:open',
+      label: 'Open capability designer',
+      description: 'view and edit the full map',
+      icon: 'type-hierarchy',
+      runCommand: 'singularityFlow.openCapabilities'
+    }, {
+      kind: 'artifact',
+      id: 'config:capabilities:file',
+      label: 'capabilities.yml',
+      description: 'governed capability map',
+      icon: 'file-code',
+      path: snapshot.capabilityMapPath ?? 'singularity/capabilities.yml',
+      contextValue: 'sflow.config'
+    }, ...roots]
   };
 }
 

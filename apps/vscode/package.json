@@ -282,12 +282,12 @@
         },
         {
           "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.workspaces",
+          "when": "view == singularityFlow.configuration",
           "group": "navigation@0"
         },
         {
           "command": "singularityFlow.openCapabilities",
-          "when": "view == singularityFlow.workspaces",
+          "when": "view == singularityFlow.configuration",
           "group": "navigation@1"
         },
         {
@@ -317,7 +317,7 @@
         },
         {
           "command": "singularityFlow.mapCapability",
-          "when": "view == singularityFlow.workspaces",
+          "when": "view == singularityFlow.configuration",
           "group": "9_setup@0"
         }
       ],
@@ -354,12 +354,12 @@
         },
         {
           "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.capabilit(y|ies\\.empty)$/",
+          "when": "view == singularityFlow.configuration && viewItem =~ /^sflow\\.capabilit(y|ies(\\.empty)?)$/",
           "group": "inline@0"
         },
         {
           "command": "singularityFlow.editCapability",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.capability",
+          "when": "view == singularityFlow.configuration && viewItem == sflow.capability",
           "group": "inline@1"
         },
         {

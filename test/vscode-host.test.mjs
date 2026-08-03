@@ -1491,14 +1491,14 @@ test('every contributed view has a provider, whatever state the window is in', a
     const missing = contributedViews().filter((id) => !registered.trees.has(id));
     assert.deepEqual(missing, [], `${missing.join(', ')} would report "no data provider registered"`);
 
-    // Workspace and capability scope are one surface rather than two competing views.
+    // Workspaces contains only real saved workspaces. Repository configuration is not represented
+    // as a second, differently-shaped pseudo-workspace.
     const workspace = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
-    assert.ok(workspace.getChildren().some((node) => node.id === 'workspace:scope'),
-      'the workspace tree always says what capability scope applies');
+    assert.equal(workspace.getChildren().some((node) => node.id === 'workspace:scope'), false);
   }
 });
 
-test('the standalone capability screen still edits the map after capability scope moved under Workspaces', async (t) => {
+test('Configuration opens the capability editor and creates new capabilities', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   await writeFile(path.join(root, 'singularity/capabilities.yml'), [
@@ -1513,9 +1513,16 @@ test('the standalone capability screen still edits the map after capability scop
 
   await registered.commands.get('singularityFlow.openCapabilities')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
-  assert.ok(panel, 'the capability editor remains available from the Workspace toolbar');
+  assert.ok(panel, 'the capability editor is available from Configuration');
   assert.match(panel.webview.html, /Commerce/);
   assert.match(panel.webview.html, /Payments API/);
+
+  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configurationRoot = configuration.getChildren().find((node) => node.id === 'configuration');
+  const capabilityGroup = configuration.getChildren(configurationRoot).find((node) => node.id === 'config:capabilities');
+  assert.ok(capabilityGroup, 'capabilities are visible under Configuration');
+  const add = configuration.getChildren(capabilityGroup).find((node) => node.id === 'config:capabilities:add');
+  assert.equal(configuration.getTreeItem(add).command.command, 'singularityFlow.addCapability');
 });
 
 test('the sidebar lists workspaces even with no repository open', async (t) => {
@@ -1623,7 +1630,7 @@ test('a window with nothing open keeps workspace setup out of Lifecycle', async 
   const rows = provider.getChildren(explanation);
   const actions = rows.filter((row) => row.runCommand);
   assert.deepEqual(actions.map((row) => row.runCommand), ['singularityFlow.openWorkspaces'],
-    'Lifecycle starts at intake; workspace creation and capability mapping stay in Workspaces');
+    'Lifecycle starts at intake; workspace selection stays outside it');
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
 
   // Clicking a row runs its command rather than trying to open it as an artifact.
@@ -1868,7 +1875,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
-test('a window with nothing open waits for a workspace before showing capability scope', async (t) => {
+test('a window with nothing open shows only real workspaces', async (t) => {
   if (!requireBundle(t)) return;
   // The map lives in the lead repository, not in the open folder — so "not a Git repository" is a
   // fact about the window and not about whether there is anything to show. Sending somebody to find
@@ -1880,10 +1887,8 @@ test('a window with nothing open waits for a workspace before showing capability
   await extension.activate(context());
 
   const tree = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
-  const scope = tree.getChildren().find((node) => node.id === 'workspace:scope');
-  assert.ok(scope, 'workspace scope is always represented');
-  assert.equal(scope.description, 'select a workspace');
-  assert.match(tree.getChildren(scope)[0].label, /Select a workspace/);
+  assert.equal(tree.getChildren().some((node) => node.id === 'workspace:scope'), false,
+    'configuration is not duplicated as a synthetic workspace row');
 });
 
 test('the loaded build identifies itself, because the version cannot', async (t) => {

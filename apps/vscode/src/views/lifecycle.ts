@@ -12,6 +12,7 @@ export type TreeBuilder = (snapshot: RepositorySnapshot | null, error?: Error | 
 export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined>();
   private readonly subscription: { dispose(): void };
+  private readonly store: WorkspaceStore | null;
   private roots: TreeNode[] = [];
 
   readonly onDidChangeTreeData = this.emitter.event;
@@ -27,6 +28,7 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     roots: TreeNode[] = [],
     private readonly build: TreeBuilder = buildLifecycleTree
   ) {
+    this.store = store;
     this.roots = roots;
     if (!store) {
       this.subscription = { dispose() {} };
@@ -40,6 +42,14 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     this.roots = this.build(state.snapshot, state.error);
   }
 
+  /** Re-render derived presentation state without re-running the repository snapshot command. */
+  refresh(): void {
+    if (!this.store) return;
+    const state = this.store.current;
+    this.roots = this.build(state.snapshot, state.error);
+    this.emitter.fire(undefined);
+  }
+
   getChildren(node?: TreeNode): TreeNode[] {
     return node ? (node.children ?? []) : this.roots;
   }
@@ -48,7 +58,7 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     const collapsible = node.children?.length
       // The lifecycle and the current Epic are the things someone opened the view to see.
       ? (node.kind === 'initiative' || node.id === 'phases' || node.id === 'gate'
-          || node.id === 'configuration' || node.id === 'unavailable'
+          || node.id === 'configuration' || node.id === 'config:capabilities' || node.id === 'unavailable'
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed)
       : vscode.TreeItemCollapsibleState.None;

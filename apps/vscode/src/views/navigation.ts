@@ -31,7 +31,7 @@ export class NodeTreeProvider implements vscode.TreeDataProvider<TreeNode>, vsco
       node.children?.length
         // A capability tree is read top-down and is usually shallow; a workspace's contents are
         // detail you open when you want them.
-        ? (node.kind === 'group' && node.id.startsWith('capability:')
+        ? (node.id === 'workspace:scope' || node.kind === 'group' && node.id.startsWith('capability:')
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed)
         : vscode.TreeItemCollapsibleState.None

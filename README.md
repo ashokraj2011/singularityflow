@@ -171,19 +171,26 @@ expansion, so a capability added to the map later is picked up by a workspace
 that asked for its parent. No two workspaces may occupy the same directory.
 Workspace setup does not require Jira. See [WORKSPACES.md](WORKSPACES.md).
 
-The editor extension has the same two screens: **Map a Capability** and **New
-Workspace**. Both work from a window with no repository open, which is the state
-anybody starting out is in. The Workspaces view has one **Switch** action: it
-makes that workspace active and loads its lead repository in the current VS Code
-window. There is no separate “select, then open” step and it does not create a
-second editor window.
+The editor extension exposes both actions from one **Workspaces** view. A saved
+workspace is its local directory plus its mapped capability scope; the selected
+workspace shows both together beneath the workspace list. **Work here** makes it
+the context used by Lifecycle and Configuration. If the extension activated
+before any workspace was selected, VS Code reloads that same window once to bind
+those views to the lead repository; it never creates another window. **Open lead
+repository** remains a separate, explicit action for editing code and is not
+required just to select a workspace.
 
 The VS Code sidebar deliberately separates work from setup. **Lifecycle** is the
-intake and delivery view: start work, pin sources, inspect phase artifacts, run
-the next action, and make approval decisions. **Configuration** contains the
-world model, workflow definitions, `workflow.yml`, `portfolio.yml`, artifact
-templates, governed Agent Markdown, remote agent resources, agent mappings, and
-agent status. Its toolbar opens the **Workflow designer**, diagnostics, and refresh.
+intake and delivery view: start Initiative, Epic, or Story intake, choose the
+workflow for that work, inspect the selected workflow's phases and artifacts,
+run the next action, and make approval decisions. Workflow choices disappear
+from Lifecycle after intake because that choice is then pinned to the active
+work. **Configuration** is where the machinery is created and edited: workflow
+and phase design, gates, world-model rules, `workflow.yml`, `portfolio.yml`,
+artifact templates, governed Agent Markdown and its prompts, skills and prompt
+packs, remote agent resources, mappings, and approval policy. Capabilities are
+not a fourth lifecycle/configuration concept; they are shown as part of the
+selected Workspace scope.
 
 From Copilot, `/sflow-workspaces` lists saved contexts and `/sflow-workspace`
 selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`

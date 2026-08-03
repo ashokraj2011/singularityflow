@@ -357,8 +357,8 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'workflows'],
-    'Lifecycle contains the work and the shapes work can take, not repository settings');
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT'],
+    'after intake, Lifecycle contains only the selected work and its phases');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
   const configuration = registered.trees.get('singularityFlow.configuration');
@@ -735,7 +735,7 @@ test('an Epic can be started and its first source pinned entirely from the edito
   // The tree starts by saying there is nothing here, and offering the one thing to do.
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   assert.match(provider.getChildren()[0].label, /No work has been started/);
-  assert.equal(provider.getChildren()[0].contextValue, 'sflow.start');
+  assert.equal(provider.getChildren()[1].contextValue, 'sflow.start');
 
   // Start work. One screen covers all six ways it starts, so nothing is asked through a prompt and
   // every answer stays visible and correctable until the work is actually started.
@@ -1398,14 +1398,14 @@ test('every contributed view has a provider, whatever state the window is in', a
     const missing = contributedViews().filter((id) => !registered.trees.has(id));
     assert.deepEqual(missing, [], `${missing.join(', ')} would report "no data provider registered"`);
 
-    // And the capabilities tree explains itself rather than sitting empty.
-    const capabilities = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
-    const [explanation] = capabilities.getChildren();
-    assert.ok(explanation?.label, 'the capabilities tree says why it is empty');
+    // Workspace and capability scope are one surface rather than two competing views.
+    const workspace = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+    assert.ok(workspace.getChildren().some((node) => node.id === 'workspace:scope'),
+      'the workspace tree always says what capability scope applies');
   }
 });
 
-test('the sidebar shows capabilities as a tree, and adding one starts from what was clicked', async (t) => {
+test('the standalone capability screen still edits the map after capability scope moved under Workspaces', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   await writeFile(path.join(root, 'singularity/capabilities.yml'), [
@@ -1418,44 +1418,11 @@ test('the sidebar shows capabilities as a tree, and adding one starts from what 
   ].join('\n'));
   await registered.commands.get('singularityFlow.refresh')();
 
-  const provider = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
-  const roots = await until(() => {
-    const nodes = provider.getChildren();
-    return nodes[0]?.label === 'Commerce' ? nodes : null;
-  });
-  assert.equal(roots.length, 1);
-  // A capability's own rows — its repositories, its world model, its links — sit beside the
-  // capabilities it contains, and only the latter are capabilities.
-  const contained = (node) => provider.getChildren(node)
-    .filter((child) => !child.id.slice('capability:'.length).includes(':'));
-  const payments = contained(roots[0])[0];
-  const api = contained(payments)[0];
-  assert.equal(api.label, 'Payments API');
-  assert.equal(api.description, 'api');
-
-  // Both offer "add one inside": shipping and containing stopped being exclusive, and the menu that
-  // keyed on a separate delivery value was hiding it from every capability that ships.
-  assert.equal(provider.getTreeItem(payments).contextValue, 'sflow.capability');
-  assert.equal(provider.getTreeItem(api).contextValue, 'sflow.capability');
-
-  // The repository it ships from is a row of its own, saying whether it can be worked in at all.
-  const [repository] = provider.getChildren(api);
-  assert.equal(repository.label, 'api');
-  assert.equal(repository.contextValue, 'sflow.capability.repository');
-  assert.ok(provider.getChildren(api).some((row) => row.label === 'World model'));
-
-  // Adding from a node opens the form already parented to it.
-  await registered.commands.get('singularityFlow.addCapability')(payments);
+  await registered.commands.get('singularityFlow.openCapabilities')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
-  assert.ok(panel, 'the capability screen opened');
-  assert.match(panel.webview.html, /New capability/);
-  assert.match(panel.webview.html, /<option value="payments" selected>/, 'parented to what was clicked');
-
-  // Editing from a node opens on that capability rather than on nothing.
-  await registered.commands.get('singularityFlow.editCapability')(api);
+  assert.ok(panel, 'the capability editor remains available from the Workspace toolbar');
+  assert.match(panel.webview.html, /Commerce/);
   assert.match(panel.webview.html, /Payments API/);
-  assert.match(panel.webview.html, /Delivers from/);
-  assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
 test('the sidebar lists workspaces even with no repository open', async (t) => {
@@ -1549,7 +1516,7 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
-test('a window with nothing open offers the two ways to get a repository', async (t) => {
+test('a window with nothing open keeps workspace setup out of Lifecycle', async (t) => {
   if (!requireBundle(t)) return;
   // Everything Singularity Flow does needs a repository, so a state that explains that and offers
   // nothing is a dead end — and it is the state a person is in the first time they open the editor.
@@ -1562,11 +1529,8 @@ test('a window with nothing open offers the two ways to get a repository', async
   const [explanation] = provider.getChildren();
   const rows = provider.getChildren(explanation);
   const actions = rows.filter((row) => row.runCommand);
-  // Governing one is first: it is the only one of the three that works when nothing has been
-  // governed yet, and that is the state anybody seeing this is in.
-  assert.deepEqual(actions.map((row) => row.runCommand),
-    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability']);
-  // Both work from a window with nothing open, which is exactly where this state occurs.
+  assert.deepEqual(actions.map((row) => row.runCommand), ['singularityFlow.openWorkspaces'],
+    'Lifecycle starts at intake; workspace creation and capability mapping stay in Workspaces');
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
 
   // Clicking a row runs its command rather than trying to open it as an artifact.
@@ -1580,7 +1544,7 @@ test('a window with nothing open offers the two ways to get a repository', async
   assert.deepEqual(registered.warningActions.at(-1), ['Map a capability', 'Find a workspace']);
 });
 
-test('a folder that is not a Flow repository also offers to become one', async (t) => {
+test('an ungoverned folder still directs Lifecycle to workspace selection', async (t) => {
   if (!requireBundle(t)) return;
   const plain = await mkdtemp(path.join(os.tmpdir(), 'sflow-plain-'));
   const { api, registered } = stubVscode();
@@ -1591,12 +1555,10 @@ test('a folder that is not a Flow repository also offers to become one', async (
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const rows = provider.getChildren(provider.getChildren()[0]);
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
-    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability',
-      'singularityFlow.init'],
-    'initializing is only offered where there is a folder to initialize');
+    ['singularityFlow.openWorkspaces']);
 });
 
-test('choosing a workspace costs nothing: no window opens and none reloads', async (t) => {
+test('the first workspace selection loads Lifecycle in the same window', async (t) => {
   if (!requireBundle(t)) return;
   // Choosing where you are working is not the same as opening code, and it used to be: selecting a
   // workspace reloaded the window or opened a folder, which threw away every open editor to change
@@ -1632,7 +1594,8 @@ test('choosing a workspace costs nothing: no window opens and none reloads', asy
   await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
 
   assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
-  assert.equal(issued.includes('workbench.action.reloadWindow'), false, 'the window was not reloaded');
+  assert.equal(issued.includes('workbench.action.reloadWindow'), true,
+    'the current window reloads once because activation originally had no repository services');
   assert.deepEqual(registered.errors, []);
   // And the choice took: the tree says which one is being worked in, and it is this one.
   const chosen = await until(() =>
@@ -1738,15 +1701,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  // It is offered from the empty state, first, because it is the only one of the three that works
-  // when nothing has been mapped yet.
-  const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  const rows = lifecycle.getChildren(lifecycle.getChildren()[0]);
-  // Choosing a workspace leads; mapping a capability is the row for when there is nothing to make
-  // a workspace out of yet.
-  assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand).slice(0, 3),
-    ['singularityFlow.openWorkspaces', 'singularityFlow.createWorkspace', 'singularityFlow.mapCapability']);
-
+  // Mapping belongs to the Workspace toolbar, not the Lifecycle empty state.
   await registered.commands.get('singularityFlow.mapCapability')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
   assert.ok(panel, 'a map-a-capability panel was created');
@@ -1818,7 +1773,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
-test('a window with nothing open still shows what the organisation builds', async (t) => {
+test('a window with nothing open waits for a workspace before showing capability scope', async (t) => {
   if (!requireBundle(t)) return;
   // The map lives in the lead repository, not in the open folder — so "not a Git repository" is a
   // fact about the window and not about whether there is anything to show. Sending somebody to find
@@ -1829,26 +1784,11 @@ test('a window with nothing open still shows what the organisation builds', asyn
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const tree = registered.trees.get('singularityFlow.capabilities').treeDataProvider;
-  const root = await until(() => {
-    const rows = tree.getChildren();
-    return rows[0]?.id === 'capabilities:organisation' ? rows[0] : null;
-  });
-  assert.ok(root, 'the mapped organisation replaced the empty state');
-  assert.equal(root.label, 'platform', 'named for where the map came from');
-
-  const top = tree.getChildren(root);
-  assert.deepEqual(top.map((row) => row.label), ['Commerce']);
-  const beneath = tree.getChildren(top[0]);
-  // What Commerce contains, then what Commerce is: the grouping has no repository of its own, so
-  // what it has is a world model composed from the models beneath it.
-  assert.deepEqual(beneath.map((row) => row.label), ['Payments', 'Storefront', 'World model']);
-  // The tree goes to any depth, like a directory.
-  const [paymentsApi] = tree.getChildren(beneath[0]);
-  assert.equal(paymentsApi.label, 'Payments API');
-  // A capability that ships names the repository it ships from; a grouping names none.
-  assert.equal(paymentsApi.description, 'api');
-  assert.equal(beneath[0].description, undefined);
+  const tree = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const scope = tree.getChildren().find((node) => node.id === 'workspace:scope');
+  assert.ok(scope, 'workspace scope is always represented');
+  assert.equal(scope.description, 'select a workspace');
+  assert.match(tree.getChildren(scope)[0].label, /Select a workspace/);
 });
 
 test('the loaded build identifies itself, because the version cannot', async (t) => {

@@ -51,6 +51,9 @@ async function repository() {
   portfolio.git.publish = 'off';
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Editor Tester', email: 'editor@example.com' }];
   await writeFile(portfolioPath, YAML.stringify(portfolio));
+  // Leave one governed agent to resolve from the installed engine. This is the production shape
+  // for repositories that use a packaged default without copying it into .github/agents.
+  await unlink(path.join(root, '.github/agents/product-designer.agent.md'));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   return root;
@@ -89,14 +92,19 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.ok(snapshot.flowSkills.length > 50);
   assert.deepEqual(
     Object.keys(snapshot.flowSkills[0]).sort(),
-    ['argumentHint', 'bytes', 'command', 'content', 'description', 'id', 'name', 'path', 'readOnly', 'repositoryPath', 'scope'].sort()
+    ['argumentHint', 'bytes', 'command', 'content', 'description', 'id', 'name', 'packagePath', 'path', 'readOnly', 'repositoryPath', 'scope'].sort()
   );
   const startSkill = snapshot.flowSkills.find((item) => item.id === 'sflow-start');
   assert.equal(startSkill.command, '/sflow-start');
+  assert.equal(startSkill.packagePath, 'plugin/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.repositoryPath, '.github/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.readOnly, true);
   assert.match(startSkill.description, /workflow template; activate its phase-default agent/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
+  const packagedAgent = snapshot.agents.find((item) => item.id === 'product-designer');
+  assert.equal(packagedAgent.scope, 'bundled');
+  assert.equal(packagedAgent.packagePath, 'templates/agents/product-designer.agent.md');
+  assert.doesNotMatch(packagedAgent.packagePath, /(^|\/)\.\.(\/|$)/);
   assert.equal(snapshot.agentsLock.path, 'singularity/agents.lock.yml');
   assert.equal(snapshot.agentMappings.path, 'singularity/agent-mappings.yml');
   assert.equal(snapshot.agentMappings.exists, true);

@@ -550,6 +550,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return unavailable('No Singularity Flow CLI was found', (error as Error).message);
   }
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  // Packaged agents and skills belong to the exact engine this window is driving. Resolve them
+  // beside that CLI, not beside the repository and not beside some other globally installed copy.
+  const cliPackageRoot = path.resolve(path.dirname(client.location.cli), '..');
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
@@ -929,7 +932,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Refresh asks the remotes again too: the state branch somebody just created is the whole reason
     // they would press it.
     'singularityFlow.refresh': async () => { void refreshReadiness(); await store.refresh(); },
-    'singularityFlow.openArtifact': ((node?: TreeNode) => openArtifact(repository, node)) as never,
+    'singularityFlow.openArtifact':
+      ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,
     'singularityFlow.runAction': runNode as never,
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
@@ -996,12 +1000,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  * and then checked to be inside the repository — a `..` that escaped the workspace would be a
  * genuine path-traversal, and the check costs nothing.
  */
-async function openArtifact(repository: string, node?: TreeNode): Promise<void> {
+async function openArtifact(
+  repository: string,
+  node?: TreeNode,
+  cliPackageRoot?: string
+): Promise<void> {
   if (!node?.path) return;
-  const absolute = path.resolve(repository, node.path);
-  const relative = path.relative(repository, absolute);
+  const base = node.packagePath ? cliPackageRoot : repository;
+  if (!base) {
+    void vscode.window.showErrorMessage(`Cannot locate the packaged resource: ${node.path}`);
+    return;
+  }
+  const requested = node.packagePath ?? node.path;
+  const absolute = path.resolve(base, requested);
+  const relative = path.relative(base, absolute);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    void vscode.window.showErrorMessage(`Refusing to open a path outside the repository: ${node.path}`);
+    const boundary = node.packagePath ? 'installed Singularity Flow engine' : 'repository';
+    void vscode.window.showErrorMessage(`Refusing to open a path outside the ${boundary}: ${requested}`);
     return;
   }
 
@@ -1010,10 +1025,13 @@ async function openArtifact(repository: string, node?: TreeNode): Promise<void> 
     const document = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(document, { preview: true });
     if (node.readOnly) {
-      // An approved artifact is pinned by hash into approvals that already happened, so editing it
-      // in place silently invalidates them. Said once, rather than enforced by fighting the editor.
+      const message = node.packagePath
+        ? '$(lock-small) This resource ships with Singularity Flow and is read-only. Copy it into the repository to customize it.'
+        // An approved artifact is pinned by hash into approvals that already happened, so editing it
+        // in place silently invalidates them. Said once, rather than enforced by fighting the editor.
+        : '$(lock-small) This artifact is approved and hash-pinned. Editing it invalidates its approval.';
       void vscode.window.setStatusBarMessage(
-        '$(lock-small) This artifact is approved and hash-pinned. Editing it invalidates its approval.', 6_000);
+        message, 6_000);
     }
   } catch {
     void vscode.window.showWarningMessage(`This artifact has not been generated yet: ${node.path}`);

@@ -1074,7 +1074,10 @@ test('the editable file sets appear as groups of openable files', () => {
   authored.templates = [{ path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md' }];
   authored.repositorySkills = [];
   authored.agents = [
-    { id: 'sflow', scope: 'packaged', path: 'plugin/agents/sflow.md', editable: false },
+    {
+      id: 'sflow', scope: 'packaged', path: '../../installed/sflow.md',
+      packagePath: 'plugin/agents/sflow.md', editable: false
+    },
     { id: 'house', scope: 'repository', path: '.github/agents/house.md', editable: true }
   ];
   authored.agentMappings = { path: 'singularity/agent-mappings.yml', exists: true };
@@ -1091,7 +1094,9 @@ test('the editable file sets appear as groups of openable files', () => {
 
   // A packaged agent is not the team's to change; a repository one is.
   const agents = find(tree, 'config:agents');
-  assert.equal(agents.children.find((child) => child.id === 'agent:sflow').readOnly, true);
+  const packagedAgent = agents.children.find((child) => child.id === 'agent:sflow');
+  assert.equal(packagedAgent.readOnly, true);
+  assert.equal(packagedAgent.packagePath, 'plugin/agents/sflow.md');
   assert.equal(agents.children.find((child) => child.id === 'agent:house').readOnly, false);
   assert.equal(agents.children.at(-1).label, 'agent-mappings.yml');
 });
@@ -1482,6 +1487,8 @@ test('every agent is listed, including the ones that ship with the product', () 
   assert.deepEqual(packs.children.map((child) => child.description),
     ['repository', 'packaged', 'packaged']);
   assert.match(packs.children[1].tooltip, /Approve a phase\./);
+  assert.equal(packs.children[1].packagePath, 'plugin/skills/sflow-approve/SKILL.md');
+  assert.equal(packs.children[1].readOnly, true);
 });
 
 const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =

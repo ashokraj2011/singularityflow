@@ -507,8 +507,8 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
     {
-      id: 'prompts', label: 'Prompts and instructions', icon: 'comment-discussion',
-      files: snapshot.agentPrompts ?? snapshot.personaPrompts ?? []
+      id: 'prompts', label: 'Repository prompts', icon: 'comment-discussion',
+      files: snapshot.prompts ?? snapshot.agentPrompts ?? snapshot.personaPrompts ?? []
     },
     { id: 'skills', label: 'Skills and prompt packs', icon: 'book', files: packs }
   ];
@@ -619,6 +619,10 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
         children: [{
           kind: 'action', id: 'config:designer', label: 'Open Workflow Designer',
           description: 'visual editor', icon: 'layout', runCommand: 'singularityFlow.openDesigner'
+        }, {
+          kind: 'action', id: 'config:instruction-designer', label: 'Open Agent, Prompt & Skill Designer',
+          description: 'agents · prompts · skills · prompt packs', icon: 'hubot',
+          runCommand: 'singularityFlow.openInstructionDesigner'
         }, {
           kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
           description: 'Story workflows, phases, agent defaults, grounding', icon: 'layers',

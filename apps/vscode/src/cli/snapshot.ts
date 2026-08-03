@@ -254,6 +254,13 @@ export interface RepositorySnapshot {
    */
   definition?: {
     personas?: Record<string, { label?: string; description?: string }>;
+    phases?: Record<string, {
+      label?: string;
+      agents?: string[];
+      worldModel?: { views?: string[] };
+    }>;
+    planning?: { promptSource?: string };
+    worldModel?: { views?: string[]; promptSource?: string };
     /** Whether workflow progress is recorded on an orphan branch, and which one. */
     ledger?: { enabled?: boolean; branch?: string };
     [key: string]: unknown;
@@ -267,10 +274,11 @@ export interface RepositorySnapshot {
    * packs. They arrive with their contents, but the extension only reads their paths — editing
    * happens in ordinary editor tabs, against the files on disk.
    */
-  templates?: Array<{ path: string; name: string; bytes?: number }>;
-  agentPrompts?: Array<{ path: string; name: string; bytes?: number }>;
-  personaPrompts?: Array<{ path: string; name: string; bytes?: number }>;
-  repositorySkills?: Array<{ path: string; name: string; bytes?: number }>;
+  templates?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
+  agentPrompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
+  personaPrompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
+  prompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
+  repositorySkills?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
   /**
    * The prompt packs that ship with the product, as opposed to the ones a repository wrote.
    *
@@ -279,10 +287,12 @@ export interface RepositorySnapshot {
    */
   flowSkills?: Array<{
     id?: string; name?: string; description?: string; path: string; command?: string;
-    packagePath?: string; scope?: string; readOnly?: boolean;
+    packagePath?: string; repositoryPath?: string; argumentHint?: string | null;
+    content?: string; bytes?: number; scope?: string; readOnly?: boolean;
   }>;
   agents?: Array<{
     id: string; scope: string; path: string; packagePath?: string | null; editable?: boolean;
+    content?: string; sha256?: string; remoteResources?: number;
   }>;
   agentMappings?: { path: string; exists: boolean };
   /** Who this repository will attribute a decision to. Approvals turn on it. */

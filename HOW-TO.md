@@ -62,7 +62,12 @@ flowchart TB
   Construction --> Delivery["Delivery gate"]
 ```
 
-Run `/sflow-initiative-start <INIT-ID>` in GitHub Copilot, then use `/sflow-initiative-next` for deterministic guidance. Before repository changes, `/sflow-initiative-materialize` shows the full dry-run and requires exact initiative-ID confirmation. Flow Studio’s **Initiatives** workspace displays the four- or seven-phase flow, three discipline lanes, evidence assurance/freshness, repository stories, contracts, time, models, tokens, and cost.
+Run `/sf-initiative-start <INIT-ID>` in GitHub Copilot, then use
+`/sf-initiative-next` for deterministic guidance. Before repository changes,
+`/sf-initiative-materialize` shows the full dry-run and requires exact
+initiative-ID confirmation. The VS Code **Lifecycle** and **Inbox** views display
+the four- or seven-phase flow, evidence assurance/freshness, repository Stories,
+contracts, time, models, tokens, and cost.
 
 When the initiative and its stories share one repository — the common single-repository Epic — the stories branch from the initiative branch and land through it:
 
@@ -225,7 +230,10 @@ singularity-flow documents upload ./figma-export --kind figma-export
 
 Directories are traversed recursively in deterministic relative-path order. Every regular file receives a stable document ID and hash, retains its package-relative source path, and is committed and pushed in the same upload transaction. Symbolic links are rejected. The workflow then advances through design inventory, mobile component mapping, mobile specification, implementation, visual verification, and two-person final conformance approval.
 
-The desktop **Documents** page renders committed PNG, JPEG, GIF, and WebP exports as a thumbnail gallery with click-to-zoom previews. It renders committed PDFs in the built-in Chromium PDF viewer. Each preview rechecks the current bytes against the cataloged SHA-256 and shows `matches committed record ✓`; a changed or path-escaped file is refused.
+The VS Code **Inbox** and artifact viewer list the committed PNG, JPEG, GIF, WebP,
+and PDF evidence beside the generated Markdown/JSON records. Opening a file uses
+VS Code's safe built-in viewer. The CLI rechecks current bytes against the
+cataloged SHA-256; a changed or path-escaped file is refused.
 
 During implementation, place the captured app screen and visual diff under the active phase:
 
@@ -235,7 +243,11 @@ singularity/work-items/<WORK-ID>/artifacts/visual-verification/evidence/
   checkout-pixelmatch-diff.png
 ```
 
-Record the numeric result in `visual-comparison.md`, for example `Pixel diff: 1.8% — matched within threshold`, then publish the phase. Publication automatically registers and hashes those images. The desktop **Review** page provides side-by-side, overlay-slider, and diff-highlight modes using the registered evidence.
+Record the numeric result in `visual-comparison.md`, for example
+`Pixel diff: 1.8% — matched within threshold`, then publish the phase. Publication
+automatically registers and hashes those images. Reviewers open all three pinned
+images from the VS Code Inbox; approval remains bound to the exact registered
+hashes.
 
 If intake also contains a Figma URL, open it in the normal browser using the viewer's existing Figma login. Treat it as convenience context labelled `Live design — may differ from the pinned intake`: approval remains bound to the committed export. Singularity does not request a Figma access token or call the Figma image API.
 
@@ -537,4 +549,5 @@ singularity-flow guide WORK-123
 singularity-flow nextsteps WORK-123
 ```
 
-The same manual is available through `/sflow-help` and the desktop **Help** page.
+The same manual is available through `/sf-help`, `/sflow-help`, and the VS Code
+walkthrough/command palette. The documentation map is [docs/README.md](docs/README.md).

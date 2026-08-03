@@ -18,10 +18,10 @@ The prompt-related names describe different responsibilities:
 |---|---|---|---|
 | Workflow | Rulebook | Phases, ordering, inputs, outputs, gates, checks, approvals, publication | `singularity/workflow.yml` |
 | Skill | Playbook or action button | Tells Copilot which CLI commands and behavioral rules to follow | `plugin/skills/sflow-*/SKILL.md` |
-| governed agent | Professional hat | Changes Copilot's perspective for the current session | `singularity/agents/*.md` |
+| Governed agent | Software execution contract | Gives Copilot phase-specific purpose, instructions, tools, and world-model views | `.github/agents/*.agent.md` |
 | Prompt | Effective instructions | The exact phase-specific text Copilot receives | Composed and recorded under work-item context |
 | World model | Repository map | Generated, hash-recorded facts about the codebase | `singularity/world-model/` |
-| agent | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context | `.github/agents/*.agent.md` |
+| Remote agent dependency | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context declared by an agent | `singularity/agents.lock.yml` plus machine-local cache |
 | Artifact template | Blank form | Required structure and managed fields for an output | `singularity/templates/` |
 | Artifact | Filled form | Generated, committed, reviewable phase output | `singularity/work-items/<ID>/artifacts/` |
 | Approval authority | Real reviewer rule | Determines which Git/GitHub identities may decide | Workflow or portfolio authority configuration |
@@ -76,12 +76,18 @@ which owns those mutations.
 
 ### governed agent
 
-The configuration key remains `agents` for compatibility, but the product
-meaning is a prompt-only governed agent:
+The configuration key is `agents`, and each entry resolves to a repository-owned
+Agent Markdown file:
 
 ```markdown
-Act as an architect. Make boundaries, contracts, trade-offs, security,
-operability, migration, and rollback explicit.
+---
+name: Architect
+phases: [design, implementation-spec]
+worldModelViews: [architecture, security]
+---
+
+Make boundaries, contracts, trade-offs, security, operability, migration, and
+rollback explicit.
 ```
 
 The active agent is local to the checkout:
@@ -92,6 +98,9 @@ The active agent is local to the checkout:
 
 It is recorded with the next lifecycle action but selecting it alone does not
 change committed workflow state.
+
+See the canonical [glossary](GLOSSARY.md) for prompt packs, skills, capabilities,
+workspaces, human identity, and state planes.
 
 ### Prompt
 

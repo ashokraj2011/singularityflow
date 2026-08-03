@@ -23,8 +23,9 @@ sflow wm show-prompt --phase <PHASE>
 ```
 
 That context combines the phase contract and artifact template, the selected governed agent,
-required repository world-model views, rule-selected repository files, pinned remote Markdown,
-approved upstream artifacts, and current evidence. The extension passes the composed text to
+configured prompts/prompt packs, required repository world-model views,
+rule-selected repository files, pinned remote Markdown, approved upstream
+artifacts, and current evidence. The extension passes the composed text to
 native Copilot Chat. The equivalent `/sf-*` and `/sflow-*` skills work in Copilot CLI.
 
 The Node.js CLI remains authoritative. It validates ordering, inputs, templates, approvals, and
@@ -44,3 +45,7 @@ sflow wm status
 
 The generated manifest and views are committed repository context. VS Code can start the same CLI
 operation and display its progress, but it does not own a separate model backend.
+
+Use `/sf-show-prompt` before authoring to see the complete skill and rendered
+prompt, including file paths and hashes. See the [glossary](docs/GLOSSARY.md) and
+[under-the-hood guide](docs/UNDER-THE-HOOD.md) for the full composition path.

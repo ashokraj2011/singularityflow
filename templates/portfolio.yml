@@ -24,7 +24,8 @@ identity:
     scopeStoriesByEpic: true
 
 # Jira policy is repository configuration; credentials are never repository
-# data. The desktop encrypts them with the operating-system credential store.
+# data. VS Code stores them in SecretStorage backed by the operating-system
+# credential store; headless CLI users supply approved environment variables.
 # CLI users may continue to use JIRA_BASE_URL/JIRA_EMAIL/JIRA_API_TOKEN, or
 # JIRA_BASE_URL/JIRA_PAT for Data Center.
 jira:

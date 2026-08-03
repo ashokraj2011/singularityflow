@@ -168,6 +168,20 @@ singularity-flow capabilities doctor [CAPABILITY-ID] --offline --json
 The same check is available as `/sf-capability-doctor` and is included in the VS
 Code **Singularity Flow: Diagnostics** report.
 
+## VS Code capability experience
+
+Capability configuration lives under **Configuration**, not beneath the local
+workspace selector. The designer distinguishes the organisation-defined `kind`
+from the closed `type` (`business` or `tech`), lists valid parent capabilities,
+and connects delivery repositories through the governed portfolio rather than
+free-form local paths.
+
+The Inbox portfolio dashboard is a projection over the map and current lifecycle
+branches. It shows root capabilities, delivery descendants, repositories, Jira
+routes, open work, approvals, diagnostics, and world-model health. The dashboard
+does not read operational state from the orphan ledger and does not become a new
+authority plane.
+
 ## Recommended branch controls
 
 Protect both `main` and `state`: disable force pushes and deletion,

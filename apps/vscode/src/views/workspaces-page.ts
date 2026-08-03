@@ -6,13 +6,14 @@
  * directly against the rows the registry produces.
  */
 import {
-  duplicateDirectory, duplicateProblems, type WorkspaceRow
+  duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
+  type WorkspaceRepositoryStatus
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
 function rowHtml(row: WorkspaceRow, selected: string | null): string {
   return `
-  <tr${row.id === selected ? ' class="drift"' : ''}>
+  <tr${row.path === selected ? ' class="drift"' : ''}>
     <td>${row.active ? `<span class="pill ok">${icon('ok')}active</span>` : ''}</td>
     <td><a href="#" data-select="${escape(row.path)}">${escape(row.name)}</a>
       ${row.archived ? '<span class="pill">archived</span>' : ''}</td>
@@ -24,7 +25,86 @@ function rowHtml(row: WorkspaceRow, selected: string | null): string {
   </tr>`;
 }
 
-function detailHtml(row: WorkspaceRow, rows: WorkspaceRow[], draft: DuplicateDraft): string {
+function valuePairs(value: Record<string, unknown> | undefined): string {
+  const pairs = Object.entries(value ?? {}).filter(([, item]) =>
+    ['string', 'number', 'boolean'].includes(typeof item) && String(item).trim());
+  if (!pairs.length) return '<span class="muted">Not configured</span>';
+  return pairs.map(([key, item]) =>
+    `<span class="pill"><strong>${escape(key)}</strong>&nbsp;${escape(item)}</span>`).join(' ');
+}
+
+function repositoryDetails(repository: WorkspaceRepositoryStatus, leadId: string): string {
+  const worldModel = repository.worldModel?.state ?? 'not available';
+  const stateClass = repository.state === 'ready' ? 'ok' : 'bad';
+  return `
+  <tr>
+    <td><strong>${escape(repository.metadata?.name ?? repository.id)}</strong><br>
+      <span class="muted">${escape(repository.id)}</span></td>
+    <td>${repository.id === leadId || repository.role === 'lead'
+      ? '<span class="pill ok">lead</span>' : '<span class="pill">participant</span>'}</td>
+    <td><code>${escape(repository.absolutePath ?? repository.path ?? '')}</code></td>
+    <td>${repository.branch ? `${icon('branch')}<code>${escape(repository.branch)}</code>` : '<span class="muted">—</span>'}
+      ${repository.dirty ? '<br><span class="pill wait">local changes</span>' : ''}</td>
+    <td><span class="pill ${stateClass}">${escape(repository.state ?? 'unknown')}</span></td>
+    <td><span class="pill ${worldModel === 'available' ? 'ok' : ''}">${escape(worldModel)}</span></td>
+  </tr>`;
+}
+
+function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, detailError: string | null): string {
+  if (loading) return `<div class="card"><p>${icon('wait')} Reading workspace configuration and repository state…</p></div>`;
+  if (detailError) return `<div class="card blocked"><p class="blockers">${escape(detailError)}</p></div>`;
+  if (!status) return '<p class="muted">Workspace details are unavailable.</p>';
+
+  const capabilities = status.workspace.capabilities ?? [];
+  const anchor = status.workspace.anchor;
+  const warnings = status.warnings ?? [];
+  const repositoryContext = status.repositories.filter((repository) =>
+    Object.keys(repository.metadata ?? {}).length || Object.keys(repository.jira ?? {}).length);
+  return `
+  <div class="card-head">
+    <h2>${icon('workspace')}Workspace details</h2>
+    <span class="pill ${status.healthy ? 'ok' : 'bad'}">${status.healthy ? 'healthy' : 'needs attention'}</span>
+  </div>
+  <div class="card">
+    <p><strong>Working directory</strong><br><code>${escape(status.workspace.path)}</code></p>
+    <p><strong>Lead repository</strong><br><code>${escape(status.leadRepositoryPath)}</code></p>
+    <p><strong>Capabilities</strong><br>${capabilities.length
+      ? capabilities.map((capability) => `<span class="pill ok">${icon('capability')}${escape(capability)}</span>`).join(' ')
+      : '<span class="muted">No capabilities mapped</span>'}</p>
+    <p><strong>Work / Jira anchor</strong><br>${anchor
+      ? `${valuePairs({ provider: anchor.provider, key: anchor.key, title: anchor.title,
+        issueType: anchor.issueTypeName, level: anchor.hierarchyLevel })}`
+      : '<span class="muted">No tracker anchor configured</span>'}</p>
+  </div>
+
+  <h2>${icon('repository')}Repositories</h2>
+  <p class="meta">${escape(status.counts?.ready ?? 0)} of ${escape(status.counts?.repositories ?? status.repositories.length)} ready
+    · ${escape(status.counts?.dirty ?? 0)} with local changes · ${escape(status.counts?.worldModels ?? 0)} world models</p>
+  <table>
+    <thead><tr><th>Repository</th><th>Role</th><th>Working copy</th><th>Branch</th><th>State</th><th>World model</th></tr></thead>
+    <tbody>${status.repositories.map((repository) => repositoryDetails(repository, status.workspace.leadRepository)).join('')}</tbody>
+  </table>
+
+  ${repositoryContext.length ? `
+  <h2>${icon('tracker')}Repository metadata and Jira routing</h2>
+  ${repositoryContext.map((repository) => `<div class="card">
+    <p><strong>${escape(repository.metadata?.name ?? repository.id)}</strong></p>
+    <p><span class="muted">Metadata</span><br>${valuePairs(repository.metadata)}</p>
+    <p><span class="muted">Jira</span><br>${valuePairs(repository.jira)}</p>
+  </div>`).join('')}` : ''}
+
+  ${warnings.length ? `<h2>${icon('bad')}Warnings</h2>${warnings.map((warning) =>
+    `<p class="blockers">${escape(warning.message)}</p>`).join('')}` : ''}`;
+}
+
+function detailHtml(
+  row: WorkspaceRow,
+  rows: WorkspaceRow[],
+  draft: DuplicateDraft,
+  status: WorkspaceStatus | null,
+  loading: boolean,
+  detailError: string | null
+): string {
   const problems = duplicateProblems(row, draft.id, draft.base, rows);
   const target = duplicateDirectory(row, draft.id || '<identifier>', draft.base);
   return `
@@ -35,7 +115,9 @@ function detailHtml(row: WorkspaceRow, rows: WorkspaceRow[], draft: DuplicateDra
   </div>
   <p class="muted">${icon('directory')}<code>${escape(row.directory)}</code></p>
 
-  <h2>${icon('document')}Rename</h2>
+  ${workspaceDetails(status, loading, detailError)}
+
+  <h2>${icon('document')}Manage local workspace</h2>
   <p>
     <label>Name <input type="text" value="${escape(row.name)}" data-field="name" size="34"></label>
     <button class="secondary" data-rename="${escape(row.path)}">Rename</button>
@@ -74,7 +156,10 @@ export function workspacesHtml(
   rows: WorkspaceRow[],
   selected: string | null,
   draft: DuplicateDraft,
-  error: string | null
+  error: string | null,
+  status: WorkspaceStatus | null = null,
+  loading = false,
+  detailError: string | null = null
 ): string {
   const row = rows.find((entry) => entry.path === selected) ?? null;
   const collisions = rows.filter((entry) => entry.collides);
@@ -103,8 +188,8 @@ export function workspacesHtml(
   </section>
 
   <section>${row
-    ? detailHtml(row, rows, draft)
-    : '<p class="muted">Choose a workspace name to manage it, or use Switch to work in it.</p>'}</section>
+    ? detailHtml(row, rows, draft, status, loading, detailError)
+    : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>
   <div hidden data-context="${escape(JSON.stringify({
     parent: row ? row.directory.split('/').slice(0, -1).join('/') : '',
     taken: rows.map((entry) => entry.directory)

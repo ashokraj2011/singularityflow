@@ -25,7 +25,7 @@ import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
-import type { WorkspaceEntry } from './views/workspaces-model.ts';
+import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
@@ -278,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Registered before any early return, like creating one: a person with no repository open is
    * exactly the person who needs to find the workspace they already have.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspaces', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspaces', async (node?: TreeNode) => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -292,6 +292,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     const list = (): Promise<WorkspaceEntry[]> =>
       registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
+    const details = (workspacePath: string): Promise<WorkspaceStatus> =>
+      registry.run<WorkspaceStatus>(['workspace', 'open', workspacePath, '--json']);
 
     const onMessage = async (message: WorkspacesMessage): Promise<string | null> => {
       if (message.type === 'create') {
@@ -331,7 +333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Anything that changes the registry changes the tree beside it.
       if (message.type !== 'switch') void refreshWorkspaceTree();
       return failure;
-    });
+    }, details, workspacePathOf(node) ?? node?.path ?? null);
   }));
 
   /**

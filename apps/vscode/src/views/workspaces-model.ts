@@ -23,6 +23,51 @@ export interface WorkspaceEntry {
   active?: string;
 }
 
+/** The richer result of `workspace open <DIRECTORY> --json`. */
+export interface WorkspaceStatus {
+  workspace: {
+    id: string;
+    name: string;
+    path: string;
+    leadRepository: string;
+    capabilities?: string[];
+    anchor?: {
+      provider?: string;
+      key?: string;
+      title?: string;
+      baseUrl?: string;
+      issueTypeName?: string;
+      hierarchyLevel?: number;
+    };
+  };
+  healthy: boolean;
+  leadRepositoryPath: string;
+  repositories: WorkspaceRepositoryStatus[];
+  warnings?: Array<{ code?: string; repository?: string; message: string }>;
+  counts?: {
+    repositories?: number;
+    ready?: number;
+    dirty?: number;
+    stagedDocuments?: number;
+    worldModels?: number;
+  };
+}
+
+export interface WorkspaceRepositoryStatus {
+  id: string;
+  role?: string;
+  absolutePath?: string;
+  path?: string;
+  state?: string;
+  branch?: string | null;
+  dirty?: boolean | null;
+  url?: string;
+  defaultBranch?: string;
+  metadata?: Record<string, unknown>;
+  jira?: Record<string, unknown>;
+  worldModel?: { state?: string; warning?: string | null } | null;
+}
+
 export interface WorkspaceRow extends WorkspaceEntry {
   /** The directory a person actually works in, which is what the list is really about. */
   directory: string;

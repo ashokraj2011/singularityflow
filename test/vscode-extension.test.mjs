@@ -1951,6 +1951,36 @@ test('the selected workspace offers rename, copy and forget, and says what each 
   assert.match(html, /working\s*\n?\s*directory is not/, 'renaming does not move anything');
 });
 
+test('workspace details show its directory, capabilities, repositories and Jira context', () => {
+  const rows = workspaceRows(REGISTRY);
+  const status = {
+    healthy: true,
+    leadRepositoryPath: '/work/commerce/repos/platform',
+    workspace: {
+      id: 'local--commerce', name: 'commerce', path: '/work/commerce',
+      leadRepository: 'platform', capabilities: ['checkout', 'payments'],
+      anchor: { provider: 'jira', key: 'KAN-8', title: 'Checkout modernization', issueTypeName: 'Epic' }
+    },
+    repositories: [{
+      id: 'platform', role: 'lead', absolutePath: '/work/commerce/repos/platform',
+      state: 'ready', branch: 'KAN-8', dirty: false,
+      metadata: { appId: 'APP-1001', name: 'Commerce Platform' },
+      jira: { projectKey: 'KAN' }, worldModel: { state: 'available' }
+    }],
+    counts: { repositories: 1, ready: 1, dirty: 0, worldModels: 1 },
+    warnings: []
+  };
+  const html = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, status, false, null);
+  assert.match(html, /Workspace details/);
+  assert.match(html, /\/work\/commerce\/repos\/platform/);
+  assert.match(html, /checkout/);
+  assert.match(html, /payments/);
+  assert.match(html, /KAN-8/);
+  assert.match(html, /APP-1001/);
+  assert.match(html, /projectKey/);
+  assert.match(html, /available/);
+});
+
 test('the page carries the directories it needs to answer without a round trip', () => {
   // Re-rendering to answer "is that directory taken" would replace the field being typed into, so
   // the page is given the list. The panel re-checks it, and the engine refuses regardless.
@@ -1965,22 +1995,21 @@ test('the page carries the directories it needs to answer without a round trip',
 const { buildCapabilityTree, buildWorkspaceScopeTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
-test('workspaces are direct one-click selectors with their repository context in the tooltip', () => {
-  // A workspace is the scope selector for every other view. It must not masquerade as an
-  // expandable folder whose label click only changes expansion state.
+test('workspace rows open their details while selection remains a separate action', () => {
+  // A row answers what the workspace contains. Selecting it for governed work is deliberately a
+  // separate action, so inspecting another workspace does not change Lifecycle or Configuration.
   const [commerce, payments] = buildWorkspaceTree(REGISTRY);
   assert.equal(commerce.label, 'commerce');
   assert.equal(commerce.kind, 'action');
   assert.equal(commerce.description, 'working here');
-  assert.equal(commerce.runCommand, 'singularityFlow.switchWorkspace', 'selecting it performs the switch');
+  assert.equal(commerce.runCommand, 'singularityFlow.openWorkspaces', 'clicking opens workspace details');
   // The directory leads the tooltip, then what choosing this workspace means.
   assert.match(commerce.tooltip, /^\/work\/commerce\n/);
   assert.match(commerce.tooltip, /scoped to this workspace/);
   assert.equal(commerce.contextValue, 'sflow.workspace.active',
     'the one being worked in is distinguishable to a menu, not just to a reader');
   assert.equal(commerce.path, '/work/commerce');
-  // Opening a workspace means opening its lead repository: that is where the map, the governed
-  // state and every command's configuration live.
+  // Opening the lead checkout remains a secondary explicit action and uses this path.
   assert.equal(commerce.openPath, '/work/commerce/repos/platform');
   assert.equal(commerce.children, undefined, 'there is no disclosure chevron competing with selection');
   assert.match(commerce.tooltip, /Lead repository: platform/);

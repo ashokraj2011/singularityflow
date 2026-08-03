@@ -15,12 +15,12 @@ import { workspaceRows } from './workspaces-model.ts';
 import type { TreeNode } from './tree-model.ts';
 
 /**
- * The workspaces on this machine, each acting as a direct selector.
+ * The workspaces on this machine, each opening its local details.
  *
  * A workspace row used to be an expandable group. That made its chevron look like the primary
  * action and hid the actual switch command behind VS Code's tree-item behaviour. A workspace is a
- * choice, not a folder browser: one click now selects it, records it as current, and opens its lead
- * repository in this window. The directory and lead remain in the tooltip for inspection.
+ * choice, not a folder browser: one click now shows the working directory, repositories,
+ * capabilities and tracker context. Selecting it for work remains an explicit check action.
  */
 export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
   const rows = workspaceRows(entries);
@@ -48,8 +48,8 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     tooltip: row.collides
       ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
       : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
-        ? 'Every screen is scoped to this workspace.'
-        : 'Click to make this the active workspace and load Lifecycle and Configuration.'}`,
+        ? 'Every screen is scoped to this workspace. Click to inspect its full details.'
+        : 'Click to inspect this workspace. Use the check action to work in it.'}`,
     icon: row.collides || row.sharesId ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
     contextValue: row.active ? 'sflow.workspace.active' : 'sflow.workspace',
     // Carried so the commands acting on this row never have to re-read the registry to find out
@@ -57,7 +57,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     // the map, the governed state and every command's configuration live.
     path: row.directory,
     openPath: row.leadRepositoryPath || row.directory,
-    runCommand: 'singularityFlow.switchWorkspace'
+    runCommand: 'singularityFlow.openWorkspaces'
   }));
 }
 

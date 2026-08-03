@@ -11,7 +11,7 @@ import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import { EMPTY_DRAFT, workspacesHtml, WORKSPACES_SCRIPT, type DuplicateDraft } from './workspaces-page.ts';
 import {
   duplicateCommand, duplicateProblems, renameCommand, workspaceRows,
-  type WorkspaceEntry, type WorkspaceRow
+  type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
 } from './workspaces-model.ts';
 
 export type WorkspacesMessage =
@@ -26,35 +26,48 @@ export class WorkspacesPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly onMessage: (message: WorkspacesMessage) => Promise<string | null>;
   private readonly reload: () => Promise<WorkspaceEntry[]>;
+  private readonly loadDetails: (path: string) => Promise<WorkspaceStatus>;
   private readonly disposables: vscode.Disposable[] = [];
   private rows: WorkspaceRow[] = [];
   private selected: string | null = null;
   private draft: DuplicateDraft = { ...EMPTY_DRAFT };
   private error: string | null = null;
+  private detailError: string | null = null;
+  private details: WorkspaceStatus | null = null;
+  private detailsLoading = false;
+  private detailRequest = 0;
 
   private constructor(
     panel: vscode.WebviewPanel,
     entries: WorkspaceEntry[],
     reload: () => Promise<WorkspaceEntry[]>,
-    onMessage: (message: WorkspacesMessage) => Promise<string | null>
+    onMessage: (message: WorkspacesMessage) => Promise<string | null>,
+    loadDetails: (path: string) => Promise<WorkspaceStatus>,
+    selected: string | null
   ) {
     this.panel = panel;
     this.reload = reload;
     this.onMessage = onMessage;
+    this.loadDetails = loadDetails;
     this.rows = workspaceRows(entries);
+    this.selected = selected;
     this.panel.webview.onDidReceiveMessage((raw: unknown) => { void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
+    if (selected) void this.select(selected);
   }
 
   static show(
     context: vscode.ExtensionContext,
     entries: WorkspaceEntry[],
     reload: () => Promise<WorkspaceEntry[]>,
-    onMessage: (message: WorkspacesMessage) => Promise<string | null>
+    onMessage: (message: WorkspacesMessage) => Promise<string | null>,
+    loadDetails: (path: string) => Promise<WorkspaceStatus>,
+    selected: string | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
       WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      if (selected) void WorkspacesPanel.current.select(selected);
       return WorkspacesPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -63,7 +76,7 @@ export class WorkspacesPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    WorkspacesPanel.current = new WorkspacesPanel(panel, entries, reload, onMessage);
+    WorkspacesPanel.current = new WorkspacesPanel(panel, entries, reload, onMessage, loadDetails, selected);
     return WorkspacesPanel.current;
   }
 
@@ -71,7 +84,10 @@ export class WorkspacesPanel {
     const token = nonce();
     this.panel.webview.html = page(
       'Workspaces',
-      workspacesHtml(this.rows, this.selected, this.draft, this.error),
+      workspacesHtml(
+        this.rows, this.selected, this.draft, this.error,
+        this.details, this.detailsLoading, this.detailError
+      ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       WORKSPACES_SCRIPT
@@ -80,7 +96,37 @@ export class WorkspacesPanel {
 
   private async refresh(): Promise<void> {
     this.rows = workspaceRows(await this.reload());
+    if (this.selected && this.rows.some((row) => row.path === this.selected)) {
+      await this.select(this.selected);
+    } else {
+      this.selected = null;
+      this.details = null;
+      this.render();
+    }
+  }
+
+  private async select(path: string): Promise<void> {
+    if (!this.rows.some((row) => row.path === path)) return;
+    const request = ++this.detailRequest;
+    this.selected = path;
+    this.draft = { ...EMPTY_DRAFT };
+    this.error = null;
+    this.detailError = null;
+    this.details = null;
+    this.detailsLoading = true;
     this.render();
+    try {
+      const details = await this.loadDetails(path);
+      if (request !== this.detailRequest) return;
+      this.details = details;
+    } catch (error) {
+      if (request !== this.detailRequest) return;
+      this.detailError = (error as Error).message;
+    } finally {
+      if (request !== this.detailRequest) return;
+      this.detailsLoading = false;
+      this.render();
+    }
   }
 
   /** The row a page message names — resolved from the list rather than taken from the page. */
@@ -95,10 +141,8 @@ export class WorkspacesPanel {
     };
 
     if (message?.type === 'select') {
-      this.selected = typeof message.path === 'string' ? message.path : null;
-      this.draft = { ...EMPTY_DRAFT };
-      this.error = null;
-      return this.render();
+      if (typeof message.path === 'string') await this.select(message.path);
+      return;
     }
 
     // Typed without re-rendering: the page answers its own preview, and this is only so that acting

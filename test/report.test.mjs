@@ -16,7 +16,7 @@ function fixtureWorkflow() {
     totalTokens: 5000,
     startedAt: at(0),
     completedAt: at(10),
-    persona: 'developer',
+    agent: 'developer',
     ...overrides
   });
   return {
@@ -28,23 +28,23 @@ function fixtureWorkflow() {
     phases: {
       requirements: {
         id: 'requirements', label: 'Requirements', status: 'approved', startedAt: at(0), approvedAt: at(120),
-        generation: 1, usage: [usageRecord({ persona: 'product-owner' })], checks: [],
-        approvals: [{ decision: 'approved', at: at(120), actor: { name: 'Alice' }, persona: 'product-owner', selfApproval: false }]
+        generation: 1, usage: [usageRecord({ agent: 'product-owner' })], checks: [],
+        approvals: [{ decision: 'approved', at: at(120), actor: { name: 'Alice' }, agent: 'product-owner', selfApproval: false }]
       },
       design: {
         id: 'design', label: 'Design', status: 'approved', startedAt: at(120), approvedAt: at(480), generation: 2,
         usage: [usageRecord(), usageRecord({ status: 'unavailable', inputTokens: null, outputTokens: null, totalTokens: null })],
         checks: [{ command: 'npm test', startedAt: at(395), completedAt: at(398), status: 'passed' }],
         approvals: [
-          { decision: 'rejected', at: at(200), actor: { name: 'Bob' }, persona: 'architect' },
-          { decision: 'approved', at: at(480), actor: { name: 'Bob' }, persona: 'architect', selfApproval: false }
+          { decision: 'rejected', at: at(200), actor: { name: 'Bob' }, agent: 'architect' },
+          { decision: 'approved', at: at(480), actor: { name: 'Bob' }, agent: 'architect', selfApproval: false }
         ]
       }
     },
     usage: {
       totalTokens: 10000, records: 3, exactRecords: 2, unavailableRecords: 1,
       byPhase: {},
-      byPersona: {
+      byAgent: {
         'product-owner': { records: 1, exactRecords: 1, unavailableRecords: 0, totalTokens: 5000 },
         developer: { records: 2, exactRecords: 1, unavailableRecords: 1, totalTokens: 5000 }
       }
@@ -52,16 +52,16 @@ function fixtureWorkflow() {
     sequenceOverrides: [{
       gate: 'phaseStatus', action: 'approve', requestedPhase: 'requirements',
       reason: 'Approval was requested before submission.', at: at(110),
-      actor: { name: 'Alice' }, persona: 'product-owner', before: { currentPhase: 'requirements' }
+      actor: { name: 'Alice' }, agent: 'product-owner', before: { currentPhase: 'requirements' }
     }],
     history: [
-      { at: at(480), actor: 'bob@example.com', persona: 'architect', event: 'phase_approved', phase: 'design', detail: 'complete' },
-      { at: at(0), actor: 'alice@example.com', persona: 'product-owner', event: 'phase_generated', phase: 'requirements' },
-      { at: at(60), actor: 'alice@example.com', persona: 'product-owner', event: 'phase_submitted', phase: 'requirements' },
-      { at: at(120), actor: 'alice@example.com', persona: 'product-owner', event: 'phase_approved', phase: 'requirements' },
-      { at: at(180), actor: 'bob@example.com', persona: 'developer', event: 'phase_submitted', phase: 'design' },
-      { at: at(200), actor: 'bob@example.com', persona: 'architect', event: 'phase_rejected', phase: 'design', detail: 'missing diagram' },
-      { at: at(400), actor: 'bob@example.com', persona: 'developer', event: 'phase_submitted', phase: 'design' }
+      { at: at(480), actor: 'bob@example.com', agent: 'architect', event: 'phase_approved', phase: 'design', detail: 'complete' },
+      { at: at(0), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_generated', phase: 'requirements' },
+      { at: at(60), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_submitted', phase: 'requirements' },
+      { at: at(120), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_approved', phase: 'requirements' },
+      { at: at(180), actor: 'bob@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' },
+      { at: at(200), actor: 'bob@example.com', agent: 'architect', event: 'phase_rejected', phase: 'design', detail: 'missing diagram' },
+      { at: at(400), actor: 'bob@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' }
     ]
   };
 }
@@ -117,7 +117,7 @@ test('deriveReport prefers exact provider cost captured from Copilot telemetry',
 test('deriveReport does not invent a zero cost when only total tokens are available', () => {
   const workflow = fixtureWorkflow();
   workflow.phases.requirements.usage = [{
-    status: 'exact', model: 'test-model', inputTokens: null, outputTokens: null, cachedInputTokens: null, totalTokens: 5000, persona: 'product-owner'
+    status: 'exact', model: 'test-model', inputTokens: null, outputTokens: null, cachedInputTokens: null, totalTokens: 5000, agent: 'product-owner'
   }];
   workflow.phases.design.usage = [];
   const report = deriveReport(workflow, { now: at(480), pricing: { 'test-model': { input: 3, output: 15 } } });

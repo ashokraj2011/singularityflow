@@ -23,7 +23,7 @@ const GOVERNANCE_ROOT = 'singularity';
  *
  * The source-tree hash answers exactly one question: has the code the world model describes
  * changed? Counting governance state meant the answer was always yes. Starting an Epic alone
- * commits initiative state *and* materializes the artifact templates and working-lens prompts, so a
+ * commits initiative state *and* materializes the artifact templates and governed-agent prompts, so a
  * model built minutes earlier was reported stale before a single line of the application had been
  * touched — the signal was permanently on and told you nothing. On the rule-engine repository it
  * was 48 of 70 files for work-item and initiative state, and 22 more for templates.
@@ -40,7 +40,7 @@ function excludedSourcePath(file, definition = {}) {
     definition.workItemRoot ?? 'singularity/work-items',
     definition.initiativeRoot ?? 'singularity/initiatives',
     definition.templatesRoot ?? 'singularity/templates',
-    definition.personaPromptsRoot ?? 'singularity/personas'
+    definition.agentPromptsRoot ?? '.github/agents'
   ].map((value) => posix(String(value)).replace(/\/$/, '')).filter(Boolean);
   return roots.some((root) => file === root || file.startsWith(`${root}/`))
     || file.startsWith('.git/') || file.startsWith('node_modules/');
@@ -267,7 +267,7 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
   return { directory: cached, source: 'state-branch', branch };
 }
 
-export async function resolveWorldModelContext(root, config, phase, { task = null, evidence = false, includePersonaPrompt = false } = {}) {
+export async function resolveWorldModelContext(root, config, phase, { task = null, evidence = false, includeAgentPrompt = false } = {}) {
   const phaseConfig = config.phases?.[phase];
   if (!phaseConfig) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
   // The state branch wins where it has a model; the working tree answers otherwise.
@@ -291,9 +291,9 @@ export async function resolveWorldModelContext(root, config, phase, { task = nul
     if (!selected.some((item) => item.relative === relativePath)) selected.push({ relative: relativePath, absolute, level, reason, ...info });
   };
   for (const relative of config.context?.always ?? ['core/summary.md']) await add(relative, 0, 'shared repository core');
-  if (includePersonaPrompt && config.personaPrompt) {
-    const info = await snapshot(path.join(root, config.personaPrompt));
-    if (!info.exists) throw new SingularityFlowError(`Active working-lens prompt is missing: ${config.personaPrompt}`);
+  if (includeAgentPrompt && config.agentPrompt) {
+    const info = await snapshot(path.join(root, config.agentPrompt));
+    if (!info.exists) throw new SingularityFlowError(`Active governed-agent prompt is missing: ${config.agentPrompt}`);
   }
   for (const view of phaseConfig.views ?? []) await add(manifest.views?.[view]?.path, 1, `${phase} view: ${view}`);
   if (config.context?.includeDomains !== 'none') {
@@ -349,7 +349,7 @@ function severityResult(mode, messages) {
   return mode === 'enforce' ? { errors: messages, warnings: [] } : { errors: [], warnings: messages };
 }
 
-export async function verifyGroundingRecord(root, definition, workflow, phase, { generation = phase.generation + 1, persona = null } = {}) {
+export async function verifyGroundingRecord(root, definition, workflow, phase, { generation = phase.generation + 1, agent = null } = {}) {
   const mode = groundingMode(definition, workflow);
   if (mode === 'off') return { mode, errors: [], warnings: [], passes: [], record: null, path: null };
   const relative = groundingRecordRelative(definition, workflow, phase, generation);
@@ -366,9 +366,9 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const problems = [];
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`grounding composition identity mismatch: ${relative}`);
-  if (!record.persona) problems.push(`grounding composition has no persona: ${relative}`);
-  else if (!definition.personas?.[record.persona]) problems.push(`grounding composition uses unknown persona '${record.persona}': ${relative}`);
-  if (persona && record.persona !== persona) problems.push(`grounding composition persona '${record.persona}' differs from active persona '${persona}'`);
+  if (!record.agent) problems.push(`grounding composition has no agent: ${relative}`);
+  else if (!definition.agents?.[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
+  if (agent && record.agent !== agent) problems.push(`grounding composition agent '${record.agent}' differs from active agent '${agent}'`);
   if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
   for (const field of ['manifestSha256', 'renderedSha256']) if (!/^[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
   for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
@@ -387,7 +387,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const requiredViews = [...new Set([
     ...(phase.worldModel?.views ?? []),
-    ...(definition.personas?.[persona ?? record.persona]?.worldModelViews ?? [])
+    ...(definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [])
   ])];
   for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
   const seen = new Set();

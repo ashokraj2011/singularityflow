@@ -90,14 +90,14 @@ export function sequenceError(workflow, action, { gate = 'phaseStatus', requeste
 }
 
 async function sessionAudit(root) {
-  if (!root) return { actor: null, persona: null };
+  if (!root) return { actor: null, agent: null };
   const file = path.join(root, '.git/singularity-flow/session.json');
-  if (!(await exists(file))) return { actor: null, persona: null };
+  if (!(await exists(file))) return { actor: null, agent: null };
   try {
     const session = JSON.parse(await readFile(file, 'utf8'));
-    return { actor: session.actor ?? null, persona: session.persona ?? null };
+    return { actor: session.actor ?? null, agent: session.agent ?? null };
   } catch {
-    return { actor: null, persona: null };
+    return { actor: null, agent: null };
   }
 }
 
@@ -136,7 +136,7 @@ async function recordOverride(root, workflow, gate, action, { requestedPhase, re
     before,
     at,
     actor: audit.actor,
-    persona: audit.persona
+    agent: audit.agent
   };
   workflow.sequenceOverrides ??= [];
   workflow.sequenceOverrides.push(record);
@@ -144,7 +144,7 @@ async function recordOverride(root, workflow, gate, action, { requestedPhase, re
   workflow.history.push({
     at,
     actor: audit.actor?.login ?? audit.actor?.email ?? audit.actor?.name ?? 'interactive-user',
-    persona: audit.persona,
+    agent: audit.agent,
     event: 'sequence_gate_overridden',
     phase: requestedPhase ?? workflow.currentPhase ?? null,
     detail: `${gate}: ${action}${reason ? ` — ${reason}` : ''}`

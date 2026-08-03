@@ -145,7 +145,7 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
     actorName: entry.record.actor?.name ?? entry.record.actor?.email ?? 'unknown',
     actorEmail: entry.record.actor?.email ?? null,
     actor: entry.record.actor?.email ?? entry.record.actor?.name ?? 'unknown',
-    persona: entry.record.persona ?? null,
+    agent: entry.record.agent ?? null,
     channel: entry.record.channel ?? 'unknown',
     decision: entry.record.decision ?? 'approved',
     at: entry.record.at ?? null,

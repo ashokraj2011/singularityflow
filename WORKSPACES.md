@@ -71,7 +71,7 @@ the lead-repository selection. It never contains Jira credentials, approvals,
 lifecycle state, or authoritative evidence.
 
 Documents added with **Stage documents** remain visibly marked
-`staged-not-governed`. When the matching story branch and persona session are
+`staged-not-governed`. When the matching Story branch and phase-agent session are
 active, **Import to work item** copies the selected file through the normal
 document flow, hashes it, commits it, and pushes the governed version. Initiative
 evidence still uses its checklist-aware evidence registration flow so assurance

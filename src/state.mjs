@@ -127,8 +127,7 @@ function phaseState(definition, index) {
     id: definition.id,
     label: definition.label,
     order: index,
-    owner: definition.suggestedPersonas?.[0] ?? null,
-    suggestedPersonas: [...(definition.suggestedPersonas ?? [])],
+    defaultAgent: definition.defaultAgent ?? null,
     status: index === 0 ? 'in_progress' : 'not_started',
     requiredArtifact,
     template: definition.template,
@@ -147,7 +146,7 @@ function phaseState(definition, index) {
     rejectionReason: null,
     generation: 0,
     generatedBy: null,
-    generatedPersona: null,
+    generatedAgent: null,
     usage: [],
     telemetry: [],
     approvals: [],
@@ -165,7 +164,7 @@ function managedMetadata(workflow, phase) {
     generation: phase.generation,
     status: phase.status,
     generatedBy: phase.generatedBy,
-    generatedPersona: phase.generatedPersona,
+    generatedAgent: phase.generatedAgent,
     sourceCommit: phase.sourceCommit ?? null,
     generationCommit: phase.generationCommit ?? null,
     publicationCommit: phase.publicationCommit ?? null,
@@ -216,18 +215,18 @@ function statusMarkdown(workflow) {
       : []),
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? 'complete'}**`, '',
-    '| # | Phase | Suggested working lenses | Status | Generation | Approvals | Tokens |',
+    '| # | Phase | Governed agent | Status | Generation | Approvals | Tokens |',
     '|---:|---|---|---|---:|---:|---:|'
   ];
   for (const id of workflow.phaseOrder) {
     const phase = workflow.phases[id];
     const approvals = phase.approvals.filter((item) => !item.invalidatedAt).length;
     const tokens = phase.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
-    lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.suggestedPersonas.join(', ')} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
-    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.actor.name ?? approval.actor.email ?? 'unknown'} via ${approval.authorityGroup ?? 'unrecorded authority'}; lens ${approval.workingLens ?? approval.persona ?? 'unavailable'} | **warning** |  |  |  |`);
+    lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.defaultAgent ?? 'unavailable'} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
+    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.actor.name ?? approval.actor.email ?? 'unknown'} via ${approval.authorityGroup ?? 'unrecorded authority'}; agent ${approval.agent ?? 'unavailable'} | **warning** |  |  |  |`);
   }
   lines.push('', '## Recent history', '');
-  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.persona ? ` · working lens ${item.persona}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
+  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · governed agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
   if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
   return `${lines.join('\n')}\n`;
 }
@@ -237,7 +236,7 @@ export async function saveWorkflow(root, config, workflow) {
   await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
 }
 
-export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, persona, resolved, capabilityId = null } = {}) {
+export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, agent, resolved, capabilityId = null } = {}) {
   validateId(config, id);
   if (branch(root) !== canonicalBranch) {
     throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
@@ -298,13 +297,13 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     phases: Object.fromEntries(phases.map((phase) => [phase.id, phase])),
     usage: {
       mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
-      exactRecords: 0, unavailableRecords: 0, byPhase: {}, byPersona: {}, byWorkType: {}, byWorkItem: {}
+      exactRecords: 0, unavailableRecords: 0, byPhase: {}, byAgent: {}, byWorkType: {}, byWorkItem: {}
     },
     telemetry: { schemaVersion: 1, mode: 'work-item-sanitized' },
     documents: { count: 0, updatedAt: null },
     collaboration: { assignments: {}, notifications: [] },
     sequenceOverrides: [],
-    history: [{ at: createdAt, actor: actorKey(actor), persona: persona ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
+    history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
   if (capability?.policy?.maxDocumentBytes) {
     workflow.resolution.documents.maxFileBytes = Math.min(
@@ -380,20 +379,21 @@ function upgradeWorkflow(workflow) {
   workflow.collaboration.notifications ??= [];
   workflow.sequenceOverrides ??= [];
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
-  workflow.usage.byPhase ??= {}; workflow.usage.byPersona ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
+  workflow.usage.byPhase ??= {}; workflow.usage.byAgent ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
   for (const id of workflow.phaseOrder) {
     const phase = workflow.phases[id];
-    phase.suggestedPersonas ??= phase.owner ? [phase.owner] : [];
+    if (phase.owner != null || phase.suggestedAgents != null) throw new SingularityFlowError(`Workflow phase '${id}' contains removed role-selection state. Recreate this development work item with the current agent-only workflow.`);
+    phase.defaultAgent ??= workflow.resolution.phases?.find((item) => item.id === id)?.defaultAgent ?? null;
     phase.approvalPolicy ??= { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [id] };
     phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
-    delete phase.approvalPolicy.personas;
+    delete phase.approvalPolicy.agents;
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
     phase.remoteOutputs ??= [];
     phase.generation ??= phase.artifacts?.length ? 1 : 0;
     phase.usage ??= [];
     phase.telemetry ??= [];
-    phase.approvals ??= phase.approvedBy ? [{ actor: { name: phase.approvedBy }, persona: phase.owner, at: phase.approvedAt, selfApproval: false, channel: 'legacy' }] : [];
+    phase.approvals ??= [];
   }
   return workflow;
 }
@@ -597,7 +597,7 @@ function normalizeUsage(raw, session, generation = null) {
     providerCost: Number.isFinite(raw?.providerCost) ? raw.providerCost : null,
     costStatus: raw?.costStatus ?? (Number.isFinite(raw?.providerCost) ? 'exact' : 'unavailable'),
     spans: Number.isInteger(raw?.spans) ? raw.spans : null,
-    startedAt, completedAt, persona: session.persona, generation
+    startedAt, completedAt, agent: session.agent, generation
   };
   return usage;
 }
@@ -613,7 +613,7 @@ function addUsageAggregate(workflow, phase, usage) {
   workflow.usage[usage.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
   workflow.usage.totalTokens += usage.totalTokens ?? 0;
   increment(workflow.usage.byPhase, phase.id);
-  increment(workflow.usage.byPersona, usage.persona);
+  increment(workflow.usage.byAgent, usage.agent);
   increment(workflow.usage.byWorkType, workflow.workItem.workType);
   increment(workflow.usage.byWorkItem, workflow.workItem.id);
 }
@@ -626,7 +626,7 @@ function rebuildUsageAggregates(workflow) {
     exactRecords: 0,
     unavailableRecords: 0,
     byPhase: {},
-    byPersona: {},
+    byAgent: {},
     byWorkType: {},
     byWorkItem: {}
   };
@@ -665,7 +665,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
-  const grounding = await verifyGroundingRecord(root, config, workflow, phase, { persona: session.persona });
+  const grounding = await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent });
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
   const changed = changedFiles(root);
@@ -696,7 +696,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
       throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
     }
   }
-  phase.generation += 1; phase.generatedBy = session.actor; phase.generatedPersona = session.persona; phase.sourceCommit = head(root);
+  phase.generation += 1; phase.generatedBy = session.actor; phase.generatedAgent = session.agent; phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
   phase.usage.push(...normalizedUsage);
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
@@ -712,7 +712,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
-  workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), persona: session.persona, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
+  workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
   await saveWorkflow(root, config, workflow); return phase;
 }
 
@@ -736,7 +736,7 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
   };
 
   const session = await loadSession(root, { required: false });
-  const usageSession = { persona: phase.generatedPersona ?? session?.persona ?? null };
+  const usageSession = { agent: phase.generatedAgent ?? session?.agent ?? null };
   const normalizedUsage = capture.usage.map((record) => normalizeUsage(record, usageSession, generation));
   phase.usage = [...(phase.usage ?? []).filter((item) => item.generation !== generation), ...normalizedUsage];
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
@@ -755,7 +755,7 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
   workflow.history.push({
     at: nowIso(),
     actor: actorKey(session?.actor ?? phase.generatedBy ?? {}) ?? 'unknown',
-    persona: session?.persona ?? phase.generatedPersona ?? null,
+    agent: session?.agent ?? phase.generatedAgent ?? null,
     event: 'phase_telemetry_reconciled',
     phase: phase.id,
     detail: `generation ${generation}: ${telemetry.status}`
@@ -809,7 +809,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.status = 'awaiting_approval'; phase.submittedAt = nowIso(); await updateArtifactMetadata(root, config, workflow, phase); await refreshRequiredArtifact(root, config, workflow, phase);
-  workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), persona: session.persona, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
+  workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
   await saveWorkflow(root, config, workflow); return phase;
 }
 
@@ -843,7 +843,7 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
     phase: phase.id,
     at: nowIso(),
     actor,
-    workingLens: session.persona,
+    agent: session.agent,
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance,
     channel,
@@ -863,7 +863,7 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
   }
   await updateArtifactMetadata(root, config, workflow, phase); await registerApprovedSnapshot(root, config, workflow, phase);
   await writeDecision(root, config, workflow, phase, decision);
-  workflow.history.push({ at: decision.at, actor: key, persona: session.persona, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
+  workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
   await saveWorkflow(root, config, workflow);
   const next = reached ? currentPhase(workflow) : phase;
   const contextBoundary = reached
@@ -919,7 +919,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reason: reason.trim(),
     at: timestamp,
     actor: session.actor,
-    workingLens: session.persona,
+    agent: session.agent,
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance,
     channel,
@@ -927,7 +927,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: packet?.packetSha256 ?? null
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
-  workflow.history.push({ at: timestamp, actor: key, persona: session.persona, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
+  workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
   await saveWorkflow(root, config, workflow);
   return {
     ...workflow.phases[targetId],
@@ -971,7 +971,7 @@ export async function commitAndPublish(root, config, workflow, message, extraPat
         branch: workflowPublicationBranch(root, workflow)
       },
       actor: decision?.actor ?? identity(root),
-      workingLens: decision?.workingLens ?? decision?.persona ?? phase?.generatedPersona ?? null,
+      agent: decision?.agent ?? phase?.generatedAgent ?? null,
       authorityGroup: decision?.authorityGroup ?? null,
       identityAssurance: decision?.identityAssurance ?? null,
       payload: {
@@ -1052,7 +1052,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
     if (!workflow.resolution?.sessionLegacy) {
       const expectedSession = normalizeSessionPolicy(config.session ?? {});
       const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
-      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session working-lens policy differs from the immutable configuration snapshot.');
+      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session governed-agent policy differs from the immutable configuration snapshot.');
     }
     if (!workflow.resolution?.contextPolicyLegacy) {
       const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });

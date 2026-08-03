@@ -10,12 +10,12 @@ import YAML from 'yaml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function execute(command, args, cwd, { allowFailure = false, persona = 'product-owner', confirm = null } = {}) {
+function execute(command, args, cwd, { allowFailure = false, agent = 'product-owner', confirm = null } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Sequence Tester',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona })
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent })
   };
   if (confirm) env.SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM = confirm;
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env });
@@ -39,7 +39,7 @@ async function repository() {
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
   flow(root, ['start', 'SEQ-1', '--title', 'Strict sequence']);
   return root;
@@ -68,7 +68,7 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
   assertSequenceFailure(flow(root, ['submit'], { allowFailure: true }), /no published generation/i, /prepare intake/, /phase publish intake/);
   assert.equal(await readFile(workflowFile, 'utf8'), initialWorkflow);
 
-  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, persona: 'architect' }), /requires status awaiting_approval/, /prepare intake/);
+  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /requires status awaiting_approval/, /prepare intake/);
   assert.equal(await readFile(sessionFile, 'utf8'), initialSession);
 
   assertSequenceFailure(flow(root, ['prepare', 'requirements'], { allowFailure: true }), /Only the current phase 'intake' may change/);
@@ -77,23 +77,23 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
   assert.equal(execute('git', ['status', '--porcelain'], root).stdout.trim(), '');
 });
 
-test('soft gates require confirmation and audit a confirmed override with the selected persona', async () => {
+test('soft gates require confirmation and audit a confirmed override with the selected agent', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
 
-  const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, persona: 'product-owner' });
+  const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'product-owner' });
   assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);
 
-  const approved = flow(root, ['approve', '--yes'], { persona: 'product-owner', confirm: 'phaseStatus' });
+  const approved = flow(root, ['approve', '--yes'], { agent: 'product-owner', confirm: 'phaseStatus' });
   assert.match(approved.stderr, /Continuing after confirmed soft gate 'phaseStatus'/);
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.equal(workflow.phases.intake.status, 'approved');
   assert.equal(workflow.sequenceOverrides.length, 1);
   assert.equal(workflow.sequenceOverrides[0].gate, 'phaseStatus');
-  assert.equal(workflow.sequenceOverrides[0].persona, 'product-owner');
+  assert.equal(workflow.sequenceOverrides[0].agent, 'product-owner');
   assert.equal(workflow.sequenceOverrides[0].actor.name, 'Sequence Tester');
-  assert.ok(workflow.history.some((event) => event.event === 'sequence_gate_overridden' && event.persona === 'product-owner'));
+  assert.ok(workflow.history.some((event) => event.event === 'sequence_gate_overridden' && event.agent === 'product-owner'));
 
   const report = flow(root, ['report']);
   assert.match(report.stdout, /Soft sequence overrides/);
@@ -111,7 +111,7 @@ test('sequence gate policy is immutable after work-item creation', async () => {
   assert.match(validation.stderr, /Sequence gate policy differs from the immutable work-type configuration snapshot/);
 });
 
-test('Copilot session persona policy is immutable after work-item creation', async () => {
+test('Copilot session agent policy is immutable after work-item creation', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -119,7 +119,7 @@ test('Copilot session persona policy is immutable after work-item creation', asy
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
   assert.equal(validation.status, 2);
-  assert.match(validation.stderr, /Session working-lens policy differs from the immutable configuration snapshot/);
+  assert.match(validation.stderr, /Session governed-agent policy differs from the immutable configuration snapshot/);
 });
 
 test('older work-item session snapshots without work-item selection remain backward compatible', async () => {
@@ -141,7 +141,7 @@ test('submitted work blocks generation mutations and rejection requires regenera
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete and measurable intake evidence for strict lifecycle sequencing.'));
   flow(root, ['phase', 'publish', 'intake']);
 
-  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, persona: 'architect' }), /submit --phase intake/);
+  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /submit --phase intake/);
   flow(root, ['submit']);
 
   const submittedWorkflow = await readFile(workflowFile, 'utf8');
@@ -149,7 +149,7 @@ test('submitted work blocks generation mutations and rejection requires regenera
   assertSequenceFailure(flow(root, ['prepare', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/, /reject SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['phase', 'publish', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['documents', 'upload', artifact], { allowFailure: true }), /cannot upload documents/, /awaiting_approval/);
-  assertSequenceFailure(flow(root, ['prompt-packs', 'refresh-output', 'external-result'], { allowFailure: true }), /cannot refresh remote generated output/);
+  assertSequenceFailure(flow(root, ['agents', 'refresh-output', 'external-result'], { allowFailure: true }), /cannot refresh remote generated output/);
   assertSequenceFailure(flow(root, ['wm', 'inject', '--phase', 'intake'], { allowFailure: true }), /cannot compose and record a generation prompt/);
   assert.equal(await readFile(workflowFile, 'utf8'), submittedWorkflow);
   assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);

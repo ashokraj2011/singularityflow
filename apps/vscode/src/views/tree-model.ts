@@ -56,8 +56,8 @@ export interface TreeNode {
   confirmation?: { expected: string; summary: string };
   /**
    * An approval, which goes through a selection receipt rather than plain flags: a receipt binds to
-   * HEAD and to the exact artifact hashes, and it is also where `initiative approve`'s working-lens
-   * answer lives, since that path has no --persona.
+   * HEAD and to the exact artifact hashes, and it is also where `initiative approve`'s governed-agent
+   * answer lives, since that path has no --agent.
    */
   approve?: { initiativeId: string; subject: string; expected: string; summary: string };
   contextValue?: string;
@@ -475,25 +475,25 @@ function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
 }
 
 /**
- * The repository's own configuration: what the lifecycle is, who may approve, and the lenses work
- * is done under. These are files, and the editor is good at files — the value here is knowing they
+ * The repository's own configuration: what the lifecycle is, who may approve, and which governed
+ * agents execute each phase. These are files, and the editor is good at files — the value is knowing they
  * exist and where, which is exactly what a newcomer does not.
  */
 /**
  * The editable file sets, as groups of openable files.
  *
- * Artifact templates, working-lens prompts, prompt packs and agent mappings are all Markdown or YAML
+ * Artifact templates, skills, agents and agent mappings are all Markdown or YAML
  * that the engine already lists and already guards on save. What the editor adds is knowing they
  * exist: a template that nobody can find is a template nobody edits, and the shape of an artifact is
  * one of the few things a team genuinely wants to change about this product.
  *
- * An empty set is shown rather than hidden, so "there are no prompt packs" is a fact you can read
+ * An empty set is shown rather than hidden, so "there are no agents" is a fact you can read
  * instead of an absence you have to infer.
  */
 function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
-  // Both kinds of prompt pack. The snapshot has carried the packaged ones as `flowSkills` all along
+  // Both kinds of agent. The snapshot has carried the packaged ones as `flowSkills` all along
   // and this view showed only the repository's, so a repository that had written none of its own
-  // was told it had no prompt packs while eighty-two shipped with the product sat unlisted. The
+  // was told it had no agents while eighty-two shipped with the product sat unlisted. The
   // repository's own come first: those are the ones a team wrote and can change.
   const packs = [
     ...(snapshot.repositorySkills ?? []).map((file) => ({ ...file, scope: 'repository' as const })),
@@ -510,8 +510,7 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
     files: Array<{ path: string; name: string; scope?: string; description?: string }>;
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
-    { id: 'prompts', label: 'Lens prompts', icon: 'comment-discussion', files: snapshot.personaPrompts ?? [] },
-    { id: 'skills', label: 'Prompt packs', icon: 'book', files: packs }
+    { id: 'skills', label: 'Skills', icon: 'book', files: packs }
   ];
 
   const nodes: TreeNode[] = sets.map((set) => ({
@@ -580,7 +579,6 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
 }
 
 function configurationNode(snapshot: DesktopSnapshot): TreeNode {
-  const personas = Object.entries(snapshot.definition?.personas ?? {});
   const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
   return {
     kind: 'group',
@@ -595,7 +593,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       worldModelNode(snapshot),
       {
         kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
-        description: 'phases, lenses, grounding', icon: 'layers',
+        description: 'phases, agent defaults, grounding', icon: 'layers',
         path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'
       },
       {
@@ -603,20 +601,7 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
         description: 'profiles, approvers, repositories', icon: 'organization',
         path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
       },
-      ...fileSetNodes(snapshot),
-      {
-        kind: 'group', id: 'config:personas', label: 'Working lenses',
-        description: personas.length ? `${personas.length}` : 'none', icon: 'eye',
-        children: personas.map(([id, persona]) => ({
-          kind: 'artifact' as const,
-          id: `persona:${id}`,
-          label: persona?.label ?? id,
-          description: id,
-          icon: 'person',
-          path: `singularity/personas/${id}.md`,
-          contextValue: 'sflow.config'
-        }))
-      }
+      ...fileSetNodes(snapshot)
     ]
   };
 }

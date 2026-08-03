@@ -32,10 +32,10 @@ The skill running in Copilot CLI composes:
 
 ```text
 phase contract and artifact template
-+ selected persona prompt
++ phase-default governed Agent Markdown
 + required repository world-model views
 + rule-selected repository world-model files
-+ active-agent remote skill Markdown
++ locked remote Agent Markdown dependencies
 + approved upstream artifacts
 + pinned Epic or Story evidence
 ```

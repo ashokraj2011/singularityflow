@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { branch, changes, head, identity } from './git.mjs';
-import { loadSession, setPersonaSession } from './session.mjs';
+import { loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish, loadWorkflow, saveWorkflow, sourceTreeHash, workflowBranchAllowed,
   workflowPublicationBranch, workDir
@@ -33,10 +33,10 @@ function childRecord(workflow, name, actor, baseCommit) {
   };
 }
 
-async function preservePersona(root, config, workflow) {
+async function preserveAgent(root, config, workflow) {
   const session = await loadSession(root, { required: false });
-  if (session?.persona && config.personas?.[session.persona]) {
-    await setPersonaSession(root, config, identity(root), session.persona, workflow.workItem.id);
+  if (session?.agent && config.agents?.[session.agent]) {
+    await setAgentSession(root, config, identity(root), session.agent, workflow.workItem.id);
   }
 }
 
@@ -49,12 +49,12 @@ export async function attachStoryBranch(root, config, {
   const current = validateBranchName(root, branchName);
   if (current !== branch(root)) throw new SingularityFlowError(`Current branch is '${branch(root)}'; cannot attach '${current}' without checking it out.`);
   if (current === workflow.workItem.branch) {
-    await preservePersona(root, config, workflow);
+    await preserveAgent(root, config, workflow);
     return { workflow, branch: current, canonical: true, created: false, publication: null };
   }
   const existing = (workflow.lineage?.childBranches ?? []).find((entry) => entry.name === current);
   if (existing) {
-    await preservePersona(root, config, workflow);
+    await preserveAgent(root, config, workflow);
     return { workflow, branch: current, canonical: false, created: false, record: existing, publication: null };
   }
   workflow.lineage ??= {
@@ -76,7 +76,7 @@ export async function attachStoryBranch(root, config, {
   });
   await saveWorkflow(root, config, workflow);
   const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][branch:attach] ${current}`);
-  await preservePersona(root, config, workflow);
+  await preserveAgent(root, config, workflow);
   return { workflow, branch: current, canonical: false, created: true, record, publication };
 }
 

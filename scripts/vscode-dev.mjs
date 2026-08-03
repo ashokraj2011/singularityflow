@@ -85,7 +85,7 @@ function flow(args, cwd, { allowFailure = false } = {}) {
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Owner',
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature' }),
       SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'epic-planning' })
     }
   });
@@ -102,7 +102,7 @@ const confirm = (expected, args, cwd) => spawnSync(process.execPath, [cli, ...ar
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Owner',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: expected
   }
 });
@@ -247,8 +247,7 @@ async function demoRepository({ github = false } = {}) {
   step('Starting the Epic');
   flow(['epic', 'start', '--local', '--title', 'One-tap checkout',
     '--description', 'Reduce checkout to a single tap for returning shoppers',
-    '--goal', 'Lift checkout completion from 71% to 80%',
-    '--persona', 'product-owner'], lead);
+    '--goal', 'Lift checkout completion from 71% to 80%'], lead);
 
   const epic = git(['branch', '--show-current'], lead);
 

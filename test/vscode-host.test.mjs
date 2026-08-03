@@ -550,7 +550,7 @@ test('a self-approval is refused by the engine and re-asked as an explicit ackno
   const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
     cwd: root, encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }) }
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }) }
   });
   cli(['initiative', 'resume', 'INIT-CHECKOUT']);
   cli(['initiative', 'phase']);
@@ -584,7 +584,7 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
   const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
     cwd: root, encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' }) }
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }) }
   });
   cli(['initiative', 'resume', 'INIT-CHECKOUT']);
   cli(['initiative', 'phase']);

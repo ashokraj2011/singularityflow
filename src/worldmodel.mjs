@@ -12,7 +12,7 @@ import {
   SingularityFlowError, optionBoolean, optionNumber, optionString, posix, run, snapshot, writeJson
 } from './util.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
-import { injectPersonaPrompt, recordInjection } from './inject.mjs';
+import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
@@ -45,7 +45,7 @@ function requireText(file) {
   catch (error) { throw new SingularityFlowError(`Unable to read ${file}: ${error.message}`); }
 }
 
-async function load(root, { persona: selectedPersona = null, workId = null } = {}) {
+async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
   if (existsSync(path.join(root, WORKFLOW_PATH))) {
     const definition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
@@ -55,10 +55,10 @@ async function load(root, { persona: selectedPersona = null, workId = null } = {
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
       : Object.entries(definition.phases);
-    const persona = selectedPersona ?? session?.persona ?? null;
+    const agent = selectedAgent ?? session?.agent ?? null;
     const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
-      const personaViews = persona ? definition.personas[persona]?.worldModelViews ?? [] : [];
-      return [id, { views: [...new Set([...(phase.worldModel?.views ?? []), ...personaViews])], depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false }];
+      const agentViews = agent ? definition.agents[agent]?.worldModelViews ?? [] : [];
+      return [id, { views: [...new Set([...(phase.worldModel?.views ?? []), ...agentViews])], depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false }];
     }));
     return {
       definition,
@@ -75,7 +75,7 @@ async function load(root, { persona: selectedPersona = null, workId = null } = {
       grounding: groundingMode(definition, activeState),
       staleness: activeState?.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn', phases,
       context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
-      personaPrompt: persona && definition.personas[persona] ? path.posix.join(definition.personaPromptsRoot, definition.personas[persona].prompt) : null
+      agentPrompt: agent && definition.agents[agent] ? definition.agents[agent].source : null
     };
   }
   const file = path.join(root, configRelative);
@@ -246,7 +246,7 @@ function requestedViews(config, options) {
     ? config.definition?.worldModel?.views ?? Object.values(config.phases).flatMap((entry) => entry.views ?? [])
     : parsed;
   // An explicit --views list can add focused perspectives, but it cannot remove the views
-  // required by an active phase (including the selected working lens).
+  // required by an active phase (including the selected governed agent).
   return [...new Set([...phaseViews, ...expanded])]
     .filter((view) => !['auto', 'core'].includes(view))
     .sort();
@@ -909,14 +909,14 @@ async function manifest(root, config) {
 
 async function context(root, config, phase, options) {
   const resolved = await resolveWorldModelContext(root, config, phase, {
-    task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence'), includePersonaPrompt: optionBoolean(options, 'persona', true)
+    task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence'), includeAgentPrompt: optionBoolean(options, 'agent', true)
   });
   const state = resolved.freshness;
   if (!state.fresh && config.staleness === 'fail') throw new SingularityFlowError(`World model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}). Rebuild it.`);
   if (!state.fresh && config.staleness === 'warn') console.warn(`Warning: world model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}).`);
   const selected = [...resolved.selected];
-  if (optionBoolean(options, 'persona', true) && config.personaPrompt) selected.unshift({
-    relative: config.personaPrompt, absolute: path.join(root, config.personaPrompt), level: 0, reason: 'active persona prompt'
+  if (optionBoolean(options, 'agent', true) && config.agentPrompt) selected.unshift({
+    relative: config.agentPrompt, absolute: path.join(root, config.agentPrompt), level: 0, reason: 'active agent prompt'
   });
   if (optionBoolean(options, 'concat')) {
     for (const item of selected) {
@@ -995,13 +995,13 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
 
 async function compose(root, options) {
   const session = await loadSession(root, { required: false });
-  const persona = optionString(options, 'persona') ?? session?.persona;
-  if (!persona) throw new SingularityFlowError('Provide --persona (working-lens ID) or start a working-lens session first.');
+  const agent = optionString(options, 'agent') ?? session?.agent;
+  if (!agent) throw new SingularityFlowError('Provide --agent (governed-agent ID) or start a governed-agent session first.');
   const workId = optionString(options, 'work-id');
   if (workId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workId)) {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
   }
-  const config = await load(root, { persona, workId });
+  const config = await load(root, { agent, workId });
   const definition = config.definition ?? await loadDefinition(root);
   const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   const workflow = config.workflow ?? null;
@@ -1017,7 +1017,7 @@ async function compose(root, options) {
   const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
   const signals = {
-    persona,
+    agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,
     workType: workflow?.workItem?.workType ?? null,
     changedPaths: workflowChangedPaths(root, workflow),
@@ -1032,10 +1032,10 @@ async function compose(root, options) {
     if (config.staleness === 'fail') throw new SingularityFlowError(`${message} Rebuild it.`);
     if (config.staleness === 'warn') console.error(`Warning: ${message}`);
   }
-  const { text, injection } = await injectPersonaPrompt(root, definition, persona, signals);
+  const { text, injection } = await injectAgentPrompt(root, definition, agent, signals);
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
-  const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, persona } : null, {
+  const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, agent } : null, {
     record: !dryRun && !renderOnly,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id)
   }) : { text: '', skills: [], warnings: [] };
@@ -1089,16 +1089,16 @@ async function compose(root, options) {
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  working lens: ${persona}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  prompt-pack skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
-    remote.skills.forEach((skill) => console.log(`  prompt-pack:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
+    remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
   }
 
   if (workflow && !renderOnly) {
     const renderedSha256 = createHash('sha256').update(composedText).digest('hex');
     const { file } = await recordInjection(root, workflow, phase, {
-      ...injection, persona, sections: files, modelCommit,
+      ...injection, agent, sections: files, modelCommit,
       manifestSha256: manifestInfo.sha256,
       modelSourceTreeSha256: required.manifest.source_tree_sha256 ?? null,
       composedSourceTreeSha256: required.freshness.current,
@@ -1128,7 +1128,7 @@ async function showPrompt(root, options) {
   }
 
   const config = await load(root, {
-    persona: optionString(options, 'persona'),
+    agent: optionString(options, 'agent'),
     workId: optionString(options, 'work-id')
   });
   const phase = optionString(options, 'phase') ?? config.workflow?.currentPhase;

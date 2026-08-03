@@ -39,15 +39,15 @@ async function choose(label, entries, { selection = null, nonInteractiveHint = n
     if (!entries.some(([id]) => id === selection)) throw new SingularityFlowError(`Unknown ${label} '${selection}'.`);
     return selection;
   }
-  if (label === 'persona' && process.env.SINGULARITY_FLOW_GITHUB_PERSONA) {
-    const selected = process.env.SINGULARITY_FLOW_GITHUB_PERSONA;
-    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub-selected working lens '${selected}'.`);
+  if (label === 'agent' && process.env.SINGULARITY_FLOW_GITHUB_AGENT) {
+    const selected = process.env.SINGULARITY_FLOW_GITHUB_AGENT;
+    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub-selected governed agent '${selected}'.`);
     return selected;
   }
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_SELECTION) {
       const selection = JSON.parse(process.env.SINGULARITY_FLOW_TEST_SELECTION);
-      const selected = selection[label === 'workflow template' ? 'workType' : label === 'intake source' ? 'source' : 'persona']
+      const selected = selection[label === 'workflow template' ? 'workType' : label === 'intake source' ? 'source' : 'agent']
         ?? (label === 'intake source' ? 'manual' : undefined);
       if (entries.some(([id]) => id === selected)) return selected;
     }
@@ -77,16 +77,19 @@ export async function selectIntakeSource(options = {}) {
   ], options);
 }
 
-export async function selectPersona(root, definition, actor, workId = null, { allowedPersonas = null, selection = null, nonInteractiveHint = null } = {}) {
-  const allowed = allowedPersonas ? new Set(allowedPersonas) : null;
-  const entries = Object.entries(definition.personas).filter(([id]) => !allowed || allowed.has(id));
-  if (!entries.length) throw new SingularityFlowError('No configured working lens is available for this action.');
-  const persona = await choose('working lens', entries, { selection, nonInteractiveHint });
-  return setPersonaSession(root, definition, actor, persona, workId);
+export async function selectAgent(root, definition, actor, workId = null, { phaseId = null, allowedAgents = null, selection = null, nonInteractiveHint = null } = {}) {
+  const allowed = allowedAgents ? new Set(allowedAgents) : null;
+  const entries = Object.entries(definition.agents ?? {}).filter(([id]) => !allowed || allowed.has(id));
+  if (!entries.length) throw new SingularityFlowError(`No governed agent is available${phaseId ? ` for phase '${phaseId}'` : ''}.`);
+  const defaultAgent = phaseId ? entries.find(([, agent]) => agent.defaultFor.includes(phaseId))?.[0] : null;
+  const agent = selection ?? defaultAgent ?? (entries.length === 1 ? entries[0][0] : await choose('agent', entries, { selection, nonInteractiveHint }));
+  return setAgentSession(root, definition, actor, agent, workId, { phaseId, source: 'explicit-override' });
 }
 
-export async function setPersonaSession(root, definition, actor, persona, workId = null) {
-  if (!definition.personas?.[persona]) throw new SingularityFlowError(`Unknown working lens '${persona}'.`);
+export async function setAgentSession(root, definition, actor, agent, workId = null, { phaseId = null, nativeCopilotAgent = null, source = null } = {}) {
+  const profile = definition.agents?.[agent];
+  if (!profile) throw new SingularityFlowError(`Unknown governed agent '${agent}'.`);
+  const compatible = !phaseId || !profile.phases.length || profile.phases.includes(phaseId);
   const existing = await loadSession(root, { required: false });
   const copilot = await loadCopilotSession(root);
   const binding = copilot?.workId === workId && copilot?.sessionId
@@ -94,15 +97,36 @@ export async function setPersonaSession(root, definition, actor, persona, workId
     : existing?.workId === workId && existing?.copilotSessionId
       ? { copilotSessionId: existing.copilotSessionId, copilotSource: existing.copilotSource, copilotBoundAt: existing.copilotBoundAt }
       : {};
-  const record = { ...(existing?.agent ? { agent: existing.agent, agentSource: existing.agentSource, agentSelectedAt: existing.agentSelectedAt } : {}), persona, actor, workId, selectedAt: nowIso(), ...binding };
+  const selectedAt = nowIso();
+  const record = {
+    ...(existing ?? {}),
+    schemaVersion: 2,
+    agent,
+    agentSource: source ?? profile.scope ?? 'repository',
+    agentSha256: profile.sha256,
+    nativeCopilotAgent: nativeCopilotAgent ?? existing?.nativeCopilotAgent ?? null,
+    phaseCompatibilityOverride: compatible ? null : { phase: phaseId, agent, warnedAt: selectedAt },
+    actor,
+    workId,
+    phaseId,
+    selectedAt,
+    ...binding
+  };
   await writeLocalJson(sessionPath(root), record);
-  if (copilot?.workId === workId) await writeLocalJson(copilotSessionPath(root), { ...copilot, selectionRequired: false, selectedPersona: persona, selectedAt: record.selectedAt });
+  if (copilot?.workId === workId) await writeLocalJson(copilotSessionPath(root), { ...copilot, selectionRequired: false, selectedAgent: agent, selectedAt: record.selectedAt });
   return record;
 }
 
-export async function setAgentSession(root, agent, actor = null) {
+export async function setNativeCopilotAgentSession(root, resolved, actor = null) {
   const existing = await loadSession(root, { required: false });
-  const record = { ...(existing ?? {}), agent: agent.id, agentSource: agent.source, agentSelectedAt: nowIso() };
+  const record = {
+    ...(existing ?? {}),
+    schemaVersion: 2,
+    nativeCopilotAgent: resolved.copilotAgent,
+    nativeAgentMappingSource: resolved.source,
+    ...(resolved.agent ? { agent: resolved.agent.id, agentSource: resolved.agent.scope, agentSha256: resolved.agent.sha256 } : {}),
+    agentSelectedAt: nowIso()
+  };
   if (actor && !record.actor) record.actor = actor;
   await mkdir(path.dirname(sessionPath(root)), { recursive: true });
   await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);
@@ -112,7 +136,7 @@ export async function setAgentSession(root, agent, actor = null) {
 export async function loadSession(root, { required = true } = {}) {
   const file = sessionPath(root);
   if (!(await exists(file))) {
-    if (required) throw new SingularityFlowError('No active working-lens session. Run singularity-flow resume <WORK-ID> and choose a working lens.');
+    if (required) throw new SingularityFlowError('No active governed-agent session. Run singularity-flow resume <WORK-ID>.');
     return null;
   }
   return JSON.parse(await readFile(file, 'utf8'));
@@ -167,14 +191,15 @@ export async function clearCopilotTurnIntent(root, sessionId = null) {
   }
 }
 
-export function validPersonaSession(definition, session, workId, copilotSessionId = null) {
-  if (!session || session.workId !== workId || !definition.personas?.[session.persona]) return false;
+export function validAgentSession(definition, session, workId, copilotSessionId = null, phaseId = null) {
+  if (!session || session.workId !== workId || !definition.agents?.[session.agent]) return false;
+  if (phaseId && session.phaseId !== phaseId) return false;
   return !copilotSessionId || session.copilotSessionId === copilotSessionId;
 }
 
-export async function bindPersonaToCopilotSession(root, definition, workId, copilot) {
+export async function bindAgentToCopilotSession(root, definition, workId, copilot, phaseId = null) {
   const session = await loadSession(root, { required: false });
-  if (!validPersonaSession(definition, session, workId)) return null;
+  if (!validAgentSession(definition, session, workId, null, phaseId)) return null;
   const record = { ...session, copilotSessionId: copilot.sessionId, copilotSource: copilot.source, copilotBoundAt: nowIso() };
   await writeLocalJson(sessionPath(root), record);
   return record;
@@ -184,9 +209,16 @@ export async function activateWorkItemSession(root, definition, workflow) {
   const copilot = await loadCopilotSession(root);
   const policy = normalizeSessionPolicy(workflow.resolution?.session ?? definition.session ?? {});
   const existing = await loadSession(root, { required: false });
-  const valid = validPersonaSession(definition, existing, workflow.workItem.id);
-  const selectionRequired = policy.personaSelection !== 'off'
-    && (!valid || (policy.personaSelection === 'prompt' && policy.promptOnNewSession === true));
+  const phaseId = workflow.currentPhase;
+  const phase = workflow.phases?.[phaseId] ?? null;
+  const defaultAgent = phase?.defaultAgent
+    ? definition.agents?.[phase.defaultAgent]
+    : definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phaseId));
+  const defaultAgentId = phase?.defaultAgent ?? defaultAgent?.id;
+  if (!defaultAgentId || !definition.agents?.[defaultAgentId]) throw new SingularityFlowError(`Phase '${phaseId}' has no configured governed agent.`);
+  const valid = validAgentSession(definition, existing, workflow.workItem.id, null, phaseId);
+  const selected = valid ? existing.agent : defaultAgent?.id;
+  const activeAgent = selected ?? defaultAgentId;
   const record = await recordCopilotSession(root, {
     ...(copilot ?? {}),
     sessionId: copilot?.sessionId ?? null,
@@ -197,22 +229,24 @@ export async function activateWorkItemSession(root, definition, workflow) {
     phase: workflow.currentPhase,
     policy,
     workItemSelectionRequired: false,
-    selectionRequired,
-    selectedPersona: selectionRequired ? null : valid ? existing.persona : null,
+    selectionRequired: false,
+    selectedAgent: activeAgent,
     workItemSelectedAt: nowIso()
   });
-  if (!selectionRequired && valid && record.sessionId) await bindPersonaToCopilotSession(root, definition, workflow.workItem.id, record);
+  if (!valid) await setAgentSession(root, definition, existing?.actor ?? null, activeAgent, workflow.workItem.id, { phaseId, source: 'phase-default' });
+  if (record.sessionId) await bindAgentToCopilotSession(root, definition, workflow.workItem.id, record, phaseId);
   return record;
 }
 
-export async function personaSessionStatus(root, definition, workflow) {
+export async function agentSessionStatus(root, definition, workflow) {
   const [session, copilot] = await Promise.all([loadSession(root, { required: false }), loadCopilotSession(root)]);
   const policy = normalizeSessionPolicy(copilot?.policy ?? workflow?.resolution?.session ?? definition.session ?? {});
   const workItemSelectionRequired = copilot
     ? copilot.workItemSelectionRequired === true
     : policy.workItemSelection === 'prompt' || (policy.workItemSelection === 'reuse' && !workflow);
   const workId = workItemSelectionRequired ? null : workflow?.workItem?.id ?? copilot?.workId ?? null;
-  const baseValid = workId ? validPersonaSession(definition, session, workId) : false;
+  const phaseId = workflow?.currentPhase ?? copilot?.phase ?? null;
+  const baseValid = workId ? validAgentSession(definition, session, workId, null, phaseId) : false;
   const bound = baseValid && (!copilot?.sessionId || session.copilotSessionId === copilot.sessionId);
   return {
     workId,
@@ -220,11 +254,11 @@ export async function personaSessionStatus(root, definition, workflow) {
     copilotSessionId: copilot?.sessionId ?? null,
     source: copilot?.source ?? null,
     policy,
-    activePersona: baseValid ? session.persona : null,
+    activeAgent: baseValid ? session.agent : null,
     bound,
     workItemSelectionRequired,
-    selectionRequired: !workItemSelectionRequired && copilot?.selectionRequired === true && !bound,
-    ready: !workItemSelectionRequired && !(copilot?.selectionRequired === true && !bound),
-    choices: Object.entries(definition.personas ?? {}).map(([id, persona]) => ({ id, label: persona.label, description: persona.description ?? '' }))
+    selectionRequired: false,
+    ready: !workItemSelectionRequired,
+    choices: Object.entries(definition.agents ?? {}).map(([id, agent]) => ({ id, label: agent.label ?? id, description: agent.description ?? '' }))
   };
 }

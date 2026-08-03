@@ -131,11 +131,11 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
     assertCapabilityMime(workflow, mimeType(input.source), input.source);
   }
-  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
+  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const manifest = await loadManifest(root, config, workflow); const added = [];
   const packageMap = new Map();
   for (const input of fileInputs.filter((item) => item.packageSource)) if (!packageMap.has(input.packageSource)) {
-    const record = { id: nextPackageId([...manifest.packages, ...packageMap.values()]), name: input.packageName, sourceName: path.basename(input.packageSource), phase: phase.id, importedAt: nowIso(), importedBy: session.actor, persona: session.persona };
+    const record = { id: nextPackageId([...manifest.packages, ...packageMap.values()]), name: input.packageName, sourceName: path.basename(input.packageSource), phase: phase.id, importedAt: nowIso(), importedBy: session.actor, agent: session.agent };
     packageMap.set(input.packageSource, record); manifest.packages.push(record);
   }
   for (const { source, packageName, packageSource, sourceRelativePath } of fileInputs) {
@@ -144,18 +144,18 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
     const relative = path.posix.join(workDirRelative(config, workflow.workItem.id), 'inputs', id, preservedPath);
     const destination = path.join(root, relative); await mkdir(path.dirname(destination), { recursive: true }); await copyFile(source, destination);
     const fileSnapshot = await snapshot(destination);
-    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona };
+    const record = { id, type: 'file', label: label ?? sourceRelativePath ?? filename, kind: kind ?? (packageName ? 'directory-import' : 'reference'), sourceName: path.basename(source), path: posix(relative), mimeType: mimeType(filename), size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
     if (packageName) { record.sourcePackage = packageName; record.packageId = packageMap.get(packageSource).id; record.sourceRelativePath = sourceRelativePath; }
     manifest.documents.push(record); added.push(record);
   }
   if (url) {
-    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? url, kind: kind ?? (/figma\.com/i.test(url) ? 'figma' : 'reference'), url, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona };
+    const id = nextId(manifest.documents); const record = { id, type: 'url', label: label ?? url, kind: kind ?? (/figma\.com/i.test(url) ? 'figma' : 'reference'), url, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent };
     manifest.documents.push(record); added.push(record);
   }
   for (const packageRecord of packageMap.values()) await writePackageIndexes(root, config, workflow, manifest, packageRecord);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
-  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, persona: session.persona, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
+  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
   await saveWorkflow(root, config, workflow); return added;
 }
 
@@ -182,7 +182,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   if (!remoteRef) throw new SingularityFlowError('Provide a provider item ID or path to fetch (documents fetch --ref <id>).');
   const { selectedId, provider } = resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
-  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active working-lens session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
+  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
   const adapter = storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));
   const reference = { objectId: remoteRef, url: /^https?:\/\//i.test(remoteRef) ? remoteRef : undefined };
   let headMeta = null;
@@ -203,13 +203,13 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   const record = {
     id, type: 'file', label: label ?? headMeta?.name ?? filename, kind: kind ?? 'provider-fetch', sourceName: filename,
     path: posix(relative), mimeType: result.mimeType ?? headMeta?.mimeType ?? mimeType(filename),
-    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, persona: session.persona,
+    size: fileSnapshot.size, sha256: fileSnapshot.sha256, phase: phase.id, addedAt: nowIso(), addedBy: session.actor, agent: session.agent,
     remote: { source: provider.type, providerId: selectedId, objectId: result.objectId ?? reference.objectId ?? String(remoteRef), version: result.version ?? headMeta?.version ?? null, ref: String(remoteRef) }
   };
   manifest.documents.push(record);
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
-  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, persona: session.persona, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
+  workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
   await saveWorkflow(root, config, workflow); return [record];
 }
 

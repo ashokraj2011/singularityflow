@@ -145,7 +145,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     const fullyPricedRecords = costs.filter((item) => item.complete).length;
     const rejections = events
       .filter((event) => event.event === 'phase_rejected')
-      .map((event) => ({ at: event.at, actor: actorLabel(event.actor), persona: event.persona, detail: event.detail ?? '' }));
+      .map((event) => ({ at: event.at, actor: actorLabel(event.actor), agent: event.agent, detail: event.detail ?? '' }));
     const selfApprovals = (phase.approvals ?? []).filter((item) => item.selfApproval && !item.invalidatedAt).length;
     const checks = (phase.checks ?? []).map((check) => {
       const startedAt = timestamp(check.startedAt);
@@ -174,7 +174,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       tokenStatus: tokenStatus(usage, exactRecords),
       models: [...new Set(usage.map((record) => record.model).filter(Boolean))],
       modelUsage: usageByModel(usage, pricing),
-      personas: [...new Set(usage.map((record) => record.persona).filter(Boolean))],
+      agents: [...new Set(usage.map((record) => record.agent).filter(Boolean))],
       cost: costs.length ? costs.reduce((sum, item) => sum + item.value, 0) : null,
       costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === usage.length ? 'exact' : 'partial',
       checks,
@@ -222,7 +222,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       total: phases.reduce((sum, phase) => sum + phase.tokens, 0),
       exactRecords: workflow.usage?.exactRecords ?? null,
       unavailableRecords: workflow.usage?.unavailableRecords ?? null,
-      byPersona: workflow.usage?.byPersona ?? {},
+      byAgent: workflow.usage?.byAgent ?? {},
       byPhase: workflow.usage?.byPhase ?? {},
       byModel: modelUsage
     },
@@ -290,21 +290,21 @@ export function renderMarkdown(report) {
   if (report.sequenceOverrides.length) lines.push(`**Governance note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
   if (report.rejections.length) {
     lines.push('## Rework history', '');
-    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (working lens ${rejection.persona ?? 'unavailable'}): ${rejection.detail}`);
+    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (governed agent ${rejection.agent ?? 'unavailable'}): ${rejection.detail}`);
     lines.push('');
   }
   if (report.sequenceOverrides.length) {
-    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / working lens | Reason |', '|------|------|--------|-------|----------------------|--------|');
+    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / governed agent | Reason |', '|------|------|--------|-------|----------------------|--------|');
     for (const override of report.sequenceOverrides) {
       const actor = actorLabel(override.actor);
-      lines.push(`| ${override.at} | ${override.gate} | ${override.action} | ${override.requestedPhase ?? override.before?.currentPhase ?? '—'} | ${actor} / ${override.persona ?? 'unknown'} | ${override.reason ?? '—'} |`);
+      lines.push(`| ${override.at} | ${override.gate} | ${override.action} | ${override.requestedPhase ?? override.before?.currentPhase ?? '—'} | ${actor} / ${override.agent ?? 'unknown'} | ${override.reason ?? '—'} |`);
     }
     lines.push('');
   }
-  const personas = Object.entries(report.tokens.byPersona);
-  if (personas.length) {
-    lines.push('## Token usage by working lens', '', '| Working lens | Records | Exact | Tokens |', '|--------------|---------|-------|--------|');
-    for (const [persona, aggregate] of personas) lines.push(`| ${persona} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregate.totalTokens.toLocaleString('en-US')} |`);
+  const agents = Object.entries(report.tokens.byAgent);
+  if (agents.length) {
+    lines.push('## Token usage by governed agent', '', '| governed agent | Records | Exact | Tokens |', '|--------------|---------|-------|--------|');
+    for (const [agent, aggregate] of agents) lines.push(`| ${agent} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregate.totalTokens.toLocaleString('en-US')} |`);
     lines.push('');
   }
   if (report.tokens.byModel.length) {
@@ -350,8 +350,8 @@ export function renderHtml(report) {
     report.selfApprovals ? `<p><strong>Governance note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '',
     report.sequenceOverrides.length ? `<p><strong>Governance note:</strong> ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}.</p>` : ''
   ].join('');
-  const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.persona ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
-  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / working lens</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
+  const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.agent ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
+  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / governed agent</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>

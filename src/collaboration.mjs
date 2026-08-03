@@ -9,10 +9,10 @@ export async function assignPhase(root, config, workflow, phaseId, assignee, ses
   if (!phase) throw new Error(`Unknown phase '${phaseId}'.`);
   if (!assignee?.trim()) throw new Error('Assignee must not be empty.');
   workflow.collaboration ??= { assignments: {}, notifications: [] };
-  const record = { phase: phaseId, assignee: assignee.trim(), assignedAt: nowIso(), assignedBy: session?.actor ?? null, persona: session?.persona ?? null };
+  const record = { phase: phaseId, assignee: assignee.trim(), assignedAt: nowIso(), assignedBy: session?.actor ?? null, agent: session?.agent ?? null };
   workflow.collaboration.assignments[phaseId] = record;
   workflow.collaboration.notifications.push({ at: record.assignedAt, type: 'assignment', phase: phaseId, message: `${phase.label} assigned to ${record.assignee}`, read: false });
-  workflow.history.push({ at: record.assignedAt, actor: actorKey(session?.actor), persona: session?.persona ?? null, event: 'phase_assigned', phase: phaseId, detail: record.assignee });
+  workflow.history.push({ at: record.assignedAt, actor: actorKey(session?.actor), agent: session?.agent ?? null, event: 'phase_assigned', phase: phaseId, detail: record.assignee });
   await saveWorkflow(root, config, workflow);
   return record;
 }

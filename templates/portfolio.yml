@@ -56,7 +56,7 @@ jira:
   subtaskIssueType: Sub-task
 
 # Initiative approvals are authorized by normalized local Git email. Populate
-# these groups before starting an initiative. Personas remain prompt behavior
+# these groups before starting an initiative. Agents remain prompt behavior
 # and never grant initiative approval authority.
 # Conditional checklist items ask one of these questions of the initiative. Until an initiative
 # answers, the item is reported `unanswered` and its gate still applies, so a control that might be
@@ -223,6 +223,7 @@ initiativeProfiles:
 initiativePhases:
   epic-intake:
     label: Intake
+    agents: [product-owner]
     lanes: [business-product]
     worldModelViews: []
     outputs:
@@ -236,6 +237,7 @@ initiativePhases:
 
   epic-requirements:
     label: Requirements
+    agents: [product-owner]
     lanes: [business-product, design-architecture]
     worldModelViews: []
     outputs:
@@ -250,6 +252,7 @@ initiativePhases:
 
   epic-planning:
     label: Planning
+    agents: [architect]
     lanes: [business-product, design-architecture, engineering]
     worldModelViews: []
     outputs:
@@ -266,6 +269,7 @@ initiativePhases:
 
   epic-publish:
     label: Publish Stories
+    agents: [product-owner]
     lanes: [business-product, engineering]
     worldModelViews: []
     outputs:
@@ -280,6 +284,7 @@ initiativePhases:
 
   define:
     label: Define
+    agents: [product-owner]
     lanes: [business-product]
     worldModelViews: [business]
     outputs:
@@ -293,6 +298,7 @@ initiativePhases:
 
   plan:
     label: Plan
+    agents: [architect]
     lanes: [business-product, design-architecture, engineering]
     worldModelViews: [business, architecture, security]
     outputs:
@@ -306,6 +312,7 @@ initiativePhases:
 
   build:
     label: Build
+    agents: [developer]
     lanes: [engineering]
     worldModelViews: [architecture, development, testing, security, operations]
     outputs:
@@ -318,6 +325,7 @@ initiativePhases:
 
   release:
     label: Release
+    agents: [qa]
     lanes: [business-product, engineering]
     worldModelViews: [release, operations, testing]
     outputs:
@@ -332,6 +340,7 @@ initiativePhases:
 
   discover-define:
     label: Discover & Define
+    agents: [product-owner]
     lanes: [business-product]
     worldModelViews: [business]
     # The requirement document is what every Epic must leave behind: the formalized requirement and
@@ -348,6 +357,7 @@ initiativePhases:
 
   design-iterate:
     label: Design & Iterate
+    agents: [product-designer]
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture]
     outputs:
@@ -360,6 +370,7 @@ initiativePhases:
 
   pre-inception:
     label: Product Gate / Pre-Inception
+    agents: [product-owner]
     lanes: [business-product, design-architecture]
     worldModelViews: [business, architecture, security]
     outputs:
@@ -373,6 +384,7 @@ initiativePhases:
 
   inception:
     label: Inception
+    agents: [product-owner]
     lanes: [business-product, design-architecture, engineering]
     worldModelViews: [business, architecture, testing, security]
     outputs:
@@ -398,6 +410,7 @@ initiativePhases:
 
   elaboration:
     label: Elaboration
+    agents: [architect]
     lanes: [business-product, design-architecture, engineering]
     worldModelViews: [business, architecture, development, testing, security, operations]
     outputs:
@@ -434,6 +447,7 @@ initiativePhases:
 
   construction:
     label: Construction
+    agents: [developer]
     lanes: [engineering]
     worldModelViews: [architecture, development, testing, security, operations]
     outputs:
@@ -456,6 +470,7 @@ initiativePhases:
 
   delivery:
     label: Delivery
+    agents: [qa]
     lanes: [business-product, engineering]
     worldModelViews: [release, operations, testing, security]
     outputs:

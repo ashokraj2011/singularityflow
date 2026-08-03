@@ -29,7 +29,7 @@ async function repository() {
   run('git', ['commit', '-m', 'init'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-SRC'], { cwd: root });
   await createInitiative(root, {
-    id: 'INIT-SRC', title: 'Local sources', profile: 'epic-planning', persona: 'product-owner',
+    id: 'INIT-SRC', title: 'Local sources', profile: 'epic-planning', agent: 'product-owner',
     source: { type: 'manual', description: 'Local intake.' }
   });
   return root;

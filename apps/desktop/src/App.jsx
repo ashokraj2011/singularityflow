@@ -6,13 +6,10 @@ import WorldModelExplorer from './world-model/WorldModelExplorer.jsx';
 import {
   addWorldModelView,
   addPhaseToWorkType,
-  createPersona,
   createPhase,
   createWorkType,
   deleteUnusedPhase,
-  personaPromptRepositoryPath,
   removePhaseFromWorkType,
-  removePersona,
   removeWorkType,
   removeWorldModelView,
   repositorySkillPath,
@@ -87,11 +84,10 @@ const navSections = [
       ['session-choices', 'Session choices'],
       ['initiatives', 'Portfolio designer'],
       ['workflow', 'Workflow designer'],
-      ['personas', 'Working lenses & authority'],
+      ['agents', 'governed agents & authority'],
       ['resources', 'Prompts & skills'],
       ['world-model', 'Repository model'],
-      ['world-model-explorer', 'Model explorer'],
-      ['agents', 'Prompt packs']
+      ['world-model-explorer', 'Model explorer']
     ]
   },
   {
@@ -119,7 +115,7 @@ const screensaverSlides = [
   {
     id: 'who-approved',
     title: 'Who approved what',
-    subtitle: 'Human identity, authority group, working lens, exact artifact hash, and visible self-approval warnings.',
+    subtitle: 'Human identity, authority group, governed agent, exact artifact hash, and visible self-approval warnings.',
     src: 'screensaver/poster-06-who-approved.png'
   },
   {
@@ -161,15 +157,17 @@ const onboardingRoles = [
   ['other', 'Another role']
 ];
 
-function preferredPersonaForRole(role, personas) {
-  const aliases = {
-    'business-analyst': ['product-owner', 'architect'],
-    'delivery-manager': ['product-owner', 'architect'],
-    operations: ['developer', 'architect'],
-    security: ['architect', 'developer'],
-    other: []
-  };
-  return [role, ...(aliases[role] ?? [])].find((candidate) => candidate && personas[candidate]) ?? Object.keys(personas)[0];
+function workTypePhaseAgent(definition, workTypeId) {
+  const firstPhase = definition.workTypes?.[workTypeId]?.phases?.[0];
+  if (!firstPhase) return '';
+  return Object.entries(definition.agents ?? {}).find(([, agent]) => agent.defaultFor?.includes(firstPhase))?.[0] ?? '';
+}
+
+function initiativePhaseAgent(portfolio, profileId, definition) {
+  const firstPhase = portfolio?.initiativeProfiles?.[profileId]?.phases?.[0];
+  return portfolio?.phases?.[firstPhase]?.agents?.[0]
+    ?? Object.entries(definition?.agents ?? {}).find(([, agent]) => agent.defaultFor?.includes(firstPhase))?.[0]
+    ?? '';
 }
 
 const navIconPaths = {
@@ -185,7 +183,6 @@ const navIconPaths = {
   review: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M8 12l2.5 2.5L16 9'],
   workflow: ['M5 4h5v4H5z M14 16h5v4h-5z M14 4h5v4h-5z M10 6h4 M8 8v10h6'],
   templates: ['M5 3h14v18H5z M9 7h6 M9 11h6 M9 15h4'],
-  personas: ['M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M3 21v-2a6 6 0 0 1 12 0v2 M17 11a3 3 0 0 0 0-6 M18 21v-2a5 5 0 0 0-2-4'],
   resources: ['M5 4h14v16H5z M8 9l2 2-2 2 M12 15h4'],
   'world-model': ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18'],
   'world-model-explorer': ['M5 4h5v4H5z M14 16h5v4h-5z M14 4h5v4h-5z M10 6h4 M8 8v10h6'],
@@ -597,10 +594,10 @@ function OnboardingWizard({ initial, jira, onComplete, onHelp }) {
       <section className="onboarding-stage">
         {draft.recovery && <div className="onboarding-recovery" role="status"><strong>Local setup recovered</strong><span>{draft.recovery.message}</span></div>}
         <div className="onboarding-card onboarding-quick-card">
-          <div className="onboarding-copy"><span className="eyebrow">Welcome to Flow</span><h1>Set your working perspective.</h1><p>Two details personalize the experience. Connections and storage are optional, project-specific tools that can wait until you need them.</p></div>
+          <div className="onboarding-copy"><span className="eyebrow">Welcome to Flow</span><h1>Tell us who is using this desktop.</h1><p>Your name and organizational role personalize the interface only. Phase agents and approval authority are configured separately.</p></div>
           <div className="onboarding-core-fields">
             <label className="onboarding-field"><span>Your name</span><input autoFocus value={draft.name} placeholder="Ashok Raj" onChange={(event) => update('name', event.target.value)} /><small>Local display name; Git identity remains the approval authority.</small></label>
-            <label className="onboarding-field"><span>Primary role</span><select value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Guidance only—you may use any configured working lens.</small></label>
+            <label className="onboarding-field"><span>Primary role</span><select value={draft.role ?? ''} onChange={(event) => update('role', event.target.value)}><option value="">Choose a role…</option>{onboardingRoles.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><small>Guidance only—you may use any configured governed agent.</small></label>
           </div>
           <button type="button" className={`onboarding-advanced-trigger ${advancedOpen ? 'open' : ''}`} aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>
             <span className="onboarding-advanced-icon">⌘</span>
@@ -1639,7 +1636,7 @@ function WorkspaceStudio({
       </div>
       {!!health.warnings?.length && <div className="workspace-health-warnings" role="status"><strong>Workspace ready with warnings</strong>{health.warnings.map((warning) => <span key={`${warning.code}-${warning.repository}`}>{warning.message} This does not block workspace use.</span>)}</div>}
       <div className="workspace-repository-list">{health.repositories.map((repository) => <div key={repository.id}><span className={`workspace-state ${repository.state}`} /><div><strong>{repository.metadata?.name ?? repository.id}</strong><small>{repository.metadata?.appId} · Jira {repository.jira?.board ?? 'not set'} · {repository.absolutePath}</small></div><Pill tone={repository.role === 'lead' ? 'accent' : 'neutral'}>{repository.role === 'lead' ? 'Epic lead' : 'participant'}</Pill><span>{repository.branch ?? 'not cloned'}</span><span className={repository.dirty ? 'warning-copy' : ''}>{repository.dirty == null ? '—' : repository.dirty ? 'dirty' : 'clean'}</span><Pill tone={repository.state === 'ready' ? 'good' : 'warn'}>{repository.state}</Pill></div>)}</div>
-      {!!health.stagedDocuments.length && <div className="workspace-staged"><header><div><span className="eyebrow">Local document inbox</span><h3>Staged — not governed</h3><p>{canPromoteDocuments ? `Import into checked-out work item ${data.workflow.workItem.id} to commit and push a governed copy.` : 'Resume a work item and select a working lens before importing these files.'}</p></div><Pill tone="warn">{health.stagedDocuments.length} local</Pill></header>{health.stagedDocuments.map((document) => <div key={document.path}><strong>{document.name}</strong><code>{document.sha256.slice(0, 12)}</code><span>{document.bytes.toLocaleString()} bytes</span><button className="secondary compact" disabled={!canPromoteDocuments} onClick={() => promoteDocument(document)}>Import to work item</button></div>)}</div>}
+      {!!health.stagedDocuments.length && <div className="workspace-staged"><header><div><span className="eyebrow">Local document inbox</span><h3>Staged — not governed</h3><p>{canPromoteDocuments ? `Import into checked-out work item ${data.workflow.workItem.id} to commit and push a governed copy.` : 'Resume a work item and select a governed agent before importing these files.'}</p></div><Pill tone="warn">{health.stagedDocuments.length} local</Pill></header>{health.stagedDocuments.map((document) => <div key={document.path}><strong>{document.name}</strong><code>{document.sha256.slice(0, 12)}</code><span>{document.bytes.toLocaleString()} bytes</span><button className="secondary compact" disabled={!canPromoteDocuments} onClick={() => promoteDocument(document)}>Import to work item</button></div>)}</div>}
     </section>}
 
     {!!recentWorkspaces.length && <RecentWorkspaces items={recentWorkspaces} currentPath={health?.workspace?.path} busy={false} onOpen={onOpenWorkspace} onForget={onForgetWorkspace} />}
@@ -1753,13 +1750,6 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
   const [initiativeTarget, setInitiativeTarget] = useState(data.selectedInitiativeId ? 'existing' : 'new');
   const [initiativeId, setInitiativeId] = useState(data.selectedInitiativeId ?? data.initiatives?.[0]?.id ?? '');
   const [createProfile, setCreateProfile] = useState(data.portfolio?.initiativeProfiles?.['epic-planning'] ? 'epic-planning' : Object.keys(data.portfolio?.initiativeProfiles ?? {})[0] ?? '');
-  const [createPersona, setCreatePersona] = useState(
-    data.session?.persona && data.definition?.personas?.[data.session.persona]
-      ? data.session.persona
-      : data.definition?.personas?.['product-owner']
-        ? 'product-owner'
-        : Object.keys(data.definition?.personas ?? {})[0] ?? ''
-  );
   const [adoption, setAdoption] = useState(null);
   const [writePlan, setWritePlan] = useState(null);
   const [applyConfirmation, setApplyConfirmation] = useState('');
@@ -1880,7 +1870,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
         if (data.initiatives.some((initiative) => initiative.id === targetId)) {
           throw new Error(`${targetId} already exists. Choose “Use existing initiative” to import into it.`);
         }
-        const started = await window.singularity.startEpicWizard(data.repository.root, selectedEpic.key, createProfile, createPersona);
+        const started = await window.singularity.startEpicWizard(data.repository.root, selectedEpic.key, createProfile);
         if (started.resumed) return { existing: true, started };
       }
       return {
@@ -1969,7 +1959,7 @@ function JiraWorkspace({ data, action, reload, onConfigure, bootstrapPortfolio, 
       <div className="jira-browser">
         <aside className="jira-projects panel"><header><span className="eyebrow">Scope</span><h2>Projects</h2></header>{!projects.length && <button className="primary" onClick={() => loadProjects()}>Load permitted projects</button>}{projects.map((project) => <button className={project.key === projectKey ? 'active' : ''} key={project.key} onClick={() => loadEpics(project.key)}><span>{project.key.slice(0, 2)}</span><div><strong>{project.name}</strong><small>{project.key} · {project.projectType ?? 'software'}</small></div></button>)}</aside>
         <section className="jira-epics panel"><header className="panel-heading"><div><span className="eyebrow">Existing Jira hierarchy</span><h2>{projectKey ? `${projectKey} Epics` : 'Choose a project'}</h2></div><span>{epics.length} visible</span></header>{!epics.length && projectKey && <div className="inline-empty">No Epics loaded. Refresh the project to query Jira.</div>}{epics.map((epic) => <button className={selectedEpic?.key === epic.key ? 'active' : ''} key={epic.key} onClick={() => chooseEpic(epic)}><StatusDot status={epic.statusCategory === 'Done' ? 'approved' : 'in_progress'} /><div><strong>{epic.key} — {epic.title}</strong><small>{epic.status ?? 'unknown status'} · updated {formatRecentTime(epic.updatedAt)}</small></div><span>→</span></button>)}</section>
-        <aside className="jira-story-panel panel">{selectedEpic ? <><header><span className="eyebrow">Epic children</span><h2>{selectedEpic.key}</h2><p>{selectedEpic.title}</p></header>{selectedExisting && <div className="notice accent jira-existing-notice"><div><strong>{selectedExisting.id} already exists in Git</strong><span>Flow will fetch and fast-forward its governed branch, then continue from {selectedExisting.currentPhaseLabel ?? selectedExisting.currentPhase ?? 'the current phase'}. It will not create another Epic.</span></div><button className="primary compact" onClick={continueExisting}>Fetch branch & continue</button></div>}<div className="jira-story-list">{stories.map((story) => <div key={story.key}><div><strong>{story.key}</strong><span>{story.title}</span><small>{story.issueType} · {story.status ?? 'unknown'}</small></div><label><span>Owning repository</span><select value={repositoryMap[story.key] ?? ''} onChange={(event) => { setRepositoryMap({ ...repositoryMap, [story.key]: event.target.value }); setAdoption(null); }}><option value="">Choose repository…</option>{repositoryIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label></div>)}</div><section className="jira-initiative-target"><span className="eyebrow">Git destination</span><h3>Where should this Epic be governed?</h3><div className="jira-target-choice"><button className={initiativeTarget === 'new' ? 'active' : ''} onClick={() => { setInitiativeTarget('new'); setAdoption(null); }}><strong>Create governed Epic</strong><small>Use {selectedEpic.key} as the immutable Git identity</small></button><button className={initiativeTarget === 'existing' ? 'active' : ''} onClick={() => { setInitiativeTarget('existing'); setAdoption(null); }}><strong>Use existing initiative</strong><small>Choose one or enter its exact ID</small></button></div>{initiativeTarget === 'new' ? <div className="jira-create-target"><div><small>New initiative and branch</small><strong>{selectedEpic.key}</strong><span>The Jira snapshot and mapped child stories will be committed and pushed.</span></div><label><span>Workflow</span><select value={createProfile} onChange={(event) => { setCreateProfile(event.target.value); setAdoption(null); }}>{Object.entries(data.portfolio?.initiativeProfiles ?? {}).map(([id, profile]) => <option value={id} key={id}>{profile.label ?? id}</option>)}</select></label><label><span>Starting working lens</span><select value={createPersona} onChange={(event) => { setCreatePersona(event.target.value); setAdoption(null); }}>{Object.entries(data.definition?.personas ?? {}).map(([id, persona]) => <option value={id} key={id}>{persona.label ?? id}</option>)}</select></label></div> : <label className="jira-existing-target"><span>Existing initiative ID</span><input list="jira-initiative-options" value={initiativeId} placeholder="Choose or type an exact ID" onChange={(event) => { setInitiativeId(event.target.value); setAdoption(null); }} /><datalist id="jira-initiative-options">{data.initiatives.map((initiative) => <option value={initiative.id} key={initiative.id}>{initiative.title}</option>)}</datalist><small>Typed IDs are allowed when the initiative exists on the checked-out Git branch but is not in this list.</small></label>}</section><div className="jira-actions"><button className="secondary" disabled={initiativeTarget === 'new' ? !createProfile || !createPersona : !initiativeId.trim()} onClick={previewAdoption}>Preview adoption</button><button className="primary" disabled={!adoption?.ready} onClick={adopt}>{initiativeTarget === 'new' ? 'Create & adopt into Git' : 'Adopt into Git'}</button></div>{adoption && <div className={`jira-adoption ${adoption.ready ? 'ready' : 'warn'}`}><strong>{adoption.ready ? (adoption.create ? `Ready to create ${selectedEpic.key}` : 'Ready to adopt') : 'Repository mapping incomplete'}</strong><span>{adoption.draft?.epics?.[0]?.stories?.length ?? adoption.breakdown?.stories?.length ?? 0} stories{adoption.sourceSha256 ? ` · source ${adoption.sourceSha256.slice(0, 12)}` : ''}</span>{adoption.unresolved?.length > 0 && <small>Choose a repository for: {adoption.unresolved.map((item) => item.jiraKey).join(', ')}</small>}</div>}</> : <Empty title="Choose an Epic" detail="Its child stories, Jira status, and repository ownership controls will appear here." />}</aside>
+        <aside className="jira-story-panel panel">{selectedEpic ? <><header><span className="eyebrow">Epic children</span><h2>{selectedEpic.key}</h2><p>{selectedEpic.title}</p></header>{selectedExisting && <div className="notice accent jira-existing-notice"><div><strong>{selectedExisting.id} already exists in Git</strong><span>Flow will fetch and fast-forward its governed branch, then continue from {selectedExisting.currentPhaseLabel ?? selectedExisting.currentPhase ?? 'the current phase'}. It will not create another Epic.</span></div><button className="primary compact" onClick={continueExisting}>Fetch branch & continue</button></div>}<div className="jira-story-list">{stories.map((story) => <div key={story.key}><div><strong>{story.key}</strong><span>{story.title}</span><small>{story.issueType} · {story.status ?? 'unknown'}</small></div><label><span>Owning repository</span><select value={repositoryMap[story.key] ?? ''} onChange={(event) => { setRepositoryMap({ ...repositoryMap, [story.key]: event.target.value }); setAdoption(null); }}><option value="">Choose repository…</option>{repositoryIds.map((id) => <option value={id} key={id}>{id}</option>)}</select></label></div>)}</div><section className="jira-initiative-target"><span className="eyebrow">Git destination</span><h3>Where should this Epic be governed?</h3><div className="jira-target-choice"><button className={initiativeTarget === 'new' ? 'active' : ''} onClick={() => { setInitiativeTarget('new'); setAdoption(null); }}><strong>Create governed Epic</strong><small>Use {selectedEpic.key} as the immutable Git identity</small></button><button className={initiativeTarget === 'existing' ? 'active' : ''} onClick={() => { setInitiativeTarget('existing'); setAdoption(null); }}><strong>Use existing initiative</strong><small>Choose one or enter its exact ID</small></button></div>{initiativeTarget === 'new' ? <div className="jira-create-target"><div><small>New initiative and branch</small><strong>{selectedEpic.key}</strong><span>The Jira snapshot and mapped child stories will be committed and pushed. The first phase activates its configured agent automatically.</span></div><label><span>Workflow</span><select value={createProfile} onChange={(event) => { setCreateProfile(event.target.value); setAdoption(null); }}>{Object.entries(data.portfolio?.initiativeProfiles ?? {}).map(([id, profile]) => <option value={id} key={id}>{profile.label ?? id}</option>)}</select></label></div> : <label className="jira-existing-target"><span>Existing initiative ID</span><input list="jira-initiative-options" value={initiativeId} placeholder="Choose or type an exact ID" onChange={(event) => { setInitiativeId(event.target.value); setAdoption(null); }} /><datalist id="jira-initiative-options">{data.initiatives.map((initiative) => <option value={initiative.id} key={initiative.id}>{initiative.title}</option>)}</datalist><small>Typed IDs are allowed when the initiative exists on the checked-out Git branch but is not in this list.</small></label>}</section><div className="jira-actions"><button className="secondary" disabled={initiativeTarget === 'new' ? !createProfile : !initiativeId.trim()} onClick={previewAdoption}>Preview adoption</button><button className="primary" disabled={!adoption?.ready} onClick={adopt}>{initiativeTarget === 'new' ? 'Create & adopt into Git' : 'Adopt into Git'}</button></div>{adoption && <div className={`jira-adoption ${adoption.ready ? 'ready' : 'warn'}`}><strong>{adoption.ready ? (adoption.create ? `Ready to create ${selectedEpic.key}` : 'Ready to adopt') : 'Repository mapping incomplete'}</strong><span>{adoption.draft?.epics?.[0]?.stories?.length ?? adoption.breakdown?.stories?.length ?? 0} stories{adoption.sourceSha256 ? ` · source ${adoption.sourceSha256.slice(0, 12)}` : ''}</span>{adoption.unresolved?.length > 0 && <small>Choose a repository for: {adoption.unresolved.map((item) => item.jiraKey).join(', ')}</small>}</div>}</> : <Empty title="Choose an Epic" detail="Its child stories, Jira status, and repository ownership controls will appear here." />}</aside>
       </div>
       {initiativeId && <section className="panel jira-write-plan"><header className="panel-heading"><div><span className="eyebrow">Governed outbound synchronization</span><h2>Jira write plan</h2></div><Pill tone={policy.writeMode === 'approved' ? 'warn' : 'neutral'}>{policy.writeMode}</Pill></header><p>Generate a hash-pinned diff from the approved Singularity story plan. No Jira mutation occurs until the plan phase is approved and the exact initiative ID and plan hash are confirmed.</p><div className="jira-plan-actions"><button className="secondary" disabled={policy.writeMode === 'off'} onClick={planWrites}>Generate & commit plan</button>{writePlan && <><code>{writePlan.sha256}</code><input aria-label="Exact initiative confirmation" placeholder={`Type ${initiativeId}`} value={applyConfirmation} onChange={(event) => setApplyConfirmation(event.target.value)} /><button className="primary" disabled={policy.writeMode !== 'approved' || applyConfirmation !== initiativeId} onClick={applyWrites}>Apply reviewed plan</button></>}</div>{writePlan && <div className="jira-operation-list">{writePlan.operations.map((operation) => <div key={operation.id}><Pill tone={operation.action.startsWith('create') ? 'accent' : 'warn'}>{operation.action}</Pill><strong>{operation.subject.jiraKey ?? operation.subject.id}</strong><span>{Object.keys(operation.fields ?? operation.issue ?? {}).join(', ')}</span></div>)}</div>}</section>}
     </>}
@@ -2179,7 +2169,7 @@ function EpicBusinessOverview({ data, downloadFile }) {
             <div><strong>{approvalDisplayName(approval)}</strong><small>{approval.phase} · {approval.subject} · {formatRecentTime(approval.at)}</small></div>
             <Pill tone={approval.selfApproval ? 'warn' : 'good'}>{approval.selfApproval ? 'self-approval' : approval.decision}</Pill>
           </article>)}
-          {!approvals.length && <div className="inline-empty">No approvals have been committed yet. Approved stages will show the real person, authority group, working lens, time, and exact subject here.</div>}
+          {!approvals.length && <div className="inline-empty">No approvals have been committed yet. Approved stages will show the real person, authority group, governed agent, time, and exact subject here.</div>}
         </div>
       </section>
     </div>
@@ -2284,9 +2274,7 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       ?? initialPhase?.targets[0]?.id
       ?? ''
   );
-  const [persona, setPersona] = useState(data.session?.persona && data.definition.personas[data.session.persona]
-    ? data.session.persona
-    : preferredPersonaForRole(profileRole, data.definition.personas));
+  const [agent, setAgentSelection] = useState(initialPhase?.defaultAgent ?? '');
   const [objective, setObjective] = useState('');
   const [model, setModel] = useState('');
   const [preflight, setPreflight] = useState(null);
@@ -2344,6 +2332,7 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     const selectedPhase = selected.phases.find((item) => item.id === (focusPhase ?? selected.currentPhase))
       ?? selected.phases[0];
     setPhaseId(selectedPhase?.id ?? '');
+    setAgentSelection(selectedPhase?.defaultAgent ?? '');
     setTargetId(
       (focus?.target && selectedPhase?.targets.some((item) => item.id === focus.target) ? focus.target : null)
         ?? selectedPhase?.targets[0]?.id
@@ -2374,7 +2363,6 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
               setQuestions(journal.questions ?? []);
               questionsRef.current = journal.questions ?? [];
               setUsage(journal.usage ?? null);
-              setPersona(journal.persona ?? persona);
               setObjective(journal.objective ?? objective);
             }
           } catch { /* stale local journals are disposable */ }
@@ -2397,12 +2385,12 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
         plan,
         questions,
         usage,
-        persona,
+        agent,
         objective,
         updatedAt: new Date().toISOString()
       }));
     } catch { /* local journal is an enhancement, never a governance dependency */ }
-  }, [sessionStorageKey, contextPack?.sessionId, messages, plan, questions, usage, persona, objective]);
+  }, [sessionStorageKey, contextPack?.sessionId, messages, plan, questions, usage, agent, objective]);
 
   useEffect(() => {
     if (!window.singularity.onPlanningEvent) return undefined;
@@ -2588,7 +2576,7 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
       scope: group.scope,
       id: group.id,
       phase: phase.id,
-      persona,
+      agent,
       target: target.id,
       objective
     }), 'Governed planning context built');
@@ -2743,10 +2731,10 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
     const result = await action(
       () => (phaseScoped
         ? window.singularity.promotePlanningArtifacts(
-          data.repository.root, contextPack.sessionId, persona,
+          data.repository.root, contextPack.sessionId, agent,
           [...set].map(([outputId, content]) => ({ outputId, content }))
         )
-        : window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, persona, plan)),
+        : window.singularity.promotePlanningArtifact(data.repository.root, contextPack.sessionId, agent, plan)),
       phaseScoped
         ? `Promoted ${set.size} artifact${set.size === 1 ? '' : 's'}, committed, and pushed`
         : `Reviewed plan promoted to ${target.path}, committed, and pushed`
@@ -2760,15 +2748,15 @@ function useCopilotPlanningSession({ data, action, reload, profileRole = null, f
   // hand-off; only the explicit Stop button releases the Copilot planning context.
 
   return {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, agent, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   };
 }
 
 function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole = null, focus = null, onCopilotRetry = null }) {
   const {
-    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, persona, setPersona, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
+    groups, defaultGroup, focusPhase, groupKey, setGroupKey, phaseId, setPhaseId, initialPhase, targetId, setTargetId, agent, objective, setObjective, model, setModel, preflight, setPreflight, contextPack, setContextPack, messages, setMessages, plan, setPlan, followup, setFollowup, running, setRunning, started, setStarted, reviewed, setReviewed, usage, setUsage, questions, setQuestions, permissions, answerPermission, logs, setLogs, activity, setActivity, transcriptRef, planRef, questionsRef, group, phase, target, currentReady, storyPlanAnalysis, contextStale, resetSession, selectGroup, selectPhase, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, dismissQuestion, interruptTurn, stopCopilot, promote
   } = useCopilotPlanningSession({ data, action, reload, profileRole, focus });
-  if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, working lenses, world model, approved inputs, and repository boundaries." /></div>;
+  if (!groups.length) return <div className="page"><Empty title="Select governed work first" detail="Choose a story work item or initiative from the top bar. Copilot Studio will then expose its current phase, exact outputs, governed agents, world model, approved inputs, and repository boundaries." /></div>;
   return <div className="page planning-page">
     <header className="page-heading planning-heading"><div><span className="eyebrow">Copilot-native decision workspace</span><h1>Copilot Studio</h1><p>Move from business intent to a reviewable, phase-specific plan without allowing the planning session to mutate source or lifecycle state.</p></div><div className="row"><Pill tone={preflight?.ready ? 'good' : 'warn'}>{preflight?.ready ? 'Copilot Plan mode ready' : 'Copilot setup needed'}</Pill><button className="secondary" onClick={openPlanningPrompt}>Edit planning prompt</button></div></header>
     {preflight?.ready === false && <CopilotUnavailable health={preflight} action="Copilot Studio" onRetry={onCopilotRetry} />}
@@ -2783,7 +2771,7 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
             <label><span>Work</span><select disabled={started || running} value={groupKey} onChange={(event) => selectGroup(event.target.value)}>{groups.map((item) => <option key={`${item.scope}:${item.id}`} value={`${item.scope}:${item.id}`}>{item.scope === 'initiative' ? 'Initiative' : 'Story'} · {item.id}</option>)}</select></label>
             <label><span>Phase</span><select disabled={started || running} value={phase?.id ?? ''} onChange={(event) => selectPhase(event.target.value)}>{group.phases.map((item) => <option key={item.id} value={item.id}>{item.current ? '● ' : item.status === 'approved' ? '✓ ' : '○ '}{item.label} · {item.status.replaceAll('_', ' ')}</option>)}</select></label>
             <label><span>Promotion target</span><select disabled={started || running} value={target?.id ?? ''} onChange={(event) => { setTargetId(event.target.value); resetSession(); }}>{phase?.targets.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.kind}</option>)}</select></label>
-            <label><span>Working lens for this plan</span><select disabled={started || running} value={persona} onChange={(event) => { setPersona(event.target.value); resetSession(); }}>{Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label} · {id}</option>)}</select></label>
+            <label><span>Phase agent</span><strong>{data.definition.agents[agent]?.label ?? agent ?? 'Not configured'}</strong><small>Selected automatically by the active phase contract.</small></label>
             <label><span>Planning objective</span><textarea disabled={started || running} rows="4" value={objective} onChange={(event) => { setObjective(event.target.value); setContextPack(null); }} placeholder={`What decision must ${phase?.label ?? 'this phase'} make?`} /></label>
             <label><span>Copilot model <em>optional</em></span><input disabled={started || running} value={model} onChange={(event) => setModel(event.target.value)} placeholder="auto" /></label>
             {!phase?.current && <div className="planning-blocker"><strong>Sequence protected</strong><span>The active phase is {group.currentPhase}. Future and approved phases are visible for orientation but cannot start a new plan.</span></div>}
@@ -2796,7 +2784,7 @@ function PlanningStudio({ data, action, reload, openPlanningPrompt, profileRole 
       <main className="planning-workbench">
         <section className="panel planning-context">
           <header className="panel-heading"><div><span className="eyebrow">2 · Ground</span><h2>Context manifest</h2></div>{contextPack ? <Pill tone={contextPack.warnings.length ? 'warn' : 'good'}>{contextPack.manifest.sources.length} hashed sources</Pill> : <Pill>not built</Pill>}</header>
-          {!contextPack ? <div className="inline-empty">Choose the current phase, working lens, output, and objective, then build the context. No content is sent to Copilot before this step.</div> : <>
+          {!contextPack ? <div className="inline-empty">Choose the current phase, output, and objective, then build the context. The phase agent is applied automatically. No content is sent to Copilot before this step.</div> : <>
             {contextStale && <div className="planning-warning"><span>⚠ This saved context is out of date. Review remains available, but rebuild before starting Copilot or promoting an artifact.</span><button className="primary compact" disabled={running} onClick={buildContext}>Rebuild context</button></div>}
             <div className="context-kpis"><div><span>Repository head</span><strong>{contextPack.manifest.repository.head.slice(0, 10)}</strong></div><div><span>Context</span><strong>{Math.ceil(contextPack.manifest.context.bytes / 1024)} KB</strong></div><div><span>Generation</span><strong>{contextPack.manifest.generation}</strong></div><div><span>Target</span><strong>{contextPack.target.kind}</strong></div></div>
             {!!contextPack.warnings.length && <div className="planning-warning">{contextPack.warnings.map((warning) => <span key={warning}>⚠ {warning}</span>)}</div>}
@@ -3368,7 +3356,7 @@ function PhaseCliWorkspace({ data, selected, action, reload, downloadFile, onJou
       title={current ? `Run ${phaseLabel} in Copilot CLI` : approved ? `${phaseLabel} is complete` : `${phaseLabel} command is ready when the phase unlocks`}
       detail={approved
         ? 'The approved artifacts remain visible below. Use the next-stage command when you are ready to continue.'
-        : 'The desktop does not start or host Copilot. The skill composes the configured working lens, world model, pinned sources, approved inputs, templates, and phase contract inside your normal Copilot CLI session.'}
+        : 'The desktop does not start or host Copilot. The skill composes the configured governed agent, world model, pinned sources, approved inputs, templates, and phase contract inside your normal Copilot CLI session.'}
     />
     <div className="cli-review-grid">
       <section className="panel cli-evidence-summary">
@@ -3404,7 +3392,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
   const session = useCopilotPlanningSession({ data, action, reload, profileRole, focus: { phase: activePhaseId }, onCopilotLost });
   const {
     contextPack, messages, questions, permissions, running, started, activity, plan, followup, setFollowup,
-    objective, setObjective, persona, setPersona, preflight, phase, group, usage, logs, setLogs,
+    objective, setObjective, agent, preflight, phase, group, usage, logs, setLogs,
     contextStale, buildContext, beginSession, startCopilot, sendFollowup, answerQuestion, answerPermission, dismissQuestion, interruptTurn, stopCopilot
   } = session;
 
@@ -3531,7 +3519,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       () => window.singularity.promotePlanningArtifacts(
         data.repository.root,
         contextPack.sessionId,
-        persona,
+        agent,
         [...proposed].map(([outputId, content]) => ({ outputId, content }))
       ),
       `Wrote and pushed ${proposed.size} artifact${proposed.size === 1 ? '' : 's'}`
@@ -3612,7 +3600,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
   async function publishPhase() {
     const result = await action(
-      () => window.singularity.publishInitiativePhase(data.repository.root, state.initiative.id, phaseId, persona),
+      () => window.singularity.publishInitiativePhase(data.repository.root, state.initiative.id, phaseId, agent),
       `${phaseLabel} published, committed, and pushed`
     );
     if (result) await reload(undefined, state.initiative.id);
@@ -3625,7 +3613,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
     if (actionId === NEXT_ACTIONS.AUTHOR) return void buildContext();
     if (actionId === NEXT_ACTIONS.PUBLISH) return void publishPhase();
     if (actionId === NEXT_ACTIONS.APPROVE || actionId === NEXT_ACTIONS.EVIDENCE) {
-      // The decision itself lives in the governance panel, which owns the persona and the typed
+      // The decision itself lives in the governance panel, which owns the agent and the typed
       // confirmation. Bring it into view and focus it so the action is unmistakably next.
       const panel = document.querySelector('.phase-governance');
       panel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3764,7 +3752,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
       <section className="requirements-conversation">
         {!contextPack ? <div className="requirements-start">
           <h2>Describe what this phase must decide</h2>
-          <p>Copilot receives the phase contract, your working lens, the repository world model, and every pinned source. It reasons read-only; nothing is written until you approve.</p>
+          <p>Copilot receives the phase contract, your governed agent, the repository world model, and every pinned source. It reasons read-only; nothing is written until you approve.</p>
           <textarea
             rows="4"
             value={objective}
@@ -3781,12 +3769,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
               onClick={() => setObjective(command.prompt)}
             >{command.label}</button>)}
           </div>
-          <div className="row">
-            <select aria-label="Working lens" value={persona} onChange={(event) => setPersona(event.target.value)}>
-              {Object.entries(data.definition.personas).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}
-            </select>
-            <button className="primary" disabled={!ready || running || !group} onClick={beginSession}>Start with Copilot</button>
-          </div>
+          <div className="row"><span className="automatic-agent">Phase agent: <strong>{data.definition.agents[agent]?.label ?? agent}</strong></span><button className="primary" disabled={!ready || running || !group} onClick={beginSession}>Start with Copilot</button></div>
           {!ready && <CopilotUnavailable health={preflight} action="a planning session" onRetry={onCopilotRetry} />}
         </div> : <>
           {contextStale && <div className="requirements-stale" role="status">
@@ -3815,7 +3798,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
             <span className="copilot-avatar" aria-hidden="true">✦</span>
             <div>
               <strong>Copilot</strong>
-              <small>{data.definition.personas[persona]?.label ?? persona}</small>
+              <small>{data.definition.agents[agent]?.label ?? agent}</small>
             </div>
             <Pill tone={running ? 'accent' : started ? 'good' : 'neutral'}>
               {running ? 'Working' : started ? 'Ready for input' : 'Not started'}
@@ -3946,7 +3929,7 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
                 <small>{content
                   ? `Proposed in this session · ${formatBytes(content.length)}`
                   : committed?.sha256
-                    ? `${committed.status.replaceAll('_', ' ')}${committed.bytes ? ` · ${formatBytes(committed.bytes)}` : ''}${committed.generatedPersona ? ` · ${committed.generatedPersona}` : ''}`
+                    ? `${committed.status.replaceAll('_', ' ')}${committed.bytes ? ` · ${formatBytes(committed.bytes)}` : ''}${committed.generatedAgent ? ` · ${committed.generatedAgent}` : ''}`
                     : requiredOutputIds.has(output.id) ? 'Required · not generated yet' : 'Optional · not generated yet'}</small>
               </span>
               {content && <span className="artifact-state proposed" title="Proposed, not yet written">●</span>}
@@ -4079,16 +4062,11 @@ function PhaseWorkspace({ data, selected, action, reload, downloadFile, profileR
 
 function PhaseGovernance({ data, selected, phaseId, action, reload }) {
   const phase = selected.state.phases[phaseId];
-  const [persona, setPersona] = useState(
-    selected.state.sessionPersona
-      ?? preferredPersonaForRole(data.desktopProfile?.role, data.definition.personas)
-      ?? Object.keys(data.definition.personas)[0]
-      ?? ''
-  );
+  const agent = selected.state.resolution?.phases?.find((item) => item.id === phaseId)?.agents?.[0] ?? '';
   const [confirmation, setConfirmation] = useState('');
   // Why the approve action is unavailable, in the words of what to do about it.
-  const approvalBlocker = !persona
-    ? 'Select a review working lens first. Your Git identity is checked separately for authority.'
+  const approvalBlocker = !agent
+    ? `Phase '${phaseId}' has no default governed agent. Configure one before approval.`
     : confirmation.trim() === ''
       ? `Type ${phaseId}:phase in the confirmation field to approve this exact document set.`
       : confirmation !== `${phaseId}:phase`
@@ -4159,7 +4137,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
     : `This accepts the exact ${phase.label.toLowerCase()} documents currently shown above and unlocks ${nextPhaseLabel}.`;
   async function publish() {
     const result = await action(
-      () => window.singularity.publishInitiativePhase(data.repository.root, selected.state.initiative.id, phaseId, persona),
+      () => window.singularity.publishInitiativePhase(data.repository.root, selected.state.initiative.id, phaseId, agent),
       `${phase.label} generation published, committed, and pushed`
     );
     if (result) await reload(undefined, selected.state.initiative.id);
@@ -4171,7 +4149,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
         selected.state.initiative.id,
         'phase',
         confirmation,
-        persona,
+        agent,
         selfApproval
       ),
       `${phase.label} approved against its exact bundle hash, committed, and pushed`
@@ -4187,7 +4165,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       {approved && contextBoundaryMode !== 'keep' && <div className="notice accent"><strong>{contextBoundaryMode === 'new' ? 'Start the next phase with a clean Copilot context.' : 'Compact Copilot before continuing.'}</strong><span>Run <code>{contextBoundaryMode === 'new' ? '/clear' : '/compact'}</code>{nextPhaseId ? <> and then <code>/sflow-initiative-next</code></> : null}. Approved artifacts remain safely committed in Git.</span></div>}
       {!readyToPublish && !awaitingApproval && !approved && authoredOutputs.length > 0 && <p className="stage-progress">{authoredOutputs.length} of {effectiveRequiredOutputs.length} required outputs authored.</p>}
     </div>
-    <label><span>Working lens (audit only)</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(data.definition.personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>Approval authority is checked against your Git identity, not this selection.</small></label>
+    <label><span>Phase agent (audit context)</span><strong>{data.definition.agents[agent]?.label ?? agent ?? 'Not configured'}</strong><small>Selected by the phase contract. Approval authority is checked against your Git identity.</small></label>
     {attestable.length > 0 && <section className="evidence-attest">
       <header><strong>Checks awaiting your judgement</strong><small>Recorded as human-approved evidence against your Git identity, committed append-only. The engine refuses an actor outside the check's approval authority.</small></header>
       {attestable.map((check) => <div key={check.id} className="evidence-attest-row">
@@ -4223,7 +4201,7 @@ function PhaseGovernance({ data, selected, phaseId, action, reload }) {
       </div>)}
     </section>}
     {awaitingApproval && <><label><span>Type the confirmation phrase</span><small className="field-help">Enter <code>{phaseId}:phase</code> to confirm you reviewed this exact document set. This protects against approving a changed version.</small><input aria-label={`Type ${phaseId}:phase to confirm`} className={confirmation.trim() && confirmation !== `${phaseId}:phase` ? 'confirmation-mismatch' : undefined} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Type the phrase here" />{approvalBlocker && <small className="field-error">{approvalBlocker}</small>}</label><label className="self-approval-ack"><input type="checkbox" checked={selfApproval} onChange={(event) => setSelfApproval(event.target.checked)} /><span>I understand that self-approval, when detected, is valid but not independent review.</span></label></>}
-    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={Boolean(approvalBlocker)} title={approvalBlocker ?? undefined} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !persona} title={!persona ? 'Select a working lens first.' : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
+    <div className="stage-primary-action">{approved ? <Pill tone="good">Approved — next phase unlocked</Pill> : awaitingApproval ? <button className="primary" disabled={Boolean(approvalBlocker)} title={approvalBlocker ?? undefined} onClick={approve}>Approve {phase.label} &amp; continue</button> : <button className="primary" disabled={!readyToPublish || !agent} title={!agent ? `Configure a default governed agent for phase '${phaseId}'.` : pendingRequired.length ? `Not yet authored: ${pendingRequired.map((output) => output.id).join(', ')}` : undefined} onClick={publish}>Publish {phase.label} for review</button>}</div>
     {selected.state.currentPhase === phaseId && <details className="stage-evidence"><summary>Evidence & governance details <span>{selected.phaseGate?.checklist?.length ?? 0} checks</span></summary><div>{selected.phaseGate?.checklist?.map((check) => <p key={check.id}><Pill tone={['satisfied', 'waived', 'not_applicable', 'optional'].includes(check.status) ? 'good' : 'warn'}>{check.status}</Pill><span><strong>{check.label}</strong><small>{check.acceptedAssurance.join(' / ')} · {check.gate}</small></span></p>)}</div></details>}
   </section>;
 }
@@ -4251,13 +4229,8 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
   const [story, setStory] = useState(null);
   const [repositoryId, setRepositoryId] = useState('');
   const workTypes = Object.entries(data.definition?.workTypes ?? {});
-  const personas = Object.entries(data.definition?.personas ?? {});
   const [workType, setWorkType] = useState(workTypes[0]?.[0] ?? '');
-  const [persona, setPersona] = useState(
-    data.session?.persona && data.definition?.personas?.[data.session.persona]
-      ? data.session.persona
-      : personas[0]?.[0] ?? ''
-  );
+  const agent = workTypePhaseAgent(data.definition, workType);
 
   const repositories = repositoryHealth.map((health) => {
     const configured = repositoryConfiguration[health.id] ?? {};
@@ -4315,8 +4288,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
         workspacePath,
         repositoryId,
         story.key,
-        workType,
-        persona
+        workType
       ),
       existing ? `${story.key} resumed` : `${story.key} workflow created, committed, and pushed`
     );
@@ -4327,7 +4299,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
     return <div className="page story-intake-page"><Empty title="Open a project workspace first" detail="Story intake needs workspace repository routing and Jira project configuration." /></div>;
   }
 
-  const canStart = connected && story && repositoryId && selectedRepository?.state === 'ready' && workType && persona;
+  const canStart = connected && story && repositoryId && selectedRepository?.state === 'ready' && workType && agent;
   return <div className="page story-intake-page">
     <header className="page-heading row-between"><div><span className="eyebrow">Developer entry point · no Epic intake required</span><h1>Start directly from a Jira Story</h1><p>Choose the Story, verify its optional parent Epic and repository lineage, then create or resume the canonical Jira-key branch with a pinned workflow.</p></div><div className="row">{onManual && <button className="secondary" onClick={onManual}>Create without Jira</button>}<Pill tone={connected ? 'good' : 'warn'}>{connected ? 'Jira ready' : 'Jira setup required'}</Pill></div></header>
     <section className="story-intake-journey" aria-label="Jira Story intake workflow">
@@ -4337,7 +4309,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
         ['3', 'Route repository'],
         ['4', 'Select workflow'],
         ['5', 'Start delivery']
-      ].map(([number, label], index) => <React.Fragment key={number}><span className={(story ? index < 2 : index === 0) || (repositoryId && index === 2) || (workType && persona && index === 3) ? 'active' : ''}><b>{number}</b><small>{label}</small></span>{index < 4 && <i />}</React.Fragment>)}
+      ].map(([number, label], index) => <React.Fragment key={number}><span className={(story ? index < 2 : index === 0) || (repositoryId && index === 2) || (workType && agent && index === 3) ? 'active' : ''}><b>{number}</b><small>{label}</small></span>{index < 4 && <i />}</React.Fragment>)}
     </section>
 
     <section className="story-intake-grid">
@@ -4353,7 +4325,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
       </article>
 
       <article className="panel story-context-panel">
-        <header className="panel-heading"><div><span className="eyebrow">Steps 2–4 · Governed context</span><h2>{story ? `${story.key} intake` : 'Review before starting'}</h2><p>Nothing is committed until the exact Story, repository, workflow, and working lens are visible here.</p></div>{story && <Pill tone="accent">{story.status ?? 'unknown'}</Pill>}</header>
+        <header className="panel-heading"><div><span className="eyebrow">Steps 2–4 · Governed context</span><h2>{story ? `${story.key} intake` : 'Review before starting'}</h2><p>Nothing is committed until the exact Story, repository, workflow, and automatic phase agent are visible here.</p></div>{story && <Pill tone="accent">{story.status ?? 'unknown'}</Pill>}</header>
         {!story ? <Empty title="Choose a Jira Story" detail="Its description, acceptance criteria, attachments, parent Epic, and repository route will appear here." /> : <>
           <section className="story-jira-summary">
             <div><span>Story</span><strong>{story.title}</strong><small>{story.issueType} · {story.priority ?? 'No priority'} · {story.assignee ?? 'Unassigned'}</small></div>
@@ -4365,7 +4337,7 @@ function JiraStoryIntake({ data, action, onStarted, onSetupJira, onManual }) {
           <div className="story-intake-selectors">
             <label><span>Delivery repository</span><select value={repositoryId} onChange={(event) => setRepositoryId(event.target.value)}><option value="">Choose the routed repository</option>{routedRepositories.map((repository) => <option key={repository.id} value={repository.id} disabled={repository.state !== 'ready'}>{repository.displayName} · {repository.id} ({repository.state})</option>)}</select><small>{routedRepositories.length ? `Jira ${storyProject} is mapped by workspace configuration.` : `No ready repository is mapped to Jira project ${storyProject}. Edit Workspace configuration first.`}</small></label>
             <label><span>Story workflow</span><select value={workType} onChange={(event) => setWorkType(event.target.value)}>{workTypes.map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>The selected workflow is pinned for this Story after intake.</small></label>
-            <label><span>Working lens</span><select value={persona} onChange={(event) => setPersona(event.target.value)}>{personas.map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>The lens shapes Copilot prompts locally and can be changed on resume.</small></label>
+            <label><span>First phase agent</span><strong>{data.definition.agents?.[agent]?.label ?? agent ?? 'Not configured'}</strong><small>The phase contract selects prompt instructions automatically; it is not a human role.</small></label>
           </div>
           {existing && <div className="notice accent"><strong>{story.key} already exists in this repository.</strong><span>Starting will fetch and resume its canonical branch instead of creating a second workflow.</span></div>}
           <footer className="story-intake-action"><div><strong>What happens next</strong><span>Singularity checks out <code>{story.key}</code>, pins the Jira snapshot, creates and pushes the workflow branch, then asks you to generate the repository world model on that branch. Continue with <code>/sflow-phase</code> after grounding succeeds.</span></div><button className="primary" disabled={!canStart} onClick={start}>{existing ? `Resume ${story.key}` : 'Start Story workflow'}</button></footer>
@@ -4411,7 +4383,7 @@ function EpicReviewView({ data, selected, action, reload }) {
   const [inbox, setInbox] = useState([]);
   const [review, setReview] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [persona, setPersona] = useState('');
+  const [agent, setAgent] = useState('');
   const [rejectTarget, setRejectTarget] = useState('');
   const [reason, setReason] = useState('');
   const initiativeId = selected.state.initiative.id;
@@ -4428,7 +4400,7 @@ function EpicReviewView({ data, selected, action, reload }) {
     const result = await action(() => window.singularity.epicReview(data.repository.root, initiativeId, item.workId, item.packetSha256));
     if (result) {
       setReview(result);
-      setPersona(result.approval.workingLenses[0]?.id ?? '');
+      setAgent(result.approval.defaultAgent ?? '');
       setRejectTarget(result.approval.rejectTo[0] ?? result.approval.phase);
       setReason('');
     }
@@ -4445,7 +4417,7 @@ function EpicReviewView({ data, selected, action, reload }) {
     }
   }
   async function decide(decision) {
-    if (!review || !persona) return;
+    if (!review || !agent) return;
     const result = await action(
       () => window.singularity.decideEpicReview(
         data.repository.root,
@@ -4453,7 +4425,7 @@ function EpicReviewView({ data, selected, action, reload }) {
         review.story.workId ?? review.story.id,
         review.packet.packetSha256,
         decision,
-        persona,
+        agent,
         decision === 'reject' ? rejectTarget : null,
         decision === 'reject' ? reason : null
       ),
@@ -4461,7 +4433,7 @@ function EpicReviewView({ data, selected, action, reload }) {
     );
     if (result) {
       setReview(null);
-      setPersona('');
+      setAgent('');
       setReason('');
       await reload(null, initiativeId);
       setInbox(await window.singularity.epicReviewInbox(data.repository.root, initiativeId));
@@ -4481,10 +4453,10 @@ function EpicReviewView({ data, selected, action, reload }) {
         <div className={`notice ${review.approval.reviewerAuthority?.authorized ? 'accent' : 'warn'}`}><strong>Reviewer identity:</strong> {review.approval.reviewer?.name ?? 'Unknown'} · {review.approval.reviewer?.email ?? review.approval.reviewer?.login ?? 'No Git identity'}<br /><strong>Authority:</strong> {review.approval.reviewerAuthority?.authorized ? `${review.approval.reviewerAuthority.authorityLabel} (${review.approval.reviewerAuthority.identityAssurance})` : review.approval.reviewerAuthority?.reason}</div>
         <section className="epic-review-decision">
           <div><span className="eyebrow">Hash-bound decision</span><h3>Approve or return this exact packet</h3><p>Approval stays disabled until deterministic and required GitHub checks pass for the submitted source SHA.</p></div>
-          <label><span>Working lens (audit only)</span><select value={persona} onChange={(event) => setPersona(event.target.value)}><option value="">Choose a lens…</option>{review.approval.workingLenses.map((entry) => <option value={entry.id} key={entry.id}>{entry.label}</option>)}</select><small>This affects prompt perspective, never approval permission.</small></label>
+          <label><span>Governed agent</span><strong>{review.approval.availableAgents.find((entry) => entry.id === agent)?.label ?? agent}</strong><small>Selected automatically by the phase contract. Human approval authority comes from the reviewer identity.</small></label>
           <label><span>Return to phase</span><select value={rejectTarget} onChange={(event) => setRejectTarget(event.target.value)}>{review.approval.rejectTo.map((phase) => <option value={phase} key={phase}>{phase}</option>)}</select></label>
           <label className="wide"><span>Rejection reason</span><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Required only when returning the Story" /></label>
-          <div className="epic-review-actions"><button className="secondary danger-text" disabled={!persona || !reason.trim() || !review.approval.reviewerAuthority?.authorized} onClick={() => decide('reject')}>Return with feedback</button><button className="primary" disabled={!persona || !checksReady || !review.approval.reviewerAuthority?.authorized} onClick={() => decide('approve')}>Approve exact packet</button></div>
+          <div className="epic-review-actions"><button className="secondary danger-text" disabled={!agent || !reason.trim() || !review.approval.reviewerAuthority?.authorized} onClick={() => decide('reject')}>Return with feedback</button><button className="primary" disabled={!agent || !checksReady || !review.approval.reviewerAuthority?.authorized} onClick={() => decide('approve')}>Approve exact packet</button></div>
         </section>
         <pre className="review-packet-document">{review.review.markdown}</pre>
       </> : <Empty title="Select a Story packet" detail="You’ll see complete documents, source lineage, Git diff, checks, approvals, tokens, and conformance evidence." />}
@@ -4494,7 +4466,6 @@ function EpicReviewView({ data, selected, action, reload }) {
 
 function StoryIntake({ data, action, reload, onStarted, onJiraStarted, onSetupJira }) {
   const workTypes = data.definition?.workTypes ?? {};
-  const personas = data.definition?.personas ?? {};
   const workspaceRepositories = Object.values(data.workspace?.workspace?.repositories ?? {});
   const jiraAvailable = Boolean(
     data.portfolio?.jira?.enabled
@@ -4518,10 +4489,7 @@ function StoryIntake({ data, action, reload, onStarted, onJiraStarted, onSetupJi
     risks: '',
     notes: '',
     parentEpicId: '',
-    workType: workTypes.feature ? 'feature' : Object.keys(workTypes)[0] ?? '',
-    persona: preferredPersonaForRole(data.desktopProfile?.role, personas)
-      ?? Object.keys(personas)[0]
-      ?? ''
+    workType: workTypes.feature ? 'feature' : Object.keys(workTypes)[0] ?? ''
   }));
   const [documents, setDocuments] = useState([]);
   const [urls, setUrls] = useState('');
@@ -4563,7 +4531,8 @@ function StoryIntake({ data, action, reload, onStarted, onJiraStarted, onSetupJi
       onManual={() => setMode('manual')}
     />;
   }
-  const ready = form.workId.trim() && form.title.trim() && form.workType && form.persona;
+  const automaticAgent = workTypePhaseAgent(data.definition, form.workType);
+  const ready = form.workId.trim() && form.title.trim() && form.workType && automaticAgent;
   return <div className="story-intake-page">
     <header className="story-intake-heading">
       <div><span className="eyebrow">Story delivery</span><h1>Start a governed Story</h1><p>Create a Story without Jira, or fetch an existing Jira Story. Singularity creates or resumes the exact Work-ID branch and publishes the intake state for every contributor.</p></div>
@@ -4604,10 +4573,10 @@ function StoryIntake({ data, action, reload, onStarted, onJiraStarted, onSetupJi
           <label className="story-url-field"><span>Reference URLs <em>optional</em></span><textarea rows="3" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={'https://example.com/brief\nhttps://www.figma.com/design/...'} /><small>One HTTP or HTTPS URL per line.</small></label>
         </section>
         <section className="story-intake-section">
-          <header><span>3</span><div><h2>Choose the delivery workflow</h2><p>The selected phase sequence is pinned to this Story. The working lens is active only for this local desktop session.</p></div></header>
+          <header><span>3</span><div><h2>Choose the delivery workflow</h2><p>The selected phase sequence is pinned to this Story. Each phase activates its governed agent automatically.</p></div></header>
           <div className="story-field-grid">
             <label><span>Workflow template</span><select value={form.workType} onChange={(event) => field('workType', event.target.value)}>{Object.entries(workTypes).map(([id, item]) => <option value={id} key={id}>{item.label ?? id}</option>)}</select></label>
-            <label><span>Working lens</span><select value={form.persona} onChange={(event) => field('persona', event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label ?? id}</option>)}</select></label>
+            <label><span>First phase agent</span><strong>{data.definition.agents?.[automaticAgent]?.label ?? automaticAgent ?? 'Not configured'}</strong><small>Configured by Agent Markdown for the workflow's first phase.</small></label>
           </div>
         </section>
       </div>
@@ -4638,7 +4607,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   const initiativeProfiles = data.portfolio?.initiativeProfiles ?? {
     'epic-planning': { label: 'Epic planning' }
   };
-  const personas = data.definition?.personas ?? {};
+  const agents = data.definition?.agents ?? {};
   const workspace = data.workspace?.workspace ?? null;
   const workspacePath = workspace?.path ?? null;
   const workspaceRepositories = Object.values(workspace?.repositories ?? {});
@@ -4661,11 +4630,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   const [profile, setProfile] = useState(
     initiativeProfiles['epic-planning'] ? 'epic-planning' : Object.keys(initiativeProfiles)[0] ?? ''
   );
-  const [persona, setPersona] = useState(
-    preferredPersonaForRole(data.desktopProfile?.role, personas)
-      ?? Object.keys(personas)[0]
-      ?? ''
-  );
+  const agent = initiativePhaseAgent(data.portfolio, profile, data.definition);
   useEffect(() => {
     let active = true;
     if (!jiraConfigured) return undefined;
@@ -4848,14 +4813,14 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
     }
     if (source === 'local') {
       const result = await action(
-        () => window.singularity.startLocalEpic(data.repository.root, localTitle, localDescription, localGoal, profile, persona),
+        () => window.singularity.startLocalEpic(data.repository.root, localTitle, localDescription, localGoal, profile),
         'Local Epic ID reserved, initialized, committed, and pushed'
       );
       if (result) await reload(null, result.initiativeId);
       return;
     }
     const result = await action(
-      () => window.singularity.startEpicWizard(data.repository.root, fetchedEpic.key, profile, persona),
+      () => window.singularity.startEpicWizard(data.repository.root, fetchedEpic.key, profile),
       (outcome) => outcome.resumed
         ? `Epic ${fetchedEpic.key} already exists. Flow fetched its latest branch and continued from there.`
         : `Epic ${fetchedEpic.key} fetched from Jira, initialized, committed, and pushed`
@@ -4884,8 +4849,8 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
   const startedEpics = new Map((data.initiatives ?? []).map((item) => [item.id, item]));
   const alreadyStarted = source === 'jira' && fetchedEpic ? startedEpics.get(fetchedEpic.key) ?? null : null;
   const canStart = source === 'jira'
-    ? repositoryStartReady && connected && fetchedEpic?.key === epicKey && profile && persona && !alreadyStarted
-    : repositoryStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && persona && !localPreview?.error;
+    ? repositoryStartReady && connected && fetchedEpic?.key === epicKey && profile && agent && !alreadyStarted
+    : repositoryStartReady && localTitle.trim() && localDescription.trim() && localGoal.trim() && profile && agent && !localPreview?.error;
   return <div className="epic-start-wizard">
     <section className="epic-start-intro">
       <div className="epic-start-intro-copy">
@@ -4900,7 +4865,7 @@ function EpicStartWizard({ data, action, reload, generateWorldModel, openEpic, o
         <div className="epic-start-step"><b>1</b><div><span className="eyebrow">Workspace Jira connection</span><h3>Use the Jira routing already configured</h3><p>{connected ? `Connected as ${status.credentials.connection?.account?.displayName ?? status.credentials.connection?.email}. Allowed projects: ${status.routing?.projectKeys?.join(', ') || data.portfolio?.jira?.allowedProjects?.join(', ') || 'repository policy'}.` : 'This workspace has Jira project routing, but this operating-system user still needs a valid Jira connection.'}</p></div>{connected ? <Pill tone="good">ready</Pill> : <button className="secondary" onClick={onSetupJira}>Connect Jira</button>}</div>
         <div className="epic-start-step"><b>2</b><div><span className="eyebrow">Epic intake</span><h3>Select an Epic from Jira</h3><p>Choose from every Epic visible in the workspace’s configured Jira projects. Singularity fetches and pins the exact Jira snapshot before requirements are generated.</p><div className="epic-picker"><label><span>Jira Epic</span><select value={selectedEpicKey} disabled={!connected || epicsLoading} onChange={(event) => { setSelectedEpicKey(event.target.value); setEpicKey(event.target.value); setFetchedEpic(null); }}><option value="">{epicsLoading ? 'Loading Jira Epics…' : availableEpics.length ? 'Choose an Epic…' : 'No Epics found'}</option>{availableEpics.map((epic) => <option value={epic.key} key={epic.key}>{epic.key} — {epic.title} ({startedEpics.has(epic.key) ? 'already started' : epic.status ?? 'unknown'})</option>)}</select></label><button className="secondary" disabled={!connected || epicsLoading} onClick={loadEpics}>{epicsLoading ? 'Refreshing…' : 'Refresh list'}</button><button className="primary" disabled={!connected || !selectedEpicKey} onClick={() => fetchEpic(selectedEpicKey)}>Fetch selected Epic</button></div><div className="epic-picker-meta"><span>{availableEpics.length} Epic{availableEpics.length === 1 ? '' : 's'} visible across {epicProjectKeys.length} Jira project{epicProjectKeys.length === 1 ? '' : 's'}</span></div>{epicsError && <div className="notice warn epic-routing-warning"><div><strong>Some configured Jira projects could not be loaded.</strong><span>{epicsError} Valid projects are still listed above.</span></div>{routingCorrection ? <button className="secondary" onClick={correctJiraRouting}>Change {routingCorrection.repositoryIds.join(', ')} from {routingCorrection.projectKey} to {referenceProjectKey}</button> : <span>Correct the Jira project key under Workspace configuration → Edit workspace.</span>}</div>}<details className="epic-reference-fallback"><summary>Enter an Epic key, URL, or numeric Jira ID instead</summary><div className="epic-key-fetch"><label><span>Exact Jira reference</span><input value={epicKey} disabled={!connected} onChange={(event) => { setSelectedEpicKey(''); setEpicKey(event.target.value); setFetchedEpic(null); }} onKeyDown={(event) => { if (event.key === 'Enter' && epicKey.trim()) fetchEpic(); }} placeholder={`${leadProjectKey || data.portfolio?.jira?.projectKey || 'APP'}-123 or Jira URL`} /></label><button className="secondary" disabled={!connected || !epicKey.trim()} onClick={() => fetchEpic()}>Fetch Epic</button></div></details>{fetchedEpic && <article className="fetched-epic-card"><div><Pill tone={alreadyStarted ? 'accent' : 'good'}>{alreadyStarted ? 'Already started' : 'Fetched from Jira'}</Pill><code>{fetchedEpic.key}</code></div><h4>{fetchedEpic.title}</h4><p>{fetchedEpic.description || 'No Jira description was provided. Add supporting details and documents after starting.'}</p><small>{alreadyStarted ? `This Epic already has a governed branch — ${alreadyStarted.currentPhaseLabel ?? alreadyStarted.currentPhase ?? 'in progress'} on ${alreadyStarted.branch ?? alreadyStarted.id}. Continue fetches and fast-forwards that branch; no second Epic is created.` : `${fetchedEpic.issueType} · ${fetchedEpic.status ?? 'unknown status'} · snapshot will be hash-recorded`}</small></article>}</div></div>
       </> : <div className="epic-start-step local-epic-fields"><b>1</b><div><span className="eyebrow">Business intent</span><h3>Describe the Epic</h3><div className="epic-local-id"><span>Next reserved ID</span><code>{localPreview?.id ?? 'Checking…'}</code></div><label><span>Epic title</span><input value={localTitle} onChange={(event) => setLocalTitle(event.target.value)} placeholder="Customer onboarding modernization" /></label><label><span>Problem or opportunity</span><textarea rows="3" value={localDescription} onChange={(event) => setLocalDescription(event.target.value)} placeholder="Describe why this work matters and the boundaries already known." /></label><label><span>Desired outcome</span><textarea rows="2" value={localGoal} onChange={(event) => setLocalGoal(event.target.value)} placeholder="Describe the measurable result." /></label>{localPreview?.error && <div className="notice warn">{localPreview.error}</div>}</div></div>}
-      <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Session choices</span><h3>Pin the workflow and choose your working lens</h3><div className="epic-start-controls"><label><span>Delivery workflow</span><select aria-label="Delivery workflow" value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>{initiativeProfiles[profile]?.description ?? 'Controls the governed phases and outputs for this Epic.'}</small></label><label><span>Working lens</span><select aria-label="Working lens" value={persona} onChange={(event) => setPersona(event.target.value)}>{Object.entries(personas).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>{personas[persona]?.description ?? 'Adds a perspective to Copilot prompts for this session.'}</small></label></div><p className="epic-defaults-note">Manage these options under <strong>Configuration → Session choices</strong>. The workflow is pinned to the Epic; the working lens controls prompt perspective for your current session. Approval authority comes from your separately displayed Git identity.</p>{needsPortfolioBootstrap && <p className="epic-defaults-note">The governed Epic defaults and approval identity will be completed when you start. No separate portfolio setup is required.</p>}</div></div>
+      <div className="epic-start-step"><b>3</b><div><span className="eyebrow">Workflow contract</span><h3>Pin the delivery workflow</h3><div className="epic-start-controls"><label><span>Delivery workflow</span><select aria-label="Delivery workflow" value={profile} onChange={(event) => setProfile(event.target.value)}>{Object.entries(initiativeProfiles).map(([id, item]) => <option value={id} key={id}>{item.label}</option>)}</select><small>{initiativeProfiles[profile]?.description ?? 'Controls the governed phases and outputs for this Epic.'}</small></label><label><span>First phase agent</span><strong>{agents[agent]?.label ?? agent ?? 'Not configured'}</strong><small>Selected automatically by the first phase contract.</small></label></div><p className="epic-defaults-note">Manage workflow phases and their agents under <strong>Configuration</strong>. Approval authority comes from your separately displayed Git identity.</p>{needsPortfolioBootstrap && <p className="epic-defaults-note">The governed Epic defaults and approval identity will be completed when you start. No separate portfolio setup is required.</p>}</div></div>
       {configurationReadyToPublish && <div className="notice good epic-start-setup"><strong>Workspace setup is ready.</strong><span>{data.repository.configurationChanges.length} generated or edited Singularity configuration file(s) will be committed and pushed before the Epic branch is created. These are not application-source changes.</span></div>}
       {authoritySetupIncomplete && <div className="notice good epic-start-setup"><strong>Approval setup will be completed safely.</strong><span>Configured approvers will be preserved. Only empty authority groups will receive your current Git identity before the Epic resumes.</span></div>}
       {!repositoryStartReady && <div className="notice warn epic-start-blocker"><strong>Epic creation starts from the clean {defaultBranch} branch.</strong><span>{data.repository.branch !== defaultBranch && !recoveringReservation ? `Switch from ${data.repository.branch} to ${defaultBranch}, then refresh this workspace.` : `Commit or set aside the ${blockingChanges.length} unrelated application-source change(s), then refresh this workspace.`}</span></div>}
@@ -5542,7 +5507,6 @@ function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWor
     }
   }
   function toggleApprovalAuthority(authorityId) { change((next) => { const values = next.phases[phaseId].approval.authorities ??= []; const index = values.indexOf(authorityId); if (index >= 0) values.splice(index, 1); else values.push(authorityId); }); }
-  function toggleSuggestedPersona(personaId) { change((next) => { const values = next.phases[phaseId].suggestedPersonas ??= []; const index = values.indexOf(personaId); if (index >= 0) values.splice(index, 1); else values.push(personaId); }); }
   function toggleRejectTarget(target) { change((next) => { const values = next.phases[phaseId].approval.rejectTo ??= []; const index = values.indexOf(target); if (index >= 0) values.splice(index, 1); else values.push(target); }); }
   function toggleInput(target) { const current = profile.phaseOverrides?.[phaseId]?.inputs ?? phase.inputs ?? []; const selected = current.map((entry) => typeof entry === 'string' ? entry : entry.phase); replace(setWorkTypeInputs(draft, workType, phaseId, selected.includes(target) ? selected.filter((id) => id !== target) : [...selected, target])); }
   function movePhase(offset) { change((next) => { const targetProfile = next.workTypes[workType]; const phases = targetProfile.phases; const index = phases.indexOf(phaseId); const target = index + offset; if (target < 0 || target >= phases.length) return; [phases[index], phases[target]] = [phases[target], phases[index]]; for (const [consumerIndex, consumerId] of phases.entries()) { const earlier = new Set(phases.slice(0, consumerIndex)); const inherited = targetProfile.phaseOverrides?.[consumerId]?.inputs ?? next.phases[consumerId]?.inputs ?? []; const valid = inherited.filter((entry) => earlier.has(typeof entry === 'string' ? entry : entry.phase)); if (valid.length === inherited.length) continue; targetProfile.phaseOverrides ??= {}; targetProfile.phaseOverrides[consumerId] = { ...(targetProfile.phaseOverrides[consumerId] ?? {}), inputs: valid }; } }); }
@@ -5552,7 +5516,7 @@ function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWor
   const templateNames = data.templates.map((item) => item.name);
   const inactivePhases = Object.keys(draft.phases).filter((id) => !profile.phases.includes(id));
   const effectiveInputs = (profile.phaseOverrides?.[phaseId]?.inputs ?? phase?.inputs ?? []).map((entry) => typeof entry === 'string' ? entry : entry.phase);
-  const defaults = { persona: Object.keys(draft.personas)[0], authority: Object.keys(draft.approvalAuthorities ?? {})[0], template: templateNames[0], writeScope: 'artifact-only', minimumBytes: 200 };
+  const defaults = { authority: Object.keys(draft.approvalAuthorities ?? {})[0], template: templateNames[0], writeScope: 'artifact-only', minimumBytes: 200 };
   return <div className="split-page workflow-layout">
     <div className="design-pane"><header className="page-heading"><span className="eyebrow">Visual configuration</span><h1>Workflow designer</h1><p>Inspect phase order, approval authority, rejection paths, and template resolution.</p></header>
       <div className="designer-toolbar"><div className="segmented">{Object.entries(draft.workTypes).map(([id, item]) => <button className={id === workType ? 'active' : ''} key={id} onClick={() => setWorkType(id)}>{item.label}</button>)}</div><div className="row"><button className="secondary compact" onClick={() => openModal('new-workflow', { id: '', label: '' })}>＋ Workflow</button><button className="ghost compact" disabled={Object.keys(draft.workTypes).length === 1} onClick={() => openModal('delete-workflow')}>Delete</button></div></div>
@@ -5562,20 +5526,20 @@ function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWor
         <p>Bind the contributor to durable Git state, then decide whether Copilot keeps, compacts, or clears conversation history after each governed decision.</p>
         <div className="control-grid">
           <label><span>Work-item selection</span><select value={draft.session?.workItemSelection ?? 'off'} onChange={(event) => change((next) => { next.session ??= {}; next.session.workItemSelection = event.target.value; })}><option value="off">Off · legacy behavior</option><option value="reuse">Reuse active branch</option><option value="prompt">Prompt and sync remote</option></select></label>
-          <label><span>Working-lens selection</span><select value={draft.session?.personaSelection ?? 'off'} onChange={(event) => change((next) => { next.session ??= {}; next.session.personaSelection = event.target.value; })}><option value="off">Off</option><option value="reuse">Reuse valid lens</option><option value="prompt">Prompt contributor</option></select></label>
+          <div className="field-note"><span>Governed agent</span><strong>Automatic by stage</strong><small>Edit Agent Markdown to change stage ownership or world-model views.</small></div>
           <label><span>After approval</span><select value={draft.contextPolicy?.onApproval ?? draft.contextPolicy?.phaseBoundary ?? 'keep'} onChange={(event) => change((next) => { next.contextPolicy ??= {}; next.contextPolicy.onApproval = event.target.value; delete next.contextPolicy.phaseBoundary; })}><option value="new">New · clear and rebuild</option><option value="compact">Compact · summarize history</option><option value="keep">Keep · same conversation</option></select></label>
           <label><span>After rejection</span><select value={draft.contextPolicy?.onRejection ?? 'keep'} onChange={(event) => change((next) => { next.contextPolicy ??= {}; next.contextPolicy.onRejection = event.target.value; })}><option value="keep">Keep · preserve rework context</option><option value="compact">Compact · summarize history</option><option value="new">New · clear and rebuild</option></select></label>
           <label className="full"><span>{phase?.label ?? phaseId} override</span><select value={draft.contextPolicy?.phaseOverrides?.[phaseId] ?? ''} onChange={(event) => change((next) => { next.contextPolicy ??= {}; next.contextPolicy.phaseOverrides ??= {}; if (event.target.value) next.contextPolicy.phaseOverrides[phaseId] = event.target.value; else delete next.contextPolicy.phaseOverrides[phaseId]; })}><option value="">Use approval default</option><option value="new">New · clear and rebuild</option><option value="compact">Compact · summarize history</option><option value="keep">Keep · same conversation</option></select></label>
         </div>
-        <div className="choice-group"><span>Session controls</span><div><label className={draft.session?.promptOnNewSession ? 'checked' : ''}><input type="checkbox" checked={draft.session?.promptOnNewSession ?? false} onChange={(event) => change((next) => { next.session ??= {}; next.session.promptOnNewSession = event.target.checked; })} />Ask for a working lens in every new Copilot session</label><label className={draft.session?.promptOnResume ? 'checked' : ''}><input type="checkbox" checked={draft.session?.promptOnResume ?? false} onChange={(event) => change((next) => { next.session ??= {}; next.session.promptOnResume = event.target.checked; })} />Ask for a working lens again when Copilot resumes</label><label className={draft.session?.requireBeforeTools ? 'checked' : ''}><input type="checkbox" checked={draft.session?.requireBeforeTools ?? false} onChange={(event) => change((next) => { next.session ??= {}; next.session.requireBeforeTools = event.target.checked; })} />Block mutating tools until work item and lens are selected</label></div></div>
+        <div className="choice-group"><span>Session controls</span><div><label className={draft.session?.requireBeforeTools ? 'checked' : ''}><input type="checkbox" checked={draft.session?.requireBeforeTools ?? false} onChange={(event) => change((next) => { next.session ??= {}; next.session.requireBeforeTools = event.target.checked; })} />Block mutating tools until a work item is selected and synchronized</label></div></div>
       </section>
       <section className="gate-panel"><header><div><span className="eyebrow">Exception policy</span><h2>Sequence gates</h2></div><label><span>Global default</span><select value={draft.sequenceGates?.default ?? 'hard'} onChange={(event) => setGlobalGate('default', event.target.value)}><option value="hard">Hard · block</option><option value="soft">Soft · ask</option></select></label></header><p>Hard gates stop immediately. Soft gates require a human to type <code>continue</code> and record an audited override.</p><div className="gate-grid"><strong>Gate</strong><strong>Global</strong><strong>{profile.label}</strong>{sequenceGates.map(([id, label]) => <React.Fragment key={id}><label title={id}>{label}<small>{id}</small></label><select value={draft.sequenceGates?.[id] ?? ''} onChange={(event) => setGlobalGate(id, event.target.value)}><option value="">Use default</option><option value="hard">Hard</option><option value="soft">Soft</option></select><select value={profile.sequenceGates?.[id] ?? ''} onChange={(event) => setProfileGate(id, event.target.value)}><option value="">Use global</option><option value="hard">Hard</option><option value="soft">Soft</option></select></React.Fragment>)}</div></section>
       <div className="flow-canvas">{profile.phases.map((id, index) => <React.Fragment key={id}><button className={`phase-node ${id === phaseId ? 'selected' : ''}`} onClick={() => setPhaseId(id)}><span>{String(index + 1).padStart(2, '0')}</span><strong>{draft.phases[id].label}</strong><small>{draft.workTypes[workType].templateOverrides?.[id] ?? draft.phases[id].defaultTemplate}</small></button>{index < profile.phases.length - 1 && <div className="connector">↓</div>}</React.Fragment>)}</div>
       {phase && <section className="inspector"><div className="inspector-title"><div><span className="eyebrow">Selected stage</span><h2>{phase.label}</h2></div><div className="row"><button className="icon-button" disabled={phaseIndex === 0} onClick={() => movePhase(-1)}>↑</button><button className="icon-button" disabled={phaseIndex === profile.phases.length - 1} onClick={() => movePhase(1)}>↓</button><button className="ghost compact" disabled={profile.phases.length === 1} onClick={() => openModal('remove-stage', { deleteDefinition: false })}>Remove</button></div></div>
         <div className="control-grid expanded"><label><span>Stage name</span><input value={phase.label} onChange={(event) => change((next) => { next.phases[phaseId].label = event.target.value; })} /></label><label><span>Write scope</span><select value={phase.writeScope} onChange={(event) => change((next) => { next.phases[phaseId].writeScope = event.target.value; })}><option value="artifact-only">Artifact only</option><option value="source-and-artifact">Source and artifact</option></select></label><label className="full"><span>Artifact path</span><input value={phase.artifact.path} onChange={(event) => change((next) => { next.phases[phaseId].artifact.path = event.target.value; })} /></label><label><span>Artifact kind</span><input value={phase.artifact.kind ?? ''} onChange={(event) => change((next) => { next.phases[phaseId].artifact.kind = event.target.value; })} /></label><label><span>Minimum bytes</span><input type="number" min="1" value={phase.artifact.minimumBytes ?? 1} onChange={(event) => change((next) => { next.phases[phaseId].artifact.minimumBytes = Number(event.target.value); })} /></label><label><span>Approval threshold</span><input type="number" min="0" max="10" value={phase.approval?.minimum ?? 0} onChange={(event) => change((next) => { next.phases[phaseId].approval.minimum = Number(event.target.value); })} /></label><label><span>Artifact template</span><select value={profile.templateOverrides?.[phaseId] ?? phase.defaultTemplate} onChange={(event) => change((next) => { next.workTypes[workType].templateOverrides ??= {}; next.workTypes[workType].templateOverrides[phaseId] = event.target.value; })}>{templateNames.map((name) => <option value={name} key={name}>{name}</option>)}</select></label><label className="full"><span>World-model views</span><input value={phase.worldModel?.views?.join(', ') ?? ''} onChange={(event) => change((next) => { next.phases[phaseId].worldModel ??= {}; next.phases[phaseId].worldModel.views = event.target.value.split(',').map((item) => item.trim()).filter(Boolean); })} /></label><label className="full"><span>Quality commands (one per line)</span><textarea value={phase.qualityCommands?.join('\n') ?? ''} onChange={(event) => change((next) => { next.phases[phaseId].qualityCommands = event.target.value.split('\n').map((item) => item.trim()).filter(Boolean); })} /></label></div>
         <div className="choice-group"><span>Inputs from earlier stages</span><div>{profile.phases.slice(0, phaseIndex).map((id) => <label key={id} className={effectiveInputs.includes(id) ? 'checked' : ''}><input type="checkbox" checked={effectiveInputs.includes(id)} onChange={() => toggleInput(id)} />{draft.phases[id].label}</label>)}{phaseIndex === 0 && <small className="choice-empty">First stage has no earlier inputs.</small>}</div></div>
-        <div className="choice-group"><span>Suggested working lenses</span><div>{Object.entries(draft.personas).map(([id, persona]) => <label key={id} className={phase.suggestedPersonas?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={phase.suggestedPersonas?.includes(id)} onChange={() => toggleSuggestedPersona(id)} />{persona.label}</label>)}</div></div>
-        <div className="choice-group"><span>Approval authority groups</span><div>{Object.entries(draft.approvalAuthorities ?? {}).map(([id, authority]) => <label key={id} className={phase.approval?.authorities?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={phase.approval?.authorities?.includes(id)} onChange={() => toggleApprovalAuthority(id)} />{authority.label ?? id}</label>)}</div><small>Authority is matched to the reviewer’s Git email or authenticated GitHub login. A working lens never grants approval rights.</small></div>
+        <div className="choice-group"><span>Automatic governed agent</span><div>{data.definition.agentCatalog?.filter((agent) => agent.defaultFor?.includes(phaseId)).map((agent) => <Pill tone="accent" key={agent.id}>{agent.label ?? agent.id}</Pill>)}</div><small>The stage default, supported stages, prompt, and world-model views are declared together in <code>.github/agents/*.agent.md</code>.</small></div>
+        <div className="choice-group"><span>Approval authority groups</span><div>{Object.entries(draft.approvalAuthorities ?? {}).map(([id, authority]) => <label key={id} className={phase.approval?.authorities?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={phase.approval?.authorities?.includes(id)} onChange={() => toggleApprovalAuthority(id)} />{authority.label ?? id}</label>)}</div><small>Authority is matched to the reviewer’s Git email or authenticated GitHub login. A governed agent never grants approval rights.</small></div>
         <div className="choice-group"><span>Allowed rejection targets</span><div>{profile.phases.slice(0, phaseIndex + 1).map((id) => <label key={id} className={phase.approval?.rejectTo?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={phase.approval?.rejectTo?.includes(id)} onChange={() => toggleRejectTarget(id)} />{draft.phases[id].label}</label>)}</div></div>
       </section>}
     </div>
@@ -5583,31 +5547,8 @@ function Workflow({ data, editor, setEditor, saveEditor, downloadFile, importWor
     {modal?.kind === 'new-workflow' && <DesignerModal title="Create workflow" detail={`Create a new profile by copying ${profile.label}, then adjust its stages.`} submitLabel="Create workflow" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><label><span>Workflow ID</span><input autoFocus value={modal.values.id} placeholder="security-review" onChange={(event) => field('id', event.target.value)} /></label><label><span>Display name</span><input value={modal.values.label} placeholder="Security review" onChange={(event) => field('label', event.target.value)} /></label></DesignerModal>}
     {modal?.kind === 'delete-workflow' && <DesignerModal title={`Delete ${profile.label}?`} detail="The workflow profile will be removed from the YAML draft. Shared stage definitions and templates remain available." submitLabel="Delete workflow" danger error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal} />}
     {modal?.kind === 'add-stage' && <DesignerModal title="Add an existing stage" detail="The stage is appended and receives the current last stage as its initial input." submitLabel="Add stage" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><label><span>Available stage</span><select value={modal.values.phaseId} onChange={(event) => field('phaseId', event.target.value)}>{inactivePhases.map((id) => <option key={id} value={id}>{draft.phases[id].label} · {id}</option>)}</select></label></DesignerModal>}
-    {modal?.kind === 'new-stage' && <DesignerModal title="Create a stage and artifact contract" detail="The stage is added to this workflow. Its ID, artifact location, approval authority, and template become governed YAML." submitLabel="Create stage" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><div className="modal-grid"><label><span>Stage ID</span><input autoFocus value={modal.values.id} placeholder="security-review" onChange={(event) => field('id', event.target.value)} /></label><label><span>Stage name</span><input value={modal.values.label} placeholder="Security review" onChange={(event) => field('label', event.target.value)} /></label><label><span>Artifact filename</span><input value={modal.values.artifactFile} placeholder="security-review.md" onChange={(event) => field('artifactFile', event.target.value)} /></label><label><span>Artifact kind</span><input value={modal.values.kind} placeholder="security-review" onChange={(event) => field('kind', event.target.value)} /></label><label><span>Template</span><select value={modal.values.template} onChange={(event) => field('template', event.target.value)}>{templateNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><label><span>Suggested working lens</span><select value={modal.values.persona} onChange={(event) => field('persona', event.target.value)}>{Object.entries(draft.personas).map(([id, persona]) => <option key={id} value={id}>{persona.label}</option>)}</select></label><label><span>Approval authority</span><select value={modal.values.authority} onChange={(event) => field('authority', event.target.value)}>{Object.entries(draft.approvalAuthorities ?? {}).map(([id, authority]) => <option key={id} value={id}>{authority.label ?? id}</option>)}</select></label><label><span>Write scope</span><select value={modal.values.writeScope} onChange={(event) => field('writeScope', event.target.value)}><option value="artifact-only">Artifact only</option><option value="source-and-artifact">Source and artifact</option></select></label><label><span>Minimum bytes</span><input type="number" min="1" value={modal.values.minimumBytes} onChange={(event) => field('minimumBytes', event.target.value)} /></label></div></DesignerModal>}
+    {modal?.kind === 'new-stage' && <DesignerModal title="Create a stage and artifact contract" detail="The stage is added to workflow.yml. Add this stage to exactly one Agent Markdown sflow-default-for entry before saving so it has an automatic governed agent." submitLabel="Create stage" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><div className="modal-grid"><label><span>Stage ID</span><input autoFocus value={modal.values.id} placeholder="security-review" onChange={(event) => field('id', event.target.value)} /></label><label><span>Stage name</span><input value={modal.values.label} placeholder="Security review" onChange={(event) => field('label', event.target.value)} /></label><label><span>Artifact filename</span><input value={modal.values.artifactFile} placeholder="security-review.md" onChange={(event) => field('artifactFile', event.target.value)} /></label><label><span>Artifact kind</span><input value={modal.values.kind} placeholder="security-review" onChange={(event) => field('kind', event.target.value)} /></label><label><span>Template</span><select value={modal.values.template} onChange={(event) => field('template', event.target.value)}>{templateNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><label><span>Approval authority</span><select value={modal.values.authority} onChange={(event) => field('authority', event.target.value)}>{Object.entries(draft.approvalAuthorities ?? {}).map(([id, authority]) => <option key={id} value={id}>{authority.label ?? id}</option>)}</select></label><label><span>Write scope</span><select value={modal.values.writeScope} onChange={(event) => field('writeScope', event.target.value)}><option value="artifact-only">Artifact only</option><option value="source-and-artifact">Source and artifact</option></select></label><label><span>Minimum bytes</span><input type="number" min="1" value={modal.values.minimumBytes} onChange={(event) => field('minimumBytes', event.target.value)} /></label></div></DesignerModal>}
     {modal?.kind === 'remove-stage' && <DesignerModal title={`Remove ${phase.label}?`} detail={`This removes the stage from ${profile.label} and cleans its profile-specific inputs.`} submitLabel="Remove stage" danger error={modal.error} onCancel={() => setModal(null)} onSubmit={submitModal}><label className="check-row"><input type="checkbox" checked={modal.values.deleteDefinition} onChange={(event) => field('deleteDefinition', event.target.checked)} /><span>Also delete the global stage definition if no other workflow uses it. Templates are never deleted automatically.</span></label></DesignerModal>}
-  </div>;
-}
-
-function Personas({ data, openPrompt, savePersona, createPersonaConfig, deletePersonaConfig, downloadFile }) {
-  const [selected, setSelected] = useState(Object.keys(data.definition.personas)[0]);
-  const [draft, setDraft] = useState(structuredClone(data.definition.personas[selected]));
-  const [modal, setModal] = useState(null);
-  useEffect(() => { if (!data.definition.personas[selected]) setSelected(Object.keys(data.definition.personas)[0]); }, [data, selected]);
-  useEffect(() => { setDraft(structuredClone(data.definition.personas[selected] ?? Object.values(data.definition.personas)[0])); }, [data, selected]);
-  const personaId = data.definition.personas[selected] ? selected : Object.keys(data.definition.personas)[0];
-  const persona = data.definition.personas[personaId];
-  const prompt = data.personaPrompts.find((item) => item.name === persona?.prompt);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(persona);
-  function field(name, value) { setDraft((current) => ({ ...current, [name]: value })); }
-  function toggle(name, value) { const values = draft[name] ?? []; field(name, values.includes(value) ? values.filter((item) => item !== value) : [...values, value]); }
-  async function submitNew() { const result = await createPersonaConfig(modal.values); if (result) { setSelected(modal.values.id.trim()); setModal(null); } }
-  async function submitDelete() { const result = await deletePersonaConfig(personaId, modal.replacement); if (result) { setSelected(modal.replacement); setModal(null); } }
-  return <div className="page"><header className="page-heading row-between"><div><span className="eyebrow">Prompt perspective and human authority</span><h1>Working lenses & approval authority</h1><p>Working lenses shape Copilot prompts. Real people approve through Git identity and configured authority groups.</p></div><div className="row"><button className="secondary" disabled={Object.keys(data.definition.personas).length === 1} onClick={() => setModal({ kind: 'delete', replacement: Object.keys(data.definition.personas).find((id) => id !== selected) })}>Delete lens</button><button className="primary" onClick={() => setModal({ kind: 'new', error: null, values: { id: '', label: '', description: '', prompt: '' } })}>＋ Working lens</button></div></header>
-    <div className="persona-grid">{Object.entries(data.definition.personas).map(([id, item]) => <button key={id} className={`persona-card ${personaId === id ? 'selected' : ''}`} onClick={() => setSelected(id)}><span className="avatar">{item.label.slice(0, 2).toUpperCase()}</span><strong>{item.label}</strong><small>{item.description}</small><div className="tags">{item.worldModelViews?.map((view) => <Pill key={view}>{view}</Pill>)}</div></button>)}</div>
-    <div className="two-column"><section className="panel persona-detail"><header className="panel-heading"><div><span className="eyebrow">Working-lens contract</span><h2>{persona.label}</h2></div><div className="row">{prompt && <button className="ghost compact" onClick={() => downloadFile(prompt.path)}>Download prompt</button>}{prompt && <button className="secondary compact" onClick={() => openPrompt(prompt)}>Edit prompt</button>}<button className="primary compact" disabled={!dirty} onClick={() => savePersona(personaId, draft)}>Save lens</button></div></header><div className="notice accent">This choice changes prompt perspective and world-model views only. It cannot grant approval permission or impersonate a real person.</div><div className="persona-form"><label><span>Display name</span><input value={draft.label} onChange={(event) => field('label', event.target.value)} /></label><label><span>Description</span><textarea value={draft.description ?? ''} onChange={(event) => field('description', event.target.value)} /></label><label><span>Prompt file</span><select value={draft.prompt} onChange={(event) => field('prompt', event.target.value)}>{data.personaPrompts.map((file) => <option key={file.name} value={file.name}>{file.name}</option>)}</select></label><label><span>Repository world-model views</span><input value={draft.worldModelViews?.join(', ') ?? ''} onChange={(event) => field('worldModelViews', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="architecture, security" /></label></div><div className="choice-group persona-choices"><span>Suggested stages</span><div>{Object.entries(data.definition.phases).map(([id, phase]) => <label key={id} className={draft.suggestedPhases?.includes(id) ? 'checked' : ''}><input type="checkbox" checked={draft.suggestedPhases?.includes(id)} onChange={() => toggle('suggestedPhases', id)} />{phase.label}</label>)}</div></div></section>
-      <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Human governance</span><h2>Approval authority groups</h2><p>Members are matched by normalized Git email or authenticated GitHub login. Configure group membership and stage routing in the Workflow designer.</p></div></header><div className="rule-list">{Object.entries(data.definition.approvalAuthorities ?? {}).map(([id, authority]) => <div key={id}><StatusDot status="approved" /><span><strong>{authority.label ?? id}</strong><small>{authority.allowAnyGitIdentity ? 'Any identified Git contributor' : `${authority.members?.length ?? 0} configured people`} · used by {Object.values(data.definition.phases).filter((phase) => phase.approval?.authorities?.includes(id)).length} stages</small><code>{id}</code></span></div>)}</div></section></div>
-    {modal?.kind === 'new' && <DesignerModal title="Create working lens and prompt" detail="A configurable Markdown prompt is created in the repository and linked from workflow.yml. It does not grant authority." submitLabel="Create lens" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitNew}><div className="modal-grid"><label><span>Working-lens ID</span><input autoFocus value={modal.values.id} placeholder="security-reviewer" onChange={(event) => setModal({ ...modal, values: { ...modal.values, id: event.target.value, prompt: modal.values.prompt || `${event.target.value}.md` } })} /></label><label><span>Display name</span><input value={modal.values.label} placeholder="Security reviewer" onChange={(event) => setModal({ ...modal, values: { ...modal.values, label: event.target.value } })} /></label><label className="full"><span>Description</span><input value={modal.values.description} placeholder="Review threats, controls, and evidence." onChange={(event) => setModal({ ...modal, values: { ...modal.values, description: event.target.value } })} /></label><label className="full"><span>Prompt filename</span><input value={modal.values.prompt} placeholder="security-reviewer.md" onChange={(event) => setModal({ ...modal, values: { ...modal.values, prompt: event.target.value } })} /></label></div></DesignerModal>}
-    {modal?.kind === 'delete' && <DesignerModal title={`Delete ${persona.label}?`} detail="Every stage suggestion will move to the replacement working lens. Approval authority is unaffected." submitLabel="Delete lens" danger onCancel={() => setModal(null)} onSubmit={submitDelete}><label><span>Replacement working lens</span><select value={modal.replacement} onChange={(event) => setModal({ ...modal, replacement: event.target.value })}>{Object.entries(data.definition.personas).filter(([id]) => id !== selected).map(([id, item]) => <option key={id} value={id}>{item.label}</option>)}</select></label></DesignerModal>}
   </div>;
 }
 
@@ -5615,7 +5556,7 @@ function SessionChoices({ data, openPortfolio, openWorkflow, openPersonas }) {
   const profiles = Object.entries(data.portfolio?.initiativeProfiles ?? {
     'epic-planning': { label: 'Epic planning', description: 'Intake, requirements, planning, and Story creation.', phases: [] }
   });
-  const personas = Object.entries(data.definition?.personas ?? {});
+  const agents = Object.entries(data.definition?.agents ?? {});
   const session = data.definition?.session ?? {};
   const contextPolicy = data.definition?.contextPolicy ?? {};
   const policyLabel = (value) => ({
@@ -5624,19 +5565,19 @@ function SessionChoices({ data, openPortfolio, openWorkflow, openPersonas }) {
     prompt: 'Ask the contributor'
   })[value] ?? 'Not configured';
   return <div className="page session-choices-page">
-    <header className="page-heading row-between"><div><span className="eyebrow">Epic start and prompt perspective</span><h1>Session choices</h1><p>These are the workflow and working-lens options shown when a person starts an Epic or resumes governed work.</p></div><Pill tone="accent">{profiles.length} workflows · {personas.length} lenses</Pill></header>
+    <header className="page-heading row-between"><div><span className="eyebrow">Epic workflow and phase agents</span><h1>Session choices</h1><p>The contributor chooses durable work. Every active phase supplies its configured agent automatically.</p></div><Pill tone="accent">{profiles.length} workflows · {agents.length} agents</Pill></header>
     <section className="session-choice-explainer">
       <div><b>1</b><span><strong>Choose a workflow</strong><small>Pinned to the Epic and immutable after work starts.</small></span></div>
       <i>→</i>
-      <div><b>2</b><span><strong>Choose a working lens</strong><small>Changes Copilot’s prompt perspective for this session only.</small></span></div>
+      <div><b>2</b><span><strong>Activate the phase agent</strong><small>Flow loads the one default Agent Markdown contract for that phase.</small></span></div>
       <i>→</i>
-      <div><b>3</b><span><strong>Start governed work</strong><small>The human’s Git identity and selected lens are recorded separately.</small></span></div>
+      <div><b>3</b><span><strong>Start governed work</strong><small>The human identity, automatic agent, and approval authority remain separate.</small></span></div>
     </section>
     <div className="session-choice-columns">
       <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Stored in singularity/portfolio.yml</span><h2>Epic workflow choices</h2><p>The selected profile controls the phase sequence, expected outputs, gates, and approvals.</p></div><button className="secondary compact" onClick={openPortfolio}>Configure workflows</button></header><div className="session-choice-list">{profiles.map(([id, profile]) => <article key={id}><span className="session-choice-mark">W</span><div><strong>{profile.label ?? id}</strong><small>{profile.description ?? `${profile.phases?.length ?? 0} governed phases`}</small><code>{id}</code></div><Pill tone="neutral">{profile.phases?.length ?? 0} phases</Pill></article>)}</div></section>
-      <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Stored in singularity/workflow.yml</span><h2>Working lenses</h2><p>Lenses change prompt perspective and repository views. They never grant approval authority or replace a real identity.</p></div><button className="secondary compact" onClick={openPersonas}>Configure lenses</button></header><div className="session-choice-list">{personas.map(([id, persona]) => <article key={id}><span className="session-choice-mark persona">{(persona.label ?? id).slice(0, 2).toUpperCase()}</span><div><strong>{persona.label ?? id}</strong><small>{persona.description ?? 'No description configured.'}</small><code>{id}</code></div><Pill tone="neutral">{persona.worldModelViews?.length ?? 0} views</Pill></article>)}</div></section>
+      <section className="panel"><header className="panel-heading"><div><span className="eyebrow">Stored in .github/agents</span><h2>Governed agents</h2><p>Each Agent Markdown file combines phase scope, default ownership, instructions, skills, and world-model views. Agents never grant approval authority.</p></div><button className="secondary compact" onClick={openPersonas}>Configure agents</button></header><div className="session-choice-list">{agents.map(([id, agent]) => <article key={id}><span className="session-choice-mark agent">{(agent.label ?? id).slice(0, 2).toUpperCase()}</span><div><strong>{agent.label ?? id}</strong><small>{agent.description ?? 'No description configured.'}</small><code>{id}</code></div><Pill tone="neutral">{agent.worldModelViews?.length ?? 0} views</Pill></article>)}</div></section>
     </div>
-    <section className="panel session-policy-panel"><header className="panel-heading"><div><span className="eyebrow">Copilot session behavior</span><h2>When should Flow ask or reset?</h2><p>Selections stay local to a session; phase boundaries rebuild the next prompt from approved Git context.</p></div><button className="secondary compact" onClick={openWorkflow}>Edit session policy</button></header><div className="session-policy-grid"><div><span>Work item</span><strong>{policyLabel(session.workItemSelection)}</strong></div><div><span>Working lens</span><strong>{policyLabel(session.personaSelection)}</strong></div><div><span>New session</span><strong>{session.promptOnNewSession ? 'Ask again' : 'Keep selection'}</strong></div><div><span>Resume</span><strong>{session.promptOnResume ? 'Ask again' : 'Keep selection'}</strong></div><div><span>After approval</span><strong>{contextPolicy.onApproval ?? contextPolicy.phaseBoundary ?? 'keep'}</strong></div><div><span>After rejection</span><strong>{contextPolicy.onRejection ?? 'keep'}</strong></div><div><span>Before tools</span><strong>{session.requireBeforeTools ? 'Selection required' : 'No blocking prompt'}</strong></div></div></section>
+    <section className="panel session-policy-panel"><header className="panel-heading"><div><span className="eyebrow">Copilot session behavior</span><h2>When should Flow reset context?</h2><p>Work selection stays local. Phase boundaries rebuild the next prompt from the configured agent, approved Git context, and world model.</p></div><button className="secondary compact" onClick={openWorkflow}>Edit session policy</button></header><div className="session-policy-grid"><div><span>Work item</span><strong>{policyLabel(session.workItemSelection)}</strong></div><div><span>Phase agent</span><strong>Automatic</strong></div><div><span>After approval</span><strong>{contextPolicy.onApproval ?? contextPolicy.phaseBoundary ?? 'keep'}</strong></div><div><span>After rejection</span><strong>{contextPolicy.onRejection ?? 'keep'}</strong></div><div><span>Before tools</span><strong>{session.requireBeforeTools ? 'Work item required' : 'No blocking prompt'}</strong></div></div></section>
   </div>;
 }
 
@@ -5700,7 +5641,7 @@ const lifecycleSteps = [
     number: '02',
     eyebrow: 'Lead Git repository',
     title: 'Pin the evidence',
-    detail: 'Source hashes, workflow profile, working lens, and templates are committed to the Epic branch. Repository grounding begins later on each Story branch.'
+    detail: 'Source hashes, workflow profile, governed agent, and templates are committed to the Epic branch. Repository grounding begins later on each Story branch.'
   },
   {
     id: 'copilot-planning',
@@ -5718,7 +5659,7 @@ const lifecycleSteps = [
     number: '04',
     eyebrow: 'Business review',
     title: 'Approve exact versions',
-    detail: 'People review the generated documents in Flow. Decisions bind to content hashes and are committed and pushed with real identity, authority group, and working lens.'
+    detail: 'People review the generated documents in Flow. Decisions bind to content hashes and are committed and pushed with real identity, authority group, and governed agent.'
   },
   {
     id: 'story-materialization',
@@ -5808,7 +5749,7 @@ function HowItWorks({ onDocumentation }) {
       <header><span className="eyebrow">Choose the right guide</span><h2 id="guide-difference-title">How it works is the map. Documentation is the manual.</h2></header>
       <div>
         <article className="active"><span className="guide-number">01</span><h3>How it works</h3><p>Use this pictorial overview to understand the lifecycle, system boundaries, state transfer, approvals, and reconciliation.</p><strong>You are here</strong></article>
-        <article><span className="guide-number">02</span><h3>Documentation</h3><p>Use the searchable manual for exact CLI commands, workflow YAML, templates, working lenses, prompt packs, Jira setup, and troubleshooting.</p><button className="secondary" onClick={onDocumentation}>Open documentation</button></article>
+        <article><span className="guide-number">02</span><h3>Documentation</h3><p>Use the searchable manual for exact CLI commands, workflow YAML, templates, governed agents, agents, Jira setup, and troubleshooting.</p><button className="secondary" onClick={onDocumentation}>Open documentation</button></article>
       </div>
     </section>
   </main>;
@@ -5937,7 +5878,7 @@ function Resources({ data, editor, setEditor, chooseResource, saveEditor, create
   const [query, setQuery] = useState('');
   const [modal, setModal] = useState(null);
   const promptFiles = [
-    ...data.personaPrompts,
+    ...data.agentPrompts,
     { ...data.worldModelPrompt, name: `world-model/${data.worldModelPrompt.name}`, worldModelBuilder: true },
     { ...data.planning.prompt, name: `planning/${data.planning.prompt.name}`, planningPrompt: true }
   ];
@@ -5972,7 +5913,7 @@ function Resources({ data, editor, setEditor, chooseResource, saveEditor, create
         const overridesFlow = category === 'repository' && flowSkills.some((item) => item.repositoryPath === file.path);
         return <button key={file.path} className={current?.path === file.path ? 'active skill-library-item' : 'skill-library-item'} onClick={() => chooseResource(file, isFlowSkill ? 'flow-skill' : isRepositorySkill ? 'skill' : 'prompt')}>
           <span>{category === 'prompts' ? 'PR' : 'SK'}</span>
-          <div><strong>{file.id ?? (file.name.endsWith('/SKILL.md') ? file.name.split('/')[0] : file.name.split('/').at(-1))}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.planningPrompt ? 'Copilot planning contract' : customized ? 'repository customization active' : overridesFlow ? 'overrides bundled Flow skill' : isFlowSkill ? file.command : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : isRepositorySkill ? 'repository skill' : 'working-lens prompt'}</small></div>
+          <div><strong>{file.id ?? (file.name.endsWith('/SKILL.md') ? file.name.split('/')[0] : file.name.split('/').at(-1))}</strong><small>{file.worldModelBuilder ? 'world-model builder' : file.planningPrompt ? 'Copilot planning contract' : customized ? 'repository customization active' : overridesFlow ? 'overrides bundled Flow skill' : isFlowSkill ? file.command : file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : isRepositorySkill ? 'repository skill' : 'governed-agent prompt'}</small></div>
           {(customized || overridesFlow) && <em>Customized</em>}
         </button>;
       })}
@@ -5981,7 +5922,7 @@ function Resources({ data, editor, setEditor, chooseResource, saveEditor, create
     <main className="template-main skill-library-main">{current ? <>
       <div className="resource-summary skill-resource-summary">
         <div>
-          <div className="row"><Pill tone={isFlowSkill ? 'accent' : isRepositorySkill ? 'good' : 'neutral'}>{isFlowSkill ? 'Bundled Flow skill' : flowOrigin ? 'Repository override' : isRepositorySkill ? 'Repository skill' : current.worldModelBuilder ? 'Builder prompt' : current.planningPrompt ? 'Planning contract' : 'Working-lens prompt'}</Pill>{isFlowSkill && <code>{current.command}</code>}</div>
+          <div className="row"><Pill tone={isFlowSkill ? 'accent' : isRepositorySkill ? 'good' : 'neutral'}>{isFlowSkill ? 'Bundled Flow skill' : flowOrigin ? 'Repository override' : isRepositorySkill ? 'Repository skill' : current.worldModelBuilder ? 'Builder prompt' : current.planningPrompt ? 'Planning contract' : 'governed-agent prompt'}</Pill>{isFlowSkill && <code>{current.command}</code>}</div>
           <strong>{isFlowSkill ? current.id : flowOrigin?.id ?? current.name.split('/').at(-1)}</strong>
           <span>{isFlowSkill ? current.description : flowOrigin ? `This project copy takes precedence over the bundled ${flowOrigin.command} skill.` : current.worldModelBuilder ? 'Controls repository world-model generation.' : current.planningPrompt ? 'Controls phase-aware Copilot Plan-mode behavior and promotion output.' : isRepositorySkill ? 'Discovered by Copilot from .github/skills.' : 'Combined with phase and world-model context.'}</span>
           {isFlowSkill && current.argumentHint && <small>Usage: <code>{current.command} {current.argumentHint}</code></small>}
@@ -6052,13 +5993,13 @@ function WorldModel({ data, editor, setEditor, saveEditor, downloadFile, importR
   <div className="view-picker-options">{data.worldModel.views.map((view) => {
     const built = builtViews.includes(view.id);
     const needed = (view.structuredReferences ?? []).length > 0;
-    return <label key={view.id} className={`view-pick ${built ? 'built' : ''}`} title={needed ? `Referenced by ${(view.structuredReferences ?? []).join(', ')}` : 'Not referenced by any phase or persona'}>
+    return <label key={view.id} className={`view-pick ${built ? 'built' : ''}`} title={needed ? `Referenced by ${(view.structuredReferences ?? []).join(', ')}` : 'Not referenced by any phase or agent'}>
       <input type="checkbox" checked={buildViews.includes(view.id)} onChange={(event) => setBuildViews((current) => event.target.checked ? [...current, view.id] : current.filter((id) => id !== view.id))} />
       <span><b>{view.id}</b><small>{built ? 'built' : needed ? 'needed · not built' : 'not built'}</small></span>
     </label>;
   })}</div>
-</div></div><section className="view-registry"><header><div><span className="eyebrow">Dependency-safe catalog</span><h2>World-model views</h2></div><Pill tone="accent">Validated on every save</Pill></header><div className="view-table"><div className="view-table-head"><span>View</span><span>Structured use</span><span>Markdown prompt use</span><span>Action</span></div>{data.worldModel.views.map((view) => <div className="view-row" key={view.id}><div><span className="view-glyph">{view.id.slice(0, 2).toUpperCase()}</span><strong>{view.id}</strong></div><div className="dependency-list">{view.structuredReferences.length ? view.structuredReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><div className="dependency-list">{view.promptReferences.length ? view.promptReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><button className="ghost compact danger-text" disabled={view.references.length > 0} title={view.references.length ? `Used by ${view.references.join(', ')}` : 'Remove unused view'} onClick={() => removeView(view)}>Remove</button></div>)}</div><div className="dependency-note"><strong>Safe deletion policy</strong><span>Update stage, working lens, workflow, injection-rule, and Markdown references first. Invalid YAML or prompt edits are rejected and rolled back atomically.</span></div></section></> : selected === 'prompt' ? <><div className="resource-summary"><div><Pill tone="accent">Editable builder prompt</Pill><span>This prompt controls how repository evidence becomes the governed views above.</span></div><div className="row"><button className="ghost compact" onClick={() => importResource('world-prompt')}>Import</button>{!prompt.missing && <button className="secondary compact" onClick={() => downloadFile(prompt.path)}>Download</button>}{prompt.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === prompt.path ? editor.content : prompt.content)}>Create repository copy</button>}</div></div><SourceEditor path={prompt.path} value={editor.path === prompt.path ? editor.content : prompt.content} dirty={editor.path === prompt.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: prompt.path, content, original: prompt.content, kind: 'prompt' })} onSave={prompt.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={prompt.missing ? null : () => downloadFile(prompt.path)} onImport={() => importResource('world-prompt')} /></> : current ? <><div className="resource-summary"><div><Pill>Generated view</Pill><span>Read-only repository snapshot; regenerate it through the world-model lifecycle.</span></div><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button></div><SourceEditor path={current.path} value={current.content} readOnly onChange={() => {}} onDownload={() => downloadFile(current.path)} /></> : <Empty title="World model output not found" detail="Run singularity-flow wm build to generate repository-grounded Markdown and evidence." />}</main>
-    {modal && <DesignerModal title="Add world-model view" detail="Use a stable lower-case kebab-case ID. Once referenced by a stage, working lens, rule, or prompt, the view is protected from deletion." submitLabel="Add view" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitView}><label><span>View ID</span><input autoFocus value={modal.id} placeholder="data-governance" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
+</div></div><section className="view-registry"><header><div><span className="eyebrow">Dependency-safe catalog</span><h2>World-model views</h2></div><Pill tone="accent">Validated on every save</Pill></header><div className="view-table"><div className="view-table-head"><span>View</span><span>Structured use</span><span>Markdown prompt use</span><span>Action</span></div>{data.worldModel.views.map((view) => <div className="view-row" key={view.id}><div><span className="view-glyph">{view.id.slice(0, 2).toUpperCase()}</span><strong>{view.id}</strong></div><div className="dependency-list">{view.structuredReferences.length ? view.structuredReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><div className="dependency-list">{view.promptReferences.length ? view.promptReferences.map((item) => <code key={item}>{item}</code>) : <span>Not referenced</span>}</div><button className="ghost compact danger-text" disabled={view.references.length > 0} title={view.references.length ? `Used by ${view.references.join(', ')}` : 'Remove unused view'} onClick={() => removeView(view)}>Remove</button></div>)}</div><div className="dependency-note"><strong>Safe deletion policy</strong><span>Update stage, governed agent, workflow, injection-rule, and Markdown references first. Invalid YAML or prompt edits are rejected and rolled back atomically.</span></div></section></> : selected === 'prompt' ? <><div className="resource-summary"><div><Pill tone="accent">Editable builder prompt</Pill><span>This prompt controls how repository evidence becomes the governed views above.</span></div><div className="row"><button className="ghost compact" onClick={() => importResource('world-prompt')}>Import</button>{!prompt.missing && <button className="secondary compact" onClick={() => downloadFile(prompt.path)}>Download</button>}{prompt.missing && <button className="primary compact" onClick={() => materializeWorldModelPrompt(editor.path === prompt.path ? editor.content : prompt.content)}>Create repository copy</button>}</div></div><SourceEditor path={prompt.path} value={editor.path === prompt.path ? editor.content : prompt.content} dirty={editor.path === prompt.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: prompt.path, content, original: prompt.content, kind: 'prompt' })} onSave={prompt.missing ? () => materializeWorldModelPrompt(editor.content) : saveEditor} onDownload={prompt.missing ? null : () => downloadFile(prompt.path)} onImport={() => importResource('world-prompt')} /></> : current ? <><div className="resource-summary"><div><Pill>Generated view</Pill><span>Read-only repository snapshot; regenerate it through the world-model lifecycle.</span></div><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button></div><SourceEditor path={current.path} value={current.content} readOnly onChange={() => {}} onDownload={() => downloadFile(current.path)} /></> : <Empty title="World model output not found" detail="Run singularity-flow wm build to generate repository-grounded Markdown and evidence." />}</main>
+    {modal && <DesignerModal title="Add world-model view" detail="Use a stable lower-case kebab-case ID. Once referenced by a stage, governed agent, rule, or prompt, the view is protected from deletion." submitLabel="Add view" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitView}><label><span>View ID</span><input autoFocus value={modal.id} placeholder="data-governance" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
 
@@ -6074,9 +6015,9 @@ function Agents({ data, editor, setEditor, chooseAgent, saveEditor, createAgent,
     setEditor({ path: mappings.path, content: mappings.content, original: mappings.content, kind: 'agent-mappings' });
   }
   async function submitAgent() { const result = await createAgent(modal.id.trim()); if (result) setModal(null); }
-  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Prompt dependency registry</span><h2>Prompt packs</h2></div><div className="row"><button className="icon-button" title="Import prompt pack" onClick={importAgent}>⇧</button><button className="icon-button" title="Create prompt pack" onClick={() => setModal({ id: '', error: null })}>＋</button></div></div><p className="muted">These Markdown packs add skills, templates, or generated artifacts to Copilot context. They are not people and cannot approve.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!specialView && current?.path === agent.path ? 'active' : ''} onClick={() => { setSpecialView(null); chooseAgent(agent); }}><span>PK</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<div className="file-list-divider"><span>Agent integration</span></div><button className={specialView === 'mappings' ? 'active' : ''} onClick={chooseMappings}><span>MP</span><div><strong>agent-mappings.yml</strong><small>{explicitMappings} explicit · same-name fallback</small></div></button><button className={specialView === 'lock' ? 'active' : ''} onClick={() => setSpecialView('lock')}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only trust state · refresh with CLI</small></div></button></aside>
-    <main className="template-main">{specialView === 'lock' ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned prompt-pack trust state</span><h1>{data.agentsLock.path}</h1></div><div className="row"><button className="secondary compact" disabled={!data.agentsLock.exists} onClick={() => downloadFile(data.agentsLock.path)}>Download</button><Pill>Read only</Pill></div></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : specialView === 'mappings' ? <><header className="template-toolbar"><div><span className="eyebrow">Copilot agent routing</span><h1>{mappings.path}</h1></div><div className="row"><button className="secondary compact" disabled={!mappings.exists} onClick={() => downloadFile(mappings.path)}>Download</button><Pill tone={editor.path === mappings.path && editor.content !== editor.original ? 'warn' : 'good'}>{editor.path === mappings.path && editor.content !== editor.original ? 'Unsaved' : 'Validated'}</Pill></div></header><section className="agent-mapping-summary"><div><strong>Map custom agents to Flow prompt packs</strong><p>An explicit YAML entry wins. If it is omitted, Singularity Flow tries the same agent and prompt-pack ID. This never changes the working lens, human identity, or approval authority.</p></div><code>singularity-flow prompt-packs mappings</code></section><div className="agent-mapping-table"><div><span>Copilot agent</span><span>Flow prompt pack</span><span>Resolution</span></div>{mappings.rows.map((row) => <div key={`${row.copilotAgent}:${row.promptPack}`}><code>{row.copilotAgent}</code><code>{row.promptPack}</code><Pill tone={row.source === 'configured' ? 'accent' : 'neutral'}>{row.source}</Pill></div>)}</div><SourceEditor path={mappings.path} value={editor.path === mappings.path ? editor.content : mappings.content} dirty={editor.path === mappings.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: mappings.path, content, original: mappings.content, kind: 'agent-mappings' })} onSave={saveEditor} onDownload={mappings.exists ? () => downloadFile(mappings.path) : null} /></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository prompt-pack Markdown' : 'bundled plugin prompt pack'}</small></span><span className="row"><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>{current.editable && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}<code>singularity-flow prompt-packs {status?.locked ? 'sync' : 'lock'} {current.id}</code></span></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} onDownload={() => downloadFile(current.path)} onImport={current.editable ? importAgent : null} readOnly={!current.editable} /></> : <Empty title="No prompt packs found" detail="Create or import prompt-pack Markdown under .github/agents." action={<button className="primary" onClick={() => setModal({ id: '', error: null })}>Create first prompt pack</button>} />}</main>
-    {modal && <DesignerModal title="Create repository prompt pack" detail="Create editable Markdown with remote-skill, remote-template, and generated-output dependency tables." submitLabel="Create prompt pack" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitAgent}><label><span>Prompt-pack ID</span><input autoFocus value={modal.id} placeholder="architecture" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
+  return <div className="template-layout"><aside className="file-list"><header><div className="row-between"><div><span className="eyebrow">Governed execution contracts</span><h2>Agents</h2></div><div className="row"><button className="icon-button" title="Import agent" onClick={importAgent}>⇧</button><button className="icon-button" title="Create agent" onClick={() => setModal({ id: '', error: null })}>＋</button></div></div><p className="muted">Agent Markdown combines phase scope, automatic defaults, instructions, world-model views, and optional remote dependencies. Agents are not people and cannot approve.</p></header>{data.agents.map((agent) => <button key={`${agent.scope}:${agent.path}`} className={!specialView && current?.path === agent.path ? 'active' : ''} onClick={() => { setSpecialView(null); chooseAgent(agent); }}><span>AG</span><div><strong>{agent.id}</strong><small>{agent.scope} · {agent.remoteResources} remote</small></div></button>)}<div className="file-list-divider"><span>Agent integration</span></div><button className={specialView === 'mappings' ? 'active' : ''} onClick={chooseMappings}><span>MP</span><div><strong>agent-mappings.yml</strong><small>{explicitMappings} explicit · same-name fallback</small></div></button><button className={specialView === 'lock' ? 'active' : ''} onClick={() => setSpecialView('lock')}><span>RO</span><div><strong>agents.lock.yml</strong><small>read-only trust state · refresh with CLI</small></div></button></aside>
+    <main className="template-main">{specialView === 'lock' ? <><header className="template-toolbar"><div><span className="eyebrow">Pinned agent trust state</span><h1>{data.agentsLock.path}</h1></div><div className="row"><button className="secondary compact" disabled={!data.agentsLock.exists} onClick={() => downloadFile(data.agentsLock.path)}>Download</button><Pill>Read only</Pill></div></header><pre className="lock-preview">{data.agentsLock.content}</pre></> : specialView === 'mappings' ? <><header className="template-toolbar"><div><span className="eyebrow">Copilot agent routing</span><h1>{mappings.path}</h1></div><div className="row"><button className="secondary compact" disabled={!mappings.exists} onClick={() => downloadFile(mappings.path)}>Download</button><Pill tone={editor.path === mappings.path && editor.content !== editor.original ? 'warn' : 'good'}>{editor.path === mappings.path && editor.content !== editor.original ? 'Unsaved' : 'Validated'}</Pill></div></header><section className="agent-mapping-summary"><div><strong>Map native Copilot agents to governed Flow agents</strong><p>An explicit YAML entry wins. Otherwise Singularity Flow tries the same ID. Mapping affects instructions only; it never changes the human identity or approval authority.</p></div><code>singularity-flow agents mappings</code></section><div className="agent-mapping-table"><div><span>Copilot agent</span><span>Governed agent</span><span>Resolution</span></div>{mappings.rows.map((row) => <div key={`${row.copilotAgent}:${row.agentId}`}><code>{row.copilotAgent}</code><code>{row.agentId}</code><Pill tone={row.source === 'configured' ? 'accent' : 'neutral'}>{row.source}</Pill></div>)}</div><SourceEditor path={mappings.path} value={editor.path === mappings.path ? editor.content : mappings.content} dirty={editor.path === mappings.path && editor.content !== editor.original} onChange={(content) => setEditor({ path: mappings.path, content, original: mappings.content, kind: 'agent-mappings' })} onSave={saveEditor} onDownload={mappings.exists ? () => downloadFile(mappings.path) : null} /></> : current ? <><header className="agent-summary"><span><Pill tone={status?.status === 'ready' || status?.status === 'local-only' ? 'good' : 'warn'}>{status?.status ?? 'unknown'}</Pill><small>{current.sha256.slice(0, 12)} · {current.editable ? 'repository agent Markdown' : 'bundled plugin agent'}</small></span><span className="row"><button className="secondary compact" onClick={() => downloadFile(current.path)}>Download</button>{current.editable && <button className="ghost compact" onClick={() => deleteFile(current)}>Delete</button>}<code>singularity-flow agents {status?.locked ? 'sync' : 'lock'} {current.id}</code></span></header><SourceEditor path={current.path} value={editor.path === current.path ? editor.content : current.content} dirty={current.editable && editor.content !== editor.original} onChange={(content) => current.editable && setEditor({ ...editor, content })} onSave={saveEditor} onDownload={() => downloadFile(current.path)} onImport={current.editable ? importAgent : null} readOnly={!current.editable} /></> : <Empty title="No agents found" detail="Create or import Agent Markdown under .github/agents." action={<button className="primary" onClick={() => setModal({ id: '', error: null })}>Create first agent</button>} />}</main>
+    {modal && <DesignerModal title="Create repository agent" detail="Create Agent Markdown with phase scope, default ownership, world-model views, and optional remote dependencies." submitLabel="Create agent" error={modal.error} onCancel={() => setModal(null)} onSubmit={submitAgent}><label><span>Agent ID</span><input autoFocus value={modal.id} placeholder="architecture" onChange={(event) => setModal({ ...modal, id: event.target.value, error: null })} /></label></DesignerModal>}
   </div>;
 }
 
@@ -6150,7 +6091,6 @@ function Documents({ data, action, reload, downloadFile, focusDocumentId = null 
     handledFocus.current = focusDocumentId;
     void inspect(record);
   }, [focusDocumentId, data.documents, data.selectedWorkId]);
-  async function selectPersona(event) { await action(() => window.singularity.selectPersona(data.repository.root, data.selectedWorkId, event.target.value), 'Working lens selected'); await reload(); }
   async function upload() { const result = await action(() => window.singularity.uploadDocuments(data.repository.root), 'Documents uploaded'); if (result && !result.canceled) await reload(); }
   async function uploadDirectory() { const result = await action(() => window.singularity.uploadDocumentDirectory(data.repository.root), 'Design package imported and indexed'); if (result && !result.canceled) await reload(); }
   async function addUrl() { if (!url.trim()) return; await action(() => window.singularity.addDocumentUrl(data.repository.root, url.trim(), label.trim()), 'Document link added'); setUrl(''); setLabel(''); await reload(); }
@@ -6167,7 +6107,7 @@ function Documents({ data, action, reload, downloadFile, focusDocumentId = null 
   }
   async function openSelected() { await action(() => window.singularity.openDocument(data.repository.root, data.selectedWorkId, selectedRecord)); }
   if (!data.workflow) return <div className="page"><Empty title="Choose a work item" detail="Documents are cataloged per work item and branch." /></div>;
-  return <div className="requirement-workspace"><header className="requirement-toolbar"><div><span className="eyebrow">Requirement workspace</span><h1>{data.workflow.workItem.title}</h1><p>{data.workflow.workItem.id} · {data.workflow.workItem.branch}</p></div><div className="session-control"><label>Working lens</label><select value={data.session?.workId === data.selectedWorkId ? data.session.persona : ''} onChange={selectPersona} disabled={!canMutate}><option value="">Choose working lens</option>{Object.entries(data.definition.personas).map(([id, persona]) => <option value={id} key={id}>{persona.label}</option>)}</select></div></header>
+  return <div className="requirement-workspace"><header className="requirement-toolbar"><div><span className="eyebrow">Requirement workspace</span><h1>{data.workflow.workItem.title}</h1><p>{data.workflow.workItem.id} · {data.workflow.workItem.branch}</p></div><div className="session-control"><label>Phase agent</label><strong>{data.definition.agents?.[data.workflow.phases?.[data.workflow.currentPhase]?.defaultAgent]?.label ?? data.workflow.phases?.[data.workflow.currentPhase]?.defaultAgent ?? 'Not configured'}</strong></div></header>
     {!canMutate && <div className="notice warn">Work item {data.selectedWorkId} is on branch <strong>{activeBranch}</strong>. Resume that branch before uploading documents.</div>}
     <section className="workspace-uploadbar"><button className="primary" onClick={upload} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>＋ Upload files</button><button className="secondary" onClick={uploadDirectory} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>Import design folder</button><div className="workspace-url"><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="Figma or reference URL" disabled={!canMutate} /><input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Label" disabled={!canMutate} /><button className="secondary" onClick={addUrl} disabled={!canMutate || !url.trim()}>Add</button></div>{storageProviders.length > 0 && <div className="workspace-url"><select value={remoteProvider} onChange={(event) => setRemoteProvider(event.target.value)} disabled={!canMutate}>{storageProviders.map(([id, item]) => <option value={id} key={id}>{id} · {item.type}</option>)}</select><button className="secondary" onClick={connectOneDrive} disabled={!canMutate || !remoteProvider}>Connect OneDrive</button><button className="secondary" onClick={browseOneDrive} disabled={!canMutate || !remoteProvider}>Browse OneDrive</button></div>}</section>
     {remoteEntries && <section className="workspace-onedrive-list panel">{remoteEntries.length ? remoteEntries.map((entry) => <div className="artifact-repository-row" key={entry.id}><div><span className="studio-file-icon">{entry.folder ? 'DIR' : 'DOC'}</span><strong>{entry.name}</strong></div><code>{entry.folder ? 'folder' : `${entry.size ?? 0} bytes`}</code>{!entry.folder && <button className="ghost compact" onClick={() => fetchOneDrive(entry)} disabled={!canMutate || data.session?.workId !== data.selectedWorkId}>Fetch</button>}</div>) : <div className="inline-empty">No items in this OneDrive drive.</div>}</section>}
@@ -6181,7 +6121,7 @@ function Documents({ data, action, reload, downloadFile, focusDocumentId = null 
         {selectedRecord ? <><header><div><span className="eyebrow">{selectedRecord.id}</span><h2>{selectedRecord.label}</h2><p>{selectedRecord.path ?? selectedRecord.url}</p></div><div className="row"><Pill>{selectedRecord.kind}</Pill>{selectedRecord.path && <button className="secondary compact" onClick={() => downloadFile(selectedRecord.path)}>Download</button>}</div></header><PinnedMediaStrip repository={data.repository.root} workId={data.selectedWorkId} records={data.documents} selectedId={selectedRecord.id} onSelect={inspect} />{preview?.record?.id === selectedRecord.id && preview.dataUrl ? <div className="requirement-media-preview"><GovernedMedia record={selectedRecord} preview={preview} onZoom={(record, media) => setLightbox({ record, preview: media })} /></div> : preview?.record?.id === selectedRecord.id && preview.content != null ? <TemplatePreview className="requirement-preview" content={preview.content} /> : preview?.record?.id === selectedRecord.id && selectedRecord.type === 'url' ? <div className="live-design-card"><span className="live-design-mark">↗</span><h3>{selectedRecord.kind === 'figma' ? 'Open in Figma' : 'Open external reference'}</h3><p><strong>Live design — may differ from the pinned intake.</strong> Use committed image exports for approval; open this link only as current-design context.</p><code>{selectedRecord.url}</code><button className="primary" onClick={openSelected}>{selectedRecord.kind === 'figma' ? 'Open in Figma' : 'Open HTTPS link'}</button></div> : preview?.record?.id === selectedRecord.id && preview.previewable === false ? <div className="native-document-card"><span>DOC</span><h3>Use the desktop viewer</h3><p>This governed binary file cannot render safely inside Singularity. Its catalog record was resolved successfully; open it with the operating system’s default application.</p><code>{selectedRecord.sha256?.slice(0, 12)} · {selectedRecord.mimeType}</code><button className="primary" onClick={openSelected}>Open in default app</button></div> : <div className="document-placeholder"><span>{selectedRecord.mimeType?.startsWith('image/') ? 'IMG' : selectedRecord.type === 'url' ? 'URL' : 'MD'}</span><h3>{openingId === selectedRecord.id ? 'Opening governed document…' : 'Open the governed document'}</h3><p>Markdown, source, images, and PDFs preview inside Singularity with their committed SHA. Other binary files use their native viewer.</p><button className="primary" disabled={openingId === selectedRecord.id} onClick={() => inspect(selectedRecord)}>{openingId === selectedRecord.id ? 'Loading…' : 'Open document'}</button></div>}<MediaLightbox item={lightbox} onClose={() => setLightbox(null)} /></> : <Empty title="No documents yet" detail="Upload source material or generate the current phase artifact to populate this workspace." />}
       </main>
       <aside className="requirement-inspector">
-        <section><span className="eyebrow">Git status</span><dl><div><dt>Branch</dt><dd>{data.repository.branch}</dd></div><div><dt>Workflow</dt><dd>{data.workflow.status}</dd></div><div><dt>Phase</dt><dd>{selectedRecord?.phase ?? 'supporting'}</dd></div><div><dt>Working lens</dt><dd>{data.session?.persona ?? 'not selected'}</dd></div></dl></section>
+        <section><span className="eyebrow">Git status</span><dl><div><dt>Branch</dt><dd>{data.repository.branch}</dd></div><div><dt>Workflow</dt><dd>{data.workflow.status}</dd></div><div><dt>Phase</dt><dd>{selectedRecord?.phase ?? 'supporting'}</dd></div><div><dt>Phase agent</dt><dd>{data.workflow.phases?.[data.workflow.currentPhase]?.defaultAgent ?? 'not configured'}</dd></div></dl></section>
         <section><span className="eyebrow">Document metadata</span><dl><div><dt>Kind</dt><dd>{selectedRecord?.kind ?? '—'}</dd></div><div><dt>Size</dt><dd>{selectedRecord?.size ? `${Math.ceil(selectedRecord.size / 1024)} KB` : '—'}</dd></div><div><dt>Reference</dt><dd>{selectedRecord?.id ?? '—'}</dd></div><div><dt>SHA-256</dt><dd>{selectedRecord?.sha256?.slice(0, 12) ?? '—'}</dd></div><div><dt>Integrity</dt><dd>{preview?.record?.id === selectedRecord?.id && (preview.integrity === 'verified' || preview.binary === false) ? 'matches record ✓' : 'verify on preview'}</dd></div></dl></section>
         <section className="document-outline"><span className="eyebrow">Outline</span>{headings.length ? headings.map((heading, index) => <span style={{ paddingLeft: `${(heading.depth - 1) * 12}px` }} key={`${heading.label}:${index}`}>{heading.label}</span>) : <p>Open a Markdown artifact to see its governed section outline.</p>}</section>
       </aside>
@@ -6322,7 +6262,7 @@ export default function App() {
   const configurationChanges = data?.repository.configurationChanges ?? [];
   const unrelatedChanges = data?.repository.unrelatedChanges ?? [];
   const publishReady = data?.repository.publishReady === true;
-  const publishHint = !configurationChanges.length ? 'No workflow, template, working-lens, prompt, skill, or prompt-pack changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
+  const publishHint = !configurationChanges.length ? 'No workflow, template, governed-agent, prompt, skill, or agent changes are ready to publish.' : unrelatedChanges.length ? `Blocked by ${unrelatedChanges.length} non-configuration working-tree change(s).` : 'Commit and push desktop configuration changes.';
   async function action(task, success) { setBusy(true); setToast(null); try { const result = await task(); if (success && result != null) setToast({ tone: 'good', text: typeof success === 'function' ? success(result) : success }); return result; } catch (error) { setToast({ tone: 'bad', text: error?.message || String(error) }); return null; } finally { setBusy(false); } }
   async function resetAllJiraCredentials() {
     if (!window.confirm('Reset every saved Jira connection for this OS account? Workspace routing and Git state will not be changed.')) return;
@@ -6565,43 +6505,10 @@ export default function App() {
     if (file) chooseTemplate(file);
     return imported.result;
   }
-  async function savePersona(personaId, persona) {
-    const next = structuredClone(data.definition);
-    next.personas[personaId] = persona;
-    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Working lens '${personaId}' saved and validated`);
-    if (result) await reload();
-    return result;
-  }
-  async function createPersonaConfig(values) {
-    let next;
-    try { next = createPersona(data.definition, values); }
-    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
-    const id = values.id.trim();
-    const persona = next.personas[id];
-    const promptPath = personaPromptRepositoryPath(next, persona.prompt);
-    const prompt = `# ${persona.label}\n\n${persona.description}\n\n## Perspective\n\nUse the **${persona.label}** working lens. Apply this perspective to the current phase while preserving its governed contract, required repository world-model views, approved inputs, and evidence requirements. This lens never changes the real human identity or approval authority.\n`;
-    const promptResult = await action(() => window.singularity.saveFile(data.repository.root, promptPath, prompt));
-    if (!promptResult) return null;
-    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Working lens '${id}' and prompt created`);
-    if (result) await reload();
-    return result;
-  }
-  async function deletePersonaConfig(personaId, replacementId) {
-    let next;
-    try { next = removePersona(data.definition, personaId, replacementId); }
-    catch (error) { setToast({ tone: 'bad', text: error.message }); return null; }
-    const oldPrompt = data.definition.personas[personaId].prompt;
-    const promptStillUsed = Object.values(next.personas).some((persona) => persona.prompt === oldPrompt);
-    const result = await action(() => window.singularity.saveFile(data.repository.root, data.definitionPath, YAML.stringify(next)), `Working lens '${personaId}' removed; references moved to '${replacementId}'`);
-    if (!result) return null;
-    if (!promptStillUsed && data.personaPrompts.some((file) => file.name === oldPrompt)) await action(() => window.singularity.deleteFile(data.repository.root, personaPromptRepositoryPath(data.definition, oldPrompt)));
-    await reload();
-    return result;
-  }
   function chooseResource(file, kind) { setEditor({ path: file.path, content: file.content, original: file.content, kind }); }
   function resourcesPage() {
     setPage('resources');
-    const file = data.personaPrompts[0] ?? data.worldModelPrompt ?? data.flowSkills?.[0] ?? data.repositorySkills[0];
+    const file = data.agentPrompts[0] ?? data.worldModelPrompt ?? data.flowSkills?.[0] ?? data.repositorySkills[0];
     if (file) chooseResource(file, data.repositorySkills.includes(file) ? 'skill' : data.flowSkills?.includes(file) ? 'flow-skill' : 'prompt');
   }
   async function importResource(kind) {
@@ -6611,7 +6518,7 @@ export default function App() {
         ? { targetPath: data.worldModelPrompt.path, kind: 'prompt' }
         : kind === 'planner-prompt'
           ? { targetPath: data.planning.prompt.path, kind: 'prompt' }
-        : { targetDirectory: data.definition.personaPromptsRoot, kind: 'prompt' };
+        : { targetDirectory: data.definition.agentPromptsRoot, kind: 'prompt' };
     const imported = await importFile(options, `${kind === 'skill' ? 'Repository skill' : 'Prompt'} imported`);
     if (!imported) return null;
     let snapshot = imported.snapshot;
@@ -6623,7 +6530,7 @@ export default function App() {
       if (!configured) return null;
       snapshot = await reload();
     }
-    const files = kind === 'skill' ? snapshot.repositorySkills : [...snapshot.personaPrompts, snapshot.worldModelPrompt, snapshot.planning.prompt];
+    const files = kind === 'skill' ? snapshot.repositorySkills : [...snapshot.agentPrompts, snapshot.worldModelPrompt, snapshot.planning.prompt];
     const file = files.find((item) => item.path === imported.result.path);
     if (file) chooseResource(file, kind === 'skill' ? 'skill' : 'prompt');
     return imported.result;
@@ -6690,11 +6597,11 @@ export default function App() {
    *
    * `wm build` with no --views falls back to `views: auto`, which routes to core plus development.
    * A rebuild from the offer card therefore *replaced* a five-view model with a one-view one —
-   * installWorldModel clears the output directory — and every phase whose persona reads business
+   * installWorldModel clears the output directory — and every phase whose agent reads business
    * or architecture then reported the model unavailable. A rebuild must not be able to lose views.
    */
   function requiredWorldModelViews() {
-    const fromPersonas = Object.values(data?.definition?.personas ?? {}).flatMap((persona) => persona.worldModelViews ?? []);
+    const fromPersonas = Object.values(data?.definition?.agents ?? {}).flatMap((agent) => agent.worldModelViews ?? []);
     const built = (data?.worldModel?.files ?? [])
       .filter((file) => file.path.includes('/views/'))
       .map((file) => file.path.split('/').pop().replace(/\.md$/, ''));
@@ -6768,15 +6675,15 @@ export default function App() {
   }
   function chooseAgent(agent) { setEditor({ path: agent.path, content: agent.content, original: agent.content, kind: 'agent' }); }
   async function createAgent(agentId) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) { setToast({ tone: 'bad', text: 'Prompt-pack ID must be lower-case kebab-case.' }); return null; }
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) { setToast({ tone: 'bad', text: 'Agent ID must be lower-case kebab-case.' }); return null; }
     const agentPath = `.github/agents/${agentId}.agent.md`;
     const title = agentId.replaceAll('-', ' ');
-    const content = `---\nname: ${agentId}\ndescription: Repository agent for ${title}.\n---\n\n# ${title}\n\nActivate the relevant Singularity Flow session and use approved repository artifacts as governed context.\n\n## Remote skills\n\n| ID | URL | Phases | Personas | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n`;
+    const content = `---\nname: ${agentId}\ndescription: Repository agent for ${title}.\n---\n\n# ${title}\n\nActivate the relevant Singularity Flow session and use approved repository artifacts as governed context.\n\n## Remote skills\n\n| ID | URL | Phases | Agents | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n| --- | --- | --- | --- | --- | --- |\n`;
     const promptPackContent = content.replace(
       `description: Repository agent for ${title}.`,
-      `description: Repository prompt pack for ${title}; this is context, not a person or approval authority.`
+      `description: Repository agent for ${title}; this is context, not a person or approval authority.`
     );
-    const result = await action(() => window.singularity.saveFile(data.repository.root, agentPath, promptPackContent), `Repository prompt pack '${agentId}' created`);
+    const result = await action(() => window.singularity.saveFile(data.repository.root, agentPath, promptPackContent), `Repository agent '${agentId}' created`);
     if (!result) return null;
     const snapshot = await reload();
     const agent = snapshot?.agents.find((item) => item.path === agentPath);
@@ -6784,7 +6691,7 @@ export default function App() {
     return result;
   }
   async function importAgent() {
-    const imported = await importFile({ targetDirectory: '.github/agents', kind: 'agent' }, 'Repository prompt pack imported and validated');
+    const imported = await importFile({ targetDirectory: '.github/agents', kind: 'agent' }, 'Repository agent imported and validated');
     if (!imported) return null;
     const agent = imported.snapshot.agents.find((item) => item.path === imported.result.path);
     if (agent) chooseAgent(agent);
@@ -6864,7 +6771,7 @@ export default function App() {
         ? <PhaseCliWorkspace requestedPhaseId={planningFocus.phase} data={data} selected={data.initiative} action={action} reload={reload} downloadFile={downloadFile} onJourneyStage={openEpicJourneyStage} onJourneyNext={continueEpicJourney} />
         : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-planning' && (data.initiative
         ? <EpicPlanningCliPage downloadFile={downloadFile} data={data} action={action} reload={reload} />
-        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} downloadFile={downloadFile} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} downloadFile={downloadFile} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'session-choices' && <SessionChoices data={data} openPortfolio={initiativePage} openWorkflow={workflowPage} openPersonas={() => setPage('personas')} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'personas' && <Personas data={data} openPrompt={openPrompt} savePersona={savePersona} createPersonaConfig={createPersonaConfig} deletePersonaConfig={deletePersonaConfig} downloadFile={downloadFile} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} customizeFlowSkill={customizeFlowSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'world-model-explorer' && <WorldModelExplorer data={data} generateWorldModel={generateWorldModel} renderMarkdown={markdownBlocks} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && (data.initiative ? <InitiativeDocuments data={data} downloadFile={downloadFile} /> : <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />)}{page === 'help' && <Help />}</div></div>
+        : <EpicsHome data={data} action={action} reload={reload} openEpic={openEpic} generateWorldModel={generateWorldModel} onSetupJira={() => setJiraSetupOpen(true)} />)}{page === 'business-stories' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={(phase) => openStudio(phase ?? 'epic-publish')} localRole={onboarding?.profile?.role} entryTab="publish" />}{page === 'initiatives' && <InitiativeStudio publishConfiguration={publish} busy={busy} generateWorldModel={generateWorldModel} openEpic={openEpic} reportProblem={(text) => setToast({ tone: 'bad', text })} onStagePage={openEpicJourneyStage} data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} openPlanning={openStudio} localRole={onboarding?.profile?.role} />}{page === 'dashboard' && <Dashboard data={data} downloadFile={downloadFile} />}{page === 'studio' && <ArtifactStudio data={data} openWorkspace={() => openRequirementWorkspace()} downloadFile={downloadFile} />}{page === 'impact' && <ImpactStudio data={data} openPlanning={openStudio} />}{page === 'workspaces' && <WorkspaceStudio data={data} action={action} defaultBaseDirectory={data.workspaceSetup?.baseDirectory ?? onboarding?.profile?.workspacePath ?? ''} recentWorkspaces={recentWorkspaces} onOpenWorkspace={openWorkspace} onForgetWorkspace={forgetWorkspace} onArchiveWorkspace={archiveWorkspace} onRestoreWorkspace={restoreWorkspace} onSetupJira={() => setJiraSetupOpen(true)} onOpened={(result, nextPage) => { acceptOpened(result, nextPage); void refreshRecentWorkspaces(); }} />}{page === 'session-choices' && <SessionChoices data={data} openPortfolio={initiativePage} openWorkflow={workflowPage} openPersonas={() => setPage('agents')} />}{page === 'planning' && <CopilotCliPage data={data} phaseId={planningFocus?.phase} />}{page === 'inbox' && <ApprovalInbox data={data} busy={busy} refresh={refreshInbox} attach={attachInboxItem} />}{page === 'workflow' && <Workflow data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importWorkflow={importWorkflow} />}{page === 'templates' && <Templates data={data} editor={editor.kind !== 'template' ? { path: data.templates[0]?.path, content: data.templates[0]?.content ?? '', original: data.templates[0]?.content ?? '', kind: 'template' } : editor} setEditor={setEditor} chooseTemplate={chooseTemplate} saveEditor={saveEditor} createTemplate={createTemplate} deleteTemplate={deleteTemplate} downloadFile={downloadFile} importTemplate={importTemplate} />}{page === 'resources' && <Resources data={data} editor={editor} setEditor={setEditor} chooseResource={chooseResource} saveEditor={saveEditor} createSkill={createSkill} customizeFlowSkill={customizeFlowSkill} deleteFile={deleteFile} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} materializePlanningPrompt={materializePlanningPrompt} />}{page === 'agents' && <Agents data={data} editor={editor} setEditor={setEditor} chooseAgent={chooseAgent} saveEditor={saveEditor} createAgent={createAgent} deleteFile={deleteFile} downloadFile={downloadFile} importAgent={importAgent} />}{page === 'world-model' && <WorldModel data={data} editor={editor} setEditor={setEditor} saveEditor={saveEditor} downloadFile={downloadFile} importResource={importResource} materializeWorldModelPrompt={materializeWorldModelPrompt} generateWorldModel={generateWorldModel} addView={addWorldModelViewConfig} removeView={removeWorldModelViewConfig} />}{page === 'world-model-explorer' && <WorldModelExplorer data={data} generateWorldModel={generateWorldModel} renderMarkdown={markdownBlocks} />}{page === 'review' && <Review data={data} downloadFile={downloadFile} />}{page === 'documents' && (data.initiative ? <InitiativeDocuments data={data} downloadFile={downloadFile} /> : <Documents data={data} action={action} reload={reload} downloadFile={downloadFile} focusDocumentId={focusedDocumentId} />)}{page === 'help' && <Help />}</div></div>
     </main>{jiraSetupOpen && <div className="jira-setup-overlay" role="dialog" aria-modal="true" aria-label="Set up Jira"><JiraWorkspace data={data} action={action} reload={reload} bootstrapPortfolio={acceptPortfolioBootstrap} onConfigure={() => { setJiraSetupOpen(false); initiativePage(); }} onDone={() => setJiraSetupOpen(false)} /></div>}{worldModelRun && <WorldModelRunDialog run={worldModelRun} onClose={() => setWorldModelRun(null)} />}<Toast toast={toast} onClose={() => setToast(null)} />
   </div>;
 }

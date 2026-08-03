@@ -147,8 +147,8 @@ export async function runGovernedAction(
  * is not. Approval is precisely where that binding is worth the extra round trip — it is what makes
  * "I approved this" mean a specific set of bytes rather than a subject name.
  *
- * It also solves a problem plain flags cannot: `initiative approve` selects a working lens, and
- * there is no `--persona` on that path. The receipt is where the lens answer lives.
+ * The phase contract selects the governed agent automatically. The receipt binds only the human's
+ * exact decision to the current hashes; agent context is not approval authority.
  */
 export async function approveWithReceipt(
   client: SingularityFlowClient,
@@ -163,25 +163,6 @@ export async function approveWithReceipt(
   } catch (error) {
     void vscode.window.showErrorMessage((error as Error).message);
     return false;
-  }
-
-  const personas = receipt.choiceSets.find((set) => set.id === 'persona')?.options ?? [];
-  if (personas.length) {
-    const picked = await vscode.window.showQuickPick(
-      personas.map((option) => ({
-        label: option.label ?? option.id,
-        description: option.description ?? '',
-        id: option.id
-      })),
-      { title: 'Working lens', placeHolder: 'The lens this decision is recorded under', ignoreFocusOut: true }
-    );
-    if (!picked) return false;
-    try {
-      await client.run(['initiative', 'choices', 'answer', receipt.token, 'persona', picked.id, '--json']);
-    } catch (error) {
-      void vscode.window.showErrorMessage((error as Error).message);
-      return false;
-    }
   }
 
   const confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });

@@ -31,7 +31,7 @@ function flow(root, args, { allowFailure = false } = {}) {
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: 'Epic Product Owner',
-      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona: 'product-owner' })
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' })
     }
   });
   if (!allowFailure && result.status !== 0) throw new Error(`${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
@@ -98,7 +98,7 @@ async function repository() {
     title: 'Mobile sign-in',
     profile: 'epic-planning',
     source: { type: 'jira', id: '10000', key: 'MOB-100' },
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   return root;
 }
@@ -182,7 +182,7 @@ test('Epic intake advances without a repository world model and defers grounding
   assert.equal(before.initiative.resolution.worldModelTiming, 'story-intake');
   assert.equal(before.initiative.resolution.worldModelGrounding, 'off');
 
-  const completed = await completeEpicIntake(root, 'MOB-100', { persona: 'product-owner' });
+  const completed = await completeEpicIntake(root, 'MOB-100', { agent: 'product-owner' });
   assert.equal(completed.advanced, true);
   assert.equal(completed.initiative.currentPhase, 'epic-requirements');
   assert.equal(completed.initiative.phases['epic-intake'].status, 'approved');

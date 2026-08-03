@@ -3,9 +3,9 @@
   "$id": "https://example.invalid/singularity-flow/workflow-definition.schema.json",
   "title": "Singularity Flow YAML workflow definition",
   "type": "object",
-  "required": ["version", "git", "templatesRoot", "personaPromptsRoot", "personas", "workTypes", "phases"],
+  "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
-    "version": { "const": 1 },
+    "version": { "const": 2 },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
     "sequenceGates": { "$ref": "#/$defs/sequenceGates" },
     "contextPolicy": { "$ref": "#/$defs/contextPolicy" },
@@ -39,7 +39,6 @@
       "additionalProperties": false
     },
     "templatesRoot": { "type": "string", "minLength": 1 },
-    "personaPromptsRoot": { "type": "string", "minLength": 1 },
     "planning": {
       "type": "object",
       "properties": {
@@ -92,9 +91,6 @@
       "type": "object",
       "properties": {
         "workItemSelection": { "enum": ["off", "reuse", "prompt"] },
-        "personaSelection": { "enum": ["off", "reuse", "prompt"] },
-        "promptOnNewSession": { "type": "boolean" },
-        "promptOnResume": { "type": "boolean" },
         "requireBeforeTools": { "type": "boolean" }
       },
       "additionalProperties": false
@@ -128,22 +124,6 @@
               "additionalProperties": false
             }
           }
-        },
-        "additionalProperties": false
-      }
-    },
-    "personas": {
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": {
-        "type": "object",
-        "required": ["label", "prompt"],
-        "properties": {
-          "label": { "type": "string", "minLength": 1 },
-          "description": { "type": "string" },
-          "prompt": { "type": "string", "minLength": 1 },
-          "suggestedPhases": { "type": "array", "items": { "type": "string" } },
-          "worldModelViews": { "type": "array", "items": { "type": "string" } }
         },
         "additionalProperties": false
       }
@@ -217,7 +197,7 @@
                   "when": {
                     "type": "object",
                     "properties": {
-                      "persona": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
+                      "agent": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
                       "phase": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
                       "workType": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
                       "changedPaths": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },

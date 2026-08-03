@@ -7,7 +7,7 @@ This delivery combines deterministic next-action guidance, the one-script local 
 ### Workflow guidance and installation
 
 - `/sflow-about` and `sflow-about` identify Singularity Flow as the product under the Singularity brand and document `/sflow-<action>` as the only public Copilot command namespace.
-- Start, resume, approval, rejection, and `/sflow-persona` mirror YAML-derived CLI menus through Copilot's interactive `ask_user` selection UI; unavailable interaction fails without choosing a default.
+- Start mirrors durable YAML-derived source/workflow choices through Copilot's interactive selection UI; phase agents activate automatically.
 - Submission and approval display every generated phase document with content or binary path, stable ID, size, and hash; `singularity-flow phase show` provides the same review view on demand.
 - `/sflow-nextsteps` and `singularity-flow nextsteps` return valid `NOW`, `THEN`, and `ALTERNATIVE` actions before initialization, throughout lifecycle/recovery, and after completion.
 - `/sflow-next`, `sflow-next`, and `singularity-flow next` execute one valid lifecycle action at a time while preserving explicit approval and atomic decision publication.
@@ -29,8 +29,8 @@ This delivery combines deterministic next-action guidance, the one-script local 
 - Exact Markdown dependency tables for remote skills, artifact templates, and generated artifacts. Prose links are inert.
 - Public HTTPS, UTF-8/non-empty validation, bounded redirects/timeouts, a 1 MiB default, and a 10 MiB ceiling.
 - Interactive trust-on-first-use and deliberate updates in `singularity/agents.lock.yml`.
-- Hash-verified atomic cache under `.git/singularity-flow/`, with sync preserving the selected persona.
-- Phase/persona-scoped prompt skills, explicit `agent:<agent>/<template>` precedence, immutable work-item template copies, and per-generation context records.
+- Hash-verified atomic cache under `.git/singularity-flow/`, with sync preserving the active work item and agent.
+- Phase/agent-scoped prompt dependencies, explicit `agent:<agent>/<template>` precedence, immutable work-item template copies, and per-generation context records.
 - Allowlisted URL variables and phase-contained generated targets, snapshot reuse, local-edit conflict protection, and explicit refresh/replace.
 - CLI list/lock/sync/status/refresh commands, nextsteps diagnostics, governance checks, and Electron agent/lock visibility.
 - Bundled `sflow-workflow` agent with empty tables. No live remote URL ships in `0.8.0`.
@@ -48,7 +48,7 @@ This delivery combines deterministic next-action guidance, the one-script local 
 - Eight named guards can be configured independently as `hard` or `soft`, globally or per work type.
 - Missing configuration remains hard for backward compatibility; each resolved policy is pinned into the work item.
 - Soft violations show actionable state and require an exact interactive `continue`; non-interactive use stops safely.
-- Confirmed exceptions are attributed to identity and persona and disclosed in state, artifacts, reports, Electron, and governance warnings.
+- Confirmed exceptions are attributed to identity and governed agent and disclosed in state, artifacts, reports, Electron, and governance warnings.
 - Integrity and state-transfer controls remain hard in the starter profile, while recoverable phase-status and document-timing mistakes default to soft.
 
 ## Starter configuration
@@ -79,7 +79,7 @@ Agent Markdown accepts only these table locations:
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Personas | Optional | Max bytes |
+| ID | URL | Phases | Optional | Max bytes |
 
 ## Remote artifact templates
 
@@ -96,7 +96,7 @@ Generation now composes:
 
 ```text
 + phase skill contract
-+ selected persona prompt
++ phase-default governed Agent Markdown
 + required repository world-model views
 + exact task guide when requested
 + rule-selected repository world-model files
@@ -150,9 +150,9 @@ The script's forced uninstall/reinstall is required because the public version r
 - This release supports no authentication, cookies, or bearer tokens for remote Markdown.
 - Only public HTTPS Markdown is accepted. Redirects must remain HTTPS.
 - First trust and updates require human confirmation; sync never mutates the lock.
-- Remote skills are not slash commands and cannot escape active agent phase/persona routing.
+- Remote skills are not slash commands and cannot escape active phase/agent routing.
 - Generated outputs cannot escape the current phase artifact directory or imply submission/approval.
-- Workflow, lock, agent, template, persona, and skill paths are protected during generation.
+- Workflow, lock, Agent Markdown, template, prompt, and skill paths are protected during generation.
 
 ## Known gaps and next work
 

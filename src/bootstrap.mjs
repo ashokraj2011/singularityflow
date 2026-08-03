@@ -12,7 +12,7 @@
  * What this does, in the order it has to happen:
  *
  *   1. Clone the repository, or adopt a checkout that is already there.
- *   2. Write `singularity/` — workflow, portfolio, templates, personas.
+ *   2. Write `singularity/` — workflow, portfolio, templates, agents.
  *   3. Declare the repository in the portfolio, so a capability may deliver from it.
  *   4. Name the person running this as an approval authority, because an Epic cannot start until
  *      at least one authority has a member and discovering that later is a poor greeting.

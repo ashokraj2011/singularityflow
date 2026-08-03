@@ -632,7 +632,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * Start work: an Initiative, an Epic or a Story, with or without a tracker.
    *
-   * Every answer is asked for; none is guessed. The profile and the working lens come from the
+   * Every answer is asked for; none is guessed. The profile and the governed agent come from the
    * repository's own configuration rather than a list this file keeps, so a portfolio that adds a
    * profile offers it here without the extension being changed.
    */

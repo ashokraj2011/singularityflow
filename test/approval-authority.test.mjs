@@ -22,7 +22,7 @@ const authorities = {
   }
 };
 
-test('approval authority matches real identity independently of working lens', () => {
+test('approval authority matches real identity independently of governed agent', () => {
   const policy = normalizeApprovalPolicy(
     { authorities: ['architecture-reviewers'], minimum: 1 },
     authorities,
@@ -39,7 +39,7 @@ test('approval authority matches real identity independently of working lens', (
   const denied = matchApprovalAuthority(authorities, policy, {
     name: 'Developer using architect lens',
     email: 'developer@example.com',
-    persona: 'architect'
+    agent: 'architect'
   });
   assert.equal(denied.authorized, false);
   assert.match(denied.reason, /not a member/);

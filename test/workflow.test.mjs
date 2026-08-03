@@ -25,7 +25,7 @@ async function repository() {
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
 }
 
 async function completeArtifact(root, workflow, phaseId) {
@@ -37,7 +37,7 @@ async function completeArtifact(root, workflow, phaseId) {
   await writeFile(file, text); return file;
 }
 
-function selection(workType, persona) { return { workType, persona }; }
+function selection(workType, agent) { return { workType, agent }; }
 
 test('start refuses non-interactive selection without a test or UI selection', async () => {
   const root = await repository();
@@ -45,15 +45,15 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(result.status, 0); assert.match(result.stderr, /requires an interactive terminal/);
 });
 
-test('persona selection changes only the local session and persists for later actions', async () => {
-  const root = await repository(); const workId = 'PERSONA-1';
+test('agent selection changes only the local session and persists for later actions', async () => {
+  const root = await repository(); const workId = 'AGENT-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
   const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  const result = flow(root, ['lens', workId], { selection: selection('feature', 'architect'), actor: 'Session Architect' });
-  assert.match(result.stdout, /Active working lens: Architect \(architect\)/);
+  const result = flow(root, ['agent', workId, '--agent', 'architect'], { actor: 'Session Architect' });
+  assert.match(result.stdout, /Active governed agent: Architect \(architect\)/);
   assert.match(result.stdout, /selection is local to this checkout/);
   const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
-  assert.equal(session.persona, 'architect');
+  assert.equal(session.agent, 'architect');
   assert.equal(session.workId, workId);
   assert.equal(session.actor.name, 'Session Architect');
   assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before);
@@ -187,23 +187,23 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   const root = await repository(); const workId = 'FEATURE-101';
   flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
-  const personas = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
+  const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
-    let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', personas[phaseId]) });
-    flow(root, ['resume', workId], { selection: selection('feature', personas[phaseId]) });
+    let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', agents[phaseId]) });
+    flow(root, ['resume', workId], { selection: selection('feature', agents[phaseId]) });
     await completeArtifact(root, workflow, phaseId);
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
       await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:AC-001 SPEC-001\n');
     }
     const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
-    flow(root, ['phase', 'publish', phaseId, '--usage-json', usagePath], { selection: selection('feature', personas[phaseId]) });
-    flow(root, ['submit'], { selection: selection('feature', personas[phaseId]) });
-    flow(root, ['approve', '--yes'], { selection: selection('feature', personas[phaseId]) });
+    flow(root, ['phase', 'publish', phaseId, '--usage-json', usagePath], { selection: selection('feature', agents[phaseId]) });
+    flow(root, ['submit'], { selection: selection('feature', agents[phaseId]) });
+    flow(root, ['approve', '--yes'], { selection: selection('feature', agents[phaseId]) });
   }
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.status, 'complete'); assert.equal(workflow.usage.totalTokens, 105);
   assert.equal(workflow.usage.byWorkType.feature.totalTokens, 105); assert.equal(workflow.usage.byWorkItem[workId].records, 7);
-  assert.equal(workflow.usage.byPersona.architect.totalTokens, 30); assert.equal(workflow.usage.byPhase.verification.totalTokens, 15);
+  assert.equal(workflow.usage.byAgent.architect.totalTokens, 30); assert.equal(workflow.usage.byPhase.verification.totalTokens, 15);
   assert.equal(workflow.usage.exactRecords, 7); assert.equal(workflow.usage.unavailableRecords, 0);
   assert.match(workflow.phases.design.generationCommit, /^[0-9a-f]{40}$/); assert.equal(workflow.phases.design.publicationCommit, workflow.phases.design.generationCommit);
   assert.match(workflow.resolution.sourceSha256, /^[0-9a-f]{64}$/);
@@ -237,7 +237,7 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
   const tampered = flow(root, ['validate'], { allowFailure: true, selection: selection('bugfix', 'qa') }); assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /immutable profile snapshot/);
 });
 
-test('multi-approval threshold requires distinct identities while allowing persona selection', async () => {
+test('multi-approval threshold requires distinct identities while allowing agent selection', async () => {
   const root = await repository(); const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.phases.intake.approval.minimum = 2; await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', configPath], root); execute('git', ['commit', '-m', 'require two intake approvals'], root);
   const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));

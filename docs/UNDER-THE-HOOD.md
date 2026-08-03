@@ -18,10 +18,10 @@ The prompt-related names describe different responsibilities:
 |---|---|---|---|
 | Workflow | Rulebook | Phases, ordering, inputs, outputs, gates, checks, approvals, publication | `singularity/workflow.yml` |
 | Skill | Playbook or action button | Tells Copilot which CLI commands and behavioral rules to follow | `plugin/skills/sflow-*/SKILL.md` |
-| Working lens | Professional hat | Changes Copilot's perspective for the current session | `singularity/personas/*.md` |
+| governed agent | Professional hat | Changes Copilot's perspective for the current session | `singularity/agents/*.md` |
 | Prompt | Effective instructions | The exact phase-specific text Copilot receives | Composed and recorded under work-item context |
 | World model | Repository map | Generated, hash-recorded facts about the codebase | `singularity/world-model/` |
-| Prompt pack | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context | `.github/agents/*.agent.md` |
+| agent | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context | `.github/agents/*.agent.md` |
 | Artifact template | Blank form | Required structure and managed fields for an output | `singularity/templates/` |
 | Artifact | Filled form | Generated, committed, reviewable phase output | `singularity/work-items/<ID>/artifacts/` |
 | Approval authority | Real reviewer rule | Determines which Git/GitHub identities may decide | Workflow or portfolio authority configuration |
@@ -29,10 +29,10 @@ The prompt-related names describe different responsibilities:
 The most important distinction is:
 
 ```text
-working lens != real person != approval authority
+governed agent != real person != approval authority
 ```
 
-Anyone may work through the architect lens. That does not authorize that person
+Anyone may explicitly activate the architect agent. That does not authorize that person
 to approve architecture. Approval authority is recalculated from configured
 human identity data.
 
@@ -74,17 +74,17 @@ The complete skill tells Copilot:
 The skill does not implement Git publication or approvals. It calls the CLI,
 which owns those mutations.
 
-### Working lens
+### governed agent
 
-The configuration key remains `personas` for compatibility, but the product
-meaning is a prompt-only working lens:
+The configuration key remains `agents` for compatibility, but the product
+meaning is a prompt-only governed agent:
 
 ```markdown
 Act as an architect. Make boundaries, contracts, trade-offs, security,
 operability, migration, and rollback explicit.
 ```
 
-The selected lens is local to the checkout:
+The active agent is local to the checkout:
 
 ```text
 .git/singularity-flow/session.json
@@ -99,11 +99,11 @@ The effective prompt is assembled for one phase and generation:
 
 ```text
 phase contract and artifact template
-+ selected working-lens prompt
++ selected governed-agent prompt
 + mandatory repository world-model views
-+ additional lens views
++ additional agent-added views
 + relevant domain and task files
-+ active prompt-pack Markdown
++ active agent Markdown
 + approved upstream artifacts
 + current task and evidence
 ```
@@ -137,13 +137,13 @@ It answers questions such as:
 - which source and test files are relevant;
 - how the repository is built, tested, deployed, and observed.
 
-The workflow selects mandatory views. A working lens may add views but cannot
+The workflow selects mandatory views. A governed agent may add views but cannot
 remove a mandatory one. World-model Markdown is evidence, not executable code
 or approval authority.
 
-### Prompt pack
+### agent
 
-A prompt pack is optional, external Markdown context. A repository pack is
+A agent is optional, external Markdown context. A repository pack is
 declared at:
 
 ```text
@@ -155,7 +155,7 @@ It may contain exact dependency tables:
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Personas | Optional | Max bytes |
+| ID | URL | Phases | Agents | Optional | Max bytes |
 |---|---|---|---|---|---|
 | security-review | https://example.com/security.md | design | architect | false | 65536 |
 
@@ -174,8 +174,8 @@ It may contain exact dependency tables:
 
 Only URLs in those tables are processed. Ordinary prose links remain inert.
 Trusted hashes are committed in `singularity/agents.lock.yml`; verified bytes
-are cached under `.git/singularity-flow/`. Prompt packs are context, not global
-slash commands, people, working lenses, or approval authorities.
+are cached under `.git/singularity-flow/`. agents are context, not global
+slash commands, people, governed agents, or approval authorities.
 
 ## 2. What installation creates
 
@@ -187,7 +187,7 @@ The npm package declares these main executable mappings:
     "singularity-flow": "bin/singularity-flow.mjs",
     "sflow": "bin/singularity-flow.mjs",
     "sflow-next": "bin/sflow-next.mjs",
-    "sflow-lens": "bin/sflow-lens.mjs"
+    "sflow-agent": "bin/sflow-agent.mjs"
   }
 }
 ```
@@ -258,7 +258,7 @@ singularity-flow wm compose
   -> src/cli.mjs
   -> src/worldmodel.mjs
 
-singularity-flow prompt-packs sync
+singularity-flow agents sync
   -> src/cli.mjs
   -> src/agents.mjs
 
@@ -277,7 +277,7 @@ Short executables prepend a command and call the same `main()`:
 
 ```text
 sflow-next -> main(["next", ...arguments])
-sflow-lens -> main(["lens", ...arguments])
+sflow-agent -> main(["agent", ...arguments])
 ```
 
 There is one command engine, not separate implementations for every alias.
@@ -308,7 +308,7 @@ singularity-flow phase publish design
 
 The Markdown skill is an instruction contract. The shell commands it names
 cause JavaScript to execute. Markdown from a skill, world model, template,
-artifact, or prompt pack is never evaluated as JavaScript.
+artifact, or agent is never evaluated as JavaScript.
 
 ## 5. How Node questions reach Copilot
 
@@ -374,8 +374,8 @@ Node returns a token and YAML-derived choice sets:
       ]
     },
     {
-      "id": "persona",
-      "label": "Working lens",
+      "id": "agent",
+      "label": "governed agent",
       "options": [
         { "id": "developer", "label": "Developer" },
         { "id": "architect", "label": "Architect" }
@@ -392,7 +392,7 @@ facility. After the human chooses, the skill records only that exact ID:
 ```bash
 singularity-flow choices answer \
   6bd9f526-0000-4000-8000-000000000000 \
-  persona \
+  agent \
   architect \
   --json
 ```
@@ -476,7 +476,8 @@ In short:
 
 | Question | Defined by | Presented by | Validated by |
 |---|---|---|---|
-| Workflow/lens selection | Node from YAML | Copilot or terminal | Node |
+| Workflow selection | Node from YAML | Copilot or terminal | Node |
+| Phase-agent activation | Phase contract | Node automatically | Node |
 | Exact lifecycle confirmation | Node governance | Copilot or terminal | Node |
 | Soft-gate exception | Node sequence policy | Terminal/Copilot relay | Node |
 | Open analysis question | Copilot reasoning | Copilot | Human review and later artifact gates |
@@ -495,11 +496,11 @@ The composer resolves:
 
 1. The immutable work type and active phase.
 2. The phase contract and artifact template.
-3. The locally selected working lens.
+3. The phase-default governed agent, or an explicit audited override.
 4. Mandatory phase world-model views.
-5. Additional lens world-model views.
+5. Additional agent world-model views.
 6. Task/rule-selected repository model files.
-7. Locked prompt-pack skills applicable to the phase and lens.
+7. Locked remote skills applicable to the phase and agent.
 8. Approved upstream phase inputs.
 9. Configured evidence and task text.
 
@@ -515,11 +516,11 @@ singularity/work-items/<WORK-ID>/context/
 ```
 
 The records capture source paths, SHA-256 values, injected sizes, truncation,
-world-model commit and manifest, selected lens, prompt-pack resources, approved
+world-model commit and manifest, active agent, agent resources, approved
 input hashes, and the complete rendered-prompt hash.
 
 With grounding or inputs set to `enforce`, publication fails when required
-context is missing, stale, tampered, composed for another lens, or built against
+context is missing, stale, tampered, composed for another agent, or built against
 another source tree.
 
 ## 7. End-to-end phase execution
@@ -529,7 +530,7 @@ flowchart TD
   Invoke["Human invokes /sflow-phase"] --> Skill["Copilot loads SKILL.md"]
   Skill --> Status["CLI reads committed workflow state"]
   Status --> Contract["Resolve active phase contract"]
-  Contract --> Context["Compose lens + world model + prompt pack + inputs"]
+  Contract --> Context["Compose agent + world model + inputs"]
   Context --> Copilot["Copilot proposes artifact content"]
   Copilot --> Prepare["CLI prepares template and managed blocks"]
   Prepare --> Artifact["Artifact authored in governed path"]
@@ -559,7 +560,7 @@ singularity/
 ├── workflow.yml
 ├── portfolio.yml
 ├── capabilities.yml
-├── personas/
+├── agents/
 ├── prompts/
 ├── templates/
 ├── world-model/
@@ -578,7 +579,7 @@ This state is reviewed and transferred through Git branches.
 ├── choices/
 ├── logs/
 ├── ledger-outbox/
-└── verified prompt-pack cache
+└── verified agent cache
 ```
 
 This includes session convenience, short-lived receipts, logs, retry caches, and
@@ -589,7 +590,7 @@ downloaded bytes. It is never the only durable source for a lifecycle decision.
 - Jira supplies optional issue identity, hierarchy, assignment, and observed status.
 - GitHub supplies optional authenticated login, pull requests, and check evidence.
 - The operating-system credential store protects Jira and storage credentials.
-- Remote prompt packs supply only explicitly trusted public HTTPS Markdown.
+- Remote agents supply only explicitly trusted public HTTPS Markdown.
 
 Git remains authoritative for approved artifacts, workflow lineage, and decision
 records.
@@ -603,11 +604,11 @@ records.
 | `src/cli.mjs` | Argument parsing, command logging, dispatch |
 | `src/command-registry.mjs` | Canonical commands and aliases |
 | `src/config.mjs` | Workflow loading, normalization, validation |
-| `src/session.mjs` | Local working-lens session |
+| `src/session.mjs` | Local governed-agent session |
 | `src/choices.mjs` | One-time Copilot selection receipts |
 | `src/worldmodel.mjs` | World-model building and prompt composition |
 | `src/grounding.mjs` | World-model manifest and file integrity |
-| `src/agents.mjs` | Prompt-pack parsing, locking, caching, injection |
+| `src/agents.mjs` | Agent Markdown parsing, locking, caching, and injection |
 | `src/inputs.mjs` | Approved upstream artifact injection |
 | `src/state.mjs` | Story workflow state and publication |
 | `src/initiative-state.mjs` | Epic/initiative state and publication |
@@ -657,11 +658,11 @@ singularity-flow wm show-prompt \
   --skill sflow-phase
 ```
 
-Inspect prompt-pack trust:
+Inspect agent trust:
 
 ```bash
-singularity-flow prompt-packs list
-singularity-flow prompt-packs status
+singularity-flow agents list
+singularity-flow agents status
 ```
 
 Inspect a pending selection receipt:
@@ -689,10 +690,10 @@ The components stay understandable when their roles are kept separate:
 ```text
 Workflow controls process.
 Skill controls Copilot's procedure.
-Working lens controls perspective.
+governed agent controls perspective.
 Prompt carries the effective instructions.
 World model supplies repository facts.
-Prompt pack supplies optional external guidance.
+agent supplies optional external guidance.
 Template controls output shape.
 Artifact carries the proposed result.
 Node validates and publishes transitions.
@@ -700,5 +701,5 @@ Real human identity controls approval authority.
 Git carries the shared history.
 ```
 
-That separation is what prevents a prompt, persona, remote Markdown file, or AI
+That separation is what prevents a prompt, agent, remote Markdown file, or AI
 response from granting itself authority or silently moving the SDLC forward.

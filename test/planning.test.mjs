@@ -31,7 +31,7 @@ function run(root, command, args, { allowFailure = false } = {}) {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: actor,
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', persona: 'product-owner' }),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' })
   };
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', env });
@@ -78,7 +78,7 @@ test('story planning creates a private immutable context pack and promotes only 
     scope: 'work-item',
     id: 'PLAN-101',
     phase: 'intake',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'artifact',
     objective: 'Define a measurable onboarding outcome.'
   });
@@ -87,7 +87,7 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.match(context.contextPath, /\.git\/singularity-flow\/planning\//);
   assert.equal(context.manifest.repository.head, before);
   assert.equal(context.manifest.target.id, 'artifact');
-  assert.ok(context.manifest.sources.some((source) => source.kind === 'persona'));
+  assert.ok(context.manifest.sources.some((source) => source.kind === 'agent'));
   assert.ok(context.manifest.sources.some((source) => source.kind === 'uploaded-document'));
   assert.match(context.context, /Define a measurable onboarding outcome/);
   assert.match(context.context, /Stay in Copilot Plan mode/);
@@ -98,7 +98,7 @@ test('story planning creates a private immutable context pack and promotes only 
 
   const promoted = await promotePlanningArtifact(root, {
     sessionId: context.sessionId,
-    persona: 'product-owner',
+    agent: 'product-owner',
     content: '# Intake decision\n\nOutcome: reduce onboarding abandonment while preserving auditability.\n\n## Acceptance signal\n\nA measurable completion baseline and target are approved.\n'
   });
   assert.equal(promoted.scope, 'work-item');
@@ -122,7 +122,7 @@ test('promotion refuses stale planning context after repository state moves', as
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-STALE',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'artifact'
   });
   await writeFile(path.join(root, 'README.md'), '# Changed after planning began\n');
@@ -140,12 +140,12 @@ test('promotion refuses an uncommitted change to any governed context source', a
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-DIRTY',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'artifact'
   });
   await assert.rejects(
-    () => promotePlanningArtifact(root, { sessionId: context.sessionId, persona: 'architect', content: '# Wrong persona\n' }),
-    /composed with working lens 'product-owner', not 'architect'/
+    () => promotePlanningArtifact(root, { sessionId: context.sessionId, agent: 'architect', content: '# Wrong agent\n' }),
+    /composed with governed agent 'product-owner', not 'architect'/
   );
   const sourcePath = path.join(root, 'singularity/work-items/PLAN-DIRTY/USER-STORY.md');
   await writeFile(sourcePath, `${await readFile(sourcePath, 'utf8')}\nNew requirement after context creation.\n`);
@@ -167,7 +167,7 @@ test('initiative planning exposes all phases but promotes only the active config
     scope: 'initiative',
     id: 'INIT-PLAN',
     phase: 'define',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'business-case',
     objective: 'Frame the value case before decomposing epics and stories.'
   });
@@ -181,7 +181,7 @@ test('initiative planning exposes all phases but promotes only the active config
       scope: 'initiative',
       id: 'INIT-PLAN',
       phase: 'plan',
-      persona: 'product-owner',
+      agent: 'product-owner',
       target: 'story-plan'
     }),
     /sequence-aware/
@@ -431,7 +431,7 @@ test('a phase-scoped session produces the whole artifact set from one conversati
     scope: 'initiative',
     id: 'INIT-SET',
     phase: 'define',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: PHASE_SCOPE,
     objective: 'Produce the complete define set.'
   });
@@ -475,7 +475,7 @@ test('a phase-scoped promotion refuses anything outside the phase resolution', a
   const root = await repository();
   run(root, process.execPath, [bin, 'initiative', 'start', 'INIT-GUARD', '--title', 'Guarded promotion']);
   const context = await createPlanningContext(root, {
-    scope: 'initiative', id: 'INIT-GUARD', phase: 'define', persona: 'product-owner', target: PHASE_SCOPE
+    scope: 'initiative', id: 'INIT-GUARD', phase: 'define', agent: 'product-owner', target: PHASE_SCOPE
   });
   const [first] = context.outputs;
 
@@ -567,14 +567,14 @@ test('every promotion target teaches Copilot the fence it will be parsed by', as
 
   const whole = await createPlanningContext(root, {
     scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
-    persona: 'product-owner', target: PHASE_SCOPE, objective: 'set'
+    agent: 'product-owner', target: PHASE_SCOPE, objective: 'set'
   });
   const wholeText = await readFile(whole.contextPath, 'utf8');
   for (const id of ids) assert.ok(wholeText.includes(`<<<SFLOW-ARTIFACT:${id}`), `${id} fence missing from phase contract`);
 
   const single = await createPlanningContext(root, {
     scope: 'initiative', id: 'INIT-FENCE', phase: phase.id,
-    persona: 'product-owner', target: ids[0], objective: 'one'
+    agent: 'product-owner', target: ids[0], objective: 'one'
   });
   const singleText = await readFile(single.contextPath, 'utf8');
   assert.ok(singleText.includes(`<<<SFLOW-ARTIFACT:${ids[0]}`), 'single-target contract must describe its own fence');
@@ -593,7 +593,7 @@ test('a moved HEAD blocks promotion but does not destroy the conversation', asyn
     scope: 'work-item',
     id: 'PLAN-STALE',
     phase: 'intake',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'artifact',
     objective: 'Define the outcome.'
   });
@@ -624,7 +624,7 @@ test('a changed governed source restores as stale but remains impossible to prom
     scope: 'work-item',
     id: 'PLAN-SOURCE-STALE',
     phase: 'intake',
-    persona: 'product-owner',
+    agent: 'product-owner',
     target: 'artifact',
     objective: 'Define the outcome.'
   });

@@ -34,8 +34,8 @@ contextBridge.exposeInMainWorld('singularity', {
   }),
   workspaceJiraEpic: (repository, workspace, epicKey) => ipcRenderer.invoke('workspace:jira-epic', { repository, workspace, epicKey }),
   workspaceJiraStory: (repository, workspace, storyKey) => ipcRenderer.invoke('workspace:jira-story', { repository, workspace, storyKey }),
-  startStoryWizard: (repository, workspace, repositoryId, storyKey, workType, persona) => ipcRenderer.invoke('story:start', {
-    repository, workspace, repositoryId, storyKey, workType, persona
+  startStoryWizard: (repository, workspace, repositoryId, storyKey, workType) => ipcRenderer.invoke('story:start', {
+    repository, workspace, repositoryId, storyKey, workType
   }),
   previewWorkspace: (repository, options) => ipcRenderer.invoke('workspace:preview', { repository, ...options }),
   createWorkspace: (repository, options) => ipcRenderer.invoke('workspace:create', { repository, ...options }),
@@ -71,17 +71,17 @@ contextBridge.exposeInMainWorld('singularity', {
   publish: (repository, message) => ipcRenderer.invoke('configuration:publish', { repository, message }),
   bootstrapPortfolio: (repository, configuration) => ipcRenderer.invoke('configuration:bootstrap-portfolio', { repository, configuration }),
   bootstrapWorkspacePortfolio: (repository, workspace) => ipcRenderer.invoke('configuration:bootstrap-workspace-portfolio', { repository, workspace }),
-  selectPersona: (repository, workId, persona) => ipcRenderer.invoke('session:persona', { repository, workId, persona }),
+  selectPersona: (repository, workId, agent) => ipcRenderer.invoke('session:agent', { repository, workId, agent }),
   previewInitiativeMaterialization: (repository, initiativeId) => ipcRenderer.invoke('initiative:materialize-preview', { repository, initiativeId }),
   materializeInitiative: (repository, initiativeId, confirmation) => ipcRenderer.invoke('initiative:materialize', { repository, initiativeId, confirmation }),
   syncInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:sync', { repository, initiativeId }),
   openInitiative: (repository, initiativeId) => ipcRenderer.invoke('initiative:open', { repository, initiativeId }),
   refreshInitiatives: (repository) => ipcRenderer.invoke('initiative:refresh', { repository }),
-  publishInitiativePhase: (repository, initiativeId, phaseId, persona) => ipcRenderer.invoke('initiative:phase-publish', {
-    repository, initiativeId, phaseId, persona
+  publishInitiativePhase: (repository, initiativeId, phaseId, agent) => ipcRenderer.invoke('initiative:phase-publish', {
+    repository, initiativeId, phaseId, agent
   }),
-  approveInitiativePhase: (repository, initiativeId, subject, confirmation, persona, selfApprovalAcknowledged = false) => ipcRenderer.invoke('initiative:phase-approve', {
-    repository, initiativeId, subject, confirmation, persona, selfApprovalAcknowledged
+  approveInitiativePhase: (repository, initiativeId, subject, confirmation, agent, selfApprovalAcknowledged = false) => ipcRenderer.invoke('initiative:phase-approve', {
+    repository, initiativeId, subject, confirmation, agent, selfApprovalAcknowledged
   }),
   epicSources: (repository, initiativeId) => ipcRenderer.invoke('epic:sources', { repository, initiativeId }),
   saveEpicStorageCredential: (repository, providerId, token) => ipcRenderer.invoke('epic:storage-credential', { repository, providerId, token }),
@@ -123,8 +123,8 @@ contextBridge.exposeInMainWorld('singularity', {
   runEpicChecks: (repository, initiativeId, storyId, packetSha256 = null) => ipcRenderer.invoke('epic:checks', {
     repository, initiativeId, storyId, packetSha256
   }),
-  decideEpicReview: (repository, initiativeId, storyId, packetSha256, decision, persona, target = null, reason = null) => ipcRenderer.invoke('epic:decision', {
-    repository, initiativeId, storyId, packetSha256, decision, persona, target, reason
+  decideEpicReview: (repository, initiativeId, storyId, packetSha256, decision, agent, target = null, reason = null) => ipcRenderer.invoke('epic:decision', {
+    repository, initiativeId, storyId, packetSha256, decision, agent, target, reason
   }),
   completeEpicDelivery: (repository, initiativeId, confirmation) => ipcRenderer.invoke('epic:complete', {
     repository, initiativeId, confirmation
@@ -139,12 +139,12 @@ contextBridge.exposeInMainWorld('singularity', {
   jiraWorkspaceAnchors: (repository, projectKey, refresh = false) => ipcRenderer.invoke('jira:workspace-anchors', { repository, projectKey, refresh }),
   jiraHierarchy: (repository, anchorKey, refresh = false) => ipcRenderer.invoke('jira:hierarchy', { repository, anchorKey, refresh }),
   jiraChildren: (repository, epicKey, refresh = false) => ipcRenderer.invoke('jira:children', { repository, epicKey, refresh }),
-  startEpicWizard: (repository, epicKey, profile, persona) => ipcRenderer.invoke('epic:start', {
-    repository, epicKey, profile, persona
+  startEpicWizard: (repository, epicKey, profile) => ipcRenderer.invoke('epic:start', {
+    repository, epicKey, profile
   }),
   previewLocalEpicId: (repository) => ipcRenderer.invoke('epic:local-id-preview', { repository }),
-  startLocalEpic: (repository, title, description, goal, profile, persona) => ipcRenderer.invoke('epic:start-local', {
-    repository, title, description, goal, profile, persona
+  startLocalEpic: (repository, title, description, goal, profile) => ipcRenderer.invoke('epic:start-local', {
+    repository, title, description, goal, profile
   }),
   chooseStoryDocuments: (repository, directory = false) => ipcRenderer.invoke('story:choose-documents', {
     repository, directory

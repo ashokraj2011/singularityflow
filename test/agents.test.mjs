@@ -19,7 +19,7 @@ import {
   resolveCopilotAgent,
   syncAgent
 } from '../src/agents.mjs';
-import { setAgentSession, setPersonaSession, loadSession } from '../src/session.mjs';
+import { setAgentSession, loadSession } from '../src/session.mjs';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { createWorkflow } from '../src/state.mjs';
 import YAML from 'yaml';
@@ -37,9 +37,9 @@ This prose link is inert: https://example.com/not-a-dependency.md
 
 ## Remote skills
 
-| ID | URL | Phases | Personas | Optional | Max bytes |
-|---|---|---|---|---|---|
-| secure-review | https://cdn.example.com/skill.md | design, verification | architect | false | 4096 |
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| secure-review | https://cdn.example.com/skill.md | design, verification | false | 4096 |
 
 ## Remote artifact templates
 
@@ -97,12 +97,12 @@ test('agent mappings resolve different Copilot names before same-name fallback',
   }));
 
   const explicit = await resolveCopilotAgent(root, 'enterprise-architect');
-  assert.equal(explicit.promptPack, 'architecture');
+  assert.equal(explicit.agentId, 'architecture');
   assert.equal(explicit.source, 'configured');
   assert.equal(explicit.agent.id, 'architecture');
 
   const fallback = await resolveCopilotAgent(root, 'architecture');
-  assert.equal(fallback.promptPack, 'architecture');
+  assert.equal(fallback.agentId, 'architecture');
   assert.equal(fallback.source, 'same-name');
   assert.equal(fallback.agent.id, 'architecture');
 
@@ -111,11 +111,11 @@ test('agent mappings resolve different Copilot names before same-name fallback',
   assert.ok(status.rows.some((row) => row.copilotAgent === 'architecture' && row.source === 'same-name fallback'));
 });
 
-test('agent mapping validation rejects malformed names and unknown prompt packs', async () => {
+test('agent mapping validation rejects malformed names and unknown agents', async () => {
   const root = await rootWithAgent();
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  enterprise-architect: missing-pack\n');
-  await assert.rejects(() => loadAgentMappings(root), /unknown prompt pack 'missing-pack'/);
+  await assert.rejects(() => loadAgentMappings(root), /unknown governed agent 'missing-pack'/);
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  "bad agent": architecture\n');
   await assert.rejects(() => loadAgentMappings(root), /mapping key 'bad agent'/);
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 2\nmappings: {}\n');
@@ -156,16 +156,16 @@ test('TOFU locks hashes, sync reuses verified cache, and changed agent content r
   await assert.rejects(() => syncAgent(root, 'architecture', { fetchImpl }), /changed after locking/);
 });
 
-test('locked skills route by phase and persona and are copied into generation context', async () => {
+test('locked skills route by phase and agent and are copied into generation context', async () => {
   const root = await rootWithAgent(); const values = { 'https://cdn.example.com/skill.md': '# Skill\nReview boundaries.\n', 'https://cdn.example.com/design.md': '# Design\n' }; const fetchImpl = remoteFetch(values);
   const preview = await lockAgent(root, 'architecture', { fetchImpl }); await lockAgent(root, 'architecture', { accepted: true, resolution: preview.resolution }); await syncAgent(root, 'architecture', { fetchImpl });
   const itemDirectory = path.join(root, 'singularity/work-items/ARCH-1'); await mkdir(itemDirectory, { recursive: true });
   const workflow = { workItem: { id: 'ARCH-1', workType: 'feature' } }; const phase = { id: 'design', generation: 0 };
-  const selected = await renderAgentSkills(root, workflow, phase, { agent: 'architecture', persona: 'architect' }, { record: true, itemDirectory, fetchImpl });
-  assert.match(selected.text, /Prompt-pack skill: secure-review/);
+  const selected = await renderAgentSkills(root, workflow, phase, { agent: 'architecture' }, { record: true, itemDirectory, fetchImpl });
+  assert.match(selected.text, /Agent skill: secure-review/);
   const audit = JSON.parse(await readFile(path.join(itemDirectory, 'context/agents-design-gen1.json'), 'utf8'));
   assert.equal(audit.files[0].sha256, selected.skills[0].sha256);
-  const excluded = await renderAgentSkills(root, workflow, phase, { agent: 'architecture', persona: 'developer' }, { fetchImpl });
+  const excluded = await renderAgentSkills(root, workflow, phase, { agent: 'developer' }, { fetchImpl });
   assert.equal(excluded.skills.length, 0);
   const template = await materializeAgentTemplate(root, 'agent:architecture/design-template', { phaseId: 'design', fetchImpl });
   assert.equal(template.source, 'agent');
@@ -190,21 +190,22 @@ test('dynamic output snapshots are reused and local edits need explicit replacem
   assert.notEqual(refreshed.outputs[0].sourceSha256, first.outputs[0].sourceSha256);
 });
 
-test('agent sync preserves selected persona in local session', async () => {
+test('agent sync can select the governed agent while preserving work scope', async () => {
   const root = await rootWithAgent(`---\nname: local-agent\ndescription: Local only\ntools: ["bash"]\n---\n\nNo dependencies.\n`);
-  const definition = { personas: { architect: { label: 'Architect' } } };
-  await setPersonaSession(root, definition, { name: 'A' }, 'architect', 'ARCH-1');
-  const synced = await syncAgent(root, 'local-agent'); await setAgentSession(root, synced.agent);
+  const definition = { agents: { architect: { label: 'Architect', sha256: 'a'.repeat(64) }, 'local-agent': { label: 'Local agent', sha256: 'b'.repeat(64) } } };
+  await setAgentSession(root, definition, { name: 'A' }, 'architect', 'ARCH-1');
+  await syncAgent(root, 'local-agent');
+  await setAgentSession(root, definition, { name: 'A' }, 'local-agent', 'ARCH-1', { source: 'agents-sync' });
   const session = await loadSession(root);
-  assert.equal(session.persona, 'architect'); assert.equal(session.agent, 'local-agent'); assert.equal(session.workId, 'ARCH-1');
+  assert.equal(session.agent, 'local-agent'); assert.equal(session.workId, 'ARCH-1');
 });
 
 test('CLI first trust fails non-interactively unless exact test confirmation is supplied', async () => {
   const root = await rootWithAgent(`---\nname: local-agent\ndescription: Local only\ntools: ["bash"]\n---\n\nNo dependencies.\n`);
   assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: root }).status, 0);
-  const denied = spawnSync(process.execPath, [bin, 'prompt-packs', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  const denied = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.notEqual(denied.status, 0); assert.match(denied.stderr, /requires an interactive terminal/);
-  const accepted = spawnSync(process.execPath, [bin, 'prompt-packs', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' } });
+  const accepted = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' } });
   assert.equal(accepted.status, 0, accepted.stderr); assert.match(accepted.stdout, /Locked 'local-agent'/);
 });
 
@@ -218,8 +219,8 @@ test('explicit remote templates are copied into immutable work-item context', as
   const values = { 'https://cdn.example.com/skill.md': '# Skill\n', 'https://cdn.example.com/design.md': '# Remote {{work.id}} design\n\n{{inputs}}\n' }; const fetchImpl = remoteFetch(values);
   const preview = await lockAgent(root, 'architecture', { fetchImpl }); await lockAgent(root, 'architecture', { accepted: true, resolution: preview.resolution }); await syncAgent(root, 'architecture', { fetchImpl });
   assert.equal(spawnSync('git', ['add', '.'], { cwd: root }).status, 0); assert.equal(spawnSync('git', ['commit', '-m', 'initialize'], { cwd: root }).status, 0); assert.equal(spawnSync('git', ['checkout', '-b', 'ARCH-2'], { cwd: root }).status, 0);
-  const loaded = await loadDefinition(root); await setPersonaSession(root, loaded, { name: 'Agent Tester', email: 'agent@example.com' }, 'architect', 'ARCH-2'); await setAgentSession(root, (await syncAgent(root, 'architecture', { fetchImpl })).agent);
-  const created = await createWorkflow(root, loaded, { id: 'ARCH-2', title: 'Pinned remote template', source: { type: 'manual', key: 'ARCH-2', title: 'Pinned remote template', description: 'Verify immutable template delivery.', acceptanceCriteria: [] }, baseBranch: 'main', workType: 'feature', persona: 'architect', resolved: resolveWorkType(loaded, 'feature') });
+  const loaded = await loadDefinition(root); await setAgentSession(root, loaded, { name: 'Agent Tester', email: 'agent@example.com' }, 'architecture', 'ARCH-2'); await syncAgent(root, 'architecture', { fetchImpl });
+  const created = await createWorkflow(root, loaded, { id: 'ARCH-2', title: 'Pinned remote template', source: { type: 'manual', key: 'ARCH-2', title: 'Pinned remote template', description: 'Verify immutable template delivery.', acceptanceCriteria: [] }, baseBranch: 'main', workType: 'feature', agent: 'architecture', resolved: resolveWorkType(loaded, 'feature') });
   const template = created.resolution.templates.design;
   assert.equal(template.source, 'agent'); assert.match(template.path, /context\/agent-templates\/architecture/); assert.equal(await readFile(path.join(root, template.path), 'utf8'), values['https://cdn.example.com/design.md']);
 });

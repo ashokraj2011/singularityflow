@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { initializeDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,12 +22,12 @@ function result(command, args, cwd, env = process.env) {
   return spawnSync(command, args, { cwd, encoding: 'utf8', env });
 }
 
-function flow(args, cwd, { allowFailure = false, persona = 'product-owner', workType = 'feature' } = {}) {
+function flow(args, cwd, { allowFailure = false, agent = 'product-owner', workType = 'feature' } = {}) {
   const env = {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Grounding Tester',
-    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ persona, workType })
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent, workType })
   };
   const execution = spawnSync(process.execPath, [bin, ...args], { cwd, encoding: 'utf8', env });
   if (!allowFailure) assert.equal(execution.status, 0, `${args.join(' ')}\n${execution.stdout}\n${execution.stderr}`);
@@ -101,19 +101,19 @@ await writeFile(path.join(output, 'manifest.json'), JSON.stringify({
 }));
 `;
 
-test('world-model context combines required phase views, persona views, and persona prompt', async () => {
+test('world-model context combines required phase views, agent views, and agent prompt', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'World Model Tester'], root);
   run('git', ['config', 'user.email', 'world@example.com'], root);
   await initializeDefinition(root);
   await writeFile(path.join(root, 'README.md'), '# World model test\n');
-  run('git', ['add', 'singularity', 'README.md'], root);
+  run('git', ['add', 'singularity', '.github/agents', 'README.md'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const commit = run('git', ['rev-parse', 'HEAD'], root).trim();
 
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ persona: 'developer', workId: 'WM-1' }));
+  await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ agent: 'developer', workId: 'WM-1' }));
   await mkdir(path.join(root, 'singularity/world-model/core'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/views'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
@@ -136,30 +136,30 @@ test('world-model context combines required phase views, persona views, and pers
   assert.match(output, /SECURITY VIEW/);
   assert.match(output, /DEVELOPMENT VIEW/);
   assert.match(output, /TESTING VIEW/);
-  assert.match(output, /Developer persona/);
+  assert.match(output, /Developer agent/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'verification', '--concat'], root), /EVIDENCE LEDGER/);
-  assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-persona'], root), /Developer persona/);
-  assert.doesNotMatch(await readFile(path.join(root, 'singularity/personas/developer.md'), 'utf8'), /architect persona/i);
+  assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-agent'], root), /Developer agent/);
+  assert.doesNotMatch(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /architect agent/i);
 });
 
-test('wm inject renders matched persona context and records the generation audit', async () => {
+test('wm inject renders matched agent context and records the generation audit', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-inject-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Injection Tester'], root);
   run('git', ['config', 'user.email', 'inject@example.com'], root);
   await initializeDefinition(root);
   await writeFile(path.join(root, 'README.md'), '# Injection test\n');
-  run('git', ['add', 'singularity', 'README.md'], root);
+  run('git', ['add', 'singularity', '.github/agents', 'README.md'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const commit = run('git', ['rev-parse', 'HEAD'], root).trim();
   run('git', ['switch', '-c', 'WM-1'], root);
 
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.injection.rules = [{ when: { persona: 'developer', phase: 'design', workType: 'feature' }, include: ['views/development.md'] }];
+  definition.worldModel.injection.rules = [{ when: { agent: 'developer', phase: 'design', workType: 'feature' }, include: ['views/development.md'] }];
   await writeFile(definitionPath, YAML.stringify(definition));
   await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
-  await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ persona: 'developer', workId: 'WM-1' }));
+  await writeFile(path.join(root, '.git/singularity-flow/session.json'), JSON.stringify({ agent: 'developer', workId: 'WM-1' }));
   await mkdir(path.join(root, 'singularity/world-model/core'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/views'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
@@ -196,7 +196,7 @@ test('wm inject renders matched persona context and records the generation audit
   const rendered = run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1', '--render-only'], root);
   assert.match(rendered, /Active Story phase contract/);
   assert.match(rendered, /Work ID: `WM-1`/);
-  assert.match(rendered, /Developer persona/);
+  assert.match(rendered, /Developer agent/);
   assert.match(rendered, /INJECTED DEVELOPMENT VIEW/);
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
   const inspected = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1'], root);
@@ -210,11 +210,11 @@ test('wm inject renders matched persona context and records the generation audit
   assert.equal(unsafeWorkId.status, 1);
   assert.match(unsafeWorkId.stderr, /valid work ID/);
   const prompt = run(process.execPath, [bin, 'wm', 'inject', '--phase', 'design'], root);
-  assert.match(prompt, /Developer persona/);
+  assert.match(prompt, /Developer agent/);
   assert.match(prompt, /INJECTED DEVELOPMENT VIEW/);
   assert.match(prompt, /Repository grounding/);
   const audit = JSON.parse(await readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'));
-  assert.equal(audit.persona, 'developer');
+  assert.equal(audit.agent, 'developer');
   assert.equal(audit.modelCommit, modelCommit);
   assert.ok(audit.files.some((file) => file.path === 'singularity/world-model/views/development.md'));
   assert.ok(audit.files.some((file) => file.category === 'required'));
@@ -224,10 +224,11 @@ test('wm inject renders matched persona context and records the generation audit
   assert.ok(await readFile(promptPath, 'utf8'));
   const phase = { id: 'design', generation: 0, worldModel: { views: ['architecture', 'security'] } };
   const verificationWorkflow = { workItem: { id: 'WM-1' }, resolution: { worldModelGrounding: 'enforce' } };
-  const verified = await verifyGroundingRecord(root, definition, verificationWorkflow, phase, { persona: 'developer' });
+  const loadedDefinition = await loadDefinition(root);
+  const verified = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
   assert.deepEqual(verified.errors, []);
   await writeFile(promptPath, 'tampered prompt\n');
-  assert.match((await verifyGroundingRecord(root, definition, verificationWorkflow, phase, { persona: 'developer' })).errors.join('\n'), /prompt snapshot hash differs/);
+  assert.match((await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' })).errors.join('\n'), /prompt snapshot hash differs/);
 });
 
 test('wm build isolates the generator, commits a validated model, and tracks source-tree freshness', async () => {
@@ -704,7 +705,7 @@ test('governed state does not make the world model stale', async () => {
   const before = await worldModelSourceSnapshot(root, definition);
 
   // Governed state arrives; the application source is untouched. Starting an Epic writes all of
-  // this in one commit: initiative state, the artifact templates, and the persona prompts. On the
+  // this in one commit: initiative state, the artifact templates, and the agent prompts. On the
   // rule-engine repository the templates alone were 22 files, so a model built minutes earlier was
   // reported stale before a line of the application had changed.
   await mkdir(path.join(root, 'singularity/initiatives/EPIC-1/artifacts'), { recursive: true });
@@ -712,8 +713,8 @@ test('governed state does not make the world model stale', async () => {
   await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/artifacts/requirements.md'), '# REQ\n');
   await mkdir(path.join(root, 'singularity/templates/initiatives/epic'), { recursive: true });
   await writeFile(path.join(root, 'singularity/templates/initiatives/epic/requirements.md'), '# {{work.id}} requirements\n');
-  await mkdir(path.join(root, 'singularity/personas'), { recursive: true });
-  await writeFile(path.join(root, 'singularity/personas/product-owner.md'), 'Act as Product owner.\n');
+  await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/agents/product-owner.md'), 'Act as Product owner.\n');
   await mkdir(path.join(root, 'singularity/prompts'), { recursive: true });
   await writeFile(path.join(root, 'singularity/prompts/copilot-planning.md'), 'Plan.\n');
   run('git', ['add', '.'], root);

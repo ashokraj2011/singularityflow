@@ -34,7 +34,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   let definition;
   try {
     definition = await loadDefinition(root);
-    checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.personas).length} personas).`));
+    checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     return summarize(root, checks, null, null);
@@ -73,10 +73,10 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     }
   } else checks.push(check('workflow-state', 'skip', `No work item is associated with branch '${currentBranch}'.`, 'Run singularity-flow start <WORK-ID> or resume <WORK-ID>.'));
   const session = await loadSession(root, { required: false });
-  if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.persona} for ${session.workId}, but that work item is not open.` : 'No persona session is active.'));
-  else if (!session) checks.push(check('session', 'warn', 'No persona is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
+  if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.agent} for ${session.workId}, but that work item is not open.` : 'No agent session is active.'));
+  else if (!session) checks.push(check('session', 'warn', 'No agent is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
-  else checks.push(check('session', 'pass', `Working lens '${session.persona}' is active for ${session.workId}.`));
+  else checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${session.workId}.`));
   checks.push(check('working-tree', changes(root).trim() ? 'warn' : 'pass', changes(root).trim() ? 'Working tree has uncommitted changes.' : 'Working tree is clean.', changes(root).trim() ? 'Review git status before lifecycle publication.' : null));
   const remote = definition.git?.remote ?? 'origin';
   if (!hasRemote(root, remote)) checks.push(check('remote', definition.git?.publish === 'required' ? 'fail' : 'warn', `Git remote '${remote}' is not configured.`, `Add the '${remote}' remote or set git.publish: off.`));
@@ -107,7 +107,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
 
 function summarize(root, checks, workflow, session) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: workflow?.workItem.id ?? null, persona: session?.persona ?? null, healthy: counts.fail === 0, counts, checks };
+  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: workflow?.workItem.id ?? null, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, checks };
 }
 
 export function doctorText(report) {

@@ -1,6 +1,6 @@
 version: 1
 
-# Copilot custom-agent IDs do not need to equal Singularity Flow prompt-pack IDs.
+# Copilot custom-agent IDs do not need to equal Singularity Flow governed-agent IDs.
 # Add only the differences here. Agents omitted from this map retain same-name fallback.
 #
 # mappings:

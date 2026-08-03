@@ -45,8 +45,8 @@ export function validateInjectionDefinition(definition) {
     }
     const when = rule.when ?? {};
     if (typeof when !== 'object' || Array.isArray(when)) throw new SingularityFlowError(`${label}.when must be an object.`);
-    for (const key of Object.keys(when)) if (!['persona', 'phase', 'workType', 'changedPaths', 'labels'].includes(key)) throw new SingularityFlowError(`${label}.when has unsupported signal '${key}'.`);
-    for (const [key, source] of [['persona', definition.personas], ['phase', definition.phases], ['workType', definition.workTypes]]) {
+    for (const key of Object.keys(when)) if (!['agent', 'phase', 'workType', 'changedPaths', 'labels'].includes(key)) throw new SingularityFlowError(`${label}.when has unsupported signal '${key}'.`);
+    for (const [key, source] of [['agent', definition.agents], ['phase', definition.phases], ['workType', definition.workTypes]]) {
       assertStringValues(when[key], `${label}.when.${key}`);
       for (const id of when[key] == null ? [] : values(when[key])) if (!source?.[id]) throw new SingularityFlowError(`${label}.when.${key} references unknown ${key} '${id}'.`);
     }
@@ -75,7 +75,7 @@ function matchesAnyGlob(value, globs) {
 
 export function ruleMatches(when = {}, signals = {}) {
   const equals = (condition, actual) => condition == null || (actual != null && values(condition).includes(actual));
-  if (!equals(when.persona, signals.persona)) return false;
+  if (!equals(when.agent, signals.agent)) return false;
   if (!equals(when.phase, signals.phase)) return false;
   if (!equals(when.workType, signals.workType)) return false;
   if (when.changedPaths != null && !(signals.changedPaths ?? []).some((file) => matchesAnyGlob(posix(file), values(when.changedPaths)))) return false;
@@ -156,16 +156,11 @@ export async function renderInjection(root, definition, signals = {}) {
   return { ...resolution, modelCommit, sections, text };
 }
 
-export async function injectPersonaPrompt(root, definition, personaId, signals = {}) {
-  const persona = definition.personas?.[personaId];
-  if (!persona) throw new SingularityFlowError(`Unknown working lens '${personaId}'.`);
-  const prompt = await secureRepositoryPath(root, path.join(definition.personaPromptsRoot, persona.prompt), {
-    label: `Working-lens prompt for '${personaId}'`,
-    mustExist: true,
-    type: 'file'
-  });
-  const base = await readFile(prompt.absolute, 'utf8');
-  const rendered = await renderInjection(root, definition, { ...signals, persona: personaId });
+export async function injectAgentPrompt(root, definition, agentId, signals = {}) {
+  const agent = definition.agents?.[agentId];
+  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
+  const base = agent.prompt;
+  const rendered = await renderInjection(root, definition, { ...signals, agent: agentId });
   if (rendered.mode === 'off' || !rendered.sections.length) return {
     text: base.replaceAll(rendered.placeholder, ''),
     injection: { ...rendered, applied: false }
@@ -189,7 +184,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     workId: workflow.workItem.id,
     phase: phase.id,
     generation,
-    persona: injection.persona ?? null,
+    agent: injection.agent ?? null,
     modelCommit: injection.modelCommit ?? null,
     matchedRules: injection.matchedRules,
     mode: injection.mode,

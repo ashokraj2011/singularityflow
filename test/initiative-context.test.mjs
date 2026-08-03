@@ -63,14 +63,14 @@ async function binaryInputRepository() {
     id: 'INIT-BINARY-CONTEXT',
     title: 'Binary context safety',
     profile: 'binary-context',
-    persona: 'developer'
+    agent: 'developer'
   });
   return root;
 }
 
 test('initiative prompt records binary inputs by hash without embedding their bytes', async () => {
   const root = await binaryInputRepository();
-  await prepareInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { persona: 'developer' });
+  await prepareInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
   const binary = path.join(
     root,
     'singularity/initiatives/INIT-BINARY-CONTEXT/artifacts/binary-source/research.zip'
@@ -80,20 +80,20 @@ test('initiative prompt records binary inputs by hash without embedding their by
     Buffer.from('MUST_NOT_BE_INLINED')
   ]);
   await writeFile(binary, bytes);
-  await prepareInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { persona: 'developer' });
-  await publishInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { persona: 'developer' });
+  await prepareInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
+  await publishInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
   await approveInitiative(root, {
     initiativeId: 'INIT-BINARY-CONTEXT',
     phaseId: 'binary-source',
     subject: 'phase',
-    persona: 'developer'
+    agent: 'developer'
   });
 
   const composed = await composeInitiativeContext(
     root,
     'INIT-BINARY-CONTEXT',
     'binary-consumer',
-    { persona: 'developer' }
+    { agent: 'developer' }
   );
   assert.equal(composed.record.inputs.length, 1);
   assert.deepEqual(

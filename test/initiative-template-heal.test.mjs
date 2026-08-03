@@ -56,7 +56,7 @@ async function repositoryWithoutInitiativeTemplates({ grounding = 'off' } = {}) 
 
 async function startInitiative(root, id) {
   run('git', ['checkout', '-b', id], { cwd: root });
-  await createInitiative(root, { id, title: id, profile: 'initiative-lite', persona: 'product-owner' });
+  await createInitiative(root, { id, title: id, profile: 'initiative-lite', agent: 'product-owner' });
   const started = await loadInitiative(root, id);
   return commitInitiativeChange(root, started.portfolio, started.initiative, `[${id}][initiative:init] start`);
 }

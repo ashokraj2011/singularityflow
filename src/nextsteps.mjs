@@ -49,7 +49,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   }
   if (needsGeneration) actions.push(action('then', '/sflow-submit', `singularity-flow submit --phase ${phase.id}`, `After publishing ${phase.id}, run its checks and submit it for approval.`));
   actions.push(
-    action('then', '/sflow-approve', `singularity-flow approve ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the selected working lens is prompt context only.`),
+    action('then', '/sflow-approve', `singularity-flow approve ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
     action('alternative', '/sflow-reject', `singularity-flow reject ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`),
     ...afterApprovalActions(workflow, phase)
   );
@@ -63,7 +63,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     workId: null,
     currentPhase: null,
     actions: [
-      action('now', null, 'singularity-flow init', 'Initialize editable Singularity Flow configuration, templates, working lenses, approval authorities, and prompts.'),
+      action('now', null, 'singularity-flow init', 'Initialize editable Singularity Flow configuration, templates, governed agents, approval authorities, and prompts.'),
       action('then', '/sflow-start', 'singularity-flow start <WORK-ID>', 'Commit the initialized configuration, then start Jira or manual intake.')
     ]
   };
@@ -79,7 +79,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
           action('alternative', '/sflow-start', `singularity-flow start ${requestedWorkId}`, `Start ${requestedWorkId} only if it does not already exist.`)
         ]
       : [
-          action('now', '/sflow-start', 'singularity-flow start <WORK-ID>', 'Start a Jira or manual work item and choose its workflow template and working lens.'),
+          action('now', '/sflow-start', 'singularity-flow start <WORK-ID>', 'Start a Jira or manual work item, choose its workflow template, and activate the first phase agent automatically.'),
           action('alternative', '/sflow-resume', 'singularity-flow resume <WORK-ID> --fetch', 'Resume an existing remote work-item branch instead.')
         ]
   };

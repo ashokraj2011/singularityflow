@@ -34,13 +34,13 @@ async function repository({ freshness = null } = {}) {
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize portfolio'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-EVIDENCE'], { cwd: root });
-  await createInitiative(root, { id: 'INIT-EVIDENCE', title: 'Evidence initiative', profile: 'initiative-lite', persona: 'product-owner' });
-  await prepareInitiativePhase(root, 'INIT-EVIDENCE', 'define', { persona: 'product-owner' });
+  await createInitiative(root, { id: 'INIT-EVIDENCE', title: 'Evidence initiative', profile: 'initiative-lite', agent: 'product-owner' });
+  await prepareInitiativePhase(root, 'INIT-EVIDENCE', 'define', { agent: 'product-owner' });
   return root;
 }
 
 async function publishDefine(root) {
-  await publishInitiativePhase(root, 'INIT-EVIDENCE', 'define', { persona: 'product-owner' });
+  await publishInitiativePhase(root, 'INIT-EVIDENCE', 'define', { agent: 'product-owner' });
   const evidenceFile = path.join(root, 'evidence.md');
   await writeFile(evidenceFile, '# Approved evidence\n');
   await registerInitiativeEvidence(root, {
@@ -49,7 +49,7 @@ async function publishDefine(root) {
     checkId: 'business-case-approved',
     assurance: 'human-approved',
     source: { path: 'evidence.md' },
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   await registerInitiativeEvidence(root, {
     initiativeId: 'INIT-EVIDENCE',
@@ -57,7 +57,7 @@ async function publishDefine(root) {
     checkId: 'scope-agreed',
     assurance: 'human-approved',
     source: { path: 'evidence.md' },
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
 }
 
@@ -73,7 +73,7 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
     initiativeId: 'INIT-EVIDENCE',
     phaseId: 'define',
     subject: 'business-case',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   assert.equal(outputApproval.reached, true);
   assert.equal(outputApproval.selfApproval, true);
@@ -85,7 +85,7 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
     initiativeId: 'INIT-EVIDENCE',
     phaseId: 'define',
     subject: 'phase',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   assert.equal(phaseApproval.selfApproval, true);
   assert.equal(phaseApproval.next, 'plan');
@@ -118,7 +118,7 @@ test('an approved phase without an approval for its exact bundle fails governanc
     initiativeId: 'INIT-EVIDENCE',
     phaseId: 'define',
     subject: 'business-case',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   const loaded = await loadInitiative(root, 'INIT-EVIDENCE');
   loaded.initiative.phases.define.status = 'approved';
@@ -305,10 +305,10 @@ test('publication records its own machine evidence, so every surface can approve
   run('git', ['commit', '-m', 'Add impact profile'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
 
-  await createInitiative(root, { id: 'INIT-IMPACT', title: 'Impact gate', profile: 'impact-only', persona: 'product-owner' });
-  await prepareInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { persona: 'product-owner' });
+  await createInitiative(root, { id: 'INIT-IMPACT', title: 'Impact gate', profile: 'impact-only', agent: 'product-owner' });
+  await prepareInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { agent: 'product-owner' });
 
-  const published = await publishInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { persona: 'product-owner' });
+  const published = await publishInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { agent: 'product-owner' });
 
   // The impact map is validated during publication; recording that result is what makes the phase
   // approvable. Validating and discarding left the gate missing however often it was published.

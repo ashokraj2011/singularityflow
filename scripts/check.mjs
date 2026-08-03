@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
+import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -166,9 +167,14 @@ checked.push('examples/workflow-with-quality-gates.yml');
 
 const workflowTemplate = validateDefinition(YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8')));
 if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix) fail('workflow template must include feature and bugfix profiles');
-if (!workflowTemplate.personas?.developer || !workflowTemplate.personas?.architect) fail('workflow template must include configurable personas');
 if (workflowTemplate.workItemRoot !== 'singularity/work-items') fail('workflow template must use the visible singularity/work-items root');
-if (workflowTemplate.templatesRoot !== 'singularity/templates' || workflowTemplate.personaPromptsRoot !== 'singularity/personas') fail('workflow template must keep editable resources in the visible singularity folder');
+if (workflowTemplate.templatesRoot !== 'singularity/templates') fail('workflow template must keep editable artifact templates in the visible singularity folder');
+const governedAgents = await discoverAgents(root);
+validateAgentCatalog(governedAgents, workflowTemplate);
+for (const id of ['product-owner', 'architect', 'developer', 'qa']) {
+  if (!governedAgents.some((agent) => agent.id === id)) fail(`governed Agent Markdown catalog must include '${id}'`);
+}
+checked.push('templates/agents');
 if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
 if (workflowTemplate.ledger?.publication !== 'warn') fail('workflow template must ship warning-only state publication by default.');
 checked.push('templates/workflow.yml');

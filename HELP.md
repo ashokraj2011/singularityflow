@@ -17,7 +17,7 @@ For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff, p
 The desktop app opens a resumable five-step wizard the first time an operating-system user launches it:
 
 1. Enter the name shown in planning and local desktop activity.
-2. Select a role such as Product owner, Architect, Developer, QA, Designer, Security, Operations, or Delivery lead. This only suggests an initial planning working lens; anyone can still select any configured lens.
+2. Select a role such as Product owner, Architect, Developer, QA, Designer, Security, Operations, or Delivery lead. This only suggests an initial planning governed agent; anyone can still select any configured agent.
 3. Choose the local workspace directory used for isolated project workspaces and repository clones.
 4. Add existing initialized Singularity repositories, or skip this optional step.
 5. Connect Jira Cloud/Data Center, choose **We do not use Jira**, and review the ready summary.
@@ -130,9 +130,9 @@ Operate an initiative inside GitHub Copilot:
 /sflow-initiative-approve
 ```
 
-Start and approval use Copilot selectable options and one-time receipts when persistent terminal input is unavailable. Working lenses control prompt perspective; they never grant initiative approval authority. Authority comes from normalized local Git emails configured in `approvalAuthorities`, and reports label this `configured-local` rather than cryptographic identity.
+Start and approval use Copilot selectable options and one-time receipts when persistent terminal input is unavailable. governed agents control prompt perspective; they never grant initiative approval authority. Authority comes from normalized local Git emails configured in `approvalAuthorities`, and reports label this `configured-local` rather than cryptographic identity.
 
-`/sflow-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected working-lens prompt → required repository world-model views → active prompt-pack Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, publication is blocked when the prompt, world model, or an approved input is missing or changed.
+`/sflow-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected governed-agent prompt → required repository world-model views → active agent Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, publication is blocked when the prompt, world model, or an approved input is missing or changed.
 
 For `kind: binary-bundle` outputs without a template, phase preparation prints the exact target as `awaiting upload`. Place the binary evidence at that path and run the phase command again to register its size and SHA-256 before publishing. Required missing bundles block publication with their expected paths. Downstream prompts include binary provenance, never decoded binary bytes.
 
@@ -140,7 +140,7 @@ Every generation, evidence record, approval, rejection, materialization, synchro
 
 The configured default branch is only the starting baseline for a new initiative or story branch. `initiative start` does not merge into `main`, and story materialization does not merge into a participating repository's default branch. Singularity Flow never automatically merges completed work; normal pull requests and repository policies remain in control.
 
-Use `singularity-flow initiative materialize --dry-run` before creating story branches. The real operation requires exact initiative-ID confirmation. Story seeds recommend a work type and pin approved initiative inputs/contracts without bypassing the contributor’s interactive work-type and working-lens selection.
+Use `singularity-flow initiative materialize --dry-run` before creating story branches. The real operation requires exact initiative-ID confirmation. Story seeds recommend a work type and pin approved initiative inputs/contracts without bypassing the contributor’s interactive work-type.
 
 `singularity-flow initiative sync` reads each child workflow from its exact
 fetched commit. Invalid JSON, unsupported state, or a Work ID/branch mismatch
@@ -190,11 +190,11 @@ Epic planning   Epics · Requirements · Planning · Create Stories ·
 Delivery        Overview · Artifact studio · Impact analysis · Documents
 Decisions       Approval inbox · Review bundle
 Configuration   Workspace configuration · Portfolio designer · Workflow designer ·
-                Working lenses & authority · Prompts & skills · Repository model · Prompt packs
+                governed agents & authority · Prompts & skills · Repository model · agents
 Learn           Help & guides
 ```
 
-The role chosen during onboarding still suggests an initial planning persona; it
+The role chosen during onboarding still suggests an initial planning agent; it
 no longer routes to a different shell, and there is no experience to switch
 between. The active workspace and the Copilot service control sit together in the
 top bar, so both stay visible on every page. Collapse or expand the sidebar with
@@ -273,7 +273,7 @@ Use the collision-safe Copilot commands:
 /sflow-story-checks
 /sflow-finalize
 /sflow-worldmodel
-/sflow-prompt-packs
+/sflow-agents
 /sflow-telemetry
 ```
 
@@ -438,7 +438,7 @@ Desktop’s Epic workspace is a guided wizard for **Epic intake**,
 **Requirements**, **User Stories**, **High-level spec**, **Publish to Jira**,
 **Delivery progress**, and **Validate & complete**, with Configuration kept
 separate. With no active Epic, the first wizard screen browses the connected
-Jira projects and Epics, selects the immutable profile and session persona, and
+Jira projects and Epics, selects the immutable profile, activates its first phase agent, and
 creates/pushes the Epic branch without asking the user to leave the app. The
 Story screen displays every generated Story with repository, requirements,
 acceptance criteria, and dependencies before approval. The publication screen
@@ -459,7 +459,7 @@ when present and shown as optional lineage.
 2. review its description, acceptance criteria, attachments, status, assignee,
    and parent Epic;
 3. confirm the workspace repository selected by the Jira project route;
-4. select the immutable Story workflow and the current session persona;
+4. select the immutable Story workflow; its first phase agent activates automatically;
 5. create or resume the canonical branch named exactly after the Jira key,
    pin the normalized Jira snapshot, commit, and push;
 6. continue phase authoring in Copilot CLI with `/sflow-phase`, then return to
@@ -595,7 +595,7 @@ surface. Requirements, Planning, and phase screens show:
 - `/sflow-nextsteps` for deterministic recovery and sequencing.
 
 Copy the command, open the normal authenticated Copilot CLI in that repository,
-and run it there. The skill composes the configured working lens, phase contract,
+and run it there. The skill composes the configured governed agent, phase contract,
 repository world model, approved inputs, pinned sources, remote skills, and
 artifact template. Copilot questions and follow-up discussion stay in that CLI
 session. Successful generation and lifecycle actions commit and push through
@@ -613,7 +613,7 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 - **Artifact Studio** shows the phase sequence, generation and approval state, governed outputs, and the shared artifact repository.
 - **Requirements** shows a repository document tree, full Markdown preview, Git metadata, and section outline; uploaded design packages and reference links remain attached to the selected work item.
-- **Copilot CLI handoff** shows exact `/sflow-*` commands while the normal Copilot CLI performs working-lens-aware authoring and asks questions.
+- **Copilot CLI handoff** shows exact `/sflow-*` commands while the normal Copilot CLI performs governed-agent-aware authoring and asks questions.
 - **Impact analysis** visualizes repositories and child stories, then reports committed context freshness and interface-contract integrity without inventing unobserved dependencies.
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
@@ -651,7 +651,7 @@ must be a regular local manifest rather than a symlink. Older Jira-anchored
 workspace manifests remain supported.
 
 Files placed in `documents/inbox/` are shown as **staged — not governed**.
-On a resumed story branch with an active working lens, **Import to work item** copies,
+On a resumed story branch with an active governed agent, **Import to work item** copies,
 hashes, commits, and pushes a governed document. Initiative material instead uses
 checklist-aware evidence registration so assurance and freshness are preserved.
 
@@ -683,7 +683,7 @@ For creation, offline provisioning, recovery, and safety details, open
 
 ## How the workflow works
 
-The repository owns the process in `singularity/workflow.yml`. A work type selects an ordered phase sequence. Each phase selects an artifact template, world-model views, write scope, quality checks, suggested working lenses, human approval authority groups, threshold, and allowed rejection targets.
+The repository owns the process in `singularity/workflow.yml`. A work type selects an ordered phase sequence. Each phase selects an artifact template, default governed agent, world-model views, write scope, quality checks, human approval authority groups, threshold, and allowed rejection targets.
 
 At work-item creation, Singularity Flow snapshots the selected work type, resolved phase contracts, configuration hash, and template hashes into:
 
@@ -707,9 +707,9 @@ Start always asks for:
 
 1. Jira story or manual intake.
 2. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
-3. Working lens for the current session.
+3. governed agent for the current session.
 
-The workflow and working-lens pickers are deliberately human-driven. There are no public `--type` or `--persona` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sflow-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
+The workflow and governed-agent pickers are deliberately human-driven. There are no public `--type` or `--agent` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sflow-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
 
 Useful source forms include:
 
@@ -839,7 +839,7 @@ singularity-flow documents upload \
   --label "Checkout design"
 ```
 
-Each uploaded file receives a stable ID, content hash, MIME type, actor, persona, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
+Each uploaded file receives a stable ID, content hash, MIME type, actor, agent, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
 
 ### Fetch documents from a storage provider (OneDrive/SharePoint)
 
@@ -946,20 +946,17 @@ singularity-flow inputs design
 
 Normal execution updates the marker-delimited managed input block and writes `context/inputs-<phase>-gen<n>.json`. Repeating preparation replaces only that managed block. Publication recollects the approved artifacts so editing the rendered block cannot bypass enforcement. Use `/sflow-inputs` in Copilot.
 
-## Working lenses and approval authority
+## governed agents and approval authority
 
-Working lenses add prompt perspective and world-model views. Starter lenses include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.
+Governed agents combine role instructions and additive world-model views. Starter agents include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.
 
 ### Copilot multi-user session guidance
 
-Repositories may make Git-backed work-item and working-lens selection part of Copilot session startup:
+Repositories may make Git-backed work-item part of Copilot session startup:
 
 ```yaml
 session:
   workItemSelection: prompt # off | reuse | prompt
-  personaSelection: prompt # off | reuse | prompt
-  promptOnNewSession: true
-  promptOnResume: false
   requireBeforeTools: false
 ```
 
@@ -986,30 +983,28 @@ singularity-flow session attach WORK-123
 
 Ahead, diverged, missing, or malformed state stops without history rewriting or data loss. A dirty tree also stops when attachment would require a checkout or fast-forward. When the requested Story branch is already current and its HEAD exactly matches the freshly fetched remote HEAD, Singularity Flow may bind the Copilot session in place while preserving unpublished phase edits. If a pre-existing local work branch is ahead or diverged, it may remain checked out so the contributor can preserve or publish it. Singularity Flow never merges, rebases, resets, stashes, force-checks out, or deletes work during session attachment. Copilot must start inside a clone of the application repository so the configured remote is available.
 
-Working-lens `off`, `reuse`, and `prompt` retain the existing session-policy
-meanings. The bundled plugin's startup hook is advisory: it reminds the
+The phase contract selects its agent automatically. The bundled plugin's startup hook is advisory: it reminds the
 contributor about `/sflow-session` or `/sflow-start`, never invokes a skill
 automatically, and never denies Bash, edit, search, view, or other tools.
 `requireBeforeTools` therefore defaults to `false`. The setting and the
-`persona-guard` CLI handler remain available only for repositories that
+`agent-guard` CLI handler remain available only for repositories that
 deliberately install a custom command hook. Deterministic lifecycle validation
 continues to run inside every CLI mutation regardless of hook configuration.
 
-The binding is stored only under `.git/singularity-flow/` and creates no commit. It records the Copilot session ID and selected work item separately from the authenticated Git identity. Anyone may choose any configured working lens, and `/sflow-lens` can change it during the session without changing approval authority. Run `singularity-flow session status` to inspect `workItemSelectionRequired`, `selectionRequired`, and `ready`. The policy is snapshotted into the work item at creation. If `session` is absent, both selections resolve to `off` for backward compatibility.
+The binding is stored only under `.git/singularity-flow/` and creates no commit. It records the Copilot session ID, selected work item, active phase agent, and any explicit override separately from the authenticated Git identity. `/sflow-agent` can override the phase default without changing approval authority. Run `singularity-flow session status` to inspect work-item readiness and the active agent. The policy is snapshotted into the work item at creation.
 
-Working-lens suggestions are not restrictions. Anyone may choose any configured lens for any phase. Approval authority comes only from the phase’s pinned authority groups and the reviewer’s Git/GitHub identity. The selected lens is recorded separately as audit context and is never presented as independent review.
+An explicit agent override may choose any configured agent for any phase; an incompatible override is visibly warned and audited. Approval authority comes only from the phase’s pinned authority groups and the reviewer’s Git/GitHub identity. The active agent is recorded separately as instruction context and is never presented as independent review.
 
-Start and resume ask for a working lens. The active session is local:
+Start activates the first phase agent and resume activates the current phase agent. The active session is local:
 
 ```text
 .git/singularity-flow/session.json
 ```
 
-Selecting a working lens alone does not create a commit. The next generation, submission, approval, rejection, or document upload records the human actor and lens separately.
+Selecting an explicit governed-agent override does not create a commit. The next generation, submission, approval, rejection, or document upload records the human actor and active agent separately.
 
-Copilot uses its interactive `ask_user` facility for intake source, workflow,
-and working-lens choices. The choices are read from the CLI's live YAML-derived menu,
-so custom work types and working lenses appear automatically. With persistent terminal
+Copilot uses its interactive `ask_user` facility for intake source and workflow choices. The choices are read from the CLI's live YAML-derived menu,
+so custom work types appear automatically. With persistent terminal
 stdin, the skill sends the selected menu number back to the same CLI process. If
 that bridge is unavailable during start or approval, it records the exact `ask_user` answers
 in a 15-minute one-time receipt under the Git directory and passes only its token
@@ -1019,25 +1014,25 @@ ID. The receipt is bound to the work ID, repository HEAD, and Copilot session wh
 available, and is consumed once. Concurrent answer processes are serialized by
 a short-lived local lock; schema, filename token, repository HEAD, and expiry
 timestamps are revalidated on every read. The skill never invents a default or
-uses hidden `--type`/`--persona` flags. If `ask_user` is disabled, it stops.
+uses hidden workflow-selection flags. If `ask_user` is disabled, it stops.
 
-Switch the active working lens at any time without changing committed workflow state:
+Switch the active governed agent at any time without changing committed workflow state:
 
 ```text
-/sflow-lens
+/sflow-agent
 ```
 
 ```bash
-sflow-lens
+sflow-agent
 ```
 
-The selection remains active across CLI, Copilot, and later terminal invocations in this repository until another `start`, `resume`, `/sflow-lens`, approval, or rejection selection replaces it. It is deliberately not pushed: a different clone must run `singularity-flow resume <WORK-ID> --fetch` and declare its own working lens.
+The override remains active for the current phase and checkout. A phase transition or resume activates the new phase default. It is deliberately not pushed; generated and decision records capture the agent that was actually used.
 
-Multi-approval thresholds require distinct authenticated identities. Switching the working lens does not create another identity.
+Multi-approval thresholds require distinct authenticated identities. Switching the governed agent does not create another identity.
 
 ## Generating and publishing a phase
 
-In Copilot, use `/sflow-phase`. It loads the current phase contract, selected working-lens prompt, required world-model views, lens views, and evidence ledger when needed.
+In Copilot, use `/sflow-phase`. It loads the current phase contract, active governed Agent Markdown, required world-model views, agent-added views, and evidence ledger when needed.
 
 The equivalent CLI sequence is:
 
@@ -1123,7 +1118,7 @@ See all valid actions: singularity-flow nextsteps WORK-123
 No workflow files, commits, or remote state were changed.
 ```
 
-Every confirmed soft override records the gate, action, reason, prior state, authenticated identity, selected persona, and time in workflow history and artifact metadata. `status`, the work-item report, and the governance gate expose these overrides; governance reports them as warnings. A soft override is an audited exception, not a successful independent control.
+Every confirmed soft override records the gate, action, reason, prior state, authenticated identity, selected agent, and time in workflow history and artifact metadata. `status`, the work-item report, and the governance gate expose these overrides; governance reports them as warnings. A soft override is an audited exception, not a successful independent control.
 
 Starter repositories use soft gates for phase-status and document-phase mistakes while keeping completion, cross-phase actions, generation integrity, remote publication, and pending synchronization hard. Teams may change those defaults before starting a work item. Never bypass either mode by editing `workflow.json`, status files, metadata, or approvals directly.
 
@@ -1131,7 +1126,7 @@ Starter repositories use soft gates for phase-status and document-phase mistakes
 
 Use `/sflow-inbox` or `singularity-flow inbox` before choosing a work item when reviewing across a team. It fetches the configured remote and lists only valid committed work-item branches whose current phase is `awaiting_approval`, oldest first. Each row includes the work/Jira ID, phase, generation, approvals received/required, waiting time, authority groups, artifact path, self-approval warning, and remote commit. `singularity-flow inbox --offline` reads cached remote refs without network access.
 
-Selecting an inbox item invokes the existing safe session attachment path. The branch must fast-forward exactly to the fetched remote commit; dirty, ahead, diverged, malformed, or missing states stop without merging, rebasing, resetting, stashing, or discarding work. The reviewer then selects a working lens, sees their Git identity and matched authority group, and reviews the complete generated documents before separately choosing approval or rejection.
+Selecting an inbox item invokes the existing safe session attachment path. The branch must fast-forward exactly to the fetched remote commit; dirty, ahead, diverged, malformed, or missing states stop without merging, rebasing, resetting, stashing, or discarding work. The phase agent activates automatically; the reviewer sees their Git identity and matched authority group and reviews the complete generated documents before separately choosing approval or rejection.
 
 Approve from a terminal:
 
@@ -1139,7 +1134,7 @@ Approve from a terminal:
 singularity-flow approve WORK-123 --fetch
 ```
 
-The command fetches the branch, asks for a working lens, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sflow-approve` issues a 15-minute receipt for the lens and exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, and receipt before committing and pushing the decision.
+The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sflow-approve` issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, and receipt before committing and pushing the decision.
 
 Reject to an allowed target:
 
@@ -1173,7 +1168,7 @@ Use `/sflow-next` or `sflow-next --task "<objective>"` to execute exactly one
 next valid action. Depending on state, it synchronizes a retained commit,
 prepares and grounds the current generation, submits a published generation,
 opens the interactive approval flow, or runs the final terminal gate. Generation
-and submission remain separate invocations. Approval never bypasses persona
+and submission remain separate invocations. Approval never bypasses agent
 selection or confirmation, and its decision commit must be pushed before success.
 
 ## Progress and status
@@ -1246,7 +1241,7 @@ Every successful generation and lifecycle decision is committed and pushed when 
 singularity-flow resume WORK-123 --fetch
 ```
 
-Resume performs fetch plus fast-forward-only checkout and asks for a persona. It reconstructs work state from the branch rather than copying a local session.
+Resume performs fetch plus fast-forward-only checkout and asks for a agent. It reconstructs work state from the branch rather than copying a local session.
 
 If push fails, the local commit is retained and transitions are blocked. Fix connectivity or authentication and run:
 
@@ -1299,7 +1294,7 @@ The low-level `wm init`, `wm build`, `wm check`, and `wm context` commands remai
 repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sflow-story-start` lifecycle, however, generation is deliberately deferred
 until Story intake has created and checked out the canonical Story branch. A
-governed work ID and persona apply when `wm compose` creates a phase prompt.
+governed work ID and agent apply when `wm compose` creates a phase prompt.
 
 Use `--branch <name>` on `wm build`, `wm check`, or `wm context` to operate on
 any existing local or remote branch. The CLI fetches the remote (default
@@ -1347,21 +1342,21 @@ verified.
 The initiative portfolio routes context to world-model views that must be declared
 in the repository's `workflow.yml` under `worldModel.views`. Portfolio bootstrap
 now auto-declares any missing views (covering both the portfolio's needs and the
-repository's own phase/persona references), so onboarding a repository without a
+repository's own phase/agent references), so onboarding a repository without a
 `worldModel` block succeeds instead of failing.
 
-`wm compose` renders the active persona prompt with mandatory phase/persona
+`wm compose` renders the active agent prompt with mandatory phase/agent
 views, an exact task guide when `--task` is supplied, applicable evidence,
 focused `worldModel.injection.rules`, and verified active-agent skills. Rules may
-match the active persona, phase, immutable work type, committed or pending
+match the active agent, phase, immutable work type, committed or pending
 changed-path globs, and Jira/manual source labels. `wm inject` is a compatibility
 alias for the same command.
 
 `/sflow-show-prompt` is the read-only audit view for this composition. It prints
 the complete packaged `/sflow-phase` `SKILL.md`, then the exact current phase
 prompt between explicit markers. That second section contains the phase
-contract/template, working-lens prompt, selected world-model content,
-prompt-pack Markdown, and approved upstream inputs. It renders without writing
+contract/template, governed-agent prompt, selected world-model content,
+agent Markdown, and approved upstream inputs. It renders without writing
 a grounding record or changing workflow/Git state. Use
 `singularity-flow wm show-prompt --skill sflow-design` to inspect another
 packaged Flow skill against the same phase prompt.
@@ -1377,7 +1372,7 @@ making newly generated models auditable and inexpensive to inject.
 
 ```yaml
 worldModel:
-  # Governed view IDs. A view cannot be removed while a phase, persona,
+  # Governed view IDs. A view cannot be removed while a phase, agent,
   # workflow override, injection rule, or Markdown prompt still references it.
   views: [business, architecture, development, testing, release, operations, security]
   generation:
@@ -1391,7 +1386,7 @@ worldModel:
     mode: append             # replace | append | off
     maxBytes: 32768
     rules:
-      - when: { persona: architect, phase: design }
+      - when: { agent: architect, phase: design }
         include: [domains/payments.md]
       - when: { changedPaths: "src/api/**" }
         include: [domains/api.md]
@@ -1406,14 +1401,14 @@ singularity-flow wm compose --phase design --task "Design invoice export" --dry-
 ```
 
 Every non-dry-run composition writes
-`singularity/work-items/<WORK-ID>/context/<phase>-gen<n>.json` with the persona,
+`singularity/work-items/<WORK-ID>/context/<phase>-gen<n>.json` with the agent,
 committed model revision, manifest/source hashes, required views, selected files,
 SHA-256 hashes, byte counts, and truncation flags. It also writes the exact
 rendered prompt to `context/prompts/<phase>-gen<n>.md`. The next `phase publish`
 commit carries both files with the generation.
 
 In `enforce` mode, publication fails if composition is absent, stale, uncommitted,
-uses the wrong working lens, omits a required view, or differs from its committed
+uses the wrong governed agent, omits a required view, or differs from its committed
 manifest/prompt snapshot. `warn` reports the same problems without blocking.
 `off` skips the grounding gate and is the default for configurations created
 before this feature. The mode is pinned into work-item resolution at start, so
@@ -1423,28 +1418,28 @@ Context composition is additive:
 
 ```text
 + phase skill contract
-+ selected working-lens prompt
++ selected governed-agent prompt
 + phase-required world-model views
-+ working-lens world-model views
++ governed-agent world-model views
 + exact task guide (when requested)
 + rule-selected repository world-model files
-+ active prompt-pack Markdown
++ active agent Markdown
 + evidence ledger for verification and conformance
 ```
 
 Approved phase inputs are injected separately by `prepare` into the managed
-artifact template. Working-lens views never remove phase-required views. Verification
+artifact template. governed-agent views never remove phase-required views. Verification
 and conformance load test/source evidence. Phase skills use `wm compose` once,
 building first with the same exact task text when needed.
 
-## Remote Markdown prompt packs
+## Remote Markdown agents
 
-Repository world models always remain repository-generated and repository-owned. Prompt packs may additionally declare plain public HTTPS Markdown dependencies in exact tables under these headings. Their files use Copilot’s `.github/agents` convention, but Singularity Flow treats them as context resources—not people or approval identities.
+Repository world models always remain repository-generated and repository-owned. agents may additionally declare plain public HTTPS Markdown dependencies in exact tables under these headings. Their files use Copilot’s `.github/agents` convention, but Singularity Flow treats them as context resources—not people or approval identities.
 
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Personas | Optional | Max bytes |
+| ID | URL | Phases | Agents | Optional | Max bytes |
 
 ## Remote artifact templates
 
@@ -1457,17 +1452,17 @@ Repository world models always remain repository-generated and repository-owned.
 
 Only table links are processed; links in prose are inert. Content must be non-empty UTF-8 Markdown. The default limit is 1 MiB and the hard ceiling is 10 MiB. URLs must be public HTTPS without credentials. Dynamic output URLs support only URL-encoded `{workId}`, `{workType}`, `{phase}`, and `{generation}`. Output targets must remain under `artifacts/<phase>/`.
 
-Discover, trust, and activate a prompt pack:
+Discover, trust, and activate a agent:
 
 ```bash
-singularity-flow prompt-packs list
-singularity-flow prompt-packs mappings
-singularity-flow prompt-packs lock architecture
-singularity-flow prompt-packs sync architecture
-singularity-flow prompt-packs status architecture
+singularity-flow agents list
+singularity-flow agents mappings
+singularity-flow agents lock architecture
+singularity-flow agents sync architecture
+singularity-flow agents status architecture
 ```
 
-Copilot custom-agent names may be different from Flow prompt-pack IDs. Commit
+Copilot custom-agent names may be different from Flow agent IDs. Commit
 the differences in `singularity/agent-mappings.yml`; omitted agents retain the
 same-name fallback:
 
@@ -1477,21 +1472,21 @@ mappings:
   enterprise-architect: architecture
 ```
 
-The mapping selects prompt context only. It never selects a working lens,
+The mapping selects prompt context only. It never selects a governed agent,
 changes the contributor identity, or grants approval authority. Unknown target
-packs are rejected during validation. The desktop **Prompt packs** page exposes
+packs are rejected during validation. The desktop **agents** page exposes
 the editable mapping YAML and its effective resolution table.
 
-First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active prompt pack while preserving the selected working lens. No authentication, cookies, or bearer tokens are sent.
+First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active agent while preserving the selected governed agent. No authentication, cookies, or bearer tokens are sent.
 
-Remote skills are prompt context for the active prompt pack, not global slash commands. Reference a remote artifact template explicitly with the existing storage syntax `agent:architecture/design-template`; it is copied into the work item and pinned before use. Dynamic generated output is fetched once per prospective generation and reused.
+Remote skills are prompt context for the active agent, not global slash commands. Reference a remote artifact template explicitly with the existing storage syntax `agent:architecture/design-template`; it is copied into the work item and pinned before use. Dynamic generated output is fetched once per prospective generation and reused.
 
 ```bash
-singularity-flow prompt-packs refresh-output threat-model
+singularity-flow agents refresh-output threat-model
 # Add --replace only after deciding to discard local edits.
 ```
 
-The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. The desktop **Prompt packs** page edits repository agent Markdown, shows lock status, and keeps the lock read-only.
+The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. The desktop **agents** page edits repository agent Markdown, shows lock status, and keeps the lock read-only.
 
 ## Conformance and final gate
 
@@ -1503,7 +1498,7 @@ Run the final deterministic gate:
 singularity-flow gate --terminal
 ```
 
-The gate validates configuration and template snapshots, artifact hashes and metadata, generation publication, human approval identities and authority groups, prompt-only working-lens audit data, thresholds, rejection cascades, AC/SPEC/test traceability, conformance freshness, protected paths, and remote branch state.
+The gate validates configuration and template snapshots, artifact hashes and metadata, generation publication, human approval identities and authority groups, prompt-only governed-agent audit data, thresholds, rejection cascades, AC/SPEC/test traceability, conformance freshness, protected paths, and remote branch state.
 
 Conformance stores a source/test tree hash. Later code or test changes make the report stale and require regeneration.
 
@@ -1514,7 +1509,7 @@ Edit `singularity/workflow.yml` directly or use Singularity Flow Desktop. The de
 - `workTypes`: phase sequences and profile overrides
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
 - `phases`: artifact contracts, approved inputs, write scope, views, checks, and approvals
-- `personas`: prompt-only working lenses, views, and suggested phases
+- `agents`: prompt-only governed agents, views, and suggested phases
 - `approvalAuthorities`: real-human authority groups matched to Git/GitHub identity
 - repository agent Markdown and `singularity/agents.lock.yml`: optional trust-pinned remote prompt/template/output sources
 - `documents`: allowed upload phases and size limits
@@ -1522,7 +1517,7 @@ Edit `singularity/workflow.yml` directly or use Singularity Flow Desktop. The de
 - `tokens`: exact-or-unavailable mode and optional pricing
 - `governance`: protected paths and traceability rules
 
-Template resolution is work-type override, then phase default, then configuration error. Keep templates in `singularity/templates/` and persona prompts in `singularity/personas/`.
+Template resolution is work-type override, then phase default, then configuration error. Keep templates in `singularity/templates/` and agent prompts in `singularity/agents/`.
 
 Validate changes before publishing:
 
@@ -1563,8 +1558,8 @@ The desktop app provides:
 - Overview and progress dashboard with committed AI cost, exact-token, provider/model, phase-spend, and pricing-coverage views
 - Visual workflow profiles: create a profile by copying an existing workflow, rename it, or remove it
 - Stage designer: create stages, add shared stages, reorder or remove them, and select upstream artifact inputs
-- Artifact contracts: configure each stage's output path, kind, minimum size, write scope, template, quality commands, working lenses, authority groups, and world-model views
-- Working-lens creation, editing, prompt selection, phase recommendations, and separate human authority design
+- Artifact contracts: configure each stage's output path, kind, minimum size, write scope, template, quality commands, governed agents, authority groups, and world-model views
+- governed-agent creation, editing, prompt selection, phase recommendations, and separate human authority design
 - Artifact-template library with guided creation, source/preview editing, and safe deletion when unreferenced
 - Repository prompt and skill Markdown editors, including guided repository-skill creation
 - Repository agent Markdown editor and read-only remote lock status
@@ -1580,7 +1575,7 @@ The welcome screen remembers up to ten repository locations in local Electron ap
 
 Select a work item and open **Overview** to see total elapsed, active, and approval-wait time plus the wall-clock breakdown for every phase. These durations include nights and weekends. The cost dashboard prefers provider-reported cost from committed phase telemetry and falls back to exact model-name prices under `tokens.pricing`. Phase and model breakdowns show tokens, priced-record coverage, and whether each amount came from the provider or configured pricing. Exact, partial, and unavailable states are visibly distinct. When coverage is missing, the dashboard checks repository capture health and explains whether Copilot telemetry was inactive, the installed wrapper is outdated, an export is pending, exact token components are missing, or a matching model price is needed. It never displays an invented estimate or treats unavailable cost as zero. Past turns cannot be reconstructed when Copilot produced no raw telemetry; rerun `install.sh`, fully exit Copilot, and start a new session for future capture.
 
-Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, working lenses, inputs, and approval-authority groups atomically.
+Use **Workflow** for the visual designer. Changes update the YAML draft shown beside it, so advanced users can inspect or refine the exact source before selecting **Save**. The save operation validates profile IDs, stage order, artifact paths, templates, governed agents, inputs, and approval-authority groups atomically.
 
 Use **Artifact templates** under Epic planning to build the generated
 document structure. The visual builder provides reusable Business content,
@@ -1608,9 +1603,9 @@ again during generation and do not change when the remote URL changes. Select
 **Workflow** to assign it to a stage. Template deletion is refused while any
 default or workflow override still references it.
 
-Use **Prompts & skills** for repository working-lens prompts, the world-model builder prompt, and repository-specific Copilot skills under `.github/skills/<id>/SKILL.md`. Use **Prompt packs** for repository files that declare explicit remote skill/template/output tables. Installed plugin skills remain product defaults; repository prompt packs are portable project context.
+Use **Prompts & skills** for repository governed-agent prompts, the world-model builder prompt, and repository-specific Copilot skills under `.github/skills/<id>/SKILL.md`. Use **agents** for repository files that declare explicit remote skill/template/output tables. Installed plugin skills remain product defaults; repository agents are portable project context.
 
-Use **Repository world model** to manage the declared view registry, edit or import the builder prompt in place, and inspect or download generated grounding files. Each view shows every structured dependency (phase, working lens, workflow override, or injection rule) and each Markdown file containing an explicit `views/<id>.md` reference. The **Remove** action stays disabled until those references are removed. Manual YAML or prompt edits receive the same validation; invalid saves are rolled back atomically.
+Use **Repository world model** to manage the declared view registry, edit or import the builder prompt in place, and inspect or download generated grounding files. Each view shows every structured dependency (phase, governed agent, workflow override, or injection rule) and each Markdown file containing an explicit `views/<id>.md` reference. The **Remove** action stays disabled until those references are removed. Manual YAML or prompt edits receive the same validation; invalid saves are rolled back atomically.
 
 World-model content is never imported from an agent or remote URL: it is built from the open repository and remains read-only in the desktop. Select **Download config** to export the workflow YAML, artifact templates, prompts, repository skills, repository agents, and current world-model snapshots as an ordinary folder tree. Imports accept `.yml`, `.yaml`, and `.md` files and stay uncommitted until **Commit & push**.
 
@@ -1622,10 +1617,10 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | Copilot command | Purpose |
 |---|---|
 | `/sf-about` | Explain the Singularity Flow brand, installed version, capabilities, and command namespace |
-| `/sf-start` | Guided Jira or manual intake, workflow selection, and working-lens selection |
-| `/sf-resume` | Fetch, fast-forward, and select a working lens |
-| `/sf-lens` | Select or change the prompt-only working lens for the current local work-item session |
-| `/sf-session` | Select a work/Jira ID, synchronize its remote branch, then bind the session working lens |
+| `/sf-start` | Guided Jira or manual intake and workflow selection; the first phase agent is automatic |
+| `/sf-resume` | Fetch, fast-forward, and activate the current phase agent |
+| `/sf-agent` | Select or change the prompt-only governed agent for the current local work-item session |
+| `/sf-session` | Select a work/Jira ID, synchronize its remote branch, then activate the current phase agent |
 | `/sf-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sf-help` | Load this manual or explain the selected work-item workflow |
 | `/sf-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
@@ -1687,7 +1682,7 @@ The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPOR
 
 ## Low-friction cockpit, diagnostics, and guided execution
 
-Run `singularity-flow` with no arguments, or `singularity-flow cockpit`, to open the terminal cockpit. It shows the current work item, persona, assignment, progress, current phase, blockers, and deterministic next actions without changing state. In Copilot use `/sflow-home`.
+Run `singularity-flow` with no arguments, or `singularity-flow cockpit`, to open the terminal cockpit. It shows the current work item, agent, assignment, progress, current phase, blockers, and deterministic next actions without changing state. In Copilot use `/sflow-home`.
 
 ```bash
 singularity-flow doctor
@@ -1695,7 +1690,7 @@ singularity-flow doctor WORK-123 --offline
 singularity-flow run --task "Implement the approved screen contract"
 ```
 
-Doctor checks Node and Git, YAML and workflow state, local working lens, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats a lens as approval permission and never approves automatically.
+Doctor checks Node and Git, YAML and workflow state, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
 
 ## Workflow catalog and preflight simulation
 
@@ -1706,7 +1701,7 @@ singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
 ```
 
-`workflow add` copies the profile plus missing Markdown templates/persona prompts and validates the resulting YAML. Customized profiles are never overwritten unless `--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work items keep their immutable resolution snapshots.
+`workflow add` copies the profile plus missing Markdown templates/agent prompts and validates the resulting YAML. Customized profiles are never overwritten unless `--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work items keep their immutable resolution snapshots.
 
 ## Review bundles, assignments, and watching
 
@@ -1717,7 +1712,7 @@ singularity-flow assign design "mobile-team"
 singularity-flow watch WORK-123 --once
 ```
 
-The review bundle contains the artifact in full, input provenance, checks, approvals/self-approval warnings, model/token records, source changes, and supporting evidence. The desktop **Review bundle** page renders the same data. Assignments are committed/pushed coordination metadata, not working-lens restrictions. Configure `collaboration.assignmentMode` as `off`, `suggested`, or `required`; required assignments block publication and submission.
+The review bundle contains the artifact in full, input provenance, checks, approvals/self-approval warnings, model/token records, source changes, and supporting evidence. The desktop **Review bundle** page renders the same data. Assignments are committed/pushed coordination metadata, not governed-agent restrictions. Configure `collaboration.assignmentMode` as `off`, `suggested`, or `required`; required assignments block publication and submission.
 
 ## Design package inventory and gallery
 
@@ -1734,10 +1729,10 @@ Recovery is plan-first. Apply only retries retained publication or performs a
 clean fast-forward; it never resets, rebases, force-pushes, stashes, or discards
 work. The bundled Copilot plugin uses a nonblocking `sessionStart` prompt for
 guidance and a nonblocking `subagentStart` command hook for exact custom-agent
-name to prompt-pack mapping. The mapping activates only local-only packs or
+name to agent mapping. The mapping activates only local-only packs or
 already locked and cached remote packs; it never fetches, trusts, changes a
-working lens, or grants approval authority. No `preToolUse` guard is registered.
-Work-item synchronization and working-lens selection happen only when the
+governed agent, or grants approval authority. No `preToolUse` guard is registered.
+Work-item synchronization happen only when the
 contributor explicitly invokes `/sflow-session`, `/sflow-start`, or the
 equivalent CLI command.
 
@@ -1759,7 +1754,7 @@ Only `singularity-flow@singularity-flow` should remain. Close existing Copilot s
 
 Updated `/sflow-start` and `/sflow-approve` skills keep you inside Copilot even when `write_bash` or persistent stdin is unavailable. Start uses `singularity-flow choices begin start <WORK-ID> --json`; approval uses `singularity-flow choices begin approve <WORK-ID> --fetch --json`. Each asks you for the returned choices and invokes the lifecycle command with a one-time receipt. If an installed skill still directs you to a terminal immediately, update the repository, run `./install.sh`, open a new terminal, and start a new Copilot session so the refreshed skill is loaded. Raw non-interactive start or approval without either a TTY or a valid receipt still fails safely.
 
-Resume, working-lens switching, and rejection continue to require their interactive picker when invoked without a dedicated UI bridge; they never reuse a start or approval receipt.
+Resume, governed-agent switching, and rejection continue to require their interactive picker when invoked without a dedicated UI bridge; they never reuse a start or approval receipt.
 
 ### A transition is blocked after push failure
 
@@ -1771,7 +1766,7 @@ Move source changes to implementation or verification. Intake, requirements, des
 
 ### Approval identity is rejected
 
-Check `git config user.email` (or the authenticated GitHub login for comment-driven decisions) and compare it with the phase’s configured `approvalAuthorities`. Selecting Architect, QA, or another working lens cannot grant permission.
+Check `git config user.email` (or the authenticated GitHub login for comment-driven decisions) and compare it with the phase’s configured `approvalAuthorities`. Selecting Architect, QA, or another governed agent cannot grant permission.
 
 ### Jira fields are empty or wrong
 
@@ -1785,13 +1780,13 @@ Run `singularity-flow telemetry status`. If it says the exporter is not active, 
 
 Confirm the directory is a Git repository and contains `singularity/workflow.yml`. If Singularity Desktop finds the former `.singularity/` or `.sdlc/` control folder, it offers a guarded migration before opening the repository. The migration changes only the current branch working tree; review the rename and use **Commit & push** when ready. It never merges into `main`. For a repository with no control folder, run `singularity-flow init` and commit the initialized files first.
 
-### Prompt-pack sync reports stale or changed content
+### Remote agent sync reports stale or changed content
 
-Run `singularity-flow prompt-packs status <PACK>`. If the pack Markdown or a remote hash changed, use `singularity-flow prompt-packs lock <PACK> --update`, inspect the old/new hashes, type the exact pack name, commit the lock, and sync again. Never edit the lock by hand.
+Run `singularity-flow agents status <AGENT>`. If Agent Markdown or a remote hash changed, use `singularity-flow agents lock <AGENT> --update`, inspect the old/new hashes, type the exact agent name, commit the lock, and sync again. Never edit the lock by hand.
 
 ### Remote generated output has local edits
 
-Review the local artifact first. `singularity-flow prompt-packs refresh-output <RESOURCE-ID>` will preserve conflicting local edits and explain the conflict. Add `--replace` only when you intentionally want the newly fetched Markdown to overwrite them.
+Review the local artifact first. `singularity-flow agents refresh-output <RESOURCE-ID>` will preserve conflicting local edits and explain the conflict. Add `--replace` only when you intentionally want the newly fetched Markdown to overwrite them.
 
 ### An initiative template does not exist
 
@@ -1825,8 +1820,8 @@ singularity-flow help [TOPIC] [--json]
 singularity-flow init
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
-singularity-flow lens [WORK-ID]
-sflow-lens [WORK-ID]
+singularity-flow agent [WORK-ID]
+sflow-agent [WORK-ID]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
@@ -1840,12 +1835,12 @@ singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
 singularity-flow recover [WORK-ID] [--fetch] [--apply]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow inputs [PHASE] [--dry-run]
-singularity-flow prompt-packs list
-singularity-flow prompt-packs mappings
-singularity-flow prompt-packs lock <PACK> [--update]
-singularity-flow prompt-packs sync <PACK>
-singularity-flow prompt-packs status [PACK]
-singularity-flow prompt-packs refresh-output <RESOURCE-ID> [--replace]
+singularity-flow agents list
+singularity-flow agents mappings
+singularity-flow agents lock <PACK> [--update]
+singularity-flow agents sync <PACK>
+singularity-flow agents status [PACK]
+singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]

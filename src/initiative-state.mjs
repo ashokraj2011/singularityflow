@@ -382,7 +382,7 @@ function phaseState(phase, index, createdAt) {
       sha256: null,
       bytes: 0,
       generatedBy: null,
-      generatedPersona: null
+      generatedAgent: null
     }])),
     checklist: Object.fromEntries(phase.checklist.map((check) => [check.id, {
       id: check.id,
@@ -418,7 +418,7 @@ function statusMarkdown(initiative) {
     lines.push(`| ${phase.order + 1} | ${phase.label} | **${phase.status}** | ${phase.generation} | ${outputs.filter((item) => item.status !== 'not_generated').length}/${outputs.length} | ${checks.filter((item) => ['satisfied', 'waived', 'not_applicable'].includes(item.status)).length}/${checks.length} |`);
   }
   lines.push('', '## Recent history', '');
-  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.persona ? ` · working lens ${event.persona}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
+  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.agent ? ` · governed agent ${event.agent}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -445,7 +445,7 @@ export async function createInitiative(root, {
   title,
   profile,
   source = { type: 'manual' },
-  persona = null,
+  agent = null,
   idAuthority = null,
   startPhase = null,
   capabilityId = null
@@ -558,7 +558,7 @@ export async function createInitiative(root, {
     history: [{
       at: createdAt,
       actor: actorKey(actor),
-      persona,
+      agent,
       event: 'initiative_started',
       phase: entryPhase,
       detail: skipped.length
@@ -721,7 +721,7 @@ export function availableInitiativeOutputs(portfolio, initiative, phaseId) {
  * Adopting an output the Epic never pinned brings its template hash with it, so the adopted output
  * is governed on exactly the same terms as one pinned at the start.
  */
-export async function selectInitiativePhaseOutputs(root, id, phaseId, includedIds, { reason = null, persona = null } = {}) {
+export async function selectInitiativePhaseOutputs(root, id, phaseId, includedIds, { reason = null, agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phase = initiative.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Initiative '${id}' has no phase '${phaseId}'.`);
@@ -769,7 +769,7 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
       sha256: null,
       bytes: 0,
       generatedBy: null,
-      generatedPersona: null
+      generatedAgent: null
     };
   }
 
@@ -778,7 +778,7 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
   initiative.history.push({
     at: nowIso(),
     actor: actorKey(actor),
-    persona,
+    agent,
     event: 'initiative_outputs_selected',
     phase: phaseId,
     detail: `${before.join(', ') || 'none'} → ${requested.join(', ') || 'none'}${adopted.length ? ` (adopted ${adopted.join(', ')})` : ''}${reason ? `: ${reason}` : ''}`
@@ -795,7 +795,7 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
  * on the initiative makes the decision explicit and auditable rather than leaving the item to be
  * hand-waived with evidence, and lets the checklist resolve itself once the answer exists.
  */
-export async function setInitiativeApplicability(root, initiativeId, policyId, applicable, { reason = null, persona = null } = {}) {
+export async function setInitiativeApplicability(root, initiativeId, policyId, applicable, { reason = null, agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   // The Epic's own pinned policies, so the question being answered is the one it started under.
   // Older Epics were pinned before policies were carried into the resolution, so they fall back.
@@ -815,7 +815,7 @@ export async function setInitiativeApplicability(root, initiativeId, policyId, a
   initiative.history.push({
     at: nowIso(),
     actor: actorKey(actor),
-    persona,
+    agent,
     event: 'initiative_applicability_set',
     phase: initiative.currentPhase,
     detail: `${policyId}: ${previous ? `${previous.applicable ? 'applicable' : 'not applicable'} → ` : ''}${applicable ? 'applicable' : 'not applicable'}${reason ? `: ${reason}` : ''}`
@@ -856,7 +856,7 @@ export function initiativeApplicabilityState(portfolio, initiative) {
  * the profile is resolved again from current configuration, which is what makes restarting the way
  * an Epic adopts a phase shape that has changed since it began.
  */
-export async function restartInitiative(root, id = branch(root), { reason = null, persona = null } = {}) {
+export async function restartInitiative(root, id = branch(root), { reason = null, agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`);
   const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile);
@@ -908,7 +908,7 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   initiative.history.push({
     at: restartedAt,
     actor: actorKey(actor),
-    persona,
+    agent,
     event: 'initiative_restarted',
     phase: phases[0]?.id ?? null,
     detail: `from ${previous.phase ?? 'complete'} (${previous.status}); ${removed.length} artifact${removed.length === 1 ? '' : 's'} discarded${reason ? `: ${reason}` : ''}`
@@ -917,7 +917,7 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   return { portfolio, initiative, removed, previous };
 }
 
-export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { persona = null } = {}) {
+export async function prepareInitiativePhase(root, id = branch(root), requestedPhase = null, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, id);
   const phaseId = requestedPhase ?? initiative.currentPhase;
   if (!phaseId || phaseId !== initiative.currentPhase) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot prepare '${phaseId ?? 'none'}'.`);
@@ -949,7 +949,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
         sha256: current.sha256,
         bytes: current.size,
         generatedBy: actor,
-        generatedPersona: persona ?? null
+        generatedAgent: agent ?? null
       });
       prepared.push({ id: output.id, path: target.relative, sha256: current.sha256, bytes: current.size, generated: definition.generator });
       continue;
@@ -962,7 +962,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
         sha256: null,
         bytes: 0,
         generatedBy: null,
-        generatedPersona: null
+        generatedAgent: null
       });
       prepared.push({
         id: output.id,
@@ -1014,7 +1014,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       sha256: current.sha256,
       bytes: current.size,
       generatedBy: actor,
-      generatedPersona: persona
+      generatedAgent: agent
     });
     prepared.push({
       id: output.id,
@@ -1024,7 +1024,7 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
       awaitingUpload: false
     });
   }
-  initiative.history.push({ at: nowIso(), actor: actorKey(actor), persona, event: 'initiative_phase_prepared', phase: phase.id, detail: `${prepared.length} outputs` });
+  initiative.history.push({ at: nowIso(), actor: actorKey(actor), agent, event: 'initiative_phase_prepared', phase: phase.id, detail: `${prepared.length} outputs` });
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative, phase, outputs: prepared };
 }

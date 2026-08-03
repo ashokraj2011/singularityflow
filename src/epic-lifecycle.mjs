@@ -35,7 +35,7 @@ function planningOutput(initiative, id) {
  * Epic description is sufficient to enter Requirements. Repository grounding
  * starts only after a Story has its canonical branch.
  */
-export async function completeEpicIntake(root, initiativeId, { persona = null } = {}) {
+export async function completeEpicIntake(root, initiativeId, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.resolution.profile !== 'epic-planning') {
     throw new SingularityFlowError('Automatic Intake completion is available only for the Epic planning profile.');
@@ -54,7 +54,7 @@ export async function completeEpicIntake(root, initiativeId, { persona = null } 
   initiative.history.push({
     at,
     actor: 'singularity-flow',
-    persona,
+    agent,
     event: 'epic_intake_completed',
     phase: EPIC_PHASES.intake,
     detail: 'Epic identity and pinned source catalog accepted; repository grounding is deferred to Story intake'
@@ -576,7 +576,7 @@ export async function completeEpicPublication(root, initiativeId) {
       sha256: current.sha256,
       bytes: current.size,
       generatedBy: actor,
-      generatedPersona: null,
+      generatedAgent: null,
       publishedAt: nowIso(),
       approvedAt: nowIso()
     });

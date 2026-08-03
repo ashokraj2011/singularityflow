@@ -72,7 +72,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         reviewerAuthorities: phase.approvalPolicy?.authorities ?? [],
         submittedAt: phase.submittedAt ?? null,
         submittedBy: submitted?.actor ?? null,
-        submittedPersona: submitted?.persona ?? null,
+        submittedAgent: submitted?.agent ?? null,
         waitingMinutes: minutes,
         waiting: waitingLabel(minutes),
         artifact: phase.requiredArtifact?.path ? `${workRoot}/${id}/${phase.requiredArtifact.path}` : null,

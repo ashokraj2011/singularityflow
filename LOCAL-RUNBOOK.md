@@ -34,16 +34,15 @@ To run fully offline instead, set `git: { publish: off }` in `singularity/workfl
 
 ### Commands that require an interactive terminal
 
-`choose()` refuses a non-TTY selection so that no agent can choose on a contributor's behalf.
+`choose()` refuses a non-TTY selection so that no agent can choose a durable human decision on a contributor's behalf.
 
 | Command | Prompts for | Non-interactive alternative |
 |---|---|---|
-| `start <ID>` | intake source, workflow template, working lens | `--selection-receipt TOKEN` |
-| `approve <ID>` | working lens, typed phase confirmation | `--selection-receipt TOKEN` |
-| `lens`, `resume`, `reject`, `epic start --local` | working lens | none |
+| `start <ID>` | intake source and workflow template | `--selection-receipt TOKEN` |
+| `approve <ID>` | typed phase confirmation | `--selection-receipt TOKEN` |
 | soft sequence-gate override | typed `continue` | none |
 
-`approve --yes` skips only the typed phase confirmation; it still prompts for the working lens. Everything else — `prepare`, `phase publish`, `artifact`, `submit`, `documents`, all `wm` subcommands, `session`, `status`, `progress`, `report`, `review`, `validate`, `sync`, `gate`, `nextsteps` — is fully non-interactive.
+`approve --yes` skips only the typed phase confirmation. Phase agents are resolved automatically and never selected in an approval flow. Everything else — `prepare`, `phase publish`, `artifact`, `submit`, `documents`, all `wm` subcommands, `session`, `agent`, `resume`, `reject`, `status`, `progress`, `report`, `review`, `validate`, `sync`, `gate`, and `nextsteps` — is fully non-interactive.
 
 ---
 
@@ -107,8 +106,8 @@ files. It does not modify or push `main`. If `origin/WORK-123` already exists,
 `--fetch` checks out that branch instead of creating a conflicting branch.
 
 `init` writes `singularity/workflow.yml`, `singularity/portfolio.yml`,
-`singularity/templates/`, `singularity/personas/`, and
-`singularity/prompts/`, copying only files that are missing. It does not commit
+`singularity/templates/`, `.github/agents/`, and `singularity/prompts/`,
+copying only files that are missing. It does not commit
 or push; the explicit Git commands above keep that review boundary visible.
 
 Initialization is safely repeatable on the current branch. It never overwrites
@@ -252,7 +251,7 @@ Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` 
 
 ## 4. Manual Story intake
 
-`start` asks three questions: intake source (skipped when manual detail flags are present), workflow template, and working lens. There is deliberately no `--type` or `--persona` flag — those selections stay with the contributor.
+`start` asks two durable questions: intake source (skipped when manual detail flags are present) and workflow template. The first phase's default governed agent activates automatically from `.github/agents/*.agent.md`.
 
 ### Prepared story file
 
@@ -297,11 +296,10 @@ Asks for title, user, problem, desired outcome, acceptance criteria, and support
 ### Non-interactive, via a selection receipt
 
 ```bash
-singularity-flow choices begin start WORK-123 --json     # prints the token and three choice sets
+singularity-flow choices begin start WORK-123 --json     # prints the token and durable choice sets
 TOKEN=<uuid>
 singularity-flow choices answer $TOKEN intake-source     manual        --json
 singularity-flow choices answer $TOKEN workflow-template feature       --json
-singularity-flow choices answer $TOKEN persona           product-owner --json
 singularity-flow choices status $TOKEN --json            # ready: true
 singularity-flow start WORK-123 --story-file /tmp/story.yml --selection-receipt $TOKEN
 ```
@@ -327,22 +325,22 @@ singularity-flow epic start --local \
   --goal "Ship a filtered, authorized invoice export"
 ```
 
-All three flags are required, and `--profile` defaults to `epic-planning`. Before the first local Epic, populate `approvalAuthorities` in `singularity/portfolio.yml` — the shipped profiles declare the groups with no members, and start refuses until each referenced group has at least one local Git identity. The command then prompts for a working lens, so it needs an interactive terminal.
+All three flags are required, and `--profile` defaults to `epic-planning`. Before the first local Epic, populate `approvalAuthorities` in `singularity/portfolio.yml` when the selected profile requires named members. The first phase's governed agent activates automatically; there is no role picker.
 
 Continue with `epic sources`, `epic requirements`, `epic planning`, and `initiative materialize`, which seeds Story branches as `SF-S-001-001`. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 
 ---
 
-## 5. Session and working lens
+## 5. Session and governed agent
 
 ```bash
 singularity-flow session status --json
 singularity-flow session candidates --json
 singularity-flow session attach WORK-123 --json
-singularity-flow lens WORK-123
+singularity-flow agent WORK-123 --agent architect
 ```
 
-`session attach` fetches the configured remote, requires `refs/remotes/origin/<ID>` to exist, and fast-forwards only. `start` already binds a working lens, so `lens` is needed only when resuming in a new terminal or after switching work items.
+`session attach` fetches the configured remote, requires `refs/remotes/origin/<ID>` to exist, fast-forwards only, and activates the current phase's default agent. `agent --agent` is an explicit local override for exceptional work. It does not create a commit and cannot grant approval authority.
 
 ---
 
@@ -375,7 +373,6 @@ Approve without a terminal:
 git status --porcelain                       # must be clean
 singularity-flow choices begin approve WORK-123 --json
 TOKEN=<uuid>
-singularity-flow choices answer $TOKEN persona            product-owner --json
 singularity-flow choices answer $TOKEN phase-confirmation intake        --json
 singularity-flow approve WORK-123 --selection-receipt $TOKEN
 ```
@@ -406,7 +403,7 @@ singularity-flow documents list WORK-123
 singularity-flow documents view DOC-001 --work-id WORK-123
 ```
 
-Uploads require an active working-lens session bound to the work item, and are allowed only in the phases listed by `documents.allowedPhases` — for `feature` that is `intake`, `requirements`, `design`, and `implementation-spec`. Later uploads trigger a soft gate that must be confirmed interactively. `--label` applies to a single document; the per-file limit is `documents.maxFileBytes`.
+Uploads require an active work-item session with its current phase agent, and are allowed only in the phases listed by `documents.allowedPhases` — for `feature` that is `intake`, `requirements`, `design`, and `implementation-spec`. Later uploads trigger a soft gate that must be confirmed interactively. `--label` applies to a single document; the per-file limit is `documents.maxFileBytes`.
 
 ---
 

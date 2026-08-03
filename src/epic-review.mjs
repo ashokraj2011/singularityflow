@@ -11,7 +11,7 @@ import { runAndRecordStoryChecks } from './github-evidence.mjs';
 import { documentCatalog } from './documents.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { commitInitiativeChange } from './initiative-state.mjs';
-import { setPersonaSession } from './session.mjs';
+import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 
@@ -152,10 +152,11 @@ function approvalPreview(selected) {
     .reverse()
     .find((entry) => entry.packetSha256 === selected.packet.packetSha256) ?? null;
   const reviewer = identity(selected.clone);
-  const workingLenses = Object.entries(selected.config.personas ?? {}).map(([id, lens]) => ({
+  const availableAgents = Object.entries(selected.config.agents ?? {}).map(([id, agent]) => ({
     id,
-    label: lens.label ?? id
+    label: agent.label ?? id
   }));
+  const defaultAgent = phase.defaultAgent ?? availableAgents[0]?.id ?? null;
   const authority = matchApprovalAuthority(
     selected.workflow.resolution.approvalAuthorities ?? selected.config.approvalAuthorities,
     phase.approvalPolicy,
@@ -166,7 +167,8 @@ function approvalPreview(selected) {
     status: phase.status,
     generation: phase.generation,
     minimum: phase.approvalPolicy?.minimum ?? 1,
-    workingLenses,
+    availableAgents,
+    defaultAgent,
     reviewerAuthority: authority,
     rejectTo: phase.approvalPolicy?.rejectTo ?? [phase.id],
     reviewer,
@@ -197,7 +199,7 @@ export async function epicReviewStory(root, initiativeId, storyReference, { pack
 export async function epicReviewDecision(root, initiativeId, storyReference, {
   packetSha256,
   decision,
-  persona,
+  agent,
   target = null,
   reason = null,
   channel = 'desktop-epic-review'
@@ -209,9 +211,10 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   if (preview.status !== 'awaiting_approval') {
     throw new SingularityFlowError(`Story phase '${preview.phase}' is '${preview.status}', not awaiting approval.`);
   }
-  if (!preview.workingLenses.some((entry) => entry.id === persona)) {
+  const selectedAgent = agent ?? preview.defaultAgent;
+  if (!preview.availableAgents.some((entry) => entry.id === selectedAgent)) {
     throw new SingularityFlowError(
-      `Unknown working lens '${persona ?? ''}'. Choose one of: ${preview.workingLenses.map((entry) => entry.id).join(', ')}.`
+      `Unknown governed agent '${selectedAgent ?? ''}'. Choose one of: ${preview.availableAgents.map((entry) => entry.id).join(', ')}.`
     );
   }
   if (!preview.reviewerAuthority.authorized) throw new SingularityFlowError(preview.reviewerAuthority.reason);
@@ -220,11 +223,11 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
       `Exact-SHA checks have not passed for packet '${packetSha256.slice(0, 12)}'. Run and record checks before approval.`
     );
   }
-  await setPersonaSession(
+  await setAgentSession(
     selected.clone,
     selected.config,
     identity(selected.clone),
-    persona,
+    selectedAgent,
     selected.workflow.workItem.id
   );
   const outcome = decision === 'approve'

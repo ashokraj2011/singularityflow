@@ -56,7 +56,7 @@ test('desktop Story intake creates durable manual state and resumes an existing 
     id: 'WORK-901',
     source,
     workType: 'feature',
-    persona: 'product-owner',
+    agent: 'product-owner',
     files: [sourceFile],
     urls: ['https://example.com/export-reference']
   });
@@ -81,7 +81,7 @@ test('desktop Story intake creates durable manual state and resumes an existing 
     id: 'WORK-901',
     source: manualStorySource('WORK-901', { title: 'Ignored because state exists' }),
     workType: 'bugfix',
-    persona: 'developer'
+    agent: 'developer'
   });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.workflow.workItem.workType, 'feature');

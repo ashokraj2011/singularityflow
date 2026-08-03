@@ -77,12 +77,12 @@ test('init check finds missing assets and repair restores them without overwriti
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const customizedWorkflow = `${await readFile(workflowPath, 'utf8')}\n# company customization remains\n`;
   await writeFile(workflowPath, customizedWorkflow);
-  await rm(path.join(root, 'singularity/personas/qa.md'));
+  await rm(path.join(root, '.github/agents/qa.agent.md'));
   await rm(path.join(root, 'singularity/prompts/copilot-planning.md'));
 
   const before = JSON.parse(run(process.execPath, [cli, 'init', '--check', '--json'], root).stdout);
   assert.equal(before.complete, false);
-  assert.ok(before.missingFiles.includes('singularity/personas/qa.md'));
+  assert.ok(before.missingFiles.includes('.github/agents/qa.agent.md'));
   assert.ok(before.missingFiles.includes('singularity/prompts/copilot-planning.md'));
 
   const repaired = run(process.execPath, [cli, 'init', '--repair'], root);
@@ -91,6 +91,6 @@ test('init check finds missing assets and repair restores them without overwriti
   assert.equal(after.complete, true);
   assert.equal(after.missingFiles.length, 0);
   assert.equal(await readFile(workflowPath, 'utf8'), customizedWorkflow);
-  assert.match(await readFile(path.join(root, 'singularity/personas/qa.md'), 'utf8'), /\S/);
+  assert.match(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), /\S/);
   assert.match(await readFile(path.join(root, 'singularity/prompts/copilot-planning.md'), 'utf8'), /\S/);
 });

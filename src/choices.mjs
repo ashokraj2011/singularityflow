@@ -47,23 +47,12 @@ function choiceSets(definition, action, workflow = null) {
         { id: 'manual', label: 'Manual description and documents', description: 'Use supplied story details, local files, and URLs.' }
       ]
     },
-    { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) },
-    { id: 'persona', label: 'Working lens', options: options(Object.entries(definition.personas ?? {})) }
+    { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) }
   ];
   if (action === 'approve') {
     const context = approvalContext(workflow);
     const phase = workflow.phases[context.phase];
-    const personas = Object.entries(definition.personas ?? {});
-    if (!personas.length) throw new SingularityFlowError(`No working lens is configured for phase '${phase.id}'.`);
     return [
-      {
-        id: 'persona',
-        label: 'Working lens (audit only)',
-        options: options(personas).map((entry) => ({
-          ...entry,
-          description: `${entry.description || 'Prompt perspective for this session.'} Approval authority comes from your Git identity, not this choice.`
-        }))
-      },
       {
         id: 'phase-confirmation',
         label: 'Exact phase confirmation',

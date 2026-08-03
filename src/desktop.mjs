@@ -18,7 +18,7 @@ import { documentCatalog } from './documents.mjs';
 import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
 import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
-import { loadSession, setPersonaSession } from './session.mjs';
+import { loadSession, setAgentSession } from './session.mjs';
 import { loadWorkflow } from './state.mjs';
 import {
   exists,
@@ -348,7 +348,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     };
   }
   const agentLock = await secureRepositoryPath(root, AGENT_LOCK_PATH, {
-    label: 'Remote prompt-pack lock file',
+    label: 'Remote agent lock file',
     type: 'file'
   });
   const lockExists = agentLock.exists;
@@ -412,7 +412,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
     capabilityMapPath: CAPABILITIES_PATH,
     portfolioText,
     templates: await textFiles(root, definition.templatesRoot),
-    personaPrompts: await textFiles(root, definition.personaPromptsRoot),
+    agentPrompts: await textFiles(root, definition.agentPromptsRoot),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     flowSkills: await bundledFlowSkills(),
     planning: {
@@ -452,7 +452,7 @@ export async function desktopSnapshot(root, requestedWorkId = null, requestedIni
         : await readFile(path.join(packageRoot, 'templates', 'agent-mappings.yml'), 'utf8'),
       rows: mappingStatus.rows
     },
-    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote prompt packs are trusted yet.\n' },
+    agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
     workItems: items,
     initiatives,
     selectedInitiativeId,
@@ -479,6 +479,10 @@ export async function bootstrapDesktopPortfolio(root, {
   replaceEmptyStarter = false
 } = {}) {
   const target = path.join(root, PORTFOLIO_PATH);
+  // Repositories initialized before Agent Markdown owned world-model views can temporarily have
+  // no worldModel block. Repair the repository-level agent and phase requirements before using
+  // the strict loader; portfolio-specific views are merged below once the profile is known.
+  await ensureRepositoryWorldModelViews(root);
   const definition = await loadDefinition(root);
   const targetExists = await exists(target);
   let repairedEmptyStarter = false;
@@ -582,7 +586,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
     || relative === AGENT_MAPPING_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
-    || relative.startsWith(`${posix(definition.personaPromptsRoot).replace(/\/$/, '')}/`)
+    || relative.startsWith(`${posix(definition.agentPromptsRoot).replace(/\/$/, '')}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || (promptSource && promptSource !== 'builtin' && relative === posix(promptSource))
@@ -607,7 +611,7 @@ export async function saveDesktopFile(root, requestedPath, content) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
-  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, working-lens prompts, repository skills, world-model builder prompts, and repository prompt-pack Markdown. Generated world-model files, initiative state, and prompt-pack locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio)) throw new SingularityFlowError(`Desktop editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try { validateDefinition(YAML.parse(content)); }
     catch (error) { throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`); }
@@ -660,13 +664,13 @@ export async function deleteDesktopFile(root, requestedPath) {
   const relative = repoRelative(root, requestedPath);
   const templatesRoot = posix(definition.templatesRoot).replace(/\/$/, '');
   const initiativeTemplatesRoot = posix(portfolio?.templatesRoot ?? templatesRoot).replace(/\/$/, '');
-  const promptsRoot = posix(definition.personaPromptsRoot).replace(/\/$/, '');
+  const promptsRoot = posix(definition.agentPromptsRoot).replace(/\/$/, '');
   const deletable = relative.startsWith(`${templatesRoot}/`)
     || relative.startsWith(`${initiativeTemplatesRoot}/`)
     || relative.startsWith(`${promptsRoot}/`)
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
     || relative.startsWith('.github/agents/');
-  if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced working-lens prompts, repository skills, and repository prompt packs.');
+  if (!deletable) throw new SingularityFlowError('Desktop deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
   const references = [];
   if (relative.startsWith(`${templatesRoot}/`)) {
     const template = relative.slice(templatesRoot.length + 1);
@@ -683,15 +687,15 @@ export async function deleteDesktopFile(root, requestedPath) {
   }
   if (relative.startsWith(`${promptsRoot}/`)) {
     const prompt = relative.slice(promptsRoot.length + 1);
-    for (const [personaId, persona] of Object.entries(definition.personas)) if (persona.prompt === prompt) references.push(`persona ${personaId}`);
+    for (const [agentId, agent] of Object.entries(definition.agents)) if (agent.source === relative) references.push(`agent ${agentId}`);
   }
   if (relative.startsWith('.github/agents/')) {
     const agents = await discoverAgents(root);
     const deletedAgent = agents.find((agent) => agent.scope === 'repository' && agent.source === relative);
     if (deletedAgent) {
       const mapping = await loadAgentMappings(root, { agents });
-      for (const [copilotAgent, promptPack] of Object.entries(mapping.mappings)) {
-        if (promptPack === deletedAgent.id) references.push(`Copilot agent mapping ${copilotAgent}`);
+      for (const [copilotAgent, mappedAgent] of Object.entries(mapping.mappings)) {
+        if (mappedAgent === deletedAgent.id) references.push(`Copilot agent mapping ${copilotAgent}`);
       }
     }
   }
@@ -731,7 +735,7 @@ export async function desktopExportBundle(root) {
     [{ path: WORKFLOW_PATH, content: await readFile(path.join(root, WORKFLOW_PATH), 'utf8') }],
     portfolio ? [{ path: PORTFOLIO_PATH, content: await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') }] : [],
     await textFiles(root, definition.templatesRoot),
-    await textFiles(root, definition.personaPromptsRoot),
+    await textFiles(root, definition.agentPromptsRoot),
     await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
     agents.map((agent) => ({ path: agent.source, content: agent.text })),
     await exists(path.join(root, AGENT_MAPPING_PATH)) ? [{ path: AGENT_MAPPING_PATH, content: await readFile(path.join(root, AGENT_MAPPING_PATH), 'utf8') }] : [],
@@ -753,7 +757,7 @@ export async function validateDesktopConfiguration(root) {
   return {
     valid: true,
     workTypes: Object.keys(definition.workTypes).length,
-    personas: Object.keys(definition.personas).length,
+    agents: Object.keys(definition.agents).length,
     phases: Object.keys(definition.phases).length,
     agents: agents.length,
     initiativeProfiles: Object.keys(portfolio?.initiativeProfiles ?? {}).length,
@@ -767,7 +771,7 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   const portfolio = await loadPortfolio(root, { required: false });
   const changed = changedFiles(root);
   const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
-  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, persona, prompt, skill, or agent changes are ready to publish.');
+  if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, agent, prompt, skill, or agent changes are ready to publish.');
   const unrelated = changed.filter((file) => !configurationChanges.includes(file));
   if (unrelated.length) throw new SingularityFlowError(`Publish is blocked by unrelated working-tree changes: ${unrelated.join(', ')}`);
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
@@ -781,11 +785,11 @@ export async function publishDesktopConfiguration(root, message = 'Configure Sin
   return { sha, pushed: true, remote, files: configurationChanges };
 }
 
-export async function selectDesktopPersona(root, workId, persona) {
+export async function selectDesktopAgent(root, workId, agent) {
   const definition = await loadDefinition(root);
   if (workId) {
     const workflow = await loadWorkflow(root, definition, workId);
-    if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before selecting a work-item working lens.`);
+    if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before overriding its phase agent.`);
   }
-  return setPersonaSession(root, definition, identity(root), persona, workId || null);
+  return setAgentSession(root, definition, identity(root), agent, workId || null);
 }

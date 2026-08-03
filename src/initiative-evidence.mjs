@@ -181,7 +181,7 @@ export async function registerInitiativeEvidence(root, {
   verificationMethod = null,
   source = {},
   subject = null,
-  persona = null,
+  agent = null,
   decision = null,
   reason = null,
   supersedes = []
@@ -270,7 +270,7 @@ export async function registerInitiativeEvidence(root, {
     expiresAt: validForMs ? new Date(Date.parse(observedAt) + validForMs).toISOString() : null,
     revalidateAt: check.freshness.revalidateAt,
     registeredBy: actor,
-    persona,
+    agent,
     subject,
     decision,
     reason: reason?.trim() || null,
@@ -280,7 +280,7 @@ export async function registerInitiativeEvidence(root, {
   initiative.history.push({
     at: observedAt,
     actor: actorEmail(actor),
-    persona,
+    agent,
     event: decision ? `initiative_check_${decision}` : 'initiative_evidence_registered',
     phase: phaseId,
     detail: `${checkId} ${assurance} ${appended.sha256.slice(0, 12)}`
@@ -738,7 +738,7 @@ const MACHINE_CHECKS = Object.freeze({
   ]
 });
 
-export async function publishInitiativePhase(root, initiativeId, phaseId, { persona = null } = {}) {
+export async function publishInitiativePhase(root, initiativeId, phaseId, { agent = null } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.currentPhase !== phaseId) throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot publish '${phaseId}'.`);
   const phase = initiative.phases[phaseId];
@@ -771,7 +771,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
       sha256: current.sha256,
       bytes: current.size,
       generatedBy: output.generatedBy ?? actor,
-      generatedPersona: output.generatedPersona ?? persona,
+      generatedAgent: output.generatedAgent ?? agent,
       publishedAt: nowIso()
     });
   }
@@ -803,7 +803,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
   phase.generation = nextGeneration;
   phase.status = 'awaiting_approval';
   phase.submittedAt = nowIso();
-  initiative.history.push({ at: phase.submittedAt, actor: actorEmail(actor), persona, event: 'initiative_phase_published', phase: phaseId, detail: `generation ${nextGeneration}` });
+  initiative.history.push({ at: phase.submittedAt, actor: actorEmail(actor), agent, event: 'initiative_phase_published', phase: phaseId, detail: `generation ${nextGeneration}` });
   await saveInitiative(root, portfolio, initiative);
 
   // Evidence is recorded after the publication is saved: registerInitiativeEvidence reloads state
@@ -830,7 +830,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { pers
           ? `Impact map repository IDs resolved against the pinned workspace portfolio${impact.warnings.length ? ` with ${impact.warnings.length} warning(s)` : ''}`
           : (traceability?.passes ?? []).join('; ')
       },
-      persona
+      agent
     });
   }
 
@@ -873,7 +873,7 @@ export async function approveInitiative(root, {
   initiativeId,
   phaseId = null,
   subject = 'phase',
-  persona = null,
+  agent = null,
   channel = 'terminal'
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -936,7 +936,7 @@ export async function approveInitiative(root, {
     },
     actor,
     identityAssurance: 'configured-local',
-    persona,
+    agent,
     channel,
     at,
     selfApproval
@@ -964,7 +964,7 @@ export async function approveInitiative(root, {
   initiative.history.push({
     at,
     actor: actorEmail(actor),
-    persona,
+    agent,
     event: selfApproval ? 'initiative_self_approved' : 'initiative_approved',
     phase: selectedPhase,
     detail: `${target.type}/${target.id} ${reached ? 'threshold reached' : 'approval recorded'}`

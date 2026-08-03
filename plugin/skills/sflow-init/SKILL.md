@@ -24,7 +24,7 @@ customizations.
 3. When no Work ID was supplied and the check reports missing assets, run
    `singularity-flow init --repair` on the current branch.
 4. Repair is additive: it restores missing workflow, portfolio, template,
-   persona, and prompt files from the installed package. It must never replace
+   agent, and prompt files from the installed package. It must never replace
    an existing customized file. If an existing file is invalid, report the
    validation error and recommend restoring that exact file from Git history;
    do not overwrite it.

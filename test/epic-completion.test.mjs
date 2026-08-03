@@ -40,7 +40,7 @@ async function epicFixture(id = 'APP-100') {
     id,
     title: 'Mobile onboarding',
     profile: 'epic-planning',
-    persona: 'product-owner'
+    agent: 'product-owner'
   });
   return { root, ...created };
 }

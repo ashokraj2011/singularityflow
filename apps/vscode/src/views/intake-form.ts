@@ -29,8 +29,6 @@ export interface ProfileChoice {
   phases: string[];
 }
 
-export interface LensChoice { id: string; label: string }
-
 /** Something already started, so nobody starts it twice. */
 export interface InFlight {
   shape: Shape;
@@ -53,9 +51,7 @@ export interface IntakeForm {
   /** How it will be judged done. A Story asks for it. */
   acceptanceCriteria: string;
   profile: string | null;
-  lens: string | null;
   profiles: ProfileChoice[];
-  lenses: LensChoice[];
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -67,7 +63,7 @@ export interface IntakeForm {
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
-  acceptanceCriteria: '', profile: null, lens: null, profiles: [], lenses: [],
+  acceptanceCriteria: '', profile: null, profiles: [],
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
 
@@ -169,17 +165,12 @@ export function intakeCommand(form: IntakeForm): string[] {
       args.push('--title', form.title.trim(), '--description', form.description.trim());
     }
     if (form.profile) args.push('--profile', form.profile);
-    // The lens is offered for an Initiative, so it has to be passed for one. Collecting a choice and
-    // dropping it is how a form comes to look like it does nothing.
-    if (form.lens) args.push('--persona', form.lens);
     return args;
   }
 
   if (form.shape === 'epic') {
     if (tracked) {
-      const args = ['epic', 'start', identifier, '--json'];
-      if (form.lens) args.push('--persona', form.lens);
-      return args;
+      return ['epic', 'start', identifier, '--json'];
     }
     // No identifier: the branch reservation mints it, and passing one would be passing a value the
     // engine is about to replace.
@@ -188,7 +179,6 @@ export function intakeCommand(form: IntakeForm): string[] {
       '--description', form.description.trim(),
       '--goal', form.goal.trim()];
     if (form.profile) args.push('--profile', form.profile);
-    if (form.lens) args.push('--persona', form.lens);
     return args;
   }
 
@@ -309,22 +299,6 @@ function profileHtml(form: IntakeForm): string {
   </section>`;
 }
 
-function lensHtml(form: IntakeForm): string {
-  if (form.shape === 'story' || !form.lenses.length) return '';
-  return `
-  <section class="plain">
-    <h2>${icon('teams')}Working lens</h2>
-    <p>
-      <label>Start under <select data-field="lens">
-        <option value=""${form.lens ? '' : ' selected'}>— none —</option>
-        ${form.lenses.map((lens) => `<option value="${escape(lens.id)}"${lens.id === form.lens ? ' selected' : ''}>${escape(lens.label)}</option>`).join('')}
-      </select></label>
-    </p>
-    <p class="muted">A prompt-only lens. Anyone may choose any of them, and it can be changed at any
-      phase — it recommends how to approach the work, it does not grant permission to do anything.</p>
-  </section>`;
-}
-
 /** What is already under way, so nobody starts the same thing twice. */
 function inFlightHtml(form: IntakeForm): string {
   if (!form.inFlight.length) return '';
@@ -368,7 +342,6 @@ export function intakeHtml(form: IntakeForm): string {
   </section>
 
   ${profileHtml(form)}
-  ${lensHtml(form)}
   ${inFlightHtml(form)}
 
   <section>

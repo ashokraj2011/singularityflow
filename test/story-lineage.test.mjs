@@ -102,7 +102,13 @@ test('finalize binds a completed Story to its governed specifications and exact 
   flow(root, ['start', 'MOB-200', '--title', 'Complete mobile login']);
   const workflowPath = path.join(root, 'singularity/work-items/MOB-200/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
-  for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
+  for (const phaseId of workflow.phaseOrder) {
+    const phase = workflow.phases[phaseId];
+    phase.status = 'approved';
+    const artifact = path.join(root, 'singularity/work-items/MOB-200', phase.requiredArtifact.path);
+    await mkdir(path.dirname(artifact), { recursive: true });
+    await writeFile(artifact, `# ${phase.label}\n\nApproved governed evidence for ${phaseId}.\n`);
+  }
   workflow.currentPhase = null;
   workflow.status = 'complete';
   workflow.lineage.submissions = [{

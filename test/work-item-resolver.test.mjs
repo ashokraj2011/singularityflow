@@ -28,9 +28,11 @@ test('work-item resolution decouples the Work ID from canonical and child branch
       canonicalBranch: 'PAY-1234-invoice-export',
       childBranches: [{ name: 'feature/export-ui' }]
     },
-    resolution: {},
+    resolution: { session: {}, contextPolicy: {}, sequenceGates: {}, phases: [] },
     phaseOrder: [],
-    phases: {}
+    phases: {},
+    usage: {},
+    telemetry: {}
   }, null, 2)}\n`);
   const config = {
     workItemRoot: 'singularity/work-items',
@@ -57,7 +59,8 @@ test('work-item resolution rejects ambiguous branch aliases instead of guessing'
       schemaVersion: 2,
       workItem: { id, title: id, workType: 'feature', branch: `${id}-canonical` },
       lineage: { canonicalBranch: `${id}-canonical`, childBranches: [{ name: 'feature/shared' }] },
-      resolution: {}, phaseOrder: [], phases: {}
+      resolution: { session: {}, contextPolicy: {}, sequenceGates: {}, phases: [] },
+      phaseOrder: [], phases: {}, usage: {}, telemetry: {}
     })}\n`);
   }
   await assert.rejects(

@@ -6,7 +6,7 @@ import {
   SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
   run, snapshot, truncate, writeJson, writeText
 } from './util.mjs';
-import { add, branch, changedFiles, commit, head, identity, pushBranch, remoteContains } from './git.mjs';
+import { branch, changedFiles, head, identity, pushBranch, remoteContains } from './git.mjs';
 import {
   WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
@@ -24,9 +24,7 @@ import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy
 import {
   DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
-import {
-  appendLedgerIntent, clearLedgerOutbox, createLedgerIntent, ledgerLog, ledgerStatus, persistLedgerIntent, reconcileLedger, recordLedgerOutbox
-} from './ledger.mjs';
+import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import {
   applyCapabilityPolicyToWorkResolution,
@@ -41,8 +39,9 @@ import {
   hasPendingPublication,
   localPendingPublicationPath,
   readPendingPublication,
-  writePendingPublication
 } from './publication-pending.mjs';
+import { lifecycleEvent } from './lifecycle-event.mjs';
+import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -60,10 +59,10 @@ export function sourcePath(root, config, id) { return path.join(workDir(root, co
 export function userStoryPath(root, config, id) { return path.join(workDir(root, config, id), 'USER-STORY.md'); }
 export function approvalPath(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', `${phase}.json`); }
 export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
-function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
 export function pendingPublicationPath(root, _config, id) { return localPendingPublicationPath(root, 'story', id); }
 export async function storyPublicationPending(root, config, id) {
-  return hasPendingPublication(root, { kind: 'story', id, legacyPath: legacyPendingPublicationPath(root, config, id) });
+  void config;
+  return hasPendingPublication(root, { kind: 'story', id });
 }
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
@@ -216,7 +215,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
 }
 
-function statusMarkdown(workflow) {
+export function storyStatusMarkdown(workflow) {
   const lines = [
     `# ${workflow.workItem.id} — ${workflow.workItem.title}`, '',
     `- Branch: \`${workflow.workItem.branch}\``,
@@ -245,7 +244,7 @@ function statusMarkdown(workflow) {
 
 export async function saveWorkflow(root, config, workflow) {
   await writeJson(workflowPath(root, config, workflow.workItem.id), workflow);
-  await writeText(statusPath(root, config, workflow.workItem.id), statusMarkdown(workflow));
+  await writeText(statusPath(root, config, workflow.workItem.id), storyStatusMarkdown(workflow));
 }
 
 export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, agent, resolved, capabilityId = null } = {}) {
@@ -262,7 +261,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
   );
-  const snapshotState = config._legacy ? { configSha256: null, templates: Object.fromEntries(resolution.phases.map((phase) => [phase.id, { path: phase.template, sha256: null }])) } : await snapshotResolution(root, config, resolution);
+  const snapshotState = await snapshotResolution(root, config, resolution);
   snapshotState.worldModelGrounding = capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
@@ -348,43 +347,25 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   return workflow;
 }
 
-function upgradeWorkflow(workflow) {
+function normalizeCurrentWorkflow(workflow) {
   if (workflow.schemaVersion !== 2) {
-    workflow.schemaVersion = 2;
-    workflow.workItem.workType ??= 'legacy';
+    throw new SingularityFlowError(`Unsupported Story workflow schema '${workflow.schemaVersion ?? 'missing'}'. Run singularity-flow factory-reset and recreate the Story.`);
   }
-  workflow.resolution ??= { configSha256: null, templates: {}, phases: [] };
-  workflow.resolution.workType ??= workflow.workItem.workType;
-  workflow.resolution.workTypeLabel ??= workflow.workItem.workTypeLabel ?? 'Legacy workflow';
-  workflow.resolution.documents ??= {};
-  workflow.resolution.collaboration ??= { assignmentMode: 'off', notifications: ['terminal'] };
-  if (!workflow.resolution.session || workflow.resolution.session.workItemSelection == null) {
-    workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session ?? {});
-    workflow.resolution.sessionLegacy = true;
-  } else workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
-  if (!workflow.resolution.contextPolicy) {
-    workflow.resolution.contextPolicy = normalizeContextPolicy();
-    workflow.resolution.contextPolicyLegacy = true;
-  } else workflow.resolution.contextPolicy = normalizeContextPolicy(workflow.resolution.contextPolicy);
-  workflow.resolution.inputsMode ??= 'off';
-  workflow.resolution.worldModelGrounding ??= 'off';
-  workflow.resolution.sequenceGates ??= { default: 'hard' };
-  workflow.resolution.ledger ??= normalizeLedgerConfig();
-  workflow.resolution.approvalAuthorities ??= normalizeApprovalAuthorities();
-  workflow.lineage ??= {
-    schemaVersion: 1,
-    canonicalBranch: workflow.workItem.branch,
-    parentStoryId: workflow.workItem.id,
-    epicId: workflow.workItem.source?.epicId ?? workflow.workItem.source?.parent?.key ?? null,
-    planId: workflow.workItem.source?.planId ?? null,
-    jiraIssueId: workflow.workItem.source?.id ?? null,
-    initialJiraKey: workflow.workItem.source?.key ?? null,
-    currentJiraKey: workflow.workItem.source?.key ?? null,
-    childBranches: []
-  };
+  const missing = [
+    ['resolution', workflow.resolution],
+    ['resolution.session', workflow.resolution?.session],
+    ['resolution.contextPolicy', workflow.resolution?.contextPolicy],
+    ['resolution.sequenceGates', workflow.resolution?.sequenceGates],
+    ['lineage', workflow.lineage],
+    ['usage', workflow.usage],
+    ['telemetry', workflow.telemetry]
+  ].filter(([, value]) => value == null).map(([name]) => name);
+  if (missing.length) {
+    throw new SingularityFlowError(`Story workflow schema 2 is incomplete (${missing.join(', ')}). Run singularity-flow factory-reset and recreate the Story.`);
+  }
+  workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
+  workflow.resolution.contextPolicy = normalizeContextPolicy(workflow.resolution.contextPolicy);
   workflow.lineage.childBranches ??= [];
-  workflow.usage ??= { mode: 'exact-or-unavailable', totalTokens: 0, records: 0 };
-  workflow.telemetry ??= { schemaVersion: 1, mode: 'legacy' };
   workflow.documents ??= { count: 0, updatedAt: null };
   workflow.collaboration ??= { assignments: {}, notifications: [] };
   workflow.collaboration.assignments ??= {};
@@ -426,7 +407,7 @@ export async function loadWorkflow(root, config, id = undefined) {
     throw new SingularityFlowError(`No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`);
   }
   const file = path.join(root, selected.location.path);
-  const workflow = upgradeWorkflow(await readJson(file));
+  const workflow = normalizeCurrentWorkflow(await readJson(file));
   invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
@@ -440,7 +421,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   const index = await buildRepositorySubjectIndex(root, { definition: config });
   const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false, mutation });
   if (indexed) {
-    const workflow = upgradeWorkflow(indexed.state);
+    const workflow = normalizeCurrentWorkflow(indexed.state);
     return {
       workId: workflow.workItem.id,
       branch: indexed.canonicalBranch,
@@ -520,7 +501,6 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) {
     let text;
     if (await exists(target)) text = await readFile(target, 'utf8');
-    else if (config._legacy) text = `# ${workflow.workItem.id} — ${phase.label}\n\nTODO: Complete the ${phase.label} artifact.\n`;
     else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), {
       id: workflow.workItem.id,
       title: workflow.workItem.title,
@@ -954,105 +934,82 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   };
 }
 
-export async function commitAndPublish(root, config, workflow, message, extraPaths = []) {
-  const legacyPending = legacyPendingPublicationPath(root, config, workflow.workItem.id);
+export async function commitAndPublish(root, config, workflow, event, message, extraPaths = []) {
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
+  const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
+  const requestedPhase = requestedPhaseId ? workflow.phases?.[requestedPhaseId] : null;
+  const decision = [...(requestedPhase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
+  const envelope = lifecycleEvent({
+    ...event,
+    subject: { kind: 'story', id: workflow.workItem.id, branch: workflowPublicationBranch(root, workflow) },
+    phaseId: requestedPhaseId,
+    generation: event?.generation ?? requestedPhase?.generation ?? null,
+    actor: event?.actor ?? decision?.actor ?? identity(root),
+    agent: event?.agent ?? decision?.agent ?? requestedPhase?.generatedAgent ?? null,
+    authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
+    payload: { ...(event?.payload ?? {}), decision: decision?.decision ?? null, reviewPacketSha256: decision?.reviewPacketSha256 ?? null }
+  });
   let ledgerIntent = null;
-  let ledgerIntentPath = null;
   if (ledgerConfig.enabled) {
-    const phaseMatch = message.match(/\[phase:([^\]]+)\]/);
-    const eventType = message.includes('[approve]')
-      ? 'phase-approved'
-      : message.includes('[reject]')
-        ? 'phase-rejected'
-        : message.includes('[override]')
-          ? 'sequence-override'
-        : message.includes('[finalize]') || workflow.status === 'complete'
-          ? 'work-completed'
-          : message.includes('[init]')
-            ? 'binding'
-            : 'config-snapshot';
-    const phaseId = phaseMatch?.[1] ?? workflow.currentPhase ?? null;
-    const phase = phaseId ? workflow.phases?.[phaseId] : null;
-    const decision = [...(phase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
     ledgerIntent = createLedgerIntent({
-      eventType,
+      eventId: envelope.eventId,
+      eventType: envelope.type,
       capabilityId: workflow.resolution?.capability?.id ?? `story-${workflow.workItem.id}`,
       subject: {
         workId: workflow.workItem.id,
         workType: workflow.workItem.workType,
-        phase: phaseId,
-        generation: phase?.generation ?? null,
+        phase: envelope.phaseId,
+        generation: envelope.generation,
         branch: workflowPublicationBranch(root, workflow)
       },
-      actor: decision?.actor ?? identity(root),
-      agent: decision?.agent ?? phase?.generatedAgent ?? null,
-      authorityGroup: decision?.authorityGroup ?? null,
+      actor: envelope.actor,
+      agent: envelope.agent,
+      authorityGroup: envelope.authorityGroup,
       identityAssurance: decision?.identityAssurance ?? null,
       payload: {
-        lifecycleMessage: message,
+        lifecycleEventId: envelope.eventId,
+        lifecyclePayload: envelope.payload,
         configPath: WORKFLOW_PATH,
         configSha256: workflow.resolution?.configSha256 ?? null,
-        templateSha256: phaseId ? workflow.resolution?.templates?.[phaseId]?.sha256 ?? null : null,
-        decision: decision?.decision ?? null,
-        reviewPacketSha256: decision?.reviewPacketSha256 ?? null,
+        templateSha256: envelope.phaseId ? workflow.resolution?.templates?.[envelope.phaseId]?.sha256 ?? null : null,
         capabilityMapSha256: workflow.resolution?.capability?.map?.sha256 ?? null,
         capabilityPolicy: workflow.resolution?.capability?.policy ?? null
       }
     });
-    ledgerIntentPath = await persistLedgerIntent(root, workDirRelative(config, workflow.workItem.id), ledgerIntent);
-  }
-  add(root, [...new Set([workDirRelative(config, workflow.workItem.id), ...extraPaths, ledgerIntentPath].filter(Boolean))]);
-  const sha = commit(root, message); const mode = workflowPublicationMode(config, workflow);
-  if (mode === 'off') {
-    let ledger = null;
-    if (ledgerIntent) {
-      try {
-        ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, sha);
-        await clearLedgerOutbox(root, ledgerIntent.eventId);
-      } catch (error) {
-        await recordLedgerOutbox(root, ledgerIntentPath, sha, error);
-        ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
-        if (ledgerConfig.behind === 'block') throw new SingularityFlowError(`Code commit ${sha.slice(0, 8)} was retained locally, but the required ledger append failed: ${error.message}`);
-      }
-    }
-    return { sha, pushed: false, ledger };
   }
   const targetBranch = workflowPublicationBranch(root, workflow);
-  const remote = config.git?.remote ?? 'origin'; const result = pushBranch(root, remote, targetBranch);
-  if (result.status !== 0) {
-    const error = (result.stderr || result.stdout).trim();
-    await writePendingPublication(root, { kind: 'story', id: workflow.workItem.id, record: { schemaVersion: 1, workId: workflow.workItem.id, branch: targetBranch, remote, commit: sha, createdAt: nowIso(), error } });
-    if (mode === 'warn') {
-      const warning = `Commit ${sha.slice(0, 8)} was retained locally; publication is pending: ${error}`;
-      console.warn(`Warning: ${warning}`);
-      return { sha, pushed: false, pending: true, warning };
-    }
-    throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed. Run singularity-flow sync after fixing remote access.`);
-  }
-  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPending });
-  let ledger = null;
-  if (ledgerIntent) {
-    try {
-      ledger = await appendLedgerIntent(root, ledgerConfig, ledgerIntent, sha);
-      await clearLedgerOutbox(root, ledgerIntent.eventId);
-    } catch (error) {
-      await recordLedgerOutbox(root, ledgerIntentPath, sha, error);
-      ledger = { pending: true, eventId: ledgerIntent.eventId, error: error.message };
-      if (ledgerConfig.behind === 'block') {
-        throw new SingularityFlowError(`Code commit ${sha.slice(0, 8)} was pushed, but the required ledger append failed. Run singularity-flow ledger reconcile ${workflow.workItem.id}. ${error.message}`);
+  const result = await publishLifecycleChange(root, {
+    subject: envelope.subject,
+    expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
+    allowedPaths: [workDirRelative(config, workflow.workItem.id), ...extraPaths],
+    event: envelope,
+    commit: { message },
+    state: {
+      write: () => saveWorkflow(root, config, workflow),
+      validate: async () => {
+        const validation = await validateWorkflow(root, config, workflow);
+        if (!validation.valid) {
+          throw new SingularityFlowError(`Story state is invalid before publication: ${validation.errors.join(' ')}`);
+        }
       }
-    }
+    },
+    publication: { mode: workflowPublicationMode(config, workflow), remote: config.git?.remote ?? 'origin', branch: targetBranch },
+    pendingRecord: () => ({ workId: workflow.workItem.id }),
+    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) }
+  });
+  if (workflow[Symbol.for('singularity-flow.state-revision')]) {
+    workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  return { sha, pushed: true, ledger };
+  if (result.pushed) await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
+  return result;
 }
 
 export async function syncPublication(root, config, workflow) {
-  const pending = await readPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id) });
+  const pending = await readPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
   const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
-  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id, legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id) });
+  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
   const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
   return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
 }
@@ -1062,20 +1019,16 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   if (workflow.schemaVersion === 2 && workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
   const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
   if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');
-  if (!config._legacy && config.workTypes?.[workflow.workItem.workType]) {
+  if (config.workTypes?.[workflow.workItem.workType]) {
     const expectedGates = resolveWorkType(config, workflow.workItem.workType).sequenceGates;
     const pinnedGates = normalizeSequenceGates(workflow.resolution?.sequenceGates ?? {});
     if (JSON.stringify(pinnedGates) !== JSON.stringify(expectedGates)) errors.push('Sequence gate policy differs from the immutable work-type configuration snapshot.');
-    if (!workflow.resolution?.sessionLegacy) {
-      const expectedSession = normalizeSessionPolicy(config.session ?? {});
-      const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
-      if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session governed-agent policy differs from the immutable configuration snapshot.');
-    }
-    if (!workflow.resolution?.contextPolicyLegacy) {
-      const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
-      const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
-      if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');
-    }
+    const expectedSession = normalizeSessionPolicy(config.session ?? {});
+    const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
+    if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session governed-agent policy differs from the immutable configuration snapshot.');
+    const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
+    const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
+    if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');
   }
   let activeCount = 0;
   for (const phaseId of workflow.phaseOrder) {

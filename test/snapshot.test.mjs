@@ -18,7 +18,6 @@ import {
   selectEditorAgent,
   validateEditorConfiguration
 } from '../src/editor.mjs';
-import { migrateLegacyConfig } from '../src/config.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -303,15 +302,6 @@ test('snapshot separates publishable configuration from unrelated changes', asyn
   assert.deepEqual(snapshot.repository.configurationChanges, [templatePath]);
   assert.deepEqual(snapshot.repository.unrelatedChanges, ['README.md']);
   assert.equal(snapshot.repository.publishReady, false);
-});
-
-test('visual editor rejects legacy control-root migration in the agent-only development release', async () => {
-  const root = await repository();
-  await rename(path.join(root, 'singularity'), path.join(root, '.singularity'));
-  run('git', ['add', '-A'], root);
-  run('git', ['commit', '-m', 'legacy hidden control root'], root);
-
-  await assert.rejects(() => migrateLegacyConfig(root), /migration is not available/i);
 });
 
 test('visual editor configuration saves validate atomically and publish scoped changes', async () => {

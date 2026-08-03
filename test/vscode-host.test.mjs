@@ -567,9 +567,14 @@ test('a self-approval is refused by the engine and re-asked as an explicit ackno
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }) }
   });
-  cli(['initiative', 'resume', 'INIT-CHECKOUT']);
-  cli(['initiative', 'phase']);
-  cli(['initiative', 'phase', 'publish', 'discover-define']);
+  for (const args of [
+    ['initiative', 'resume', 'INIT-CHECKOUT'],
+    ['initiative', 'phase'],
+    ['initiative', 'phase', 'publish', 'discover-define']
+  ]) {
+    const result = cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')} failed:\n${result.stderr}`);
+  }
 
   const node = {
     kind: 'artifact',
@@ -601,9 +606,14 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }) }
   });
-  cli(['initiative', 'resume', 'INIT-CHECKOUT']);
-  cli(['initiative', 'phase']);
-  cli(['initiative', 'phase', 'publish', 'discover-define']);
+  for (const args of [
+    ['initiative', 'resume', 'INIT-CHECKOUT'],
+    ['initiative', 'phase'],
+    ['initiative', 'phase', 'publish', 'discover-define']
+  ]) {
+    const result = cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')} failed:\n${result.stderr}`);
+  }
 
   registered.typed = 'discover-define:business-case';
   registered.selfApprovalAnswer = 'Approve anyway';

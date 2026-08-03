@@ -124,6 +124,11 @@ async function askToContinue(message, gate) {
   }
 }
 
+/** Port used by terminal and editor confirmation adapters. */
+export async function confirmOverride({ message, gate }, confirmationPort = askToContinue) {
+  return confirmationPort(message, gate);
+}
+
 async function recordOverride(root, workflow, gate, action, { requestedPhase, reason, before }) {
   const at = nowIso();
   const audit = await sessionAudit(root);
@@ -159,7 +164,7 @@ export async function enforceSequenceGate(root, workflow, gate, action, { reques
   const accepted = confirmed.get(workflow) ?? new Map();
   if (accepted.has(key)) return accepted.get(key);
   const message = sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode });
-  if (!(await askToContinue(message, gate))) {
+  if (!(await confirmOverride({ message, gate }))) {
     throw new SingularityFlowError(`${message}\nSoft gate was not confirmed. Nothing was changed.`, { exitCode: 2 });
   }
   const phase = activePhase(workflow);
@@ -217,34 +222,69 @@ function reconcileStatus(workflow, phase, allowedStatuses, at) {
   workflow.status = 'in_progress';
 }
 
-export async function assertPhaseSequence(root, workflow, action, { requestedPhase = null, allowedStatuses = ['in_progress'] } = {}) {
-  let phase = activePhase(workflow);
+/** Pure decision: it inspects lifecycle state but never prompts or mutates it. */
+export function evaluateSequence(workflow, {
+  requestedPhase = null,
+  allowedStatuses = ['in_progress']
+} = {}) {
+  const phase = activePhase(workflow);
   if (!phase) {
     const target = requestedPhase ? workflow.phases?.[requestedPhase] : workflow.phases?.[workflow.phaseOrder.at(-1)];
-    if (!target) throw sequenceError(workflow, action, { gate: 'completion', requestedPhase, reason: 'No valid phase is available to reopen.' });
-    const record = await enforceSequenceGate(root, workflow, 'completion', action, {
-      requestedPhase: target.id,
-      reason: `The completed workflow must be reopened at '${target.id}' to continue.`
-    });
-    switchCurrentPhase(workflow, target, record.at);
-    phase = target;
+    return target
+      ? { allowed: false, gate: 'completion', targetPhase: target.id, effect: 'switch', reason: `The completed workflow must be reopened at '${target.id}' to continue.` }
+      : { allowed: false, gate: 'completion', targetPhase: requestedPhase, invalid: true, reason: 'No valid phase is available to reopen.' };
   }
   if (requestedPhase && requestedPhase !== phase.id) {
     const requested = workflow.phases?.[requestedPhase];
-    if (!requested) throw sequenceError(workflow, action, { gate: 'currentPhase', requestedPhase, reason: `'${requestedPhase}' is not part of this workflow.` });
-    const record = await enforceSequenceGate(root, workflow, 'currentPhase', action, {
-      requestedPhase,
-      reason: `Only the current phase '${phase.id}' may change; '${requestedPhase}' is ${requested.status}.`
-    });
-    switchCurrentPhase(workflow, requested, record.at);
-    phase = requested;
+    return requested
+      ? { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, effect: 'switch', reason: `Only the current phase '${phase.id}' may change; '${requestedPhase}' is ${requested.status}.` }
+      : { allowed: false, gate: 'currentPhase', targetPhase: requestedPhase, invalid: true, reason: `'${requestedPhase}' is not part of this workflow.` };
   }
   if (!allowedStatuses.includes(phase.status)) {
-    const record = await enforceSequenceGate(root, workflow, 'phaseStatus', action, {
-      requestedPhase: requestedPhase ?? phase.id,
+    return {
+      allowed: false,
+      gate: 'phaseStatus',
+      targetPhase: phase.id,
+      effect: 'status',
+      allowedStatuses: [...allowedStatuses],
       reason: `This action requires status ${allowedStatuses.join(' or ')}, but '${phase.id}' is ${phase.status}.`
-    });
-    reconcileStatus(workflow, phase, allowedStatuses, record.at);
+    };
   }
-  return phase;
+  return { allowed: true, phaseId: phase.id };
+}
+
+/** Pure reducer: returns a new aggregate after an already-confirmed decision. */
+export function applySequenceDecision(workflow, decision, at) {
+  const next = structuredClone(workflow);
+  const phase = next.phases?.[decision.targetPhase];
+  if (!phase) throw sequenceError(next, 'apply a sequence decision', {
+    gate: decision.gate,
+    requestedPhase: decision.targetPhase,
+    reason: decision.reason
+  });
+  if (decision.effect === 'switch') switchCurrentPhase(next, phase, at);
+  else if (decision.effect === 'status') reconcileStatus(next, phase, decision.allowedStatuses, at);
+  return next;
+}
+
+export async function assertPhaseSequence(root, workflow, action, { requestedPhase = null, allowedStatuses = ['in_progress'] } = {}) {
+  for (let pass = 0; pass < 3; pass += 1) {
+    const decision = evaluateSequence(workflow, { requestedPhase, allowedStatuses });
+    if (decision.allowed) return workflow.phases[decision.phaseId];
+    if (decision.invalid) throw sequenceError(workflow, action, {
+      gate: decision.gate,
+      requestedPhase: decision.targetPhase,
+      reason: decision.reason
+    });
+    const record = await enforceSequenceGate(root, workflow, decision.gate, action, {
+      requestedPhase: decision.targetPhase,
+      reason: decision.reason
+    });
+    const next = applySequenceDecision(workflow, decision, record.at);
+    Object.keys(workflow).forEach((key) => delete workflow[key]);
+    Object.assign(workflow, next);
+  }
+  throw sequenceError(workflow, action, {
+    gate: 'phaseStatus', requestedPhase, reason: 'Sequence reconciliation did not reach a stable state.'
+  });
 }

@@ -58,7 +58,7 @@ async function startInitiative(root, id) {
   run('git', ['checkout', '-b', id], { cwd: root });
   await createInitiative(root, { id, title: id, profile: 'initiative-lite', agent: 'product-owner' });
   const started = await loadInitiative(root, id);
-  return commitInitiativeChange(root, started.portfolio, started.initiative, `[${id}][initiative:init] start`);
+  return commitInitiativeChange(root, started.portfolio, started.initiative, { type: 'binding' }, `[${id}][initiative:init] start`);
 }
 
 test('starting an initiative installs the packaged initiative templates the repository lacks', async () => {

@@ -19,7 +19,6 @@ import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabiliti
 import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
-import { loadWorkflow } from './state.mjs';
 import {
   exists,
   posix,
@@ -51,8 +50,9 @@ import {
   portfolioWorldModelViews
 } from './initiative-config.mjs';
 import {
-  initiativeProgress, listInitiatives, loadInitiative, secureInitiativePath
+  initiativeProgress, listInitiatives, secureInitiativePath
 } from './initiative-state.mjs';
+import { loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
@@ -209,7 +209,7 @@ function configurationChangeScope(root, definition, portfolio, changes) {
 
 async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   if (!portfolio || !initiativeId) return null;
-  const { initiative } = await loadInitiative(root, initiativeId, portfolio);
+  const { initiative } = await loadInitiativeAggregate(root, initiativeId, portfolio);
   const phaseId = initiative.currentPhase ?? initiative.phaseOrder.at(-1);
   const phaseGate = phaseId ? await evaluateInitiativePhase(root, portfolio, initiative, phaseId) : null;
   const documents = [];
@@ -339,7 +339,7 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
   let review = null;
   let report = null;
   if (selectedId) {
-    workflow = await loadWorkflow(root, definition, selectedId);
+    workflow = await loadStoryAggregate(root, definition, selectedId);
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
     documents = await documentCatalog(root, definition, workflow);
@@ -800,7 +800,7 @@ export async function publishEditorConfiguration(root, message = 'Configure Sing
 export async function selectEditorAgent(root, workId, agent) {
   const definition = await loadDefinition(root);
   if (workId) {
-    const workflow = await loadWorkflow(root, definition, workId);
+    const workflow = await loadStoryAggregate(root, definition, workId);
     if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before overriding its phase agent.`);
   }
   return setAgentSession(root, definition, identity(root), agent, workId || null);

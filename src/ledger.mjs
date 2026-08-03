@@ -7,16 +7,12 @@ import {
 } from './util.mjs';
 import { gitDir, hasRemote, identity, refExists } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 
 export const LEDGER_SCHEMA_VERSION = 1;
 export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
 export const LEDGER_EVENT_TYPES = Object.freeze([
-  'binding',
-  'config-snapshot',
-  'phase-approved',
-  'phase-rejected',
-  'sequence-override',
-  'work-completed',
+  ...LIFECYCLE_EVENT_TYPES,
   'retention-expired',
   'capability-lease-granted',
   'capability-lease-revoked'
@@ -270,6 +266,7 @@ export async function archiveLedger(root, rawConfig, output, { sign = false } = 
 }
 
 export function createLedgerIntent({
+  eventId = null,
   eventType,
   capabilityId,
   subject,
@@ -285,7 +282,7 @@ export function createLedgerIntent({
   }
   return {
     schemaVersion: LEDGER_SCHEMA_VERSION,
-    eventId: randomUUID(),
+    eventId: eventId ?? randomUUID(),
     eventType,
     capabilityId,
     subject: canonicalValue(subject),

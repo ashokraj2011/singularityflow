@@ -8,7 +8,6 @@ import YAML from 'yaml';
 import {
   initializeDefinition,
   loadDefinition,
-  migrateLegacyConfig,
   normalizePhaseInputs,
   normalizePlanning,
   normalizeSequenceGates,
@@ -224,11 +223,6 @@ test('optional token pricing accepts non-negative per-million rates and rejects 
   assert.equal(validateDefinition(definition).tokens.pricing['provider-model'].output, 10);
   definition.tokens.pricing['provider-model'].output = -1;
   assert.throws(() => validateDefinition(definition), /must be a non-negative number/);
-});
-
-test('legacy configuration migration is rejected by the governed-agent clean break', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-migrate-'));
-  await assert.rejects(() => migrateLegacyConfig(root), /migration is not available.*governed-agent/i);
 });
 
 test('workflow.yml storage providers normalize and reject invalid SharePoint config', async () => {

@@ -28,7 +28,7 @@ the `desktop-final-v0.9.0` tag and on the `archive/desktop-app` branch.
 The CLI workspace registry remains the canonical local workspace store. VS Code `globalState`
 may retain presentation preferences, but must not become a competing workspace database.
 
-## Migration disposition
+## Capability disposition
 
 | Capability | Disposition |
 |---|---|
@@ -38,7 +38,7 @@ may retain presentation preferences, but must not become a competing workspace d
 | SharePoint OAuth | Time-boxed extension redirect-flow spike; unsupported until it passes corporate validation |
 | Onboarding profile and roles | VS Code settings and walkthrough |
 | Workspaces and recent locations | Existing CLI workspace registry and Workspaces view |
-| `desktop snapshot` | Public `sflow snapshot`; former command retained temporarily as a deprecated alias |
+| `desktop snapshot` | Removed; `sflow snapshot` is the only public command |
 | Electron IPC, security, dev server, packaging | Retired |
 
 ## Product boundary

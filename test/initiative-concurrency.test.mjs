@@ -52,6 +52,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     seed,
     loaded.portfolio,
     loaded.initiative,
+    { type: 'binding' },
     '[INIT-CONCURRENT][initiative:init] start'
   );
 
@@ -83,6 +84,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
       root,
       current.portfolio,
       current.initiative,
+      { type: 'evidence-recorded', phaseId: 'define', payload: { suffix } },
       `[INIT-CONCURRENT][evidence] concurrent-${suffix}`,
       { appendOnly: true }
     );
@@ -133,6 +135,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     first,
     firstSource.portfolio,
     firstSource.initiative,
+    { type: 'evidence-recorded', phaseId: 'define', payload: { sourceId: firstSource.record.sourceId } },
     '[INIT-CONCURRENT][source] first',
     { appendOnly: true }
   );
@@ -141,6 +144,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     third,
     thirdSource.portfolio,
     thirdSource.initiative,
+    { type: 'evidence-recorded', phaseId: 'define', payload: { sourceId: thirdSource.record.sourceId } },
     '[INIT-CONCURRENT][source] second',
     { appendOnly: true }
   );
@@ -173,6 +177,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     first,
     loaded.portfolio,
     loaded.initiative,
+    { type: 'configuration-changed', phaseId: 'define', payload: { field: 'title' } },
     '[INIT-CONCURRENT][lifecycle] update title'
   );
   assert.equal(lifecyclePublication.pushed, true);
@@ -196,6 +201,7 @@ test('concurrent append-only initiative commits replay without leaving a conflic
     fourth,
     unsafe.portfolio,
     unsafe.initiative,
+    { type: 'evidence-recorded', phaseId: 'define', payload: { suffix: '3' } },
     '[INIT-CONCURRENT][evidence] unsafe concurrent-3',
     { appendOnly: true }
   ), /lifecycle-state change.*automatic replay was refused/i);

@@ -588,8 +588,8 @@ singularity-flow documents list WORK-123
 singularity-flow documents view DOC-001 --work-id WORK-123
 ```
 
-The desktop renders Markdown, JSON, images, and PDFs while rechecking recorded
-hashes.
+VS Code and the CLI render or open Markdown, JSON, images, and PDFs while
+rechecking recorded hashes.
 
 ## 18. Final conformance
 

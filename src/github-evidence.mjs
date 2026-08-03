@@ -173,6 +173,6 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
     detail: `${packet.packetSha256.slice(0, 12)} ready=${evidence.ready}`
   });
   await saveWorkflow(root, config, workflow);
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`, [path.relative(root, file)]);
+  const publication = await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } }, `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`, [path.relative(root, file)]);
   return { evidence, publication, branch: workflowPublicationBranch(root, workflow) };
 }

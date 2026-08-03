@@ -33,7 +33,6 @@ import {
   createWorkflow,
   currentPhase,
   loadConfig,
-  loadWorkflow,
   preparePhase,
   preparePhaseInputs,
   publishGeneration,
@@ -64,7 +63,7 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
-import { initializationStatus, initializeDefinition, migrateLegacyConfig, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, initializeDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { activateWorkItemSession, loadSession, agentSessionStatus, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
@@ -108,7 +107,7 @@ import {
 } from './knowledge.mjs';
 import {
   commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
-  availableInitiativeOutputs, loadInitiative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
+  availableInitiativeOutputs, prepareInitiativePhase, restartInitiative, secureInitiativePath,
   selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
   syncInitiativePublication, validateInitiativeId
 } from './initiative-state.mjs';
@@ -185,6 +184,11 @@ import {
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
 import { factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
+import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
+import {
+  InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
+} from './state-stores.mjs';
+import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 
 const VERSION = '0.9.0';
 
@@ -298,7 +302,6 @@ Usage:
   singularity-flow approve [WORK-ID] [--fetch] [--phase PHASE] [--yes]
   singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
   singularity-flow sync
-  singularity-flow migrate-config
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal]
   singularity-flow wm init
@@ -332,8 +335,8 @@ Usage:
   singularity-flow snapshot [WORK-ID] --json
   singularity-flow configuration validate --json
   singularity-flow configuration save <PATH>    Reads replacement content from stdin
-  singularity-flow desktop snapshot [WORK-ID] --json    Deprecated compatibility alias
-  singularity-flow desktop <SUBCOMMAND>                  Deprecated compatibility namespace
+  singularity-flow state planes [WORK-ID] [--json]
+  singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
   singularity-flow initiative profiles [--json]
   singularity-flow initiative choices begin start|approve <INIT-ID> [SUBJECT] [--json]
   singularity-flow initiative start <INIT-ID> [--jira] [--title TEXT] [--description TEXT]
@@ -732,7 +735,7 @@ async function startCommand(positionals, options) {
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
-  await commitAndPublish(root, config, workflow, `[${id}][init] start ${workType} workflow`);
+  await commitAndPublish(root, config, workflow, { type: 'binding' }, `[${id}][init] start ${workType} workflow`);
   for (const document of supportingDocuments) {
     const records = await addDocuments(root, config, workflow, {
       files: document.type === 'file' ? [document.path] : [],
@@ -740,7 +743,7 @@ async function startCommand(positionals, options) {
       label: document.label,
       kind: document.kind
     });
-    await commitAndPublish(root, config, workflow, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
   }
   summary(workflow);
   if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
@@ -773,7 +776,7 @@ async function choicesCommand(positionals, options) {
       assertClean(root);
       if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
       config = await loadConfig(root);
-      workflow = await loadWorkflow(root, config, workId);
+      workflow = await loadStoryAggregate(root, config, workId);
       await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
     }
     receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });
@@ -798,6 +801,7 @@ async function resumeCommand(positionals, options) {
   const remote = initialConfig.git?.remote ?? 'origin';
   if (fetch) fetchRemote(root, remote);
   const refs = [
+    { branch: branch(root), ref: branch(root) },
     ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
     ...(fetch ? remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` })) : [])
   ];
@@ -811,7 +815,7 @@ async function resumeCommand(positionals, options) {
   if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
   checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true });
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, resolved.workId);
+  const workflow = await loadStoryAggregate(root, config, resolved.workId);
   const session = await activatePhaseAgent(
     root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null
   );
@@ -827,7 +831,7 @@ async function resumeCommand(positionals, options) {
 async function agentCommand(positionals, options = {}) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const workflow = await loadStoryAggregate(root, config, positionals[1]);
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
@@ -845,7 +849,7 @@ async function agentCommand(positionals, options = {}) {
 async function statusCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const workflow = await loadStoryAggregate(root, config, positionals[1]);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(workflow, null, 2));
     return;
@@ -871,7 +875,7 @@ async function statusCommand(positionals, options) {
 }
 
 async function progressCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]); const progress = progressSnapshot(workflow);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]); const progress = progressSnapshot(workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
   console.log(`\n${progress.workId} — ${progress.workType}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
@@ -887,7 +891,7 @@ async function progressCommand(positionals, options) {
 async function reportCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
   const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null });
@@ -907,7 +911,7 @@ async function reportCommand(positionals, options) {
 async function guideCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const guide = workflowGuide(workflow);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
   else process.stdout.write(guideText(guide));
@@ -925,7 +929,7 @@ async function nextStepsCommand(positionals, options) {
     const index = await buildRepositorySubjectIndex(root, { definition: config });
     const selected = resolveContext(index, { reference: id, kind: 'story', required: false });
     if (selected) {
-      const workflow = await loadWorkflow(root, config, selected.id);
+      const workflow = await loadStoryAggregate(root, config, selected.id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
       if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
@@ -969,7 +973,7 @@ async function nextStepsCommand(positionals, options) {
 }
 
 async function nextCommand(options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Next step: publish the retained local commit.');
     return syncCommand();
@@ -1008,7 +1012,7 @@ async function nextCommand(options) {
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot(); const config = await loadConfig(root);
   if (subcommand === 'list') {
-    const workflow = await loadWorkflow(root, config, positionals[2]); const records = await documentCatalog(root, config, workflow);
+    const workflow = await loadStoryAggregate(root, config, positionals[2]); const records = await documentCatalog(root, config, workflow);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
     if (!records.length) return console.log('No documents found.');
     return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', label: item.label, location: item.url ?? item.path ?? '' })), [
@@ -1016,7 +1020,7 @@ async function documentsCommand(positionals, options) {
     ]));
   }
   if (subcommand === 'view') {
-    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadWorkflow(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference);
+    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
@@ -1027,7 +1031,7 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'preview') {
     const reference = requirePositional(positionals, 2, 'document ID or path');
-    const workflow = await loadWorkflow(root, config, optionString(options, 'work-id'));
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
     const result = await previewDocument(root, config, workflow, reference);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.record.id} — ${result.record.label}`);
@@ -1038,12 +1042,12 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (['upload', 'add'].includes(subcommand)) {
-    const workflow = await loadWorkflow(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
-    const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    const workflow = await loadStoryAggregate(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
+    const result = await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
-    const workflow = await loadWorkflow(root, config, optionString(options, 'work-id'));
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
     const result = await listRemoteDocuments(config, { providerId: optionString(options, 'provider'), path: optionString(options, 'path', ''), workflow });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.providerId} (${result.providerType})`);
@@ -1053,7 +1057,7 @@ async function documentsCommand(positionals, options) {
     ]));
   }
   if (subcommand === 'fetch') {
-    const workflow = await loadWorkflow(root, config);
+    const workflow = await loadStoryAggregate(root, config);
     const records = await fetchRemoteDocument(root, config, workflow, {
       providerId: optionString(options, 'provider'),
       remoteRef: optionString(options, 'ref') ?? positionals[2],
@@ -1061,7 +1065,7 @@ async function documentsCommand(positionals, options) {
       label: optionString(options, 'label'),
       kind: optionString(options, 'kind')
     });
-    const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
+    const result = await commitAndPublish(root, config, workflow, { type: 'external-synchronized', payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
     console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
     return;
@@ -1074,7 +1078,7 @@ function pathForDisplay(root, relative) { return path.join(root, relative); }
 async function prepareCommand(positionals) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const workflow = await loadStoryAggregate(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
   await saveWorkflow(root, config, workflow);
 }
@@ -1082,7 +1086,7 @@ async function prepareCommand(positionals) {
 async function inputsCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const workflow = await loadStoryAggregate(root, config);
   const dryRun = optionBoolean(options, 'dry-run');
   const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
   if (!dryRun) await saveWorkflow(root, config, workflow);
@@ -1145,7 +1149,7 @@ async function agentsCommand(positionals, options) {
     const result = await syncAgent(root, agentId);
     const definition = await loadConfig(root);
     let workflow = null;
-    try { workflow = await loadWorkflow(root, definition); } catch { /* Agent sync is also valid before a work item exists. */ }
+    try { workflow = await loadStoryAggregate(root, definition); } catch { /* Agent sync is also valid before a work item exists. */ }
     await setAgentSession(root, definition, actionActor(root), result.agent.id, workflow?.workItem?.id ?? null, {
       phaseId: workflow?.currentPhase ?? null,
       source: 'agents-sync'
@@ -1167,7 +1171,7 @@ async function agentsCommand(positionals, options) {
   }
   if (subcommand === 'refresh-output') {
     const resourceId = requirePositional(positionals, 2, 'resource ID');
-    const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
+    const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
     await assertNoPendingPublication(root, config, workflow, 'refresh remote generated output');
     await assertPhaseSequence(root, workflow, 'refresh remote generated output');
     const session = await loadSession(root);
@@ -1250,7 +1254,7 @@ function printPhaseReview(review) {
 
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   if (subcommand === 'show') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
@@ -1263,7 +1267,7 @@ async function phaseCommand(positionals, options) {
   if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
   const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
   const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
-  const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
+  const result = await commitAndPublish(root, config, workflow, { type: 'artifact-generated', phaseId: phase.id, generation: phase.generation }, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
   const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
   const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);
@@ -1282,7 +1286,7 @@ async function artifactCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'artifact subcommand');
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const workflow = await loadStoryAggregate(root, config);
   await assertNoPendingPublication(root, config, workflow, 'change artifact registration');
   const phaseId = optionString(options, 'phase');
   if (subcommand === 'add') {
@@ -1307,7 +1311,7 @@ async function artifactCommand(positionals, options) {
 async function pullRequestCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, positionals[1]);
+  const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const plan = await storyPullRequestPlan(root, config, workflow);
 
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
@@ -1337,20 +1341,20 @@ async function pullRequestCommand(positionals, options) {
 async function submitCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  let workflow = await loadWorkflow(root, config);
+  let workflow = await loadStoryAggregate(root, config);
   const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: optionString(options, 'phase') });
   if (reconciliation.updated) {
-    const telemetryPublication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
+    const telemetryPublication = await commitAndPublish(root, config, workflow, { type: 'telemetry-recorded', phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
     console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
     console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
-    workflow = await loadWorkflow(root, config);
+    workflow = await loadStoryAggregate(root, config);
   } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
   const phase = await submitPhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
     runChecks: !optionBoolean(options, 'skip-checks')
   });
   const reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, [...phase.artifacts.map((item) => item.path), reviewPacket.path]);
+  const publication = await commitAndPublish(root, config, workflow, { type: 'approval-requested', phaseId: phase.id, generation: phase.generation }, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, [...phase.artifacts.map((item) => item.path), reviewPacket.path]);
   console.log(`\nSubmitted ${phase.id} phase for approval.`);
   console.log(`Commit: ${publication.sha.slice(0, 8)} — request approval (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
@@ -1366,7 +1370,7 @@ async function telemetryCommand(positionals, options) {
   const status = await copilotTelemetryStatus(root);
   if (subcommand === 'status') {
     let workflow = null;
-    try { const config = await loadConfig(root); workflow = await loadWorkflow(root, config); } catch { /* Diagnostics remain useful without an active work item. */ }
+    try { const config = await loadConfig(root); workflow = await loadStoryAggregate(root, config); } catch { /* Diagnostics remain useful without an active work item. */ }
     const pending = workflow
       ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
       : [];
@@ -1382,10 +1386,10 @@ async function telemetryCommand(positionals, options) {
     return;
   }
   if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
-  const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
   if (result.updated) {
-    const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
+    const publication = await commitAndPublish(root, config, workflow, { type: 'telemetry-recorded', phaseId: result.phase, generation: result.generation }, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
     Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ exporter: status, reconciliation: result }, null, 2));
@@ -1407,7 +1411,7 @@ async function decisionWorkflow(positionals, options, action) {
   let config = await loadConfig(root);
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) checkout(root, requestedId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
   config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, requestedId);
+  const workflow = await loadStoryAggregate(root, config, requestedId);
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
@@ -1459,7 +1463,7 @@ async function approveCommand(positionals, options) {
     phaseId: optionString(options, 'phase'),
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal'
   });
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`, phase.artifacts.map((item) => item.path));
+  const publication = await commitAndPublish(root, config, workflow, { type: 'phase-approved', phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup }, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`, phase.artifacts.map((item) => item.path));
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
@@ -1474,13 +1478,13 @@ async function rejectCommand(positionals, options) {
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
-  await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
+  await commitAndPublish(root, config, workflow, { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: phase.id } }, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
 }
 
 async function syncCommand() {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
 }
 
@@ -1737,7 +1741,7 @@ async function doctorCommand(positionals, options) {
 }
 
 async function reviewCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const bundle = await createReviewBundle(root, config, workflow, positionals[1]);
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError('Review format must be md, html, or json.');
@@ -1856,20 +1860,20 @@ async function workflowCommand(positionals, options) {
 }
 
 async function assignCommand(positionals) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const phaseId = requirePositional(positionals, 1, 'phase'); const assignee = requirePositional(positionals, 2, 'assignee'); const session = await loadSession(root);
   const record = await assignPhase(root, config, workflow, phaseId, assignee, session);
-  const result = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][phase:${phaseId}][assign] ${record.assignee}`);
+  const result = await commitAndPublish(root, config, workflow, { type: 'configuration-changed', phaseId, payload: { assignee: record.assignee } }, `[${workflow.workItem.id}][phase:${phaseId}][assign] ${record.assignee}`);
   console.log(`Assigned ${phaseId} to ${record.assignee}. Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
 }
 
 async function watchCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const once = optionBoolean(options, 'once') || !output.isTTY; const interval = Math.max(2, optionNumber(options, 'interval', 15));
   let previous = '';
   do {
     if (optionBoolean(options, 'fetch') && branch(root) === workflow.workItem.branch && hasUpstream(root) && !changes(root).trim()) { fetchOrigin(root); pullFastForward(root); }
-    const fresh = await loadWorkflow(root, config, workflow.workItem.id); const snapshot = watchSnapshot(fresh); const serialized = JSON.stringify(snapshot);
+    const fresh = await loadStoryAggregate(root, config, workflow.workItem.id); const snapshot = watchSnapshot(fresh); const serialized = JSON.stringify(snapshot);
     if (serialized !== previous) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2)); else process.stdout.write(watchText(snapshot));
       previous = serialized;
@@ -1880,14 +1884,14 @@ async function watchCommand(positionals, options) {
 }
 
 async function recoverCommand(positionals, options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config, positionals[1]);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
   const plan = await recoveryPlan(root, config, workflow, { fetch: optionBoolean(options, 'fetch') });
   const result = optionBoolean(options, 'apply') ? await applyRecovery(root, config, workflow, plan) : plan;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
 }
 
 async function runCommand(options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadWorkflow(root, config); const phase = currentPhase(workflow);
+  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
   if (!phase) { console.log('Workflow is complete. Running the final governance gate.'); return gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
@@ -1912,7 +1916,7 @@ async function cockpitCommand() {
     console.log('Singularity Flow is not initialized in this repository.\n\nRun: singularity-flow init'); return;
   }
   const config = await loadConfig(root); let workflow;
-  try { workflow = await loadWorkflow(root, config); }
+  try { workflow = await loadStoryAggregate(root, config); }
   catch {
     console.log(`Singularity Flow cockpit\nRepository: ${root}\nBranch: ${branch(root)}\n\nNo work item is active on this branch.`);
     console.log('Start: singularity-flow start <WORK-ID>\nResume: singularity-flow resume <WORK-ID> --fetch\nDiagnostics: singularity-flow doctor'); return;
@@ -1986,7 +1990,7 @@ async function hookCommand(positionals) {
     }
     if (event === 'agent-start') return console.log(JSON.stringify(await copilotAgentStartHook(root, payload)));
     const config = await loadConfig(root); let workflow = null;
-    try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
+    try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
     if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
     throw new SingularityFlowError(`Unknown hook event: ${event}`);
@@ -2070,7 +2074,7 @@ async function sessionCommand(positionals, options) {
     }
     if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
     const attachedConfig = await loadConfig(root);
-    const workflow = await loadWorkflow(root, attachedConfig, id);
+    const workflow = await loadStoryAggregate(root, attachedConfig, id);
     const session = await activateWorkItemSession(root, attachedConfig, workflow);
     const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -2081,7 +2085,7 @@ async function sessionCommand(positionals, options) {
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let workflow;
-  try { workflow = await loadWorkflow(root, config); } catch { workflow = null; }
+  try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
   const status = await agentSessionStatus(root, config, workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
   console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
@@ -2100,19 +2104,10 @@ async function inboxCommand(options) {
   process.stdout.write(approvalInboxText(snapshot));
 }
 
-async function migrateConfigCommand() {
-  const root = repoRoot();
-  const result = await migrateLegacyConfig(root);
-  if (!result.migrated) return console.log(result.reason);
-  const moved = result.movedStateRoot ? `; moved ${result.movedFrom}/ to singularity/` : '';
-  const initiatives = result.migratedInitiatives ? ` and refreshed ${result.migratedInitiatives} initiative snapshot(s)` : '';
-  console.log(`Migrated configuration to ${result.path}; upgraded/refreshed ${result.migratedWorkItems} work item(s)${initiatives}${moved}.`);
-}
-
 async function validateCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const workflow = await loadStoryAggregate(root, config);
   const result = await validateWorkflow(root, config, workflow, { strict: optionBoolean(options, 'strict') });
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (!result.valid) throw new SingularityFlowError(`Validation failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2 });
@@ -2122,7 +2117,7 @@ async function validateCommand(options) {
 async function gateCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config);
+  const workflow = await loadStoryAggregate(root, config);
   const result = await runGovernanceGate(root, config, workflow, {
     terminal: optionBoolean(options, 'terminal') || process.env.SINGULARITY_FLOW_ENFORCE_TERMINAL === '1'
   });
@@ -2504,7 +2499,7 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
     choiceSets = initiativeStartChoiceSets(portfolio);
     receiptAction = 'initiative-start';
   } else if (action === 'approve') {
-    const { initiative } = await loadInitiative(root, initiativeId, portfolio);
+    const { initiative } = await loadInitiativeAggregate(root, initiativeId, portfolio);
     const phaseId = initiative.currentPhase;
     const subject = positionals[5] ?? 'phase';
     const bundle = await initiativeBundle(root, portfolio, initiative, phaseId);
@@ -2884,7 +2879,7 @@ async function knowledgeCommand(positionals, options) {
 
   if (subcommand === 'harvest') {
     const initiativeId = optionString(options, 'initiative') ?? branch(root);
-    const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+    const { portfolio, initiative } = await loadInitiativeAggregate(root, initiativeId);
     const dryRun = optionBoolean(options, 'dry-run');
     const result = await harvestInitiativeKnowledge(root, portfolio, initiative, {
       phaseId: optionString(options, 'phase') ?? null,
@@ -2992,14 +2987,14 @@ async function initiativeCommand(positionals, options) {
         agent: selectedAgent.agent
       });
     }
-    const started = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, `[${initiativeId}][initiative:init] start ${profile}`);
+    const started = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, { type: 'binding' }, `[${initiativeId}][initiative:init] start ${profile}`);
     let current = started;
     if (profile === 'epic-planning') {
       const completed = await completeEpicIntake(root, initiativeId, { agent: selectedAgent.agent });
       if (completed.advanced) {
-        await commitInitiativeChange(root, completed.portfolio, completed.initiative, `[${initiativeId}][epic:intake] sources accepted`);
-        current = await loadInitiative(root, initiativeId);
+        await commitInitiativeChange(root, completed.portfolio, completed.initiative, { type: 'phase-approved', phaseId: 'epic-intake' }, `[${initiativeId}][epic:intake] sources accepted`);
+        current = await loadInitiativeAggregate(root, initiativeId);
       }
     }
     const progress = initiativeProgress(current.initiative);
@@ -3016,6 +3011,7 @@ async function initiativeCommand(positionals, options) {
     const remote = config.git?.remote ?? 'origin';
     if (fetch) fetchRemote(root, remote);
     const refs = [
+      { branch: branch(root), ref: branch(root) },
       ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
       ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
     ];
@@ -3025,7 +3021,7 @@ async function initiativeCommand(positionals, options) {
     const targetBranch = resolved.selectedBranch;
     if (branch(root) !== targetBranch) assertClean(root);
     checkout(root, targetBranch, { base: config.defaultBaseBranch, fetch, existingOnly: true, remote });
-    const loaded = await loadInitiative(root, initiativeId);
+    const loaded = await loadInitiativeAggregate(root, initiativeId);
     const session = await activateInitiativeAgent(
       root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null
     );
@@ -3041,7 +3037,7 @@ async function initiativeCommand(positionals, options) {
   }
   const acceptsExplicitId = new Set(['status', 'next', 'journey', 'report', 'gate']);
   const initiativeId = optionString(options, 'initiative') ?? (acceptsExplicitId.has(subcommand) && positionals[2] ? positionals[2] : branch(root));
-  const loaded = await loadInitiative(root, initiativeId, portfolio);
+  const loaded = await loadInitiativeAggregate(root, initiativeId, portfolio);
   const initiative = loaded.initiative;
   if (subcommand === 'status') {
     const progress = initiativeProgress(initiative);
@@ -3065,8 +3061,8 @@ async function initiativeCommand(positionals, options) {
       reason: optionString(options, 'reason') ?? null,
       agent: session?.agent ?? null
     });
-    const state = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
+    const state = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: 'configuration-changed', phaseId: state.initiative.currentPhase }, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
     console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -3091,8 +3087,8 @@ async function initiativeCommand(positionals, options) {
       reason: optionString(options, 'reason') ?? null,
       agent: session?.agent ?? null
     });
-    const saved = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, `[${initiativeId}][initiative:applicability] ${policyId}`);
+    const saved = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, { type: 'configuration-changed', phaseId: saved.initiative.currentPhase, payload: { policyId } }, `[${initiativeId}][initiative:applicability] ${policyId}`);
     if (optionBoolean(options, 'json')) {
       return console.log(JSON.stringify({ policyId, applicable: result.applicable, publication }, null, 2));
     }
@@ -3117,8 +3113,8 @@ async function initiativeCommand(positionals, options) {
       reason: optionString(options, 'reason') ?? null,
       agent: session?.agent ?? null
     });
-    const state = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    const state = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: 'configuration-changed', phaseId, payload: { selection: 'outputs' } }, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
     console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -3134,13 +3130,13 @@ async function initiativeCommand(positionals, options) {
       // and the VS Code extension record the same thing. They used to live here, which is why publishing
       // from the editor left blocking gates unsatisfied and the phase impossible to approve.
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const publishState = await loadInitiative(root, initiativeId);
-      const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      const publishState = await loadInitiativeAggregate(root, initiativeId);
+      const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, { type: 'artifact-generated', phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     } else {
       const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'artifact-generated', phaseId, generation: result.initiative.phases[phaseId].generation }, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -3228,8 +3224,8 @@ async function initiativeCommand(positionals, options) {
         reason: optionString(options, 'reason'),
         supersedes: optionStrings(options, 'supersedes')
       });
-      const fresh = await loadInitiative(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
+      const fresh = await loadInitiativeAggregate(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'evidence-recorded', phaseId, payload: { checkId } }, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
       console.log(`Evidence ${appended.sha256.slice(0, 12)} committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
@@ -3280,7 +3276,7 @@ async function initiativeCommand(positionals, options) {
     // Knowledge harvested by this approval is committed with it. Two commits would let one land
     // without the other, and leaving it unstaged left the working tree dirty — which the next
     // governed command refuses outright, since every one of them starts from a clean checkout.
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'phase-approved', phaseId, agent: session?.agent ?? null, payload: { approvalSubject: subject } }, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
       extraPaths: result.knowledge?.harvested?.length ? [KNOWLEDGE_ROOT] : []
     });
     console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
@@ -3298,7 +3294,7 @@ async function initiativeCommand(positionals, options) {
     const subject = positionals[2] ?? 'phase';
     const session = await loadSession(root, { required: false });
     const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), agent: session?.agent ?? null });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'phase-rejected', phaseId: result.target.phaseId ?? result.initiative.currentPhase, payload: { targetType: result.target.type, targetId: result.target.id } }, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
     console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -3332,14 +3328,14 @@ async function initiativeCommand(positionals, options) {
       replace: optionBoolean(options, 'replace'),
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
     console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'jira-plan') {
     const result = await createJiraWritePlan(root, initiativeId);
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
     else {
       console.log(`Jira write plan ${result.plan.sha256} contains ${result.plan.operations.length} operations.`);
@@ -3365,7 +3361,7 @@ async function initiativeCommand(positionals, options) {
       confirmation: initiativeId,
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
     console.log(`Applied ${result.results.length} Jira operations. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
@@ -3379,8 +3375,8 @@ async function initiativeCommand(positionals, options) {
     }
     if (!(await confirmInitiativeExact(`Materialize every reviewed repository story for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Initiative materialization cancelled.');
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
-    const fresh = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
+    const fresh = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
     console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
     return;
@@ -3388,8 +3384,8 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'sync') {
     const pending = await syncInitiativePublication(root, portfolio, initiative);
     const result = await syncInitiativeRepositories(root, initiativeId);
-    const fresh = await loadInitiative(root, initiativeId);
-    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:sync] repository evidence`);
+    const fresh = await loadInitiativeAggregate(root, initiativeId);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'repository-sync' } }, `[${initiativeId}][initiative:sync] repository evidence`);
     console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
     return;
   }
@@ -3407,8 +3403,8 @@ async function initiativeCommand(positionals, options) {
         compatibilityPolicy: optionString(options, 'compatibility', 'explicit-review'),
         agent: session?.agent ?? null
       });
-      const fresh = await loadInitiative(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
+      const fresh = await loadInitiativeAggregate(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'artifact-generated', payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
       console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       return;
     }
@@ -3512,7 +3508,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   else if (subcommand === 'initiative-materialize') {
     const initiativeId = optionString(options, 'initiative');
     const confirmation = optionString(options, 'confirm');
-    const before = await loadInitiative(root, initiativeId);
+    const before = await loadInitiativeAggregate(root, initiativeId);
     if (before.initiative.lineage?.idAuthority === 'local') {
       await registerInitiativeEvidence(root, {
         initiativeId,
@@ -3547,24 +3543,26 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         result.completion = await completeEpicPublication(root, initiativeId);
       }
     }
-    const fresh = await loadInitiative(root, initiativeId);
+    const fresh = await loadInitiativeAggregate(root, initiativeId);
     result.publication = await commitInitiativeChange(
       root,
       fresh.portfolio,
       fresh.initiative,
+      { type: 'external-synchronized', payload: { operation: 'materialize', status: result.attempt.status } },
       `[${initiativeId}][initiative:materialize] ${result.attempt.status}`
     );
   }
   else if (subcommand === 'initiative-sync') {
     const initiativeId = optionString(options, 'initiative');
-    const freshBefore = await loadInitiative(root, initiativeId);
+    const freshBefore = await loadInitiativeAggregate(root, initiativeId);
     const pendingPublication = await syncInitiativePublication(root, freshBefore.portfolio, freshBefore.initiative);
     result = await syncInitiativeRepositories(root, initiativeId);
-    const fresh = await loadInitiative(root, initiativeId);
+    const fresh = await loadInitiativeAggregate(root, initiativeId);
     result.publication = await commitInitiativeChange(
       root,
       fresh.portfolio,
       fresh.initiative,
+      { type: 'external-synchronized', payload: { operation: 'repository-sync' } },
       `[${initiativeId}][initiative:sync] repository evidence`
     );
     result.pendingPublication = pendingPublication;
@@ -3574,9 +3572,68 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
 }
 
 async function snapshotCommand(positionals, options) {
-  const result = await repositorySnapshot(repoRoot(), positionals[1], optionString(options, 'initiative'));
+  const root = repoRoot();
+  const included = optionStrings(options, 'include');
+  const result = await new SnapshotCoordinator(root).capture(
+    () => repositorySnapshot(root, positionals[1], optionString(options, 'initiative')),
+    { included: included.length ? included : undefined }
+  );
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else console.log(JSON.stringify(result, null, 2));
+}
+
+async function stateCommand(positionals, options) {
+  const root = repoRoot();
+  const subcommand = positionals[1] ?? 'planes';
+  const reference = positionals[2] ?? optionString(options, 'subject') ?? branch(root);
+  const definition = await loadConfig(root);
+  const portfolio = await loadPortfolio(root).catch(() => null);
+  const common = {
+    definition,
+    portfolio,
+    reference,
+    kind: optionString(options, 'kind'),
+    offline: optionBoolean(options, 'offline', true)
+  };
+  if (subcommand === 'planes') {
+    console.log(JSON.stringify(await inspectStatePlanes(root, common), null, 2));
+    return;
+  }
+  if (subcommand !== 'reconcile') {
+    throw new SingularityFlowError(`Unknown state subcommand '${subcommand}'. Use state planes or state reconcile.`);
+  }
+  const repair = optionBoolean(options, 'repair-projections');
+  const result = await reconcileStateProjections(root, { ...common, repair });
+  if (repair && result.repaired) {
+    const subject = result.planes.subject;
+    const event = {
+      type: 'projection-reconciled',
+      phaseId: null,
+      generation: null,
+      payload: { projection: result.repairedPath }
+    };
+    if (subject.kind === 'story') {
+      const store = new StoryStateStore(root, definition);
+      const workflow = await store.loadAggregate(subject.id);
+      result.publication = await store.publish(
+        workflow,
+        event,
+        `[${subject.id}][state:reconcile] Repair derived projections`,
+        [result.repairedPath]
+      );
+    } else {
+      const store = new InitiativeStateStore(root, portfolio);
+      const initiative = await store.loadAggregate(subject.id);
+      result.publication = await store.publish(
+        initiative,
+        event,
+        `[${subject.id}][state:reconcile] Repair derived projections`,
+        { extraPaths: [result.repairedPath] }
+      );
+    }
+    result.planes = await inspectStatePlanes(root, common);
+  }
+  console.log(JSON.stringify(result, null, 2));
 }
 
 function optionMap(values, label) {
@@ -3653,6 +3710,7 @@ async function publishEpicStoryUpdate(root, initiativeId, planId, changes, detai
     root,
     updated.portfolio,
     updated.initiative,
+    { type: 'artifact-generated', phaseId: updated.initiative.currentPhase, payload: { planId, operation: detail } },
     `[${initiativeId}][epic:story] ${detail}`
   );
   return { updated, publication };
@@ -4192,11 +4250,12 @@ async function epicCommand(positionals, options) {
         },
         agent: selectedAgent.agent
       });
-      const started = await loadInitiative(root, reservation.id, created.portfolio);
+      const started = await loadInitiativeAggregate(root, reservation.id, created.portfolio);
       const publication = await commitInitiativeChange(
         root,
         started.portfolio,
         started.initiative,
+        { type: 'binding' },
         `[${reservation.id}][epic:init] start ${profile}`
       );
       const result = { initiativeId: reservation.id, source, reservation, publication };
@@ -4228,6 +4287,7 @@ async function epicCommand(positionals, options) {
         root,
         result.portfolio,
         result.initiative,
+        { type: 'evidence-recorded', phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } },
         `[${initiativeId}][epic:source] ${result.record.sourceId}`,
         { appendOnly: true }
       );
@@ -4245,7 +4305,7 @@ async function epicCommand(positionals, options) {
         label: optionString(options, 'label'),
         mimeType: optionString(options, 'mime', 'application/octet-stream')
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'evidence-recorded', phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } }, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
       const output = { record: result.record, recordSha256: result.recordSha256, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Registered ${result.record.sourceId}: ${result.record.name}`);
@@ -4269,8 +4329,8 @@ async function epicCommand(positionals, options) {
             observedState: `${result.results.length} source version(s) downloaded and hash-verified`
           }
         });
-        const verifiedState = await loadInitiative(root, initiativeId);
-        publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
+        const verifiedState = await loadInitiativeAggregate(root, initiativeId);
+        publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, { type: 'evidence-recorded', phaseId: verifiedState.initiative.currentPhase, payload: { verifiedSources: result.results.length } }, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
       }
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(table(result.results, [
@@ -4299,7 +4359,7 @@ async function epicCommand(positionals, options) {
     const initiativeId = optionString(options, 'epic') ?? branch(root);
     const phaseId = EPIC_PHASES[subcommand];
     const action = positionals[2] ?? 'status';
-    let loaded = await loadInitiative(root, initiativeId);
+    let loaded = await loadInitiativeAggregate(root, initiativeId);
     if (subcommand === 'requirements' && loaded.initiative.currentPhase === EPIC_PHASES.intake) {
       const completed = await completeEpicIntake(root, initiativeId);
       if (completed.advanced) {
@@ -4307,9 +4367,10 @@ async function epicCommand(positionals, options) {
           root,
           completed.portfolio,
           completed.initiative,
+          { type: 'phase-approved', phaseId: EPIC_PHASES.intake },
           `[${initiativeId}][epic:intake] sources accepted`
         );
-        loaded = await loadInitiative(root, initiativeId);
+        loaded = await loadInitiativeAggregate(root, initiativeId);
       }
     }
     if (action === 'status') {
@@ -4341,7 +4402,7 @@ async function epicCommand(positionals, options) {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
     const action = positionals[2] ?? 'list';
-    const { portfolio, initiative } = await loadInitiative(root, initiativeId);
+    const { portfolio, initiative } = await loadInitiativeAggregate(root, initiativeId);
     const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);
     if (action === 'list' || action === 'show') {
       const selected = action === 'show'
@@ -4484,6 +4545,7 @@ async function epicCommand(positionals, options) {
         root,
         added.portfolio,
         added.initiative,
+        { type: 'artifact-generated', phaseId: added.initiative.currentPhase, payload: { planId: added.story.planId, operation: 'add-story' } },
         `[${initiativeId}][epic:story] add ${added.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: added.story, publication }, null, 2));
@@ -4499,6 +4561,7 @@ async function epicCommand(positionals, options) {
         root,
         split.portfolio,
         split.initiative,
+        { type: 'artifact-generated', phaseId: split.initiative.currentPhase, payload: { planId: split.story.planId, sourcePlanId: planId, operation: 'split-story' } },
         `[${initiativeId}][epic:story] split ${planId} as ${split.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: split.story, publication }, null, 2));
@@ -4519,6 +4582,7 @@ async function epicCommand(positionals, options) {
         root,
         adopted.portfolio,
         adopted.initiative,
+        { type: 'external-synchronized', phaseId: adopted.initiative.currentPhase, payload: { system: 'jira', operation: 'adopt-story', jiraKey: issue.key, planId: adopted.story.planId } },
         `[${initiativeId}][epic:story] adopt ${issue.key} as ${adopted.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: adopted.story, publication }, null, 2));
@@ -4543,7 +4607,7 @@ async function epicCommand(positionals, options) {
   if (subcommand === 'create-stories') {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
-    const loaded = await loadInitiative(root, initiativeId);
+    const loaded = await loadInitiativeAggregate(root, initiativeId);
     if (loaded.initiative.lineage?.idAuthority === 'local') {
       const preview = await initiativeBreakdownReview(root, initiativeId, { probe: true });
       if (optionBoolean(options, 'dry-run')) {
@@ -4582,8 +4646,8 @@ async function epicCommand(positionals, options) {
         });
         await completeEpicPublication(root, initiativeId);
       }
-      const fresh = await loadInitiative(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+      const fresh = await loadInitiativeAggregate(root, initiativeId);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
       const result = { authority: 'local', materialization: materialized.attempt, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Local Story branches ready: ${materialized.attempt.stories.filter((entry) => entry.status !== 'failed').length}/${materialized.attempt.stories.length}.`);
@@ -4595,7 +4659,7 @@ async function epicCommand(positionals, options) {
       const result = await createJiraWritePlan(root, initiativeId, {
         artifactSelections: selectedJiraArtifacts(options)
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
       console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
@@ -4619,8 +4683,8 @@ async function epicCommand(positionals, options) {
         observedState: `${applied.results.length} reviewed Jira operations applied by an account with required permissions`
       }
     });
-    const appliedState = await loadInitiative(root, initiativeId);
-    const applicationPublication = await commitInitiativeChange(root, appliedState.portfolio, appliedState.initiative, `[${initiativeId}][epic:jira-apply] ${planSha256.slice(0, 12)}`);
+    const appliedState = await loadInitiativeAggregate(root, initiativeId);
+    const applicationPublication = await commitInitiativeChange(root, appliedState.portfolio, appliedState.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][epic:jira-apply] ${planSha256.slice(0, 12)}`);
     const materialized = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     if (!materialized.failures.length) {
       await registerInitiativeEvidence(root, {
@@ -4637,8 +4701,8 @@ async function epicCommand(positionals, options) {
       });
       await completeEpicPublication(root, initiativeId);
     }
-    const fresh = await loadInitiative(root, initiativeId);
-    const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+    const fresh = await loadInitiativeAggregate(root, initiativeId);
+    const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
     const result = { plan: planSha256, applied: applied.results, materialization: materialized.attempt, publications: { application: applicationPublication, branches: branchPublication } };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Created or attached ${applied.results.filter((entry) => entry.subject.type === 'story').length} Jira Stories.`);
@@ -4660,13 +4724,13 @@ async function epicCommand(positionals, options) {
       throw new SingularityFlowError('Epic completion cancelled.');
     }
     const synchronized = await syncInitiativeRepositories(root, initiativeId);
-    const synced = await loadInitiative(root, initiativeId);
-    const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, `[${initiativeId}][epic:sync] completion preflight`);
+    const synced = await loadInitiativeAggregate(root, initiativeId);
+    const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, { type: 'external-synchronized', payload: { operation: 'completion-preflight' } }, `[${initiativeId}][epic:sync] completion preflight`);
     const result = await completeEpicDelivery(root, initiativeId, {
       confirmation: initiativeId,
       actor: identity(root)
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'work-completed', payload: { completionSha256: result.record.sha256 } }, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
     const output = { record: result.record, reportPath: result.reportPath, synchronized, publications: { sync: syncPublication, completion: publication } };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
     console.log(`Epic ${initiativeId} marked complete.`);
@@ -4872,7 +4936,7 @@ async function epicCommand(positionals, options) {
     const action = positionals[2] ?? 'observe';
     if (action === 'observe') {
       const result = await observeJiraDrift(root, initiativeId);
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-drift] observe`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'observe-drift', observationSha256: result.record.observationSha256 } }, `[${initiativeId}][epic:jira-drift] observe`);
       const output = { record: result.record, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Jira drift: ${result.record.observations.filter((entry) => entry.drifted).length}/${result.record.observations.length} issue(s).`);
@@ -4884,14 +4948,14 @@ async function epicCommand(positionals, options) {
         observationSha256: optionString(options, 'observation'),
         actor: identity(root).email?.toLowerCase() ?? identity(root).name
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'adopt-drift', observationSha256: result.observation.observationSha256 } }, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ observation: result.observation, publication }, null, 2));
       console.log(`Adopted Jira observations into a new governed Git generation. Commit ${publication.sha.slice(0, 8)}.`);
       return;
     }
     if (action === 'restore-plan') {
       const result = await createJiraWritePlan(root, initiativeId);
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'restore-plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created reviewed Jira restore plan ${result.plan.sha256}. No Jira fields were changed.`);
       return;
@@ -5050,7 +5114,7 @@ async function storyFetchCommand(positionals, options) {
   const config = await loadConfig(target);
   let workflow;
   try {
-    workflow = await loadWorkflow(target, config, storyKey);
+    workflow = await loadStoryAggregate(target, config, storyKey);
   } catch {
     const workType = seed.story.suggestedWorkType;
     if (!config.workTypes?.[workType]) {
@@ -5080,7 +5144,7 @@ async function storyFetchCommand(positionals, options) {
       resolved: resolvedWorkType,
       capabilityId: optionString(options, 'capability')
     });
-    await commitAndPublish(target, config, workflow, `[${storyKey}][init] start governed Story workflow`);
+    await commitAndPublish(target, config, workflow, { type: 'binding' }, `[${storyKey}][init] start governed Story workflow`);
   }
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({ storyKey, repository: repositoryId, directory: target, workflow: workflow.workItem, property }, null, 2));
@@ -5117,7 +5181,7 @@ async function storyCommand(positionals, options) {
       return;
     }
     if (action === 'promote') {
-      const workflow = await loadWorkflow(root, config, optionString(options, 'parent'));
+      const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
       const result = await promoteStoryBranch(root, config, workflow, { mode: optionString(options, 'mode') });
       if (result.requiresPullRequest) console.log(`Open a pull request from ${result.branch} to ${result.canonicalBranch}. Epic progress advances only after merge.`);
       else console.log(`Promoted ${result.branch} to ${result.canonicalBranch} at ${result.commit.slice(0, 8)}.`);
@@ -5133,7 +5197,7 @@ async function storyCommand(positionals, options) {
   if (subcommand === 'submit') return submitCommand(options);
   if (subcommand === 'finalize') return finalizeCommand(options);
   if (subcommand === 'checks') {
-    const workflow = await loadWorkflow(root, config, optionString(options, 'parent'));
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
     const result = await runAndRecordStoryChecks(root, config, workflow, {
       packetSha256: optionString(options, 'packet'),
       requiredChecks: optionStrings(options, 'required-check')
@@ -5152,12 +5216,13 @@ async function storyCommand(positionals, options) {
 async function finalizeCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadWorkflow(root, config, optionString(options, 'parent'));
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
   const result = await finalizeStoryDelivery(root, config, workflow);
   const publication = await commitAndPublish(
     root,
     config,
     workflow,
+    { type: 'work-completed', phaseId: workflow.currentPhase },
     `[${workflow.workItem.id}][finalize] ready for Product Owner review`,
     [result.path]
   );
@@ -5251,7 +5316,7 @@ async function dispatch(command, positionals, options) {
     sync: () => syncCommand(),
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),
-    'migrate-config': () => migrateConfigCommand(),
+    state: () => stateCommand(positionals, options),
     validate: () => validateCommand(options),
     gate: () => gateCommand(options),
     wm: () => worldModelCommand(repoRoot(), positionals, options),
@@ -5259,7 +5324,6 @@ async function dispatch(command, positionals, options) {
     plugin: () => pluginCommand(positionals, options),
     snapshot: () => snapshotCommand(positionals, options),
     configuration: () => editorCommand(positionals, options, 'configuration'),
-    desktop: () => editorCommand(positionals, options, 'desktop'),
     initiative: () => initiativeCommand(positionals, options),
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),

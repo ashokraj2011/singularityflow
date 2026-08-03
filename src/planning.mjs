@@ -822,7 +822,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     });
     await saveInitiative(root, portfolio, fresh);
     const summary = promoted.map((item) => item.target).join(', ');
-    const publication = await commitInitiativeChange(root, portfolio, fresh, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
+    const publication = await commitInitiativeChange(root, portfolio, fresh, { type: 'artifact-generated', phaseId: definition.id, payload: { targets: promoted.map((item) => item.target) } }, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
     return {
       scope: 'initiative',
       id: fresh.initiative.id,
@@ -882,6 +882,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     root,
     definition,
     workflow,
+    { type: 'artifact-generated', phaseId: phase.id, generation: phase.generation, payload: { planningArtifactSha256: current.sha256 } },
     `[${workflow.workItem.id}][phase:${phase.id}][planning] promote reviewed plan`,
     [posix(path.relative(root, target)), posix(path.relative(root, auditDirectory))]
   );

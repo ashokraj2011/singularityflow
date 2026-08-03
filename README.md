@@ -124,12 +124,12 @@ The governed Epic and Story pages do not start or embed a Copilot planning sessi
 and Planning show the exact `/sflow-*` command to run from the open repository,
 with one-click copy controls. The installed skill composes the selected phase,
 governed agent, repository world model, approved inputs, agent skills, requirements,
-and templates inside the user’s normal Copilot CLI session. Refresh the desktop
-after the skill commits and pushes its result. Epic planning uses pinned Jira and
+and templates inside the user’s normal Copilot CLI session. Refresh the VS Code
+Lifecycle view after the skill commits and pushes its result. Epic planning uses pinned Jira and
 uploaded source evidence; it does not require a world model. After Story intake
 creates the canonical Story branch, repository world-model generation becomes
-the one deliberate desktop Copilot operation and its commit is pushed on that
-Story branch before phase work begins.
+an explicit CLI or Copilot-skill operation, and its commit is pushed on that Story
+branch before phase work begins.
 
 ## Capabilities, and the workspaces made of them
 
@@ -226,8 +226,8 @@ existing target, canonicalizes recent workspace aliases, and refuses linked
 workspace manifests rather than crossing a local storage boundary.
 
 `singularity/portfolio.yml` remains an advanced editable runtime contract for
-teams that use initiative orchestration, but it is not a separate desktop setup
-screen and is not required to create or open a workspace.
+teams that use initiative orchestration, but it is not a separate workspace
+database and is not required to create or open a workspace.
 
 Each participating repository can carry application identity and arbitrary scalar key/value metadata. Use **Initiatives → Portfolio designer → Add repository**, or edit the same governed YAML directly:
 
@@ -351,8 +351,8 @@ same lifecycle is available as `singularity-flow epic ...`. Pinned source
 files stay in Jira attachments, Artifactory, SharePoint, S3, or an approved
 HTTPS location; Git carries immutable source records and lineage rather than
 large source bytes. SharePoint delegated OAuth in VS Code remains unsupported until the documented
-corporate redirect-flow and proxy spike succeeds; credentials must not be copied from the retired
-desktop implementation. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
+corporate redirect-flow and proxy spike succeeds; credentials must remain in approved secure
+stores. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
 2 then traces these to `STORY-nnn → returned Jira key/numeric ID → canonical
 branch → optional Developer child branch → review packet → GitHub Actions/PR
 evidence → conformance → exact-hash decision`.
@@ -390,7 +390,7 @@ singularity-flow help troubleshooting
 singularity-flow help --json
 ```
 
-In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help WORK-123` loads the selected work item's immutable workflow guide. Singularity Flow Desktop includes the same manual in a searchable **Help** page, bundled for offline use.
+In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help WORK-123` loads the selected work item's immutable workflow guide. VS Code includes the same manual through its searchable **Help** command, bundled for offline use.
 
 Copilot start, resume, approval, rejection, and governed-agent flows use its
 interactive question facility to show the YAML-configured choices. Choose a
@@ -506,7 +506,7 @@ The bundled profiles are:
 
 Agent mappings connect native Copilot agents to governed Agent Markdown. Each phase activates its configured default agent automatically; `/sflow-agent` is an explicit, audited override. An agent changes instruction context only and can never grant approval permission. Phase approvals reference `approvalAuthorities`; every decision records the human identity, matched authority group, identity-assurance level, and active agent separately.
 
-For `figma-mobile`, committed PNG exports are the canonical approval baseline. The desktop Documents page provides verified thumbnails, full-size previews, and local PDF viewing; the visual-verification Review page compares the pinned design, registered implementation screenshot, and registered diff image side by side, through an overlay slider, or as a diff highlight. Live Figma links open externally over HTTPS and are explicitly labeled as mutable convenience context.
+For `figma-mobile`, committed PNG exports are the canonical approval baseline. VS Code and the generated local gallery provide verified thumbnails, full-size previews, and local PDF viewing; visual-verification evidence registers the pinned design, implementation screenshot, and diff image under the governed Story. Live Figma links open externally over HTTPS and are explicitly labeled as mutable convenience context.
 
 ## Start and resume
 
@@ -568,7 +568,7 @@ On another terminal, `resume --fetch` fetches and fast-forwards the work-item br
 
 ### Jira intake
 
-Jira access uses Atlassian REST directly. Jira Cloud needs only the Jira URL, Atlassian username/email, and PAT/API token. The desktop presents exactly those credential fields and sends the standard Basic-auth value `base64(username:PAT)`; it never requests an Atlassian password:
+Jira access uses Atlassian REST directly. Jira Cloud needs only the Jira URL, Atlassian username/email, and PAT/API token. The VS Code connection command presents exactly those credential fields, stores the token in `SecretStorage`, and sends the standard Basic-auth value `base64(username:PAT)`; it never requests an Atlassian password:
 
 ```bash
 export JIRA_BASE_URL="https://company.atlassian.net"
@@ -643,7 +643,7 @@ Jira** selected. Enter a Work ID and title, optionally add Story context,
 source files, an exported folder, or reference URLs, then choose the workflow
 template and session governed agent. **Create Story branch** creates and publishes the
 same durable state as the CLI command below. If that Work-ID branch already
-exists, the desktop fetches and resumes it instead of creating a duplicate.
+exists, VS Code fetches and resumes it instead of creating a duplicate.
 
 ```bash
 singularity-flow start WORK-123 \
@@ -935,7 +935,7 @@ prepare an artifact, edit workflow state, commit, or push. Pass
 `--skill sflow-design` (or another installed Flow skill ID) to inspect that
 skill contract with the same current-phase prompt.
 
-Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` for legacy behavior; missing configuration and older in-flight work items mean `off`.
+Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` to disable the grounding gate. This development release accepts only current state schemas; recreate old work with `factory-reset`.
 
 ## Remote Markdown agents
 
@@ -1057,7 +1057,7 @@ uncached remote pack remains inactive and Copilot receives the exact
 An unrelated Copilot agent has no effect. Invalid mappings and unknown target
 packs fail validation instead of silently selecting another pack. agents
 remain instructions and context—not a human identity, governed agent, or approval
-authority. Edit the mapping YAML in the desktop **agents** page or commit
+authority. Edit the mapping YAML in VS Code **Configuration → Agents** or commit
 it normally so every contributor receives the same routing.
 
 ### Use a remote artifact template
@@ -1098,8 +1098,8 @@ singularity-flow agents refresh-output threat-model
 singularity-flow agents refresh-output threat-model --replace
 ```
 
-The desktop **agents** page can edit repository agent
-Markdown and display lock status. Lock creation and updates remain explicit CLI
+VS Code **Configuration → Agents** can edit repository agent Markdown and display
+lock status. Lock creation and updates remain explicit CLI
 trust operations. Authenticated private Git, Artifactory, cookie, and bearer
 token downloads are not supported in this delivery. See
 [HELP.md](HELP.md#remote-agent-markdown) for lifecycle and integrity details.
@@ -1158,7 +1158,6 @@ token downloads are not supported in this delivery. See
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |
 | `singularity-flow logs path\|level` | Show the log file location, or the effective file and console levels. |
-| `singularity-flow migrate-config` | Convert legacy JSON configuration and work-item state without rewriting history. |
 
 An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.
 
@@ -1172,18 +1171,9 @@ dependency invalidation rewinds to the earliest affected phase while preserving
 unrelated approved work. Initiative reports combine initiative and child
 model/token/cost data without upgrading partial coverage to exact.
 
-## Migration
+## Clean development reset
 
-From a repository using the former `.singularity/` folder, `.sdlc/` folder, or legacy JSON configuration:
-
-```bash
-singularity-flow migrate-config
-git add -A
-git commit -m "Move Singularity Flow files to visible folder"
-git push
-```
-
-The VS Code extension detects the former control folder and directs the user to the same guarded CLI migration. See [MIGRATION.md](MIGRATION.md).
+This development release accepts only the current workflow and state schemas. It does not migrate older repositories or in-flight work. Use `singularity-flow factory-reset` to recreate current configuration and lifecycle state.
 
 ## Development and packaging
 

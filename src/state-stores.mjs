@@ -160,3 +160,29 @@ export class LedgerSink {
     return verifyLedger(this.root, this.config);
   }
 }
+
+// Application surfaces import lifecycle operations through this gateway. The
+// domain engines remain separate aggregates; this export boundary prevents CLI,
+// doctor, and editor orchestration from reaching around the stores and silently
+// reintroducing a second state-access path.
+export {
+  commitAndPublish, loadWorkflow, resolveWorkItem, saveWorkflow, syncPublication,
+  validateWorkflow, workflowPath
+};
+export {
+  approvePhase, assertNoPendingPublication, CONFIG_PATH, createWorkflow, currentPhase,
+  loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
+  reconcilePhaseTelemetry, registerArtifact, rejectPhase, scanArtifacts,
+  storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
+  workflowPublicationBranch, workDir
+} from './state.mjs';
+export {
+  commitInitiativeChange, initiativeStatePath, loadInitiative, saveInitiative,
+  syncInitiativePublication
+};
+export {
+  availableInitiativeOutputs, createInitiative, initiativeApplicabilityState,
+  initiativeProgress, initiativeStartPreflight, listInitiatives,
+  prepareInitiativePhase, restartInitiative, secureInitiativePath,
+  selectInitiativePhaseOutputs, setInitiativeApplicability, validateInitiativeId
+} from './initiative-state.mjs';

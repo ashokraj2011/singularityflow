@@ -133,7 +133,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -154,11 +154,22 @@ function stubVscode() {
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { Notification: 15 },
     Uri: { file: (value) => ({ fsPath: value, scheme: 'file' }) },
+    RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
     ExtensionContext: null,
     workspace: {
       workspaceFolders: null,
       getConfiguration: () => ({ get: () => '' }),
       onDidSaveTextDocument: (listener) => { registered.saveListeners.push(listener); return { dispose() {} }; },
+      createFileSystemWatcher: (pattern) => {
+        const create = new EventEmitter(); const change = new EventEmitter(); const remove = new EventEmitter();
+        const watcher = {
+          pattern, create, change, remove,
+          onDidCreate: create.event, onDidChange: change.event, onDidDelete: remove.event,
+          dispose() { create.dispose(); change.dispose(); remove.dispose(); }
+        };
+        registered.watchers.push(watcher);
+        return watcher;
+      },
       openTextDocument: async (target) => ({ target }),
       fs: {}
     },
@@ -1827,4 +1838,22 @@ test('the loaded build identifies itself, because the version cannot', async (t)
   const stamp = registered.output.find((line) => String(line).startsWith('Singularity Flow — build '));
   assert.ok(stamp, 'the build stamp is the first thing in the output channel');
   assert.match(stamp, /build [0-9a-f]{7}(\+local)? \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z/);
+});
+
+test('terminal lifecycle writes refresh every VS Code view through one watched snapshot', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  assert.equal(registered.watchers.length, 1, 'the governed repository is watched once');
+  assert.equal(await realpath(registered.watchers[0].pattern.base.fsPath), await realpath(root));
+  assert.equal(registered.watchers[0].pattern.pattern, 'singularity/**/*');
+
+  const statePath = path.join(root, 'singularity', 'initiatives', 'INIT-CHECKOUT', 'state.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.initiative.title = 'Changed from Copilot CLI';
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  registered.watchers[0].change.fire({ fsPath: statePath });
+
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  await until(() => provider.getChildren()[0]?.description === 'Changed from Copilot CLI');
+  assert.equal(provider.getChildren()[0].description, 'Changed from Copilot CLI');
 });

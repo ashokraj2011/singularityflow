@@ -83,6 +83,11 @@ function isSelfApprovalRefusal(error: unknown): boolean {
   return error instanceof CliError && /--acknowledge-self-approval/.test(error.message);
 }
 
+function softSequenceGate(error: unknown): string | null {
+  if (!(error instanceof CliError) || !/Soft gate confirmation requires an interactive terminal/.test(error.message)) return null;
+  return error.message.match(/Soft sequence warning \[([^\]]+)\]/)?.[1] ?? null;
+}
+
 /**
  * Run one governed action, answering only what a human has actually answered.
  *
@@ -118,6 +123,23 @@ export async function runGovernedAction(
   try {
     return await run(args);
   } catch (error) {
+    const gate = softSequenceGate(error);
+    if (gate) {
+      const expected = `continue:${gate}`;
+      const confirmed = await askConfirmation({
+        expected,
+        summary: `Continue through soft sequence gate '${gate}'`
+      });
+      if (!confirmed) {
+        void vscode.window.setStatusBarMessage('$(circle-slash) Sequence override declined; nothing changed.', 4_000);
+        return false;
+      }
+      try { return await run([...args, '--confirm-override', confirmed]); }
+      catch (retryError) {
+        void vscode.window.showErrorMessage((retryError as Error).message);
+        return false;
+      }
+    }
     // The engine refuses a self-approval rather than silently recording one. Ask, then retry with the
     // acknowledgement — the second attempt is a different, explicitly weaker act, and says so.
     if (isSelfApprovalRefusal(error)) {

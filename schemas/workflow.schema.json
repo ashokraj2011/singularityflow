@@ -89,7 +89,7 @@
       "type": "object",
       "properties": {
         "assignments": { "type": "object", "additionalProperties": { "type": "object" } },
-        "notifications": { "type": "array", "items": { "type": "object" } }
+        "notifications": { "type": "array", "uniqueItems": true, "items": { "enum": ["terminal", "teams-webhook"] } }
       },
       "additionalProperties": true
     },

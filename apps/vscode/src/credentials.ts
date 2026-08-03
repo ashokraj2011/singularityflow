@@ -3,6 +3,7 @@ import type * as vscode from 'vscode';
 const JIRA_CONFIG = 'singularityFlow.jira.config';
 const JIRA_TOKEN = 'singularityFlow.jira.token';
 const STORAGE_PREFIX = 'singularityFlow.storage.';
+const TEAMS_WEBHOOK = 'singularityFlow.teams.webhook';
 
 export interface JiraSecretConfig {
   deployment: 'cloud' | 'data-center';
@@ -47,8 +48,20 @@ export class SecureCredentials {
       env.JIRA_PAT = token;
       if (status.config.username) env.JIRA_USERNAME = status.config.username;
     }
+    const teamsWebhook = await this.secrets.get(TEAMS_WEBHOOK);
+    if (teamsWebhook) env.SINGULARITY_FLOW_TEAMS_WEBHOOK_URL = teamsWebhook;
     return env;
   }
+
+  async saveTeamsWebhook(value: string): Promise<void> {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error('Teams webhook must use HTTPS without embedded credentials.');
+    }
+    await this.secrets.store(TEAMS_WEBHOOK, url.toString());
+  }
+
+  async resetTeamsWebhook(): Promise<void> { await this.secrets.delete(TEAMS_WEBHOOK); }
 
   async saveProviderToken(providerId: string, token: string): Promise<void> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(providerId)) throw new Error('Storage provider ID is invalid.');

@@ -56,10 +56,9 @@ pilot must explicitly test whether Product Owners and Business Analysts can comp
 two-minute review flow in VS Code. If that bet fails, the fallback is a thin web or Teams approval
 surface, not restoration of Electron.
 
-Teams-webhook notifications are therefore a required pilot follow-up rather than an optional
-desktop replacement feature. They are not part of this removal commit; broad PO/BA rollout must
-not be declared complete until a governed notification links reviewers directly to the matching
-VS Code approval item.
+Teams-webhook notifications are part of the supported VS Code path rather than an optional desktop
+replacement feature. The webhook remains in VS Code `SecretStorage`; published approval requests
+and decisions summon reviewers without making Teams an authority or a prerequisite for Git state.
 
 ## Removal gates
 

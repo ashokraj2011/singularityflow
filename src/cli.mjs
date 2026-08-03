@@ -51,9 +51,9 @@ import {
   workflowPublicationBranch,
   workflowPath,
   workDir
-} from './state.mjs';
+} from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
-import { assertPhaseSequence } from './sequence.mjs';
+import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import {
   addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
   getIssueProperty, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions,
@@ -110,7 +110,7 @@ import {
   availableInitiativeOutputs, prepareInitiativePhase, restartInitiative, secureInitiativePath,
   selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
   syncInitiativePublication, validateInitiativeId
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import {
   approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
   readInitiativeRecords, registerInitiativeEvidence
@@ -3575,7 +3575,12 @@ async function snapshotCommand(positionals, options) {
   const root = repoRoot();
   const included = optionStrings(options, 'include');
   const result = await new SnapshotCoordinator(root).capture(
-    () => repositorySnapshot(root, positionals[1], optionString(options, 'initiative')),
+    ({ included: requested }) => repositorySnapshot(
+      root,
+      positionals[1],
+      optionString(options, 'initiative'),
+      { included: requested }
+    ),
     { included: included.length ? included : undefined }
   );
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
@@ -5334,8 +5339,16 @@ async function dispatch(command, positionals, options) {
     hook: () => hookCommand(positionals),
     bootstrap: () => bootstrapCommand(positionals, options)
   });
+  const invoke = () => handlers[canonicalCommand(command)]();
+  const override = optionString(options, 'confirm-override');
   try {
-    return handlers[canonicalCommand(command)]();
+    if (override) {
+      return withConfirmationPort(
+        (_message, gate) => override === `continue:${gate}`,
+        invoke
+      );
+    }
+    return invoke();
   } catch (error) {
     if (error instanceof SingularityFlowError && error.message === `Unknown command: ${command}`) {
       throw new SingularityFlowError(`${error.message}\n\n${HELP}`);

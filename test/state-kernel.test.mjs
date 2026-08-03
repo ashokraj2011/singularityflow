@@ -11,11 +11,15 @@ import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
 import { StoryStateStore } from '../src/state-stores.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from '../src/state-planes.mjs';
-import { evaluateSequence, applySequenceDecision } from '../src/sequence.mjs';
+import { evaluateSequence, applySequenceDecision, assertPhaseSequence, withConfirmationPort } from '../src/sequence.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { bindLifecycleEvent, lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
 import { createLedgerIntent, ledgerIdempotencyKey } from '../src/ledger.mjs';
 import { saveWorkflow, workDir } from '../src/state.mjs';
+import {
+  findLegacyPendingPublications, localPendingPublicationPath, readPendingPublication
+} from '../src/publication-pending.mjs';
+import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -80,6 +84,67 @@ test('stale subject locks are recovered after a crashed owner', async () => {
   })}\n`);
   const owner = await acquireSubjectLock(root, subject, { ttlMs: 1 });
   assert.equal(await releaseSubjectLock(root, subject, owner), true);
+});
+
+test('legacy pending publication markers migrate into the machine-local recovery plane', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pending-migration-'));
+  run('git', ['init', '-b', 'main'], root);
+  const legacy = path.join(root, 'custom-state', 'LEGACY-1', 'publication-pending.json');
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await writeFile(legacy, `${JSON.stringify({ workId: 'LEGACY-1', commit: 'a'.repeat(40) })}\n`);
+
+  const pending = await readPendingPublication(root, {
+    kind: 'story', id: 'LEGACY-1', legacyPath: legacy
+  });
+  assert.equal(pending.migrated, true);
+  assert.equal(pending.migratedFrom, legacy);
+  assert.equal(pending.record.workId, 'LEGACY-1');
+  assert.equal(JSON.parse(await readFile(localPendingPublicationPath(root, 'story', 'LEGACY-1'), 'utf8')).workId, 'LEGACY-1');
+  await assert.rejects(() => readFile(legacy, 'utf8'), { code: 'ENOENT' });
+});
+
+test('legacy publication marker scan exposes orphaned recovery state to doctor', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pending-orphan-'));
+  run('git', ['init', '-b', 'main'], root);
+  const orphan = path.join(root, 'singularity', 'work-items', 'ORPHAN-1', 'publication-pending.json');
+  await mkdir(path.dirname(orphan), { recursive: true });
+  await writeFile(orphan, '{}\n');
+  assert.deepEqual(await findLegacyPendingPublications(root), [orphan]);
+});
+
+test('publication faults release the subject lock at every transaction stage', async (t) => {
+  for (const stage of ['after-state-write', 'after-commit', 'after-push', 'after-ledger']) {
+    await t.test(stage, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-publication-${stage}-`));
+      run('git', ['init', '-b', 'main'], root);
+      run('git', ['config', 'user.name', 'Kernel Tester'], root);
+      run('git', ['config', 'user.email', 'kernel@example.com'], root);
+      await writeFile(path.join(root, 'README.md'), '# transaction\n');
+      run('git', ['add', '.'], root);
+      run('git', ['commit', '-m', 'initial'], root);
+      const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+      const subject = { kind: 'story', id: `FAULT-${stage}`, branch: 'main' };
+      const event = lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 });
+      const target = path.join(root, 'state.json');
+
+      await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+        subject,
+        event,
+        commit: { message: `[${subject.id}] fault at ${stage}` },
+        publication: { mode: 'off', branch: 'main' },
+        allowedPaths: ['state.json'],
+        state: { write: () => writeFile(target, `${JSON.stringify({ stage })}\n`) },
+        fault: (current) => {
+          if (current === stage) throw new Error(`fault:${stage}`);
+        }
+      }), new RegExp(`fault:${stage}`));
+
+      const owner = await acquireSubjectLock(root, subject);
+      assert.equal(await releaseSubjectLock(root, subject, owner), true, `${stage} released its lock`);
+      const after = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+      assert.equal(after === before, stage === 'after-state-write', `${stage} has the expected commit boundary`);
+    });
+  }
 });
 
 test('lifecycle and ledger use one event identity and idempotency key', () => {
@@ -247,9 +312,33 @@ test('sequence evaluation and reduction are pure', () => {
   assert.equal(next.phases.design.status, 'in_progress');
 });
 
-test('surface orchestration cannot import raw state loaders', async () => {
+test('editor confirmation port applies the same audited soft-gate reducer as the terminal', async () => {
+  const workflow = {
+    status: 'in_progress', currentPhase: 'intake', phaseOrder: ['intake', 'design'],
+    workItem: { id: 'PORT-1' }, resolution: { sequenceGates: { default: 'soft', currentPhase: 'soft' } },
+    phases: {
+      intake: { id: 'intake', status: 'in_progress', approvals: [] },
+      design: { id: 'design', status: 'not_started', approvals: [] }
+    }, history: []
+  };
+  let request = null;
+  const phase = await withConfirmationPort(async (message, gate) => {
+    request = { message, gate };
+    return true;
+  }, () => assertPhaseSequence(null, workflow, 'prepare', { requestedPhase: 'design' }));
+  assert.equal(request.gate, 'currentPhase');
+  assert.match(request.message, /Soft sequence warning \[currentPhase\]/);
+  assert.equal(phase.id, 'design');
+  assert.equal(workflow.sequenceOverrides[0].gate, 'currentPhase');
+});
+
+test('surface orchestration cannot import raw state engines', async () => {
   for (const relative of ['src/cli.mjs', 'src/editor.mjs', 'src/doctor.mjs']) {
     const content = await readFile(path.join(packageRoot, relative), 'utf8');
-    assert.doesNotMatch(content, /\bloadWorkflow\b|\bloadInitiative\b/, `${relative} must use state stores`);
+    assert.doesNotMatch(
+      content,
+      /from\s+['"]\.\/state\.mjs['"]|from\s+['"]\.\/initiative-state\.mjs['"]/,
+      `${relative} must use the state-store boundary rather than a raw lifecycle engine`
+    );
   }
 });

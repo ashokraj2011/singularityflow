@@ -142,6 +142,23 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.equal(snapshot.report.costCoverage.pricedRecords, 1);
 });
 
+test('scoped snapshots construct only the requested schema-v2 slice', async () => {
+  const root = await repository();
+  const snapshot = await repositorySnapshot(root, null, null, { included: ['repository', 'capabilities'] });
+  assert.deepEqual(Object.keys(snapshot), ['repository', 'capabilities']);
+  assert.equal(snapshot.repository.branch, 'main');
+  assert.equal(snapshot.capabilities.path, 'singularity/capabilities.yml');
+  assert.equal(Object.hasOwn(snapshot, 'configuration'), false);
+  assert.equal(Object.hasOwn(snapshot, 'lifecycle'), false);
+
+  const cli = run(process.execPath, [bin, 'snapshot', '--include', 'repository', '--json'], root);
+  const envelope = JSON.parse(cli.stdout);
+  assert.equal(envelope.schemaVersion, 2);
+  assert.deepEqual(envelope.included, ['repository']);
+  assert.equal(envelope.repository.branch, 'main');
+  assert.equal(Object.hasOwn(envelope, 'configuration'), false);
+});
+
 test('visual editor bootstraps governed portfolio and Jira policy without storing credentials', async () => {
   const root = await repository();
   await unlink(path.join(root, 'singularity/portfolio.yml'));

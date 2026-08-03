@@ -42,6 +42,7 @@ import {
 } from './publication-pending.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -60,9 +61,9 @@ export function userStoryPath(root, config, id) { return path.join(workDir(root,
 export function approvalPath(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', `${phase}.json`); }
 export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
 export function pendingPublicationPath(root, _config, id) { return localPendingPublicationPath(root, 'story', id); }
+function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
 export async function storyPublicationPending(root, config, id) {
-  void config;
-  return hasPendingPublication(root, { kind: 'story', id });
+  return hasPendingPublication(root, { kind: 'story', id, legacyPath: legacyPendingPublicationPath(root, config, id) });
 }
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
@@ -1004,15 +1005,29 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  if (result.pushed) await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
-  return result;
+  if (result.pushed) await clearPendingPublication(root, {
+    kind: 'story', id: workflow.workItem.id,
+    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+  });
+  const notifications = await deliverLifecycleNotifications({
+    channels: workflow.resolution?.collaboration?.notifications ?? config.collaboration?.notifications ?? [],
+    event: result.event
+  });
+  warnNotificationFailures(notifications);
+  return { ...result, notifications };
 }
 
 export async function syncPublication(root, config, workflow) {
-  const pending = await readPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
+  const pending = await readPendingPublication(root, {
+    kind: 'story', id: workflow.workItem.id,
+    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+  });
   const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
-  await clearPendingPublication(root, { kind: 'story', id: workflow.workItem.id });
+  await clearPendingPublication(root, {
+    kind: 'story', id: workflow.workItem.id,
+    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+  });
   const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
   return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
 }

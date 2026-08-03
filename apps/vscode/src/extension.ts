@@ -115,6 +115,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showInformationMessage('Saved Jira credentials removed.');
   }));
 
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureTeams', async () => {
+    const webhook = await vscode.window.showInputBox({
+      title: 'Microsoft Teams incoming webhook',
+      prompt: 'Stored in the operating-system keychain; never written to Git.',
+      password: true,
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === 'https:' && !url.username && !url.password ? null : 'Use an HTTPS webhook URL without embedded credentials.';
+        } catch { return 'Enter a valid HTTPS URL.'; }
+      }
+    });
+    if (!webhook) return;
+    await secureCredentials.saveTeamsWebhook(webhook);
+    cliEnvironment = await secureCredentials.environment();
+    void vscode.window.showInformationMessage('Teams notifications configured. Reload this window to apply the secret to every command.', 'Reload')
+      .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resetTeams', async () => {
+    const choice = await vscode.window.showWarningMessage(
+      'Remove the saved Teams webhook from the operating-system keychain?', { modal: true }, 'Reset Teams');
+    if (choice !== 'Reset Teams') return;
+    await secureCredentials.resetTeamsWebhook();
+    cliEnvironment = await secureCredentials.environment();
+    void vscode.window.showInformationMessage('Saved Teams webhook removed.');
+  }));
+
   /**
    * Register the view with a fixed explanation and stop.
    *
@@ -524,6 +553,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
+  // Lifecycle commits are routinely created by Copilot CLI or a terminal while
+  // the editor is open. Watch the governed tree and debounce one coherent
+  // snapshot refresh so every view follows those external mutations together.
+  let repositoryWatcher: vscode.FileSystemWatcher | null = null;
+  let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRepositoryRefresh = (): void => {
+    if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
+    repositoryRefreshTimer = setTimeout(() => {
+      repositoryRefreshTimer = null;
+      void store.refresh();
+    }, 200);
+  };
+  const watchGovernedRepository = (target: string): void => {
+    repositoryWatcher?.dispose();
+    repositoryWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(target), 'singularity/**/*')
+    );
+    context.subscriptions.push(
+      repositoryWatcher.onDidCreate(scheduleRepositoryRefresh),
+      repositoryWatcher.onDidChange(scheduleRepositoryRefresh),
+      repositoryWatcher.onDidDelete(scheduleRepositoryRefresh)
+    );
+  };
+  watchGovernedRepository(repository);
+  context.subscriptions.push({
+    dispose: () => {
+      repositoryWatcher?.dispose();
+      if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
+    }
+  });
   // The capability tree is the map as the lead repository states it, so it follows the snapshot
   // rather than being refreshed by whoever happened to change it.
   //
@@ -620,6 +679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     repository = target;
     client.useRepository(target);
+    watchGovernedRepository(target);
     workspaceLabel = name;
     readiness = {};
     await store.refresh();

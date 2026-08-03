@@ -33,10 +33,15 @@ export class ConfigurationValidator implements vscode.Disposable {
   private readonly subscription: vscode.Disposable;
   private readonly client: SingularityFlowClient;
 
-  constructor(client: SingularityFlowClient, repository: string) {
+  /**
+   * The repository is read from the client rather than captured, because it moves: choosing a
+   * different workspace re-points the client, and a validator holding the old path would either
+   * validate the wrong repository or quietly decide nothing was configuration any more.
+   */
+  constructor(client: SingularityFlowClient) {
     this.client = client;
     this.subscription = vscode.workspace.onDidSaveTextDocument((document) => {
-      if (this.governs(repository, document.uri.fsPath)) void this.validate(document);
+      if (this.governs(this.client.repository, document.uri.fsPath)) void this.validate(document);
     });
   }
 

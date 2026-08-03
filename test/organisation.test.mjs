@@ -13,6 +13,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
@@ -412,15 +414,56 @@ test('choosing a workspace is what scopes the rest', async () => {
   // Choosing one is an action on the row, and it is the CLI's own machine-wide selection so the
   // terminal and the editor agree about where you are.
   const commands = manifest.contributes.commands.map((entry) => entry.command);
-  assert.ok(commands.includes('singularityFlow.useWorkspace'));
+  assert.ok(commands.includes('singularityFlow.switchWorkspace'));
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(extension, /\['workspace', 'use', target, '--json'\]/);
+
+  // Choosing costs nothing: no folder is opened and no window is reloaded, so looking at another
+  // workspace is not an act that throws away every open editor.
+  const selecting = extension.slice(extension.indexOf('async function selectWorkspace'),
+    extension.indexOf("registerCommand('singularityFlow.openWorkspace'"));
+  assert.doesNotMatch(selecting, /reloadWindow|vscode\.openFolder/,
+    'selecting a workspace neither reloads the window nor opens a folder');
 
   // Resolution consults the active workspace before the open folder, not after it.
   const active = extension.indexOf('const active = await activeWorkspaceLead(context, output);');
   const folder = extension.indexOf('const folder = vscode.workspace.workspaceFolders?.[0];',
     extension.indexOf('async function resolveGovernedRepository'));
   assert.ok(active > 0 && folder > active, 'the active workspace is consulted first');
+
+  // And it reads the shape the CLI emits. Ordering two lines correctly is worth nothing if the
+  // first one reads a field that does not exist: this looked for `workspace.path` in a flat object
+  // and therefore resolved to nothing every time, so the open folder always won.
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'portfolio', repositoryUrl: org.platform });
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  // Both the registry and the selection are redirected: the selection is machine-wide, and a test
+  // that wrote to the real one would change which workspace the person running it is working in.
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(org.base, 'registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(org.base, 'active-workspace.json')
+  };
+  const created = JSON.parse(execFileSync(process.execPath,
+    [cli, 'workspace', 'create', '--local', '--json', '--id', 'commerce',
+      '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+      '--repository', `platform=${org.platform}`, '--confirm', 'commerce', '--no-clone'],
+    { encoding: 'utf8', env }));
+  execFileSync(process.execPath, [cli, 'workspace', 'use', created.workspace.id, '--json'],
+    { encoding: 'utf8', env });
+  const shape = JSON.parse(execFileSync(process.execPath, [cli, 'workspace', 'current', '--json'],
+    { encoding: 'utf8', env }));
+  assert.equal(shape.workspace, undefined, 'the payload is flat, not nested under `workspace`');
+  const resolver = extension.slice(extension.indexOf('async function activeWorkspaceLead'));
+  const code = resolver.slice(0, resolver.indexOf('\n}'))
+    // Comments name the field that used to be read, which is the whole point of the comment.
+    .split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+  const read = [...code.matchAll(/current\.(\w+)/g)].map((match) => match[1]);
+  assert.ok(read.length, 'the resolver reads the payload');
+  for (const field of read) {
+    assert.ok(field in shape, `\`workspace current --json\` emits '${field}'`);
+  }
 
   // And the empty state leads with choosing one rather than with anything else.
   const tree = await readFile(new URL('../apps/vscode/src/views/tree-model.ts', import.meta.url), 'utf8');

@@ -180,18 +180,13 @@
       },
       {
         "command": "singularityFlow.switchWorkspace",
-        "title": "Singularity Flow: Switch to This Workspace",
-        "icon": "$(arrow-swap)"
+        "title": "Singularity Flow: Work in This Workspace",
+        "icon": "$(check)"
       },
       {
         "command": "singularityFlow.openWorkspace",
-        "title": "Singularity Flow: Open This Workspace",
+        "title": "Singularity Flow: Open This Workspace's Lead Repository",
         "icon": "$(folder-opened)"
-      },
-      {
-        "command": "singularityFlow.useWorkspace",
-        "title": "Singularity Flow: Work in This Workspace",
-        "icon": "$(check)"
       }
     ],
     "menus": {
@@ -326,7 +321,12 @@
         {
           "command": "singularityFlow.switchWorkspace",
           "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active)?$/",
-          "group": "inline"
+          "group": "inline@0"
+        },
+        {
+          "command": "singularityFlow.openWorkspace",
+          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active)?$/",
+          "group": "inline@1"
         },
         {
           "command": "singularityFlow.runAction",
@@ -353,10 +353,6 @@
         },
         {
           "command": "singularityFlow.openWorkspace",
-          "when": "false"
-        },
-        {
-          "command": "singularityFlow.useWorkspace",
           "when": "false"
         }
       ]

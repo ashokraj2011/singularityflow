@@ -89,6 +89,21 @@ export class SingularityFlowClient {
   get repository(): string { return this.options.repository; }
   get location(): CliLocation { return this.options.location; }
 
+  /**
+   * Point every later command at a different repository.
+   *
+   * Choosing a workspace changes which repository the window acts on, and it used to be answered by
+   * reloading the window — which is a heavy, disorienting way to change one string, and impossible
+   * while somebody is mid-edit. The commands already carry no state between calls, so re-pointing
+   * is genuinely just this: the next spawn runs somewhere else.
+   *
+   * Callers must refresh whatever they have already read. This does not invalidate anything on its
+   * own, because it cannot know what a caller is holding.
+   */
+  useRepository(repository: string): void {
+    this.options.repository = repository;
+  }
+
   private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true,
     input: string | null = null): Promise<T> {
     return invokeCli<T>({

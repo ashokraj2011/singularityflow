@@ -14,6 +14,33 @@ export const INITIATIVE_GATES = new Set(['off', 'warn', 'block']);
 export const INITIATIVE_APPROVAL_MODES = new Set(['individual', 'bundle', 'none']);
 export const EVIDENCE_ASSURANCE = new Set(['machine-verified', 'system-verified', 'human-approved', 'presence-only']);
 export const INITIATIVE_OUTPUT_KINDS = new Set(['markdown', 'yaml', 'binary-bundle', 'interface-contract']);
+/**
+ * The applicability policies the product's own phases ask about.
+ *
+ * These are not defaults in the sense of "a value nobody chose". They are the questions the shipped
+ * enterprise-delivery phases are written against — the checklists name them by id — so the product
+ * has to be able to answer them whether or not a repository restated the declaration. A repository
+ * may redeclare any of them to reword the question, and may add as many of its own as it likes.
+ */
+export const BUILT_IN_APPLICABILITY_POLICIES = Object.freeze({
+  'ux-required': {
+    label: 'UX design required',
+    question: 'Does this initiative change a user-facing experience that needs UX design?'
+  },
+  'ai-use-case': {
+    label: 'AI use case',
+    question: 'Does this initiative introduce or change an AI/ML capability?'
+  },
+  'security-review-required': {
+    label: 'Security review required',
+    question: 'Does this initiative change authentication, authorization, secret handling, or regulated data?'
+  },
+  'domain-review-required': {
+    label: 'Domain architecture review required',
+    question: 'Does this initiative change a shared domain model or cross-domain contract?'
+  }
+});
+
 export const JIRA_WRITE_MODES = new Set(['off', 'preview', 'approved']);
 export const JIRA_DEPLOYMENTS = new Set(['cloud', 'data-center']);
 export const JIRA_WRITE_OPERATIONS = new Set([
@@ -403,7 +430,16 @@ export function validatePortfolio(value) {
   // this initiative?". The policy id was previously accepted as a bare identifier and never used, so
   // a conditional check blocked until somebody hand-waived it and a typo went unnoticed. Declaring
   // policies here makes the question explicit, answerable, and auditable.
-  portfolio.applicabilityPolicies = object(portfolio.applicabilityPolicies ?? {}, 'applicabilityPolicies');
+  //
+  // The four the product's own phases ask about are declared here rather than only in the starter
+  // template. A repository initialized before the block existed still has the checklists that name
+  // them, and requiring the declaration turned every one of those repositories into a portfolio
+  // that will not load at all — no screen, no command, nothing but the message. A repository is
+  // free to redeclare any of them to change the wording; declaring extra ones works as before.
+  portfolio.applicabilityPolicies = {
+    ...BUILT_IN_APPLICABILITY_POLICIES,
+    ...object(portfolio.applicabilityPolicies ?? {}, 'applicabilityPolicies')
+  };
   for (const [id, policy] of Object.entries(portfolio.applicabilityPolicies)) {
     safeId(id, 'Applicability policy ID');
     object(policy, `Applicability policy '${id}'`);

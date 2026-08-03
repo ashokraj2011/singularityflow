@@ -57,6 +57,29 @@ test('a conditional check referencing an undeclared policy is rejected', () => {
   assert.throws(() => validatePortfolio(value), /unknown applicability policy 'secuirty-review-required'/);
 });
 
+test('a portfolio written before applicabilityPolicies existed still loads', () => {
+  // The declarations were added after repositories had already been initialized with the phases
+  // that reference them. Requiring the block turned every one of those into a portfolio that would
+  // not load at all — not a degraded screen, no screen: the snapshot failed and the editor showed
+  // the message where the whole product used to be.
+  //
+  // The four the shipped phases ask about are the product's own, so they are always available. A
+  // policy nobody has ever heard of is still a typo, and still refused.
+  const value = structuredClone(shipped);
+  delete value.applicabilityPolicies;
+  const portfolio = validatePortfolio(value);
+  assert.equal(portfolio.applicabilityPolicies['ux-required'].label, 'UX design required');
+  assert.match(portfolio.applicabilityPolicies['security-review-required'].question, /authentication/);
+
+  // A repository that words the question differently keeps its own wording.
+  const reworded = structuredClone(shipped);
+  reworded.applicabilityPolicies = { 'ux-required': { label: 'Design review', question: 'Does a designer need to look at this?' } };
+  const own = validatePortfolio(reworded);
+  assert.equal(own.applicabilityPolicies['ux-required'].label, 'Design review');
+  // And the rest of the built-in vocabulary is still there beside it.
+  assert.ok(own.applicabilityPolicies['ai-use-case']);
+});
+
 test('an unanswered policy leaves its check unanswered, and answering resolves it', async () => {
   const root = await repository();
   run('git', ['switch', '-c', 'INIT-1'], { cwd: root });

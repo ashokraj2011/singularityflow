@@ -175,9 +175,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
-      void vscode.window.showInformationMessage(
-        `Workspace created. Switching to ${created.lead} in this window.`);
-      await switchWorkspace(created.directory, created.leadDirectory, created.lead);
+      void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.lead}.`);
+      await selectWorkspace(created.directory, created.leadDirectory, created.lead);
     }, async () => {
       // The form's own way out of the empty case: with no organisation mapped there is nothing to
       // choose from, and mapping one is the step that was missed rather than a different task.
@@ -255,7 +254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return null;
       }
       if (message.type === 'switch') {
-        await switchWorkspace(
+        await selectWorkspace(
           message.row.directory,
           message.row.leadRepositoryPath || message.row.directory,
           message.row.name
@@ -309,58 +308,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   /**
-   * Make one workspace current and load its lead repository in this VS Code window.
+   * Make one workspace current, for this window and for the machine.
    *
-   * The built-in command takes a boolean as its second argument. Passing an object made that object
-   * truthy on VS Code versions that implement the documented boolean signature, which opened an
-   * unwanted second window. `false` means replace/reload this window everywhere.
+   * Selecting a workspace does not open anything. It used to reload the window, or open the lead
+   * repository as a folder — which threw away every open editor and every scroll position to change
+   * which repository some commands run in, and made "have a look at that other workspace" an act
+   * with a cost. Choosing is now cheap and reversible: pick another one whenever you like.
+   *
+   * What actually changes is the repository the client spawns commands in, and everything read from
+   * it. Opening the lead repository as a folder is still available, as its own action, because
+   * editing the code in it is a different intention from working in it.
    */
-  async function switchWorkspace(target: string, leadPath: string, name: string): Promise<void> {
+  const workspaceSelected: Array<(lead: string, name: string) => void | Promise<void>> = [];
+
+  async function selectWorkspace(target: string, leadPath: string, name: string): Promise<void> {
     try {
-      const client = new SingularityFlowClient({
+      const chooser = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
         repository: process.cwd(),
         onOutput: (text) => output.append(text)
       });
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Switching to ${name}` },
-        () => client.run(['workspace', 'use', target, '--json'])
+        { location: vscode.ProgressLocation.Notification, title: `Working in ${name}` },
+        // Recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
+        () => chooser.run(['workspace', 'use', target, '--json'])
       );
       await refreshWorkspaceTree();
-      const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (open && path.resolve(open) === path.resolve(leadPath)) {
-        await vscode.commands.executeCommand('workbench.action.reloadWindow');
-      } else {
-        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(leadPath), false);
-      }
+      for (const follow of workspaceSelected) await follow(leadPath, name);
     } catch (error) {
       void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
     }
   }
+
+  const nodeWorkspace = (node?: TreeNode): { path: string; lead: string; name: string } | null => {
+    const workspacePath = workspacePathOf(node) ?? node?.path;
+    if (typeof workspacePath !== 'string' || !workspacePath) return null;
+    return {
+      path: workspacePath,
+      lead: node?.openPath ?? workspacePath,
+      name: node?.label ?? workspacePath
+    };
+  };
+
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.switchWorkspace',
     async (node?: TreeNode) => {
-      const workspacePath = workspacePathOf(node) ?? node?.path;
-      if (typeof workspacePath !== 'string' || !workspacePath) return;
-      await switchWorkspace(workspacePath, node?.openPath ?? workspacePath, node?.label ?? workspacePath);
-    }));
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspace',
-    async (node?: TreeNode) => {
-      await vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
+      const chosen = nodeWorkspace(node);
+      if (chosen) await selectWorkspace(chosen.path, chosen.lead, chosen.name);
     }));
   /**
-   * Choose the workspace to work in.
+   * Open a workspace's lead repository as this window's folder.
    *
-   * This is the act everything else hangs off: the capabilities being worked on, the repositories
-   * they ship from, the governed state, and which repository every screen operates against. It is
-   * recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
-   *
-   * The window reloads afterwards. Activation resolves the governed repository once and hands it to
-   * every screen; re-pointing all of them at a different repository in place would be a second,
-   * partial implementation of activation, and the kind that goes out of step.
+   * Separate from selecting it, and deliberately so: this one costs you the window. It is for going
+   * to edit the code, not for choosing what the governed screens act on.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.useWorkspace',
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspace',
     async (node?: TreeNode) => {
-      await vscode.commands.executeCommand('singularityFlow.switchWorkspace', node);
+      const chosen = nodeWorkspace(node);
+      if (!chosen) return;
+      const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (open && path.resolve(open) === path.resolve(chosen.lead)) {
+        return void vscode.window.showInformationMessage(`${chosen.name} is already open in this window.`);
+      }
+      // The built-in command takes a boolean as its second argument. Passing an object made that
+      // object truthy on versions implementing the documented signature, which opened an unwanted
+      // second window. `false` means replace this window everywhere.
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(chosen.lead), false);
     }));
 
   void refreshWorkspaceTree();
@@ -415,13 +427,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if ('reason' in resolved) {
     return unavailable(resolved.label, resolved.reason, resolved.contextValue, resolved.lead);
   }
-  const { repository, origin } = resolved;
+  // `repository` is rebound when a different workspace is chosen. Every closure below captures the
+  // binding rather than the value, so they all follow — which is the point: choosing a workspace
+  // used to require a window reload precisely because this was a constant.
+  let { repository } = resolved;
+  const { origin } = resolved;
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
   // and when it was not the open folder that has to be visible rather than inferred.
   output.appendLine(`Governed repository: ${repository} (${origin})`);
   // Named in the status bar too: which workspace you are in is the one piece of context every
   // screen shares, and inferring it from a folder path in a title bar is not the same as being told.
-  const workspaceLabel = origin.startsWith('the lead repository of your active workspace, ')
+  // Not a constant: choosing a different workspace changes it, and the status bar is where a person
+  // checks which one they are in.
+  let workspaceLabel = origin.startsWith('the lead repository of your active workspace, ')
     ? origin.slice('the lead repository of your active workspace, '.length)
     : null;
 
@@ -481,7 +499,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Governed configuration is edited in ordinary tabs; saving one asks the engine whether the result
   // is still valid, so a broken workflow.yml is reported where it was typed rather than by a command
   // failing later for a reason that looks unrelated.
-  context.subscriptions.push(new ConfigurationValidator(client, repository));
+  context.subscriptions.push(new ConfigurationValidator(client));
 
   const tree = new LifecycleTreeProvider(store);
   const configurationTree = new LifecycleTreeProvider(store, [], buildConfigurationTree);
@@ -515,6 +533,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     status.tooltip = initiative.nextActions?.[0]?.reason ?? 'Singularity Flow';
     status.show();
   }));
+
+  /**
+   * Follow the chosen workspace, in place.
+   *
+   * Everything that knows which repository this window acts on is re-pointed here, in one list, so
+   * that adding a screen which reads the repository means adding it to this list and not
+   * discovering months later that it kept answering about the previous workspace.
+   *
+   * A workspace whose lead has never been cloned is a real state — the registry is machine-wide and
+   * a colleague's workspace can name a directory this machine does not have — so it is reported
+   * rather than switched to, and the previous workspace stays selected in the editor.
+   */
+  workspaceSelected.push(async (lead, name) => {
+    const target = path.resolve(lead);
+    if (path.resolve(repository) === target) return;
+    try {
+      await validateRepositoryDirectory(target);
+    } catch (error) {
+      void vscode.window.showWarningMessage(
+        `${name} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
+      return;
+    }
+    repository = target;
+    client.useRepository(target);
+    workspaceLabel = name;
+    readiness = {};
+    await store.refresh();
+    void refreshReadiness();
+    output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${name})`);
+  });
 
   /**
    * Run whatever a node offers, then refresh so every view reflects what just happened.
@@ -939,15 +987,25 @@ async function activeWorkspaceLead(
       repository: process.cwd(),
       onOutput: () => {}
     });
-    const current = await client.run<{ workspace?: { name?: string; path?: string } }>(
-      ['workspace', 'current', '--json']);
-    const directory = current.workspace?.path;
+    // The shape `workspace current --json` actually emits: flat, and it already names the lead
+    // repository. This read `current.workspace.path` — a nested field the CLI has never produced —
+    // so it resolved to undefined every time and the active workspace was silently never consulted.
+    // Whichever folder happened to be open won, always, including when somebody had just chosen a
+    // workspace. The test that covered this asserted the order of two lines in this file rather
+    // than what the function returns, so it passed throughout.
+    const current = await client.run<{
+      active?: boolean; workspaceName?: string; workspacePath?: string; repositoryPath?: string;
+    }>(['workspace', 'current', '--json']);
+    if (current.active === false) return null;
+    const directory = current.workspacePath;
     if (!directory) return null;
-    const lead = await workspaceLeadDirectory(directory);
+    // The recorded lead if there is one, and the workspace's own lead as the fallback for a registry
+    // entry written before the field existed.
+    const lead = current.repositoryPath ?? await workspaceLeadDirectory(directory);
     if (!lead) return null;
     return {
       repository: await validateRepositoryDirectory(lead),
-      origin: `the lead repository of your active workspace, ${current.workspace?.name ?? directory}`
+      origin: `the lead repository of your active workspace, ${current.workspaceName ?? directory}`
     };
   } catch (error) {
     output.appendLine(`No active workspace to fall back to: ${(error as Error).message}`);

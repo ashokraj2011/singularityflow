@@ -304,6 +304,30 @@ test('an unreadable repository shows the CLI error rather than an empty tree', (
   assert.equal(node.icon, 'error');
 });
 
+test('a repository that will not load offers the file to fix and the full report', () => {
+  // The state a person is most stuck in used to be the least helpful thing on screen: one row, the
+  // engine's sentence, and no way forward. The sentence names the file it refused; opening it is a
+  // step the tree can simply take rather than leaving somebody to hunt through the explorer.
+  const refused = new Error(
+    "Checklist 'inception/ux-concept-approved' references unknown applicability policy 'ux-required'.");
+  for (const tree of [buildTree(null, refused), buildConfigurationTree(null, refused)]) {
+    assert.match(tree[0].label, /unknown applicability policy/);
+    assert.equal(tree[0].icon, 'error');
+    assert.equal(tree[1].label, 'Open singularity/portfolio.yml', 'a checklist lives in the portfolio');
+    assert.equal(tree[1].path, 'singularity/portfolio.yml');
+    assert.equal(tree.at(-1).runCommand, 'singularityFlow.doctor');
+  }
+
+  // Named outright when the message names it.
+  assert.equal(buildTree(null, new Error('singularity/workflow.yml is not valid YAML.'))[1].label,
+    'Open singularity/workflow.yml');
+
+  // And a message naming no file offers only the report, rather than guessing at one.
+  const vague = buildTree(null, new Error('The Singularity Flow CLI did not finish within 45 seconds.'));
+  assert.equal(vague.length, 2);
+  assert.equal(vague[1].runCommand, 'singularityFlow.doctor');
+});
+
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
   const [node] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
   assert.match(node.label, /Nothing is checked out/);
@@ -320,8 +344,8 @@ test('a repository with nothing started at all offers the command that starts so
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
-  // Lifecycle is only the work in flight. Repository configuration has its own view.
-  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI']);
+  // The work in flight, and the shapes work can take. Repository configuration has its own view.
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'workflows']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -773,8 +797,8 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     // workflow and portfolio first: they define everything the other sets are instances of.
     // The world model leads: it is the one thing under Configuration that is built rather than
     // edited, and it used to sit in the Lifecycle tree as though it were a stage.
-    assert.deepEqual(children.slice(0, 4),
-      ['world-model', 'workflows', 'config:workflow', 'config:portfolio']);
+    assert.deepEqual(children.slice(0, 3),
+      ['world-model', 'config:workflow', 'config:portfolio']);
     for (const set of ['config:templates', 'config:prompts', 'config:skills', 'config:personas']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }
@@ -1375,32 +1399,60 @@ test('a capability map that does not validate reports the engine reason', () => 
  * Lifecycle holds work and the shapes work can take. Nothing else.
  *
  * It used to hold the capability map and the world model too — one is what the organisation builds,
- * the other is grounding for prompts, and neither is a stage. The world model moved to
- * Configuration, where the rest of what you configure already lives.
+ * the other is grounding for prompts, and neither is a stage. Both moved to the views they belong
+ * in. Workflows stayed: the question a workflow answers — what kind of work is this? — is asked at
+ * the moment of starting, in this view, and a list of what you can start is not a settings file.
  */
-test('Lifecycle holds intake and delivery; Configuration holds workflows and governed files', () => {
+test('Lifecycle holds work and the shapes work can take; Configuration holds the rest', () => {
   const lifecycle = buildTree(snapshot);
   const configurationTree = buildConfigurationTree(snapshot);
-  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI']);
-  assert.equal(find(lifecycle, 'workflows'), undefined, 'workflow design is configuration');
+  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI', 'workflows']);
   assert.equal(find(lifecycle, 'configuration'), undefined, 'settings do not crowd the intake view');
   assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
   assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
 
-  // The world model is inside Configuration now, first, because it is the one thing there that is
+  // The world model is inside Configuration, first, because it is the one thing there that is
   // built rather than edited.
   const configuration = find(configurationTree, 'configuration');
   assert.equal(configuration.children[0].id, 'world-model');
+  assert.equal(find(configurationTree, 'workflows'), undefined, 'workflows are offered where work starts');
 
-  // A workflow is listed with the phase chain that distinguishes it, and says what it governs.
+  // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one
+  // opens the file that defines it rather than being a label that does nothing.
   const withWorkflows = structuredClone(snapshot);
   withWorkflows.portfolio = { initiativeProfiles: { 'epic-planning': { label: 'Epic planning', phases: ['a', 'b'] } } };
   withWorkflows.definition = { ...withWorkflows.definition, workTypes: { feature: { label: 'Feature', phases: ['x'] } } };
-  const workflows = find(buildConfigurationTree(withWorkflows), 'workflows');
+  const workflows = find(buildTree(withWorkflows), 'workflows');
   assert.equal(workflows.description, '2');
   assert.deepEqual(workflows.children.map((child) => child.label), ['Epic planning', 'Feature']);
   assert.match(workflows.children[0].description, /^initiative · a → b$/);
   assert.match(workflows.children[1].description, /^story · x$/);
+  assert.match(workflows.children[0].path, /portfolio\.yml$/);
+  assert.match(workflows.children[1].path, /workflow\.yml$/);
+
+  // A workflow is still listed before anything has been started: it is how you choose what to start.
+  const empty = buildTree({ ...withWorkflows, initiative: null, initiatives: [], workItems: [] });
+  assert.deepEqual(empty.map((node) => node.id), ['no-initiative', 'workflows']);
+});
+
+test('every prompt pack is listed, including the ones that ship with the product', () => {
+  // The snapshot carried `flowSkills` all along and this view read only `repositorySkills`, so a
+  // repository that had written none of its own was told it had no prompt packs while every
+  // packaged pack sat unlisted beside it.
+  const withPacks = structuredClone(snapshot);
+  withPacks.repositorySkills = [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }];
+  withPacks.flowSkills = [
+    { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md', description: 'Approve a phase.' },
+    { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }
+  ];
+  const packs = find(buildConfigurationTree(withPacks), 'config:skills');
+  assert.equal(packs.description, '3');
+  assert.deepEqual(packs.children.map((child) => child.label), ['ours', 'sflow-approve', 'sflow-doctor']);
+  // Which ones this team wrote, and which came with the product: editing a packaged one is a change
+  // that an upgrade takes back.
+  assert.deepEqual(packs.children.map((child) => child.description),
+    ['repository', 'packaged', 'packaged']);
+  assert.match(packs.children[1].tooltip, /Approve a phase\./);
 });
 
 const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =

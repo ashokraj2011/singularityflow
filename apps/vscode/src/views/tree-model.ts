@@ -243,16 +243,50 @@ export function unavailableTree(
  * empty branch. An empty tree in a governance tool reads as "nothing to do", which is the single
  * most expensive thing it could wrongly say.
  */
+/**
+ * What a view shows when the repository will not load at all.
+ *
+ * This is the state a person is most stuck in and it used to be the least helpful thing on screen:
+ * one row, the engine's sentence, and no way forward. The sentence names a file and usually a line
+ * of it, so the file is offered — reading the message and then hunting for `singularity/` in the
+ * explorer is a step the tree can simply take.
+ */
+function configurationFailure(error: Error, view: 'lifecycle' | 'configuration'): TreeNode[] {
+  // The engine names the file it refused, when it knows: "portfolio.yml", "workflow.yml",
+  // "capabilities.yml". Anything else and there is nothing honest to offer.
+  const named = /\b(portfolio|workflow|capabilities)\.yml\b/.exec(error.message)?.[1]
+    ?? (/\b(checklist|initiative profile|phase|applicability|approval authority)\b/i.test(error.message)
+      ? 'portfolio'
+      : /\bwork type\b/i.test(error.message) ? 'workflow' : null);
+
+  return [{
+    kind: 'message',
+    id: view === 'lifecycle' ? 'error' : 'configuration:error',
+    label: error.message,
+    icon: 'error',
+    tooltip: 'Singularity Flow refused to read this repository. Nothing else can be shown until the '
+      + 'configuration loads, so this is the only thing here.'
+  }, ...(named ? [{
+    kind: 'artifact' as const,
+    id: `${view}:error:open`,
+    label: `Open singularity/${named}.yml`,
+    description: 'fix it here',
+    icon: 'go-to-file',
+    path: `singularity/${named}.yml`,
+    contextValue: 'sflow.config'
+  }] : []), {
+    kind: 'action',
+    id: `${view}:error:doctor`,
+    label: 'Run diagnostics',
+    description: 'doctor',
+    tooltip: 'The full report, including everything else that is wrong.',
+    icon: 'pulse',
+    runCommand: 'singularityFlow.doctor'
+  }];
+}
+
 export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Error | null = null): TreeNode[] {
-  if (error) {
-    return [{
-      kind: 'message',
-      id: 'error',
-      label: error.message,
-      icon: 'error',
-      tooltip: 'The Singularity Flow CLI reported this. Run the same command in a terminal for the full output.'
-    }];
-  }
+  if (error) return configurationFailure(error, 'lifecycle');
   if (!snapshot) {
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
   }
@@ -274,10 +308,13 @@ export function buildLifecycleTree(snapshot: DesktopSnapshot | null, error: Erro
       // The one thing to do from an empty repository, offered rather than described. A tree that
       // explains a command you must retype into a terminal is a worse tree than one with a button.
       contextValue: 'sflow.start'
-    }];
+    }, workflowsNode(snapshot)];
   }
 
-  return [initiativeNode(initiative)];
+  // Work, and the shapes work can take. Both belong here: a workflow is not configuration in the
+  // sense the other files are — it is the list of things you can start, and the question it answers
+  // ("what kind of work is this?") is asked at the moment of starting, in this view.
+  return [initiativeNode(initiative), workflowsNode(snapshot)];
 }
 
 /**
@@ -291,12 +328,7 @@ export function buildConfigurationTree(
   snapshot: DesktopSnapshot | null,
   error: Error | null = null
 ): TreeNode[] {
-  if (error) {
-    return [{
-      kind: 'message', id: 'configuration:error', label: error.message, icon: 'error',
-      tooltip: 'The Singularity Flow CLI reported this. Run diagnostics for the full output.'
-    }];
-  }
+  if (error) return configurationFailure(error, 'configuration');
   if (!snapshot) {
     return [{
       kind: 'message', id: 'configuration:loading', label: 'Reading repository configuration…',
@@ -324,13 +356,22 @@ function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
   } | undefined;
   const workTypes = Object.entries(snapshot.definition?.workTypes ?? {});
   const profiles = Object.entries(portfolio?.initiativeProfiles ?? {});
+  const portfolioPath = snapshot.portfolioPath ?? 'singularity/portfolio.yml';
+  const definitionPath = snapshot.definitionPath ?? 'singularity/workflow.yml';
   const rows = [
-    ...profiles.map(([id, profile]) => ({ id, label: profile?.label ?? id, phases: profile?.phases ?? [], governs: 'initiative' })),
+    ...profiles.map(([id, profile]) => ({
+      id,
+      label: profile?.label ?? id,
+      phases: profile?.phases ?? [],
+      governs: 'initiative',
+      path: portfolioPath
+    })),
     ...workTypes.map(([id, type]) => ({
       id,
       label: (type as { label?: string })?.label ?? id,
       phases: (type as { phases?: string[] })?.phases ?? [],
-      governs: 'story'
+      governs: 'story',
+      path: definitionPath
     }))
   ];
 
@@ -344,13 +385,17 @@ function workflowsNode(snapshot: DesktopSnapshot): TreeNode {
       + 'governs an Initiative and which a Story is a property of the workflow, not two ideas.',
     children: rows.length
       ? rows.map((row) => ({
-        kind: 'message' as const,
+        kind: 'artifact' as const,
         id: `workflow:${row.governs}:${row.id}`,
         label: row.label,
         // The phase chain is what actually distinguishes one workflow from another, so it is the
         // description rather than something to open the file to discover.
         description: `${row.governs} · ${row.phases.join(' → ')}`,
+        tooltip: `${row.id}\nDefined in ${row.path}. Edit it in the Designer or in the file.`,
         icon: row.governs === 'initiative' ? 'rocket' : 'git-branch',
+        // Opens where it is written. A row naming a workflow and doing nothing when clicked is the
+        // kind of dead end that makes a tree feel like a picture of the product.
+        path: row.path,
         contextValue: 'sflow.workflow'
       }))
       : [{
@@ -446,10 +491,27 @@ function worldModelNode(snapshot: DesktopSnapshot): TreeNode {
  * instead of an absence you have to infer.
  */
 function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
-  const sets: Array<{ id: string; label: string; icon: string; files: Array<{ path: string; name: string }> }> = [
+  // Both kinds of prompt pack. The snapshot has carried the packaged ones as `flowSkills` all along
+  // and this view showed only the repository's, so a repository that had written none of its own
+  // was told it had no prompt packs while eighty-two shipped with the product sat unlisted. The
+  // repository's own come first: those are the ones a team wrote and can change.
+  const packs = [
+    ...(snapshot.repositorySkills ?? []).map((file) => ({ ...file, scope: 'repository' as const })),
+    ...(snapshot.flowSkills ?? []).map((skill) => ({
+      path: skill.path,
+      name: skill.id ?? skill.name ?? skill.path,
+      scope: 'packaged' as const,
+      description: skill.description
+    }))
+  ];
+
+  const sets: Array<{
+    id: string; label: string; icon: string;
+    files: Array<{ path: string; name: string; scope?: string; description?: string }>;
+  }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
     { id: 'prompts', label: 'Lens prompts', icon: 'comment-discussion', files: snapshot.personaPrompts ?? [] },
-    { id: 'skills', label: 'Prompt packs', icon: 'book', files: snapshot.repositorySkills ?? [] }
+    { id: 'skills', label: 'Prompt packs', icon: 'book', files: packs }
   ];
 
   const nodes: TreeNode[] = sets.map((set) => ({
@@ -466,7 +528,10 @@ function fileSetNodes(snapshot: DesktopSnapshot): TreeNode[] {
           kind: 'artifact' as const,
           id: `file:${file.path}`,
           label: file.name,
-          tooltip: file.path,
+          // Which ones this team wrote, and which came with the product — the difference decides
+          // whether editing it is a change to your repository or a change you will lose on upgrade.
+          description: file.scope === 'packaged' ? 'packaged' : file.scope === 'repository' ? 'repository' : undefined,
+          tooltip: [file.description, file.path].filter(Boolean).join('\n'),
           icon: set.icon,
           path: file.path,
           contextValue: 'sflow.config'
@@ -528,7 +593,6 @@ function configurationNode(snapshot: DesktopSnapshot): TreeNode {
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
       worldModelNode(snapshot),
-      workflowsNode(snapshot),
       {
         kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
         description: 'phases, lenses, grounding', icon: 'layers',

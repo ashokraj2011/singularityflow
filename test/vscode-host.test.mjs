@@ -15,7 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +28,23 @@ import { run } from '../src/util.mjs';
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
 const EMAIL = 'initiative.owner@example.com';
+
+/*
+ * Every machine-wide file the extension reads is redirected before any test runs.
+ *
+ * The workspace registry was already redirected per-test; the *selection* — which workspace you are
+ * working in — was not, because until recently the resolver read a field the CLI does not emit and
+ * therefore never consulted it. Fixing that turned the person's own active workspace into an input
+ * to this suite: tests asserting on the folder they had just built started reporting whatever the
+ * developer happened to be working in.
+ *
+ * Redirected here rather than per-test on purpose. A test that forgets is a test that reads the
+ * real machine, and it fails only for whoever has a workspace selected.
+ */
+const machineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-host-machine-'));
+process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machineState, 'active-workspace.json');
+process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= path.join(machineState, 'registry.json');
+process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.json');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
@@ -340,8 +357,8 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `desktop snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT'],
-    'Lifecycle contains the active work and intake, not repository settings');
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'workflows'],
+    'Lifecycle contains the work and the shapes work can take, not repository settings');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
   const configuration = registered.trees.get('singularityFlow.configuration');
@@ -1579,10 +1596,55 @@ test('a folder that is not a Flow repository also offers to become one', async (
     'initializing is only offered where there is a folder to initialize');
 });
 
-test('opening a workspace replaces the current window rather than scattering new ones', async (t) => {
+test('choosing a workspace costs nothing: no window opens and none reloads', async (t) => {
   if (!requireBundle(t)) return;
-  // "Open this workspace" means go there, which is what VS Code's own Open Folder does. Forcing a
-  // new window every time left a person with windows they did not ask for and had to close.
+  // Choosing where you are working is not the same as opening code, and it used to be: selecting a
+  // workspace reloaded the window or opened a folder, which threw away every open editor to change
+  // one string. Somebody comparing two workspaces paid for the comparison twice.
+  const org = await organisation();
+  const registryFile = path.join(org.base, 'registry.json');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--no-clone'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+  });
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const issued = [];
+  const dispatch = api.commands.executeCommand;
+  api.commands.executeCommand = async (command, ...args) => {
+    issued.push(command);
+    return dispatch(command, ...args);
+  };
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const rows = await until(() => {
+    const nodes = provider.getChildren();
+    return nodes[0]?.label === 'commerce' ? nodes : null;
+  });
+  assert.equal(provider.getTreeItem(rows[0]).command.command, 'singularityFlow.switchWorkspace',
+    'clicking the row chooses it');
+  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
+
+  assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
+  assert.equal(issued.includes('workbench.action.reloadWindow'), false, 'the window was not reloaded');
+  assert.deepEqual(registered.errors, []);
+  // And the choice took: the tree says which one is being worked in, and it is this one.
+  const chosen = await until(() =>
+    provider.getChildren().find((row) => row.description === 'working here') ?? null);
+  assert.equal(chosen.label, 'commerce');
+});
+
+test('opening a workspace explicitly replaces the current window rather than scattering new ones', async (t) => {
+  if (!requireBundle(t)) return;
+  // "Open this workspace" is the separate, explicit act — go there and edit the code. It means what
+  // VS Code's own Open Folder means. Forcing a new window every time left a person with windows
+  // they did not ask for and had to close.
   const org = await organisation();
   const registryFile = path.join(org.base, 'registry.json');
   spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
@@ -1609,8 +1671,8 @@ test('opening a workspace replaces the current window rather than scattering new
   assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None,
     'a workspace is a choice, not an expandable folder');
   assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
-    'clicking the visible workspace row performs the switch');
-  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
+    'clicking the visible workspace row chooses it rather than opening it');
+  await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');
   assert.ok(folder, 'a folder was opened');

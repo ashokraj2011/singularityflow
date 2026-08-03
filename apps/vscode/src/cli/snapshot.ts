@@ -267,6 +267,16 @@ export interface DesktopSnapshot {
   templates?: Array<{ path: string; name: string; bytes?: number }>;
   personaPrompts?: Array<{ path: string; name: string; bytes?: number }>;
   repositorySkills?: Array<{ path: string; name: string; bytes?: number }>;
+  /**
+   * The prompt packs that ship with the product, as opposed to the ones a repository wrote.
+   *
+   * The snapshot has always carried these; nothing here read them, so a repository with no packs of
+   * its own was shown "none" while every packaged pack sat unlisted beside it.
+   */
+  flowSkills?: Array<{
+    id?: string; name?: string; description?: string; path: string; command?: string;
+    scope?: string; readOnly?: boolean;
+  }>;
   agents?: Array<{ id: string; scope: string; path: string; editable?: boolean }>;
   agentMappings?: { path: string; exists: boolean };
   /** Who this repository will attribute a decision to. Approvals turn on it. */

@@ -11,19 +11,17 @@
  * and a workspace is made for doing work rather than for describing what exists. There is no state
  * branch either — it is `state`, and it is created when a workspace is initialised.
  */
+import { CAPABILITY_KINDS } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 
 /** A capability already in the map, offered as a parent. */
 export interface ParentChoice { id: string; name: string; depth: number; ships: boolean }
 
 /**
- * The vocabulary a capability's kind is drawn from.
- *
- * A dropdown rather than free text: kind is a classification, and an organisation that spells it
- * four ways has four classifications. Any value the map already uses is added to this list, so a
- * repository that chose its own words keeps them.
+ * Kept as an export for callers that seed the form. Existing custom values are preserved when an
+ * older map is opened, while every newly created capability starts from this controlled vocabulary.
  */
-export const CAPABILITY_KINDS = ['portfolio', 'domain', 'product', 'service', 'platform', 'component'];
+export { CAPABILITY_KINDS };
 
 export interface MapCapabilityForm {
   lead: string;
@@ -44,7 +42,7 @@ export interface MapCapabilityForm {
 }
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
-  lead: '', leads: [], capabilityId: '', name: '', kind: 'service', kinds: CAPABILITY_KINDS,
+  lead: '', leads: [], capabilityId: '', name: '', kind: 'business', kinds: [...CAPABILITY_KINDS],
   parent: '', parents: [], repositoryUrl: '', jiraProject: '', teams: '',
   loaded: false, busy: false, error: null
 };
@@ -58,6 +56,9 @@ export function mapProblems(form: MapCapabilityForm): string[] {
     problems.push('The identifier must be lower-case kebab-case, like payments-api.');
   } else if (form.parents.some((parent) => parent.id === form.capabilityId.trim())) {
     problems.push(`'${form.capabilityId.trim()}' is already in this map.`);
+  }
+  if (form.loaded && form.parents.length && !form.parent) {
+    problems.push('Choose the capability this belongs under.');
   }
   return problems;
 }
@@ -75,8 +76,7 @@ export function mapCommand(form: MapCapabilityForm): string[] {
 
 export function mapCapabilityHtml(form: MapCapabilityForm): string {
   const problems = mapProblems(form);
-  // A capability that ships cannot contain anything, so it cannot be a parent.
-  const parents = form.parents.filter((parent) => !parent.ships);
+  const parents = form.parents;
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Map a capability</h1>
@@ -109,21 +109,19 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
 
   <section>
     <h2>${icon('capability')}The capability</h2>
-    <p>
-      <label>Identifier <input type="text" value="${escape(form.capabilityId)}" data-map="capabilityId"
-        size="24" placeholder="payments-api"></label>
-      <label>Name <input type="text" value="${escape(form.name)}" data-map="name" size="28"
+    <div class="form-grid">
+      <label class="field"><span>Identifier</span><input type="text" value="${escape(form.capabilityId)}" data-map="capabilityId"
+        placeholder="payments-api"><small>Permanent, lower-case kebab-case.</small></label>
+      <label class="field"><span>Display name</span><input type="text" value="${escape(form.name)}" data-map="name"
         placeholder="Payments API"></label>
-    </p>
-    <p>
-      <label>Kind <select data-map="kind">
+      <label class="field"><span>Kind</span><select data-map="kind">
         ${form.kinds.map((kind) => `<option value="${escape(kind)}"${kind === form.kind ? ' selected' : ''}>${escape(kind)}</option>`).join('')}
-      </select></label>
-      <label>Within <select data-map="parent"${form.loaded ? '' : ' disabled'}>
-        <option value=""${form.parent ? '' : ' selected'}>— top of the tree —</option>
+      </select><small>Business delivers value; Collection groups related capabilities.</small></label>
+      <label class="field"><span>Linked under</span><select data-map="parent"${form.loaded ? '' : ' disabled'}>
+        <option value=""${form.parent ? '' : ' selected'}>${parents.length ? 'Choose a capability…' : 'Top of the tree'}</option>
         ${parents.map((parent) => `<option value="${escape(parent.id)}"${parent.id === form.parent ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(parent.depth)}${escape(parent.name)}</option>`).join('')}
-      </select></label>
-    </p>
+      </select><small>You can change this relationship later.</small></label>
+    </div>
   </section>
 
   <section>

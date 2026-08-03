@@ -60,6 +60,10 @@ export class CapabilitiesPanel {
         const edits = readEdits(message.edits);
         const id = String((message.edits as Record<string, unknown> | undefined)?.id ?? '').trim();
         if (!id) return this.report('An identifier is required.');
+        const hasCapabilities = Boolean(this.store.current.snapshot?.capabilityMap?.capabilities?.length);
+        if (hasCapabilities && !edits.parent?.trim()) {
+          return this.report('Choose the capability this belongs under. The map has one root and every new capability links beneath it.');
+        }
         return onMessage({ type: 'create', id, edits });
       }
       if (message?.type === 'remove' && typeof message.id === 'string') {

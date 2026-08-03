@@ -1572,14 +1572,31 @@ test('Jira and teams are read from the capability, which is where they belong', 
   assert.equal(capabilityDetail(capabilityFixture, 'payments-api').delivery, true);
 });
 
-test('the parent chooser cannot offer a move the engine would refuse', () => {
-  // Moving a capability beneath itself or its own descendant is a cycle; a capability that ships
-  // cannot contain anything. Both are unreachable rather than reported after the fact.
+test('the parent chooser offers every capability except moves that would create a cycle', () => {
+  // Moving a capability beneath itself or its own descendant is a cycle. Shipping from a repository
+  // does not make a capability a leaf, so it remains a valid relationship target.
   const offered = parentChoices(capabilityFixture, 'payments').map((choice) => choice.id);
   assert.deepEqual(offered, ['commerce']);
 
   const forNew = parentChoices(capabilityFixture, null).map((choice) => choice.id);
-  assert.deepEqual(forNew, ['commerce', 'payments'], 'payments-api ships, so it cannot contain');
+  assert.deepEqual(forNew, ['commerce', 'payments', 'payments-api']);
+});
+
+test('the capability form uses controlled kinds and makes its relationship editable', () => {
+  const create = capabilitiesHtml(capabilityFixture, null, { parent: 'payments' }, null);
+  assert.match(create, /<select data-field="kind"/);
+  assert.match(create, /<option value="business" selected>Business<\/option>/);
+  assert.match(create, /<option value="collection">Collection<\/option>/);
+  assert.doesNotMatch(create, /<input[^>]+data-field="kind"/);
+  assert.match(create, /Linked under/);
+  assert.match(create, /<option value="payments" selected>[^<]*Payments<\/option>/);
+  assert.match(create, /<option value="payments-api">/,
+    'all existing capabilities, including ones that ship, are relationship targets');
+
+  const edit = capabilitiesHtml(capabilityFixture, 'payments-api', null, null);
+  assert.match(edit, /Relink this capability at any time/);
+  assert.match(edit, /<option value="commerce">Commerce<\/option>/);
+  assert.match(edit, /<option value="payments" selected>/);
 });
 
 test('an empty field is sent as a clearance, and an untouched one is not sent at all', () => {

@@ -146,6 +146,7 @@ export async function startStory(root, {
     root,
     definition,
     workflow,
+    { type: 'binding' },
     `[${id}][init] start ${workType} workflow`
   );
   const documents = [];
@@ -156,6 +157,7 @@ export async function startStory(root, {
       root,
       definition,
       workflow,
+      { type: 'evidence-recorded', payload: { documents: added.map((item) => item.id) } },
       `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
     );
   }
@@ -166,6 +168,7 @@ export async function startStory(root, {
       root,
       definition,
       workflow,
+      { type: 'evidence-recorded', payload: { documents: added.map((item) => item.id) } },
       `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
     );
   }

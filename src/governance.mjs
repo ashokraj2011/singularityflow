@@ -21,7 +21,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     warnings.push(`soft sequence gate '${override.gate}' was overridden for ${override.requestedPhase ?? override.before?.currentPhase ?? 'workflow'} during ${override.action}`);
   }
 
-  if (!config._legacy && workflow.resolution.configSha256) {
+  if (workflow.resolution.configSha256) {
     const current = await snapshot(path.join(root, 'singularity/workflow.yml'));
     if (current.sha256 !== workflow.resolution.configSha256) errors.push('workflow.yml differs from the immutable work-item configuration snapshot');
     for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {

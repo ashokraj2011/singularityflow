@@ -11,14 +11,10 @@ export function localPendingPublicationPath(root, kind, id) {
   return path.join(gitDir(root), 'singularity-flow', 'pending-publication', `${kind}--${safeId(id)}.json`);
 }
 
-export async function readPendingPublication(root, { kind, id, legacyPath = null } = {}) {
+export async function readPendingPublication(root, { kind, id } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
-  if (await exists(local)) return { path: local, record: await readJson(local), migrated: false };
-  if (!legacyPath || !(await exists(legacyPath))) return null;
-  const record = await readJson(legacyPath);
-  await writeJson(local, record);
-  await unlink(legacyPath);
-  return { path: local, record, migrated: true };
+  if (await exists(local)) return { path: local, record: await readJson(local) };
+  return null;
 }
 
 export async function hasPendingPublication(root, options) {
@@ -31,8 +27,7 @@ export async function writePendingPublication(root, { kind, id, record } = {}) {
   return target;
 }
 
-export async function clearPendingPublication(root, { kind, id, legacyPath = null } = {}) {
+export async function clearPendingPublication(root, { kind, id } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
   if (await exists(local)) await unlink(local);
-  if (legacyPath && await exists(legacyPath)) await unlink(legacyPath);
 }

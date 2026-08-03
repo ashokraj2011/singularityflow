@@ -197,7 +197,7 @@ Each generation, submission, approval, rejection, or advancement is one local st
 
 The CLI verifies the expected branch head before mutation and relies on fast-forward push rejection for concurrent writers. It never force-pushes or rewrites work-item history.
 
-If publication fails, the commit remains local and `.git/singularity-flow/publication-pending.json` records the pending branch/commit. Lifecycle mutation is blocked until `sync` pushes that exact history. This local marker is recovery state, not transferred workflow state.
+If publication fails, the commit remains local and `.git/singularity-flow/pending-publication/<kind>--<ID>.json` records the pending branch/commit. Lifecycle mutation is blocked until `sync` pushes that exact history. This local marker is recovery state, not transferred workflow state.
 
 ## Approval model
 

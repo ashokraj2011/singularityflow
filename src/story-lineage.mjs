@@ -75,7 +75,7 @@ export async function attachStoryBranch(root, config, {
     detail: `${current} -> ${workflow.workItem.id}`
   });
   await saveWorkflow(root, config, workflow);
-  const publication = await commitAndPublish(root, config, workflow, `[${workflow.workItem.id}][branch:attach] ${current}`);
+  const publication = await commitAndPublish(root, config, workflow, { type: 'branch-linked', payload: { childBranch: current } }, `[${workflow.workItem.id}][branch:attach] ${current}`);
   await preserveAgent(root, config, workflow);
   return { workflow, branch: current, canonical: false, created: true, record, publication };
 }

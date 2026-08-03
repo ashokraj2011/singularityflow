@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs';
 import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadSession } from './session.mjs';
-import { loadWorkflow, storyPublicationPending, validateWorkflow, workflowPath } from './state.mjs';
+import { storyPublicationPending, validateWorkflow, workflowPath } from './state.mjs';
+import { loadStoryAggregate } from './state-stores.mjs';
+import { inspectStatePlanes } from './state-planes.mjs';
 import { run } from './util.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
@@ -66,9 +68,23 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   });
   if (selected) {
     try {
-      workflow = await loadWorkflow(root, definition, selected.id);
+      workflow = await loadStoryAggregate(root, definition, selected.id);
       const validation = await validateWorkflow(root, definition, workflow);
       checks.push(check('workflow-state', validation.valid ? 'pass' : 'fail', validation.valid ? `${selected.id} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${selected.id} to inspect safe recovery options.`));
+      const planes = await inspectStatePlanes(root, {
+        definition,
+        reference: selected.id,
+        kind: 'story',
+        offline
+      });
+      checks.push(check(
+        'state-planes',
+        planes.healthy ? 'pass' : 'fail',
+        planes.healthy
+          ? `Lifecycle authority, local selection, publication recovery, ledger mirror, and projections agree at ${planes.lifecycle.head.slice(0, 8)}.`
+          : 'One or more state planes require recovery or projection repair.',
+        planes.healthy ? null : `Run singularity-flow state planes ${selected.id} --json, then singularity-flow state reconcile ${selected.id} --check.`
+      ));
       const pending = await storyPublicationPending(root, definition, selected.id);
       checks.push(check('publication', pending ? 'fail' : 'pass', pending ? 'A local lifecycle commit is waiting to be pushed.' : 'No lifecycle publication is pending.', pending ? 'Run singularity-flow sync.' : null));
       const active = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;

@@ -93,9 +93,9 @@ Use `/sf-progress` for deterministic completion and `/sf-report` for timing, wai
 
 Initiative orchestration is an opt-in layer above repository story workflows. `singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.
 
-Repository entries may include `metadata` with an `appId`, human-readable `name`, and any organization-specific scalar key/value pairs such as `owner`, `businessUnit`, `costCenter`, or `criticality`. Add these through **Initiatives → Portfolio designer → Add repository**. The app writes them beneath `repositories.<id>.metadata` in `singularity/portfolio.yml`; initiative snapshots, planning prompts, workspace manifests, and generated story seeds preserve the values.
+Repository entries may include `metadata` with an `appId`, human-readable `name`, and any organization-specific scalar key/value pairs such as `owner`, `businessUnit`, `costCenter`, or `criticality`. Add these through VS Code **Configuration → Portfolio → Add repository**. The extension writes them beneath `repositories.<id>.metadata` in `singularity/portfolio.yml`; initiative snapshots, planning prompts, workspace manifests, and generated story seeds preserve the values.
 
-If the file is missing, open **Initiatives** or **Jira workspace** in the desktop. The guided setup creates and validates the full editable starter portfolio, fills approval groups from the entered identity or current Git identity, optionally registers the first participating repository, and optionally adds an HTTPS Jira host/project/write policy. Credentials are never accepted into the YAML. The file stays uncommitted until **Commit & push**.
+If the file is missing, open VS Code **Configuration → Portfolio**. The guided setup creates and validates the full editable starter portfolio, fills approval groups from the entered identity or current Git identity, optionally registers the first participating repository, and optionally adds an HTTPS Jira host/project/write policy. Credentials are never accepted into the YAML. The file stays uncommitted until **Commit & push**.
 
 Operate an initiative inside GitHub Copilot:
 
@@ -160,7 +160,7 @@ Requirements has one approval over requirements, traceability, and impact
 analysis. Planning has one approval over the editable Story list, parent
 specification, and every per-Story specification.
 
-There is **one navigation for every role**. Singularity Desktop previously split
+There is **one navigation for every role**. The retired Electron app previously split
 into a Business experience and an Engineer experience with separate menus, which
 meant the Epic planning journey was reachable only from one and the configuration
 tools only from the other. Both are now the same sidebar:
@@ -269,8 +269,8 @@ singularity-flow epic requirements publish
 singularity-flow epic requirements approve
 singularity-flow epic planning prepare
 singularity-flow epic planning publish
-# Review every Story and exact specification in Desktop → Planning,
-# then use "Approve exact plan". Planning approval is intentionally UI-only.
+# Review every Story and exact specification in VS Code Lifecycle → Planning,
+# then approve the exact plan through VS Code or the CLI.
 singularity-flow epic stories metadata STORY-001 set component checkout
 singularity-flow epic stories tasks STORY-001 add --title "Add integration tests"
 singularity-flow epic jira preview --artifact epic-requirements/requirements-specification --artifact epic-planning/parent-specification --artifact-to epic
@@ -415,7 +415,7 @@ promote external values into a new Git artifact generation, or
 `drift restore-plan` to create a new reviewed Jira write plan. No automatic
 two-way overwrite occurs.
 
-Desktop’s Epic workspace is a guided wizard for **Epic intake**,
+VS Code Lifecycle is a guided workflow for **Epic intake**,
 **Requirements**, **User Stories**, **High-level spec**, **Publish to Jira**,
 **Delivery progress**, and **Validate & complete**, with Configuration kept
 separate. With no active Epic, the first wizard screen browses the connected
@@ -429,7 +429,7 @@ ready. Local role, Jira account, configured Git identity, and GitHub login are
 displayed as separate identity domains; none is described as cryptographically
 equivalent.
 
-Desktop also provides **Delivery → Story intake** as the developer entry
+VS Code also provides **Lifecycle → Story intake** as the developer entry
 workflow:
 
 This path does not require an Epic to be created or selected in Singularity
@@ -561,7 +561,7 @@ free text. Long values are truncated, and cycles and deep structures are bounded
 rather than serialized.
 
 Nothing is ever written to standard output. That stream carries the `--json`
-payloads the desktop parses, and log lines there would corrupt them.
+payloads consumed by VS Code and automation, and log lines there would corrupt them.
 
 ## Native Copilot handoff
 
@@ -609,10 +609,10 @@ stores the local directory layout, clone URLs, per-repository Jira board or
 project key, App ID, display name, optional metadata, and the selected lead
 repository. The lead repository is the Git home for Epic-level artifacts.
 
-In the desktop:
+In VS Code:
 
 1. Open any initialized Singularity repository.
-2. Open **Advanced → Workspace configuration**.
+2. Open **Workspaces → Create workspace**.
 3. Enter a workspace name and ID, then choose the local working directory.
 4. Add repositories from disk or enter their clone URLs.
 5. Set each repository’s Jira board/project key, Application ID, and optional
@@ -728,7 +728,7 @@ export JIRA_USERNAME="person@company.com"
 export JIRA_PAT="<api-token>"
 ```
 
-The desktop Jira Cloud connection asks for those same three values: Jira URL, username/email, and PAT/API token. It sends Basic authentication as `base64(username:PAT)` and never requests a Jira password. `JIRA_EMAIL` and `JIRA_API_TOKEN` remain supported CLI aliases.
+The VS Code Jira connection asks for those same three values: Jira URL, username/email, and PAT/API token. It stores the token in `SecretStorage`, sends Basic authentication as `base64(username:PAT)`, and never requests a Jira password. `JIRA_EMAIL` and `JIRA_API_TOKEN` remain supported CLI aliases.
 
 Discover site-specific custom fields:
 
@@ -847,7 +847,7 @@ singularity-flow documents browse --provider onedrive          # list drive item
 singularity-flow documents fetch  --provider onedrive --ref <drive-item-id>
 ```
 
-`fetch` downloads the bytes into `inputs/DOC-nnn/`, hashes them, records provider provenance (`providerId`, `objectId`, version), and commits/pushes like any other document — so a resumed checkout on another machine has the content, not just a link. In the CLI the bearer token is read from `SINGULARITY_FLOW_STORAGE_TOKEN_ONEDRIVE`; in Singularity Desktop the **Documents** page provides **Connect OneDrive**, **Browse OneDrive**, and per-item **Fetch** using the same delegated OAuth (auto-refreshing) as Epic sources.
+`fetch` downloads the bytes into `inputs/DOC-nnn/`, hashes them, records provider provenance (`providerId`, `objectId`, version), and commits/pushes like any other document — so a resumed checkout on another machine has the content, not just a link. In the CLI the bearer token is read from `SINGULARITY_FLOW_STORAGE_TOKEN_ONEDRIVE`; VS Code stores provider credentials in `SecretStorage` and exposes governed document actions without placing tokens in repository state.
 
 For a tab-like browser inside a canvas-capable Copilot host, enable experimental features, start a fresh session, and invoke the bundled extension:
 
@@ -1312,9 +1312,9 @@ the checkpoint with the final model. Checkpoints are governance state and do
 not make the source model stale.
 
 `--local` remains available for diagnostics, but the normal Story lifecycle does
-not use it. Desktop and `/sflow-story-start` build after Story intake and publish
-the model commit directly to the canonical Story branch. The **World model** page
-therefore keeps generation disabled on `main` and Epic branches.
+not use it. VS Code and `/sflow-story-start` build after Story intake and publish
+the model commit directly to the canonical Story branch. World-model generation
+is therefore disabled on `main` and Epic branches.
 
 From the workspace switcher, choose **Reset saved Jira connection** at any time
 to delete all encrypted Jira credentials for the current OS account. This does
@@ -1393,8 +1393,7 @@ commit carries both files with the generation.
 In `enforce` mode, publication fails if composition is absent, stale, uncommitted,
 uses the wrong governed agent, omits a required view, or differs from its committed
 manifest/prompt snapshot. `warn` reports the same problems without blocking.
-`off` skips the grounding gate and is the default for configurations created
-before this feature. The mode is pinned into work-item resolution at start, so
+`off` skips the grounding gate. The mode is pinned into work-item resolution at start, so
 later configuration changes cannot weaken or strengthen an in-flight item.
 
 Context composition is additive:
@@ -1457,7 +1456,7 @@ mappings:
 
 The mapping selects prompt context only. It never selects a governed agent,
 changes the contributor identity, or grants approval authority. Unknown target
-packs are rejected during validation. The desktop **agents** page exposes
+packs are rejected during validation. VS Code **Configuration → Agents** exposes
 the editable mapping YAML and its effective resolution table.
 
 First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active agent while preserving the selected governed agent. No authentication, cookies, or bearer tokens are sent.
@@ -1469,7 +1468,7 @@ singularity-flow agents refresh-output threat-model
 # Add --replace only after deciding to discard local edits.
 ```
 
-The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. The desktop **agents** page edits repository agent Markdown, shows lock status, and keeps the lock read-only.
+The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. VS Code **Configuration → Agents** edits repository agent Markdown, shows lock status, and keeps the lock read-only.
 
 ## Conformance and final gate
 
@@ -1487,7 +1486,7 @@ Conformance stores a source/test tree hash. Later code or test changes make the 
 
 ## Configuring workflows
 
-Edit `singularity/workflow.yml` directly or use Singularity Flow Desktop. The definition controls:
+Edit `singularity/workflow.yml` directly or use VS Code **Configuration**. The definition controls:
 
 - `workTypes`: phase sequences and profile overrides
 - `inputsMode`: off, warning/audit recording, or enforced approved-artifact dataflow
@@ -1574,7 +1573,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the desktop renderer, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables the metadata-only Copilot OpenTelemetry file exporter in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the VS Code extension, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables the metadata-only Copilot OpenTelemetry file exporter in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
 
 For a company Artifactory or registry:
 
@@ -1626,11 +1625,11 @@ singularity-flow assign design "mobile-team"
 singularity-flow watch WORK-123 --once
 ```
 
-The review bundle contains the artifact in full, input provenance, checks, approvals/self-approval warnings, model/token records, source changes, and supporting evidence. The desktop **Review bundle** page renders the same data. Assignments are committed/pushed coordination metadata, not governed-agent restrictions. Configure `collaboration.assignmentMode` as `off`, `suggested`, or `required`; required assignments block publication and submission.
+The review bundle contains the artifact in full, input provenance, checks, approvals/self-approval warnings, model/token records, source changes, and supporting evidence. VS Code **Lifecycle → Reviews** renders the same data. Assignments are committed/pushed coordination metadata, not governed-agent restrictions. Configure `collaboration.assignmentMode` as `off`, `suggested`, or `required`; required assignments block publication and submission.
 
 ## Design package inventory and gallery
 
-`singularity-flow documents upload ./figma-export` recursively preserves paths and hashes and creates committed `PKG-nnn` package records with `manifest.json`, `inventory.md`, and a local `gallery.html`. The inventory reports types, sizes, empty files, and duplicate hashes. The desktop Documents page has separate file and folder actions.
+`singularity-flow documents upload ./figma-export` recursively preserves paths and hashes and creates committed `PKG-nnn` package records with `manifest.json`, `inventory.md`, and a local `gallery.html`. The inventory reports types, sizes, empty files, and duplicate hashes. VS Code **Lifecycle → Documents** has separate file and folder actions.
 
 ## Safe recovery and Copilot session guidance
 
@@ -1710,9 +1709,9 @@ Use `singularity-flow jira fields --query <name>` against the Jira site and conf
 
 Run `singularity-flow telemetry status`. If it says the exporter is not active, fully exit Copilot, open a new terminal in the repository, verify `type copilot`, and start a new Copilot session. If a generation is pending, finish the current Copilot response and let the next `submit` or `/sflow-next` reconcile it, or run `singularity-flow telemetry reconcile <PHASE>` explicitly. Older turns created before telemetry was enabled cannot be reconstructed. If token data exists but cost does not, the provider did not expose exact cost or the exact model name has no configured price. Singularity Flow does not estimate these values.
 
-### Desktop cannot open a repository
+### VS Code cannot open a repository
 
-Confirm the directory is a Git repository and contains `singularity/workflow.yml`. If Singularity Desktop finds the former `.singularity/` or `.sdlc/` control folder, it offers a guarded migration before opening the repository. The migration changes only the current branch working tree; review the rename and use **Commit & push** when ready. It never merges into `main`. For a repository with no control folder, run `singularity-flow init` and commit the initialized files first.
+Confirm the directory is a Git repository and contains the current `singularity/workflow.yml`. This development release does not migrate former control folders or lifecycle schemas. For a repository with no current control folder, run `singularity-flow init` on the intended work branch and commit the initialized files. For an incompatible development checkout, use the guarded `singularity-flow factory-reset` flow.
 
 ### Remote agent sync reports stale or changed content
 
@@ -1806,7 +1805,8 @@ singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
 singularity-flow snapshot [WORK-ID] --json
-singularity-flow migrate-config
+singularity-flow state planes [WORK-ID] [--json]
+singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
 singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
 singularity-flow logs path|level
 singularity-flow home [--json]

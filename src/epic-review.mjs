@@ -245,6 +245,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.clone,
     selected.config,
     selected.workflow,
+    { type: decision === 'approve' ? 'phase-approved' : 'phase-rejected', phaseId: preview.phase, payload: { packetSha256 } },
     `[${selected.workflow.workItem.id}][review:${decision}] ${packetSha256.slice(0, 12)}`
   );
   const synchronized = await syncInitiativeRepositories(root, initiativeId);
@@ -253,6 +254,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     root,
     refreshed.portfolio,
     refreshed.initiative,
+    { type: 'evidence-recorded', payload: { storyId: selected.story.workId ?? selected.story.id, decision, packetSha256 } },
     `[${initiativeId}][epic:review] ${decision} ${selected.story.workId ?? selected.story.id}`
   );
   return {
@@ -284,6 +286,7 @@ export async function epicCheckStory(root, initiativeId, storyReference, {
     root,
     refreshed.portfolio,
     refreshed.initiative,
+    { type: 'evidence-recorded', payload: { storyId: selected.story.workId ?? selected.story.id, checksRecorded: true } },
     `[${initiativeId}][epic:review] record ${selected.story.workId ?? selected.story.id} checks`
   );
   return {

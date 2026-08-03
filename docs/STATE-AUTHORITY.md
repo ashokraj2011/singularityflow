@@ -30,4 +30,13 @@ Workspace selection and VS Code state are therefore convenient pointers, never a
 
 A lifecycle mutation must verify its branch, current HEAD, aggregate, and absence of a pending publication; write state and projections; validate invariants; stage only allowed paths; create one commit; and push without force. A failed push leaves the commit intact and writes only the local recovery record under `.git`. Cross-machine concurrency remains governed by Git fast-forward rejection.
 
-The shared publication unit of work and pure transition ports described in the state-simplification roadmap will consolidate this algorithm. Until then, Story and Initiative engines must preserve these observable rules.
+Story and Initiative publication both delegate this algorithm to `GitPublicationUnitOfWork`. Sequence evaluation and reduction are pure; confirmation is a surface port. A subject-local lock prevents same-checkout read/modify/write races, while Git fast-forward rejection remains the cross-machine arbiter.
+
+Projection repair never invents lifecycle facts. It may only regenerate a declared
+projection from the currently loaded authoritative aggregate. It cannot recreate a
+missing approval, artifact, lifecycle event, or remote receipt, and it cannot use
+the ledger or local session as a substitute for a missing lifecycle branch.
+
+This development line has no state migration layer. Only the current Story and
+Initiative schemas are accepted; disposable development state must be recreated
+with `singularity-flow factory-reset` and a fresh start.

@@ -122,14 +122,15 @@ test('Copilot session agent policy is immutable after work-item creation', async
   assert.match(validation.stderr, /Session governed-agent policy differs from the immutable configuration snapshot/);
 });
 
-test('older work-item session snapshots without work-item selection remain backward compatible', async () => {
+test('incomplete schema-2 session snapshots are rejected instead of migrated', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   delete workflow.resolution.session.workItemSelection;
   await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
   const validation = flow(root, ['validate'], { allowFailure: true });
-  assert.equal(validation.status, 0, validation.stderr);
+  assert.equal(validation.status, 2);
+  assert.match(validation.stderr, /Session governed-agent policy differs from the immutable configuration snapshot/);
 });
 
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {

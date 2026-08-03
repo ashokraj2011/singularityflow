@@ -135,6 +135,16 @@
         "icon": "$(trash)"
       },
       {
+        "command": "singularityFlow.configureTeams",
+        "title": "Singularity Flow: Configure Teams Notifications",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "singularityFlow.resetTeams",
+        "title": "Singularity Flow: Reset Teams Notifications",
+        "icon": "$(trash)"
+      },
+      {
         "command": "singularityFlow.openDashboard",
         "title": "Singularity Flow: Status",
         "icon": "$(pulse)"

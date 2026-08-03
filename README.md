@@ -1197,6 +1197,14 @@ code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 
 The first-run walkthrough configures the local name and role, Jira through VS Code `SecretStorage`, a workspace, and intake. The role filters guidance only; workflow phases select governed agents. **Open Governed Context in Copilot** renders the effective skill, agent prompt, world model, approved inputs, and phase contract into native Copilot chat.
 
+To summon a reviewer who is not keeping VS Code open, add `teams-webhook` to
+`collaboration.notifications` in `singularity/workflow.yml`, then run
+**Singularity Flow: Configure Teams Notifications**. VS Code stores the incoming
+webhook in `SecretStorage`; terminal-only users may set
+`SINGULARITY_FLOW_TEAMS_WEBHOOK_URL`. The URL never enters Git, prompts, telemetry,
+or lifecycle records. A notification is sent only after the corresponding commit
+and push, and delivery failure is a warning rather than lifecycle authority.
+
 The CLI workspace registry remains canonical. The extension never creates another workflow or workspace database. The former Electron application is retired and preserved at `desktop-final-v0.9.0`; see [ADR 0004](docs/adr/0004-retire-electron-desktop.md). See [DISTRIBUTION.md](DISTRIBUTION.md) for CLI and VSIX packaging.
 
 Install the personal Copilot plugin with:

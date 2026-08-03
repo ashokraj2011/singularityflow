@@ -83,7 +83,7 @@
       "properties": {
         "assignmentMode": { "enum": ["off", "suggested", "required"] },
         "approvalReminderAfterHours": { "type": "number", "minimum": 0 },
-        "notifications": { "type": "array", "uniqueItems": true, "items": { "enum": ["terminal"] } }
+        "notifications": { "type": "array", "uniqueItems": true, "items": { "enum": ["terminal", "teams-webhook"] } }
       },
       "additionalProperties": false
     },

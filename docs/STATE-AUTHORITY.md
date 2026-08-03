@@ -30,6 +30,13 @@ Workspace selection and VS Code state are therefore convenient pointers, never a
 
 A lifecycle mutation must verify its branch, current HEAD, aggregate, and absence of a pending publication; write state and projections; validate invariants; stage only allowed paths; create one commit; and push without force. A failed push leaves the commit intact and writes only the local recovery record under `.git`. Cross-machine concurrency remains governed by Git fast-forward rejection.
 
+Repositories that failed publication before the local recovery plane was introduced
+may contain `publication-pending.json` beside Story or Initiative state. Reading that
+subject atomically copies the record under `.git` and removes the legacy control file;
+the unpublished commit remains blocked until the normal `sync` succeeds. `doctor`
+fails when it finds an orphaned legacy marker that could not be associated and
+migrated. This narrow recovery-marker bridge does not migrate lifecycle schemas.
+
 Story and Initiative publication both delegate this algorithm to `GitPublicationUnitOfWork`. Sequence evaluation and reduction are pure; confirmation is a surface port. A subject-local lock prevents same-checkout read/modify/write races, while Git fast-forward rejection remains the cross-machine arbiter.
 
 Projection repair never invents lifecycle facts. It may only regenerate a declared
@@ -44,6 +51,6 @@ the managed bytes produced by `projectStatusMarkdown`, `ArtifactMetadata`,
 recipes are captured in lifecycle state when they are created; authored artifact
 content is preserved while only its managed metadata block is replaced.
 
-This development line has no state migration layer. Only the current Story and
+This development line has no lifecycle-schema migration layer. Only the current Story and
 Initiative schemas are accepted; disposable development state must be recreated
 with `singularity-flow factory-reset` and a fresh start.

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { exists, nowIso, SingularityFlowError } from './util.mjs';
 
 const confirmed = new WeakMap();
+let activeConfirmationPort = null;
 
 function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
@@ -125,8 +126,16 @@ async function askToContinue(message, gate) {
 }
 
 /** Port used by terminal and editor confirmation adapters. */
-export async function confirmOverride({ message, gate }, confirmationPort = askToContinue) {
+export async function confirmOverride({ message, gate }, confirmationPort = activeConfirmationPort ?? askToContinue) {
   return confirmationPort(message, gate);
+}
+
+/** Scope one surface adapter to one command; it can never leak into the next invocation. */
+export async function withConfirmationPort(confirmationPort, operation) {
+  const previous = activeConfirmationPort;
+  activeConfirmationPort = confirmationPort;
+  try { return await operation(); }
+  finally { activeConfirmationPort = previous; }
 }
 
 async function recordOverride(root, workflow, gate, action, { requestedPhase, reason, before }) {

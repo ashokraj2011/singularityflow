@@ -105,6 +105,8 @@ collaboration:
   # Assignments coordinate people but never grant agent or approval authority.
   assignmentMode: suggested
   approvalReminderAfterHours: 24
+  # Add teams-webhook to summon reviewers after publication. The URL stays local
+  # in VS Code SecretStorage or SINGULARITY_FLOW_TEAMS_WEBHOOK_URL; it is never committed.
   notifications: [terminal]
 
 # Activity logging. The log is written to .git/singularity-flow/logs/activity.log, so it

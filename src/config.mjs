@@ -187,7 +187,7 @@ export function validateDefinition(definition) {
     if (!definition.collaboration || typeof definition.collaboration !== 'object' || Array.isArray(definition.collaboration)) throw new SingularityFlowError('collaboration must be an object.');
     if (definition.collaboration.assignmentMode && !['off', 'suggested', 'required'].includes(definition.collaboration.assignmentMode)) throw new SingularityFlowError('collaboration.assignmentMode must be off, suggested, or required.');
     if (definition.collaboration.approvalReminderAfterHours != null && (!Number.isFinite(definition.collaboration.approvalReminderAfterHours) || definition.collaboration.approvalReminderAfterHours < 0)) throw new SingularityFlowError('collaboration.approvalReminderAfterHours must be a non-negative number.');
-    for (const channel of definition.collaboration.notifications ?? []) if (!['terminal'].includes(channel)) throw new SingularityFlowError(`Unsupported collaboration notification channel '${channel}'.`);
+    for (const channel of definition.collaboration.notifications ?? []) if (!['terminal', 'teams-webhook'].includes(channel)) throw new SingularityFlowError(`Unsupported collaboration notification channel '${channel}'.`);
   }
   for (const [id, workType] of Object.entries(definition.workTypes)) {
     assertId(id, 'Work type');

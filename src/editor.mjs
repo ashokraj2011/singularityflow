@@ -51,13 +51,13 @@ import {
 } from './initiative-config.mjs';
 import {
   initiativeProgress, listInitiatives, secureInitiativePath
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import { loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';
 import { epicJourney, initiativePhaseWork } from './initiative-next.mjs';
-import { availableInitiativeOutputs } from './initiative-state.mjs';
+import { availableInitiativeOutputs } from './state-stores.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import { planningTargetCatalog } from './planning.mjs';
@@ -312,7 +312,7 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   };
 }
 
-export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
+async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const items = await workItems(root, definition);
@@ -480,6 +480,199 @@ export async function repositorySnapshot(root, requestedWorkId = null, requested
     workflowSimulations: await simulateWorkflow(root),
     session: await loadSession(root, { required: false })
   };
+}
+
+const SNAPSHOT_SLICES = new Set([
+  'repository',
+  'lifecycle',
+  'configuration',
+  'capabilities',
+  'integrations',
+  'diagnostics'
+]);
+
+async function repositorySlice(root) {
+  const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
+  const currentBranch = branch(root);
+  const changes = changedFiles(root);
+  return {
+    root,
+    branch: currentBranch,
+    head: head(root),
+    controlRoot: 'singularity',
+    changes,
+    ...configurationChangeScope(root, definition, portfolio, changes),
+    identities: { git: identity(root) }
+  };
+}
+
+async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
+  const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
+  const currentBranch = branch(root);
+  const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
+  const selectedStory = resolveContext(subjectIndex, {
+    reference: requestedWorkId ?? currentBranch,
+    kind: 'story',
+    required: Boolean(requestedWorkId)
+  });
+  const selectedInitiative = resolveContext(subjectIndex, {
+    reference: requestedInitiativeId ?? currentBranch,
+    kind: 'initiative',
+    required: Boolean(requestedInitiativeId)
+  });
+  const selectedWorkId = selectedStory?.id ?? null;
+  const selectedInitiativeId = selectedInitiative?.id ?? null;
+  let workflow = null;
+  let progress = null;
+  let documents = [];
+  let review = null;
+  let report = null;
+  if (selectedWorkId) {
+    workflow = await loadStoryAggregate(root, definition, selectedWorkId);
+    progress = progressSnapshot(workflow);
+    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
+    documents = await documentCatalog(root, definition, workflow);
+    review = await createReviewBundle(root, definition, workflow);
+    review.markdown = reviewMarkdown(review);
+  }
+  return {
+    workItems: await workItems(root, definition),
+    initiatives: portfolio ? await listInitiatives(root, portfolio) : [],
+    selectedWorkId,
+    selectedInitiativeId,
+    workflow,
+    progress,
+    report,
+    documents,
+    review,
+    initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),
+    approvalInbox: {
+      remote: definition.git?.remote ?? 'origin',
+      fetched: false,
+      generatedAt: null,
+      count: 0,
+      items: []
+    },
+    planning: await planningTargetCatalog(root, { workId: selectedWorkId, initiativeId: selectedInitiativeId }),
+    session: await loadSession(root, { required: false })
+  };
+}
+
+async function configurationSlice(root) {
+  const definition = await loadDefinition(root);
+  const portfolio = await loadPortfolio(root, { required: false });
+  const agentMappings = await secureRepositoryPath(root, AGENT_MAPPING_PATH, {
+    label: 'Copilot agent mapping file',
+    type: 'file'
+  });
+  const agentLock = await secureRepositoryPath(root, AGENT_LOCK_PATH, {
+    label: 'Remote agent lock file',
+    type: 'file'
+  });
+  const agents = await discoverAgents(root);
+  const mappingStatus = await agentMappingStatus(root);
+  return {
+    definition,
+    definitionPath: WORKFLOW_PATH,
+    definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
+    portfolio,
+    portfolioPath: PORTFOLIO_PATH,
+    portfolioText: portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null,
+    templates: await textFiles(root, definition.templatesRoot),
+    agentPrompts: await textFiles(root, definition.agentPromptsRoot),
+    repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
+    flowSkills: await bundledFlowSkills(),
+    agents: agents.map((agent) => ({
+      id: agent.id,
+      scope: agent.scope,
+      path: agent.source,
+      content: agent.text,
+      sha256: agent.sha256,
+      editable: agent.scope === 'repository' && !agent.source.startsWith('..'),
+      remoteResources: agent.dependencies.length
+    })),
+    agentStatus: await agentStatus(root),
+    agentMappings: {
+      path: AGENT_MAPPING_PATH,
+      exists: agentMappings.exists,
+      content: agentMappings.exists
+        ? await readFile(agentMappings.absolute, 'utf8')
+        : await readFile(path.join(packageRoot, 'templates', 'agent-mappings.yml'), 'utf8'),
+      rows: mappingStatus.rows
+    },
+    agentsLock: {
+      path: AGENT_LOCK_PATH,
+      exists: agentLock.exists,
+      content: agentLock.exists
+        ? await readFile(agentLock.absolute, 'utf8')
+        : '# No remote agents are trusted yet.\n'
+    }
+  };
+}
+
+async function capabilitySlice(root) {
+  const portfolio = await loadPortfolio(root, { required: false });
+  const definition = await loadCapabilities(root);
+  if (!definition) return { path: CAPABILITIES_PATH, capabilities: null };
+  try {
+    validateCapabilities(definition, portfolio);
+    return { path: CAPABILITIES_PATH, capabilities: capabilityTree(definition) };
+  } catch (error) {
+    return { path: CAPABILITIES_PATH, capabilities: null, error: error.message };
+  }
+}
+
+async function integrationSlice(root) {
+  const definition = await loadDefinition(root);
+  let ledger;
+  try { ledger = await ledgerStatus(root, definition.ledger ?? {}); }
+  catch (error) {
+    ledger = {
+      enabled: Boolean(definition.ledger?.enabled),
+      available: false,
+      error: error?.message ?? String(error)
+    };
+  }
+  let github = null;
+  try {
+    const status = run('gh', ['auth', 'status', '--json', 'hosts'], { cwd: root, allowFailure: true });
+    if (status.status === 0) {
+      const hosts = JSON.parse(status.stdout).hosts ?? {};
+      const account = Object.values(hosts).flat().find((entry) => entry.active) ?? Object.values(hosts).flat()[0];
+      github = account?.login ?? null;
+    }
+  } catch { /* The integration remains unavailable when gh is absent or signed out. */ }
+  return {
+    telemetry: await copilotTelemetryStatus(root),
+    ledger,
+    github,
+    notifications: definition.notifications ?? { channels: ['terminal'] }
+  };
+}
+
+/**
+ * Build either the compatibility snapshot consumed by the extension, or explicit schema-v2
+ * slices for callers that request them. Scoped calls do not construct unrelated read models.
+ */
+export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, { included = null } = {}) {
+  if (!included?.length) return fullRepositorySnapshot(root, requestedWorkId, requestedInitiativeId);
+  const requested = [...new Set(included)];
+  const unknown = requested.filter((slice) => !SNAPSHOT_SLICES.has(slice));
+  if (unknown.length) {
+    throw new SingularityFlowError(`Unknown snapshot slice(s): ${unknown.join(', ')}. Choose from ${[...SNAPSHOT_SLICES].join(', ')}.`);
+  }
+  const result = {};
+  for (const slice of requested) {
+    if (slice === 'repository') result.repository = await repositorySlice(root);
+    else if (slice === 'lifecycle') result.lifecycle = await lifecycleSlice(root, requestedWorkId, requestedInitiativeId);
+    else if (slice === 'configuration') result.configuration = await configurationSlice(root);
+    else if (slice === 'capabilities') result.capabilities = await capabilitySlice(root);
+    else if (slice === 'integrations') result.integrations = await integrationSlice(root);
+    else if (slice === 'diagnostics') result.diagnostics = await doctorSnapshot(root, { workId: requestedWorkId, offline: true });
+  }
+  return result;
 }
 
 export async function bootstrapWorkspacePortfolio(root, {

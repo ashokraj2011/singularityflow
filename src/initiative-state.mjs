@@ -272,6 +272,10 @@ export function initiativePendingPublicationPath(root, portfolio, id) {
   return localPendingPublicationPath(root, 'initiative', id);
 }
 
+function legacyInitiativePendingPublicationPath(root, portfolio, id) {
+  return path.join(initiativeDir(root, portfolio, id), 'publication-pending.json');
+}
+
 export async function secureInitiativePath(root, portfolio, id, relative = '', options = {}) {
   const initiativeId = validateInitiativeId(id);
   if (typeof relative !== 'string' || path.isAbsolute(relative)) {
@@ -1184,7 +1188,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
   const pending = await readPendingPublication(root, {
     kind: 'initiative',
-    id: initiative.initiative.id
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
   if (pending) throw new SingularityFlowError('Initiative publication is pending. Run singularity-flow initiative sync before another mutation.');
   const ledgerConfig = normalizeLedgerConfig(initiative.resolution?.ledger ?? {});
@@ -1252,14 +1257,18 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   if (initiative[Symbol.for('singularity-flow.state-revision')]) {
     initiative[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  if (result.pushed) await clearPendingPublication(root, { kind: 'initiative', id: initiative.initiative.id });
+  if (result.pushed) await clearPendingPublication(root, {
+    kind: 'initiative', id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
+  });
   return result;
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative) {
   const pending = await readPendingPublication(root, {
     kind: 'initiative',
-    id: initiative.initiative.id
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
   if (!pending) {
     return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
@@ -1269,7 +1278,8 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
   await clearPendingPublication(root, {
     kind: 'initiative',
-    id: initiative.initiative.id
+    id: initiative.initiative.id,
+    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
   });
   return {
     pending: false,

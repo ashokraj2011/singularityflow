@@ -15,6 +15,9 @@ import type { CapabilityNode, CapabilityPolicyValue as PolicyValue } from '../cl
 
 export type { PolicyValue };
 
+/** The two capability shapes exposed by the editor. */
+export const CAPABILITY_KINDS = ['business', 'collection'] as const;
+
 export interface PolicyField {
   key: string;
   label: string;
@@ -163,10 +166,10 @@ export function capabilityArgv(
 /**
  * Where a capability may sit.
  *
- * Two exclusions, both of which the engine would otherwise refuse after the fact: a capability
- * cannot be moved beneath itself or its own descendants, and cannot be placed under one that ships
- * from a repository, because a capability that ships is a leaf. Offering only the legal parents means
- * the common mistakes are unreachable rather than reported.
+ * A capability cannot be moved beneath itself or one of its descendants because that would create a
+ * cycle. Every other capability is a valid relationship target. In particular, shipping from a
+ * repository does not make a capability a leaf: products commonly own repositories and still group
+ * smaller capabilities beneath them.
  */
 export function parentChoices(
   tree: CapabilityNode[],
@@ -176,7 +179,6 @@ export function parentChoices(
   return rows
     .filter((row) => row.id !== capabilityId)
     .filter((row) => !capabilityId || !row.ancestors.includes(capabilityId))
-    .filter((row) => !row.repository)
     .map((row) => ({ id: row.id, name: row.name, depth: row.depth }));
 }
 

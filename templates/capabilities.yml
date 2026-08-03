@@ -5,7 +5,7 @@ version: 1
 # such as checks and protected paths are accumulated.
 capabilities:
   enterprise:
-    kind: portfolio
+    kind: collection
     parent: null
     owns: [workflow, ledger]
     policy:
@@ -16,7 +16,7 @@ capabilities:
       protectedPaths: [singularity/workflow.yml, singularity/capabilities.yml]
 
   product:
-    kind: product
+    kind: business
     parent: enterprise
     owns: [initiatives, stories]
     policy: {}

@@ -239,6 +239,39 @@ export const STYLE = `
   .choice-detail.phases { margin-top: .25rem; }
   label { display: inline-flex; align-items: center; gap: .5rem; }
 
+  /* Forms use a quiet two-column rhythm rather than prose paragraphs containing unrelated controls.
+     Stacked labels keep field names and guidance attached at every editor width. */
+  .editor-card {
+    margin-top: 1rem; padding: 1.1rem 1.2rem 1.25rem;
+    border: var(--sf-border); border-radius: calc(var(--sf-radius) + 2px);
+    background: var(--sf-surface);
+  }
+  .editor-title { margin-bottom: 1rem; }
+  .eyebrow {
+    margin: 0 0 .15rem; color: var(--sf-accent); font-size: .7rem; font-weight: 700;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
+  .form-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.15rem; margin: .8rem 0 1rem;
+  }
+  .field { display: grid; align-content: start; gap: .35rem; min-width: 0; }
+  .field > span { font-size: .78rem; font-weight: 600; color: var(--vscode-foreground); }
+  .field > small { color: var(--sf-dim); font-size: .76rem; line-height: 1.4; }
+  .field input[type="text"], .field select { width: 100%; min-height: 2.25rem; }
+  .span-2 { grid-column: 1 / -1; }
+  .relationship-field {
+    padding: .8rem; border: 1px solid color-mix(in srgb, var(--sf-accent) 45%, transparent);
+    border-radius: var(--sf-radius); background: var(--sf-accent-quiet);
+  }
+  .subsection { margin-top: 1.25rem; padding-top: .25rem; border-top: var(--sf-border); }
+  @media (max-width: 680px) {
+    body { padding-inline: 1rem; }
+    .form-grid { grid-template-columns: 1fr; }
+    .span-2 { grid-column: auto; }
+    .editor-card { padding-inline: .85rem; }
+  }
+
   .rail { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.5rem; }
   .stage { display: flex; align-items: center; gap: .5rem; padding: .3rem 0; }
   .stage .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--sf-dim); flex: 0 0 auto; }

@@ -1050,6 +1050,12 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
   assert.match(panel.webview.html, /Ships from/);
   assert.doesNotMatch(panel.webview.html, /New capability/, 'the form closed once the edit landed');
 
+  // The relationship remains editable after creation. A repository-owning capability can move
+  // beneath any other capability; only self-links and cycles are excluded by the selector.
+  await panel.post({ type: 'save', id: 'checkout-api', edits: { parent: 'enterprise' } });
+  await until(() => (/parent: enterprise/.test(readFileSync(capabilitiesFile, 'utf8')) ? true : null));
+  await until(() => (/<option value="enterprise" selected>/.test(panel.webview.html) ? true : null));
+
   // Jira and teams belong to the capability. They round-trip through the engine and back onto the
   // page rather than being held in the panel.
   await panel.post({

@@ -6,7 +6,7 @@
  * import and is tested directly against the tree the engine emits.
  */
 import {
-  capabilityDetail, flattenCapabilities, formatPolicyValue, parentChoices
+  CAPABILITY_KINDS, capabilityDetail, flattenCapabilities, formatPolicyValue, parentChoices
 } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
@@ -37,10 +37,29 @@ function treeHtml(tree: CapabilityNode[], selected: string | null): string {
     </table>`;
 }
 
-function parentSelect(tree: CapabilityNode[], capabilityId: string | null, current: string | null): string {
+function kindSelect(current = 'business'): string {
+  const values = CAPABILITY_KINDS.includes(current as typeof CAPABILITY_KINDS[number])
+    ? [...CAPABILITY_KINDS]
+    : [current, ...CAPABILITY_KINDS];
+  return `<select data-field="kind" aria-label="Capability kind">
+    ${values.map((kind) => `<option value="${escape(kind)}"${kind === current ? ' selected' : ''}>${escape(
+    kind === 'business' ? 'Business' : kind === 'collection' ? 'Collection' : `${kind} (existing)`
+  )}</option>`).join('')}
+  </select>`;
+}
+
+function parentSelect(
+  tree: CapabilityNode[],
+  capabilityId: string | null,
+  current: string | null,
+  { creating = false }: { creating?: boolean } = {}
+): string {
   const choices = parentChoices(tree, capabilityId);
+  const canBeRoot = tree.length === 0 || (!creating && current == null);
   return `<select data-field="parent">
-    <option value=""${current ? '' : ' selected'}>— top of the tree —</option>
+    <option value=""${current ? '' : ' selected'}${canBeRoot ? '' : ' disabled'}>${canBeRoot
+    ? 'Top of the capability tree'
+    : 'Choose a capability…'}</option>
     ${choices.map((choice) => `<option value="${escape(choice.id)}"${choice.id === current ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(choice.depth)}${escape(choice.name)}</option>`).join('')}
   </select>`;
 }
@@ -48,23 +67,32 @@ function parentSelect(tree: CapabilityNode[], capabilityId: string | null, curre
 /** The form for a capability that does not exist yet; its identifier is the one field that is fixed. */
 function newHtml(tree: CapabilityNode[], parent: string | null): string {
   return `
-  <div class="card-head"><h3>New capability</h3></div>
-  <p>
-    <label>Identifier <input type="text" data-field="id" placeholder="payments-ledger" size="24"></label>
-    <label>Name <input type="text" data-field="name" placeholder="Payments Ledger"></label>
-  </p>
-  <p class="muted">The identifier is permanent and lower-case kebab-case; it is what the ledger,
-    the policy fold, and every Story record refer to.</p>
-  <p>
-    <label>Kind <input type="text" data-field="kind" value="business" size="12"></label>
-    <label>Within ${parentSelect(tree, null, parent)}</label>
-  </p>
-  <p>
-    <label>Delivers from <input type="text" data-field="repository"
-      placeholder="repository id — leave empty to make this a grouping"></label>
-  </p>
+  <div class="card-head editor-title">
+    <div><p class="eyebrow">Capability configuration</p><h3>New capability</h3></div>
+  </div>
+  <div class="form-grid">
+    <label class="field"><span>Identifier</span>
+      <input type="text" data-field="id" placeholder="payments-ledger">
+      <small>Permanent, lower-case kebab-case.</small>
+    </label>
+    <label class="field"><span>Display name</span>
+      <input type="text" data-field="name" placeholder="Payments Ledger">
+    </label>
+    <label class="field"><span>Kind</span>
+      ${kindSelect()}
+      <small>Business delivers value. Collection groups related capabilities.</small>
+    </label>
+    <label class="field"><span>Linked under</span>
+      ${parentSelect(tree, null, parent, { creating: true })}
+      <small>Every available capability is offered. You can change this link later.</small>
+    </label>
+    <label class="field span-2"><span>Repository</span>
+      <input type="text" data-field="repository" placeholder="Repository ID (optional)">
+      <small>Leave empty when this capability does not directly ship from a repository.</small>
+    </label>
+  </div>
   <p class="card-foot">
-    <button data-create="1">Add this capability</button>
+    <button data-create="1">Create capability</button>
     <button class="link" data-cancel="1">Cancel</button>
   </p>`;
 }
@@ -76,36 +104,46 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
 
   return `
   <div class="card-head">
-    <h3>${escape(detail.name)}</h3>
+    <div><p class="eyebrow">Capability details</p><h3>${escape(detail.name)}</h3></div>
     <span class="pill ${detail.delivery ? 'ok' : ''}">${icon(detail.delivery ? 'repository' : 'capability')}${detail.delivery ? 'delivers' : 'groups'}</span>
     <span class="grow"></span>
     <span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span>
   </div>
 
-  <p>
-    <label>Name <input type="text" value="${escape(detail.name)}" data-field="name"></label>
-    <label>Kind <input type="text" value="${escape(detail.kind)}" data-field="kind" size="12"></label>
-  </p>
-  <p>
-    <label>Within ${parentSelect(tree, detail.id, detail.ancestors.at(-1) ?? null)}</label>
-  </p>
-  <p>
-    <label>Delivers from <input type="text" value="${escape(detail.repository ?? '')}" data-field="repository"
-      placeholder="leave empty to make this a grouping"></label>
-  </p>
-  <p class="muted">A capability that names a repository is a leaf that ships; one that does not is a
-    grouping. Naming a repository is refused while this capability still contains others, and the
-    repository has to be one the portfolio declares.</p>
+  <div class="form-grid">
+    <label class="field"><span>Display name</span>
+      <input type="text" value="${escape(detail.name)}" data-field="name">
+    </label>
+    <label class="field"><span>Kind</span>
+      ${kindSelect(detail.kind)}
+      <small>Business delivers value. Collection groups related capabilities.</small>
+    </label>
+    <label class="field span-2 relationship-field"><span>Linked under</span>
+      ${parentSelect(tree, detail.id, detail.ancestors.at(-1) ?? null)}
+      <small>Relink this capability at any time. Self-links and cycles are removed from the list.</small>
+    </label>
+    <label class="field span-2"><span>Repository</span>
+      <input type="text" value="${escape(detail.repository ?? '')}" data-field="repository"
+        placeholder="Repository ID (optional)">
+      <small>A capability can own a repository and still contain other capabilities.</small>
+    </label>
+  </div>
 
-  <h2>${icon('tracker')}Jira</h2>
-  <p>
-    <label>Project <input type="text" value="${escape(detail.jira?.projectKey ?? '')}" data-field="jira.projectKey" size="14"></label>
-    <label>Board <input type="text" value="${escape(detail.jira?.board ?? '')}" data-field="jira.board"></label>
-  </p>
-
-  <h2>${icon('teams')}Teams</h2>
-  <p><input type="text" value="${escape(detail.teams.join(', '))}" data-field="teams"
-      placeholder="comma separated" size="42"></p>
+  <div class="subsection">
+    <h2>${icon('tracker')}Tracking and ownership</h2>
+    <div class="form-grid">
+      <label class="field"><span>Jira project</span>
+        <input type="text" value="${escape(detail.jira?.projectKey ?? '')}" data-field="jira.projectKey" placeholder="PAY">
+      </label>
+      <label class="field"><span>Jira board</span>
+        <input type="text" value="${escape(detail.jira?.board ?? '')}" data-field="jira.board" placeholder="Payments board">
+      </label>
+      <label class="field span-2"><span>Teams</span>
+        <input type="text" value="${escape(detail.teams.join(', '))}" data-field="teams" placeholder="Payments squad, Platform">
+        <small>Separate multiple teams with commas.</small>
+      </label>
+    </div>
+  </div>
 
   <p class="card-foot">
     <button data-save="${escape(detail.id)}">Save changes</button>
@@ -164,7 +202,7 @@ export function bodyHtml(
     ? `<p><button class="secondary" data-add="${escape(selected ?? '')}">Add a capability${selected ? ' inside this one' : ''}</button></p>`
     : ''}
   </section>
-  <section>${adding
+  <section class="editor-card">${adding
     ? newHtml(tree, adding.parent)
     : selected
       ? detailHtml(tree, selected)
@@ -203,4 +241,3 @@ export function readEdits(raw: unknown): Record<string, string> {
   }
   return edits;
 }
-

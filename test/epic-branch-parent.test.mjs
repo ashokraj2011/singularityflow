@@ -246,6 +246,21 @@ test('epic merge-plan reports the live sequence from Git', async () => {
   assert.deepEqual(plan.outstanding, stories);
 });
 
+test('Epic stack sync publishes an orphan control-plane manifest to participating repositories', async () => {
+  const stories = ['APP-1', 'APP-2'];
+  const { root, remote } = await soloRepository(stories);
+  await materializeInitiative(root, EPIC, { confirmation: EPIC });
+  const { syncStoryStack, storyStackPath } = await import('../src/story-stack.mjs');
+  const result = await syncStoryStack(root, EPIC);
+  assert.equal(result.publications.length, 1);
+  assert.equal(result.publications[0].branch, 'state');
+  const text = run('git', ['show', `refs/heads/state:${storyStackPath(EPIC)}`], { cwd: remote }).stdout;
+  const stored = JSON.parse(text);
+  assert.equal(stored.initiativeId, EPIC);
+  assert.deepEqual(stored.stories.map((story) => story.workId), stories);
+  assert.notEqual(run('git', ['merge-base', 'refs/heads/main', 'refs/heads/state'], { cwd: remote, allowFailure: true }).status, 0);
+});
+
 test('story pull request targets the epic branch and is built from committed state', async () => {
   const { pullRequestTarget, storyPullRequestBody, createStoryPullRequest } = await import('../src/pull-request.mjs');
   const workflow = {

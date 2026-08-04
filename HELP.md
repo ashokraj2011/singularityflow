@@ -286,6 +286,8 @@ singularity-flow epic checks MOB-123 --packet <exact-sha256>
 singularity-flow epic review-choice begin approve MOB-123 --epic MOB-100 --packet <exact-sha256>
 singularity-flow epic review approve MOB-123 --epic MOB-100 --packet <exact-sha256> --selection-receipt <token>
 singularity-flow epic merge-plan --epic MOB-100
+singularity-flow stack sync --epic MOB-100         # publish the enforced order to orphan state branches
+singularity-flow stack status --epic MOB-100       # recompute live status without publishing
 singularity-flow epic complete MOB-100 --dry-run
 singularity-flow epic complete MOB-100
 ```
@@ -329,6 +331,12 @@ singularity-flow pr MOB-123 --create               # open it, after typed confir
 in `breakdown.yml`; it reads Git and changes nothing. Each Story reports
 `merged`, `ready`, `blocked` (naming its blockers), or `in-progress`. After each
 merge, sync the remaining Story branches from the Epic branch before continuing.
+
+`stack sync` turns that live plan into a replicated control-plane record at
+`orchestration/stacks/<EPIC-ID>.json` on every participating repository's orphan
+`state` branch. Story pull-request previews read that exact record and refuse an
+out-of-order PR. The state branch has no ancestry with application branches and
+must never be merged into `main`, an Epic branch, or a Story branch.
 
 `pr` previews by default. `--create` additionally requires typing the exact Work
 ID, refuses a Story whose dependencies have not merged, reports an existing pull
@@ -1834,6 +1842,9 @@ singularity-flow epic start|sources|generate|submit|create-stories
 singularity-flow epic review|checks|status|complete
 singularity-flow epic journey [INIT-ID] [--json]
 singularity-flow epic merge-plan [--epic INIT-ID] [--json]
+singularity-flow refresh-branch [--remote origin] [--json]
+singularity-flow stack status|sync [--epic INIT-ID] [--json]
+singularity-flow regression analyze [--base main] [--good REF] [--bad REF] [--path PATH]...
 ```
 
 `state reconcile --check` is read-only and compares every declared projection with
@@ -1844,3 +1855,26 @@ audited lifecycle commit. It never creates an approval, artifact, transition, or
 remote receipt.
 
 Run `singularity-flow --help` for the current terse usage list and `singularity-flow help <topic>` for one section of this manual.
+
+Refresh a branch from another terminal without risking local work:
+
+```bash
+singularity-flow refresh-branch
+# Copilot: /sf-refresh-branch
+```
+
+The command requires a clean working tree, fetches the checked-out branch, and
+uses `git merge --ff-only`. Ahead branches are left alone. Diverged branches stop
+with an explanation; the command never resets, rebases, switches, or force-pushes.
+
+Investigate a suspected regression from Git merge history:
+
+```bash
+singularity-flow regression analyze --base main --good v1.4.0 --bad HEAD --path src/rules --path test
+# Copilot: /sf-regression-investigate
+```
+
+The report ranks commits and merge commits using ancestry, touched paths, change
+size, and bug-related commit subjects. It narrows investigation but never claims
+causation without a reproducer. The Copilot skill inspects the highest-ranked
+diffs and correlates them with repository world-model views without changing Git.

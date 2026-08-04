@@ -2,10 +2,10 @@ import { SingularityFlowError } from './util.mjs';
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['about'], ['help'], ['init'], ['factory-reset'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
-  ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['telemetry'], ['guide'],
+  ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['telemetry'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['inputs'],
-  ['agents'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['submit'],
+  ['agents'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['approve'], ['reject'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']

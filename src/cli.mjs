@@ -189,6 +189,9 @@ import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
+import { refreshBranch } from './branch-refresh.mjs';
+import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
+import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
 
 const VERSION = '0.9.0';
 
@@ -231,7 +234,11 @@ Usage:
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
+  singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
+  singularity-flow stack status [--epic EPIC-ID] [--json]
+  singularity-flow stack sync --epic EPIC-ID [--json]
+  singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
@@ -1323,7 +1330,8 @@ async function pullRequestCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, positionals[1]);
-  const plan = await storyPullRequestPlan(root, config, workflow);
+  const mergeSequence = await publishedStackForStory(root, config, workflow);
+  const plan = await storyPullRequestPlan(root, config, workflow, { mergeSequence });
 
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
   else {
@@ -1347,6 +1355,85 @@ async function pullRequestCommand(positionals, options) {
   console.log(result.status === 'existing'
     ? `A pull request already exists: ${result.url}`
     : `Opened ${result.url}`);
+}
+
+async function refreshBranchCommand(options) {
+  const root = repoRoot();
+  const result = refreshBranch(root, {
+    remote: optionString(options, 'remote', 'origin'),
+    branchName: optionString(options, 'branch')
+  });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  if (result.status === 'fast-forwarded') {
+    console.log(`Refreshed ${result.branch}: ${result.before.slice(0, 8)} → ${result.after.slice(0, 8)} (${result.behind} commit${result.behind === 1 ? '' : 's'}).`);
+  } else if (result.status === 'ahead') {
+    console.log(`${result.branch} is already current and ${result.ahead} commit${result.ahead === 1 ? '' : 's'} ahead of ${result.remote}/${result.branch}; nothing changed.`);
+  } else {
+    console.log(`${result.branch} is up to date with ${result.remote}/${result.branch}.`);
+  }
+}
+
+function printStack(stack) {
+  console.log(`Story merge stack for ${stack.initiativeId} → ${stack.epicBranch}\n`);
+  console.log(table(stack.stories.map((story) => ({
+    order: String(story.order), story: story.workId, repository: story.repository,
+    status: story.status, blockers: (story.mergeBlockedBy ?? story.blockedBy ?? []).join(', ') || '—'
+  })), [
+    { key: 'order', label: '#' }, { key: 'story', label: 'STORY' }, { key: 'repository', label: 'REPOSITORY' },
+    { key: 'status', label: 'STATUS' }, { key: 'blockers', label: 'MERGE BLOCKERS' }
+  ]));
+  console.log(`\nNext to merge: ${stack.nextToMerge ?? 'none'}`);
+  console.log(stack.epicReady ? 'Epic branch is ready to land.' : `Outstanding blocking Stories: ${stack.outstanding.join(', ') || 'none'}`);
+  if (stack.unreachable?.length) console.log(`Unreachable Story branches: ${stack.unreachable.join(', ')}`);
+}
+
+async function stackCommand(positionals, options) {
+  const subcommand = requirePositional(positionals, 1, 'stack subcommand');
+  const root = repoRoot();
+  if (subcommand === 'sync') {
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const result = await syncStoryStack(root, initiativeId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    printStack(result.stack);
+    console.log('\nOrphan state-branch publications:');
+    result.publications.forEach((item) => console.log(`  ${item.repository}: ${item.changed ? item.commit.slice(0, 8) : 'unchanged'} on ${item.branch}`));
+    return;
+  }
+  if (subcommand === 'status') {
+    const explicitEpic = optionString(options, 'epic');
+    let stack;
+    if (explicitEpic) {
+      const mergeState = await initiativeMergeState(root, explicitEpic);
+      const { portfolio } = await loadInitiativeAggregate(root, explicitEpic);
+      const breakdown = await loadInitiativeBreakdown(root, portfolio, explicitEpic);
+      stack = buildStoryStack(mergeState, breakdown);
+    } else {
+      const config = await loadConfig(root);
+      const workflow = await loadStoryAggregate(root, config);
+      stack = await publishedStackForStory(root, config, workflow);
+      if (!stack) throw new SingularityFlowError(`${workflow.workItem.id} has no Epic merge stack.`);
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(stack, null, 2));
+    printStack(stack);
+    return;
+  }
+  throw new SingularityFlowError(`Unknown stack subcommand: ${subcommand}`);
+}
+
+async function regressionCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'analyze';
+  if (subcommand !== 'analyze') throw new SingularityFlowError(`Unknown regression subcommand: ${subcommand}`);
+  const root = repoRoot();
+  if (optionBoolean(options, 'fetch')) fetchRemote(root, optionString(options, 'remote', 'origin'));
+  const report = analyzeRegression(root, {
+    base: optionString(options, 'base', 'main'),
+    good: optionString(options, 'good'),
+    bad: optionString(options, 'bad', 'HEAD'),
+    paths: optionStrings(options, 'path'),
+    maxCandidates: optionNumber(options, 'max', 20)
+  });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(report, null, 2));
+  console.log(regressionReportMarkdown(report));
 }
 
 async function submitCommand(options) {
@@ -5345,6 +5432,7 @@ async function dispatch(command, positionals, options) {
     report: () => reportCommand(positionals, options),
     telemetry: () => telemetryCommand(positionals, options),
     guide: () => guideCommand(positionals, options),
+    'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),
     run: () => runCommand(options),
     cockpit: () => cockpitCommand(),
@@ -5363,6 +5451,8 @@ async function dispatch(command, positionals, options) {
     phase: () => phaseCommand(positionals, options),
     artifact: () => artifactCommand(positionals, options),
     pr: () => pullRequestCommand(positionals, options),
+    stack: () => stackCommand(positionals, options),
+    regression: () => regressionCommand(positionals, options),
     submit: () => submitCommand(options),
     approve: () => approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),

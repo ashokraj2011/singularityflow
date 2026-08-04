@@ -582,6 +582,26 @@ test('the view activates on being opened, not only when a workflow file happens 
     'the activation event names the view that is actually contributed');
   // Workspaces leads: work happens in one, and everything else is scoped to it.
   assert.equal(manifest.contributes.views.singularityFlow[0].id, 'singularityFlow.workspaces');
+  assert.ok(manifest.activationEvents.includes('onView:singularityFlow.help'));
+  assert.ok(manifest.contributes.views.singularityFlow.some((view) => view.id === 'singularityFlow.help'));
+});
+
+test('Help is available without a workspace and opens the canonical offline manual', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const help = registered.trees.get('singularityFlow.help');
+  assert.ok(help, 'Help has a provider even before workspace selection');
+  assert.ok(help.treeDataProvider.getChildren().some((node) => node.id === 'help:all'));
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:story-intake' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  assert.ok(panel, 'the searchable Help Center opened');
+  assert.match(panel.webview.html, /Story intake/);
+  assert.match(panel.webview.html, /CLI command reference/);
+  assert.match(panel.webview.html, /\/sf-story-start/);
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {

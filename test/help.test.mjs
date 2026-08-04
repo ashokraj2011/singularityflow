@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { helpTopicId, loadHelpDocument, parseHelpDocument } from '../src/help.mjs';
+import { COMMAND_REGISTRY } from '../src/command-registry.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -12,11 +13,19 @@ test('canonical help document exposes stable comprehensive topics', async () => 
   const document = parseHelpDocument(content);
   assert.equal(document.title, 'Singularity Flow Help');
   assert.ok(document.topics.length >= 20);
-  for (const topic of ['quick-start', 'jira-intake', 'governed-agents-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'vs-code-extension', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
+  for (const topic of ['quick-start', 'workspaces-and-capabilities', 'story-intake', 'jira-intake', 'governed-agents-and-approval-authority', 'sequence-enforcement', 'workflow-performance-reports', 'git-state-transfer-and-recovery', 'vs-code-extension', 'copilot-commands', 'troubleshooting', 'cli-command-reference']) {
     assert.ok(document.topics.some((item) => item.id === topic), `missing ${topic}`);
   }
   assert.equal(new Set(document.topics.map((item) => item.id)).size, document.topics.length);
   assert.equal(helpTopicId('Git state transfer & recovery'), 'git-state-transfer-recovery');
+});
+
+test('the visible CLI reference names every registered top-level command', async () => {
+  const reference = await loadHelpDocument('cli-command-reference');
+  for (const command of COMMAND_REGISTRY) {
+    assert.match(reference.content, new RegExp(`singularity-flow ${command.name}\\b`),
+      `CLI Help Center reference is missing ${command.name}`);
+  }
 });
 
 test('help loader returns the full manual or one focused topic', async () => {

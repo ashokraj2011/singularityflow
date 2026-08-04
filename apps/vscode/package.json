@@ -20,6 +20,7 @@
     "onView:singularityFlow.lifecycle",
     "onView:singularityFlow.inbox",
     "onView:singularityFlow.configuration",
+    "onView:singularityFlow.help",
     "onView:singularityFlow.workspaces",
     "workspaceContains:singularity/workflow.yml",
     "workspaceContains:workspace.json"
@@ -90,6 +91,10 @@
         {
           "id": "singularityFlow.configuration",
           "name": "Configuration"
+        },
+        {
+          "id": "singularityFlow.help",
+          "name": "Help"
         }
       ]
     },
@@ -271,6 +276,11 @@
         "command": "singularityFlow.openWorkspace",
         "title": "Singularity Flow: Open This Workspace's Lead Repository",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "singularityFlow.openHelp",
+        "title": "Singularity Flow: Help Center",
+        "icon": "$(question)"
       }
     ],
     "menus": {
@@ -369,6 +379,11 @@
           "command": "singularityFlow.mapCapability",
           "when": "view == singularityFlow.configuration",
           "group": "9_setup@0"
+        },
+        {
+          "command": "singularityFlow.openHelp",
+          "when": "view == singularityFlow.help",
+          "group": "navigation@0"
         }
       ],
       "view/item/context": [

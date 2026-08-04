@@ -34,14 +34,25 @@ export interface MapCapabilityForm {
   /** Null until the lead has been read; the map is what the parent list is made of. */
   loaded: boolean;
   busy: boolean;
+  notice: string | null;
   error: string | null;
 }
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'collection',
   parent: '', parents: [], repositoryUrl: '', jiraProject: '', teams: '',
-  loaded: false, busy: false, error: null
+  loaded: false, busy: false, notice: null, error: null
 };
+
+export function capabilityIdentifierProblem(form: MapCapabilityForm): string | null {
+  const id = form.capabilityId.trim();
+  if (!id) return 'Give the capability an identifier.';
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+    return 'The identifier must be lower-case kebab-case, like payments-api.';
+  }
+  if (form.parents.some((parent) => parent.id === id)) return `'${id}' is already in this map.`;
+  return null;
+}
 
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
@@ -49,12 +60,8 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   else if (!form.loaded) problems.push(form.busy
     ? 'The selected capability map is loading.'
     : 'Select the capability-map repository again so its current map can be loaded.');
-  if (!form.capabilityId.trim()) problems.push('Give the capability an identifier.');
-  else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.capabilityId.trim())) {
-    problems.push('The identifier must be lower-case kebab-case, like payments-api.');
-  } else if (form.parents.some((parent) => parent.id === form.capabilityId.trim())) {
-    problems.push(`'${form.capabilityId.trim()}' is already in this map.`);
-  }
+  const identifierProblem = capabilityIdentifierProblem(form);
+  if (identifierProblem) problems.push(identifierProblem);
   if (form.loaded && form.parents.length && !form.parent) {
     problems.push('Choose the capability this belongs under.');
   }
@@ -83,6 +90,8 @@ export function mapCommand(form: MapCapabilityForm): string[] {
 
 export function mapCapabilityHtml(form: MapCapabilityForm): string {
   const problems = mapProblems(form);
+  const identifierProblem = capabilityIdentifierProblem(form);
+  const staticProblems = problems.filter((problem) => problem !== identifierProblem);
   const parents = form.parents;
   const repository = form.repositoryUrl.trim();
   const lead = form.lead.trim();
@@ -104,6 +113,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     <h2>${icon('capability')}The capability</h2>
     <div class="form-grid">
       <label class="field"><span>Identifier</span><input type="text" value="${escape(form.capabilityId)}" data-map="capabilityId"
+        data-existing-capability-ids="${escape(form.parents.map((parent) => parent.id).join(','))}"
         placeholder="payments-api"><small>Permanent, lower-case kebab-case.</small></label>
       <label class="field"><span>Display name</span><input type="text" value="${escape(form.name)}" data-map="name"
         placeholder="Payments API"></label>
@@ -173,12 +183,20 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
   </section>
 
   <section>
-    ${problems.length
-    ? `<h2>${icon('bad')}Before this can be mapped</h2><ul class="blockers">${problems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-    : `<h2>${icon('ok')}Ready</h2><p class="ok-text">Commits the map to ${escape(form.lead)} and pushes.</p>`}
+    <div data-map-blocked${problems.length ? '' : ' hidden'}>
+      <h2>${icon('bad')}Before this can be mapped</h2>
+      <ul class="blockers">
+        <li data-map-identifier-problem${identifierProblem ? '' : ' hidden'}>${escape(identifierProblem ?? '')}</li>
+        ${staticProblems.map((problem) => `<li data-map-static-problem>${escape(problem)}</li>`).join('')}
+      </ul>
+    </div>
+    <div data-map-ready${problems.length ? ' hidden' : ''}>
+      <h2>${icon('ok')}Ready</h2><p class="ok-text">Commits the map to ${escape(form.lead)} and pushes.</p>
+    </div>
+    ${form.notice ? `<p class="warning-text">${icon('info')}${escape(form.notice)}</p>` : ''}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
-      <button data-map-submit="1" ${problems.length || form.busy ? 'disabled' : ''}>
+      <button data-map-submit="1" data-map-busy="${form.busy ? 'true' : 'false'}" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy && form.loaded ? 'Mapping…' : 'Map this capability'}
       </button>
     </p>
@@ -199,7 +217,33 @@ export const MAP_CAPABILITY_SCRIPT = `
   };
   // Typed values are reported without re-rendering, so the caret stays put; selecting a lead or a
   // parent is a data change the panel does redraw for.
-  document.addEventListener('input', report);
+  const syncIdentifierValidation = (input) => {
+    const value = input.value.trim();
+    const existing = (input.dataset.existingCapabilityIds || '').split(',').filter(Boolean);
+    const problem = !value
+      ? 'Give the capability an identifier.'
+      : !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+        ? 'The identifier must be lower-case kebab-case, like payments-api.'
+        : existing.includes(value)
+          ? "'" + value + "' is already in this map."
+          : '';
+    const identifierProblem = document.querySelector('[data-map-identifier-problem]');
+    const blocked = document.querySelector('[data-map-blocked]');
+    const ready = document.querySelector('[data-map-ready]');
+    const submit = document.querySelector('[data-map-submit]');
+    if (!identifierProblem || !blocked || !ready || !submit) return;
+    identifierProblem.textContent = problem;
+    identifierProblem.hidden = !problem;
+    const hasStaticProblems = Boolean(document.querySelector('[data-map-static-problem]'));
+    const hasProblems = Boolean(problem) || hasStaticProblems;
+    blocked.hidden = !hasProblems;
+    ready.hidden = hasProblems;
+    submit.disabled = hasProblems || submit.dataset.mapBusy === 'true';
+  };
+  document.addEventListener('input', (event) => {
+    report(event);
+    if (event.target.dataset?.map === 'capabilityId') syncIdentifierValidation(event.target);
+  });
   document.addEventListener('change', (event) => {
     report(event);
     const field = event.target.dataset?.map;

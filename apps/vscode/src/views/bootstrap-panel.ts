@@ -104,7 +104,7 @@ export class BootstrapPanel {
     if (!this.form.lead.trim() || (this.form.busy && this.form.loaded)) return;
     const selectedLead = this.form.lead.trim();
     const revision = ++this.mapLoadRevision;
-    this.update({ busy: true, loaded: false, parents: [], parent: '', error: null });
+    this.update({ busy: true, loaded: false, parents: [], parent: '', notice: null, error: null });
     const { result, error } = await this.run(['capability', 'organisation', selectedLead, '--json']);
     // A quick second selection must not put the first repository's parents under the second one.
     if (revision !== this.mapLoadRevision || selectedLead !== this.form.lead.trim()) return;
@@ -115,14 +115,17 @@ export class BootstrapPanel {
       busy: false,
       loaded: true,
       parents,
-      error: organisation.governed ? null : `${selectedLead} holds no capability map yet.`
+      notice: organisation.governed
+        ? null
+        : `${selectedLead} has no capability map yet. Mapping the first capability will create it.`,
+      error: null
     });
   }
 
   private async selectLead(value: string): Promise<void> {
     const lead = value.trim();
     if (lead !== this.form.lead.trim()) {
-      this.form = { ...this.form, lead, loaded: false, parents: [], parent: '', error: null };
+      this.form = { ...this.form, lead, loaded: false, parents: [], parent: '', notice: null, error: null };
     }
     if (!lead) return void this.render();
     await this.loadSelectedMap();

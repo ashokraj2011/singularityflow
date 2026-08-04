@@ -163,8 +163,8 @@ import {
   workspaceStatus
 } from './workspace.mjs';
 import {
-  activateWorkspaceContext, activeWorkspaceFile, readActiveWorkspaceContext, workspacePromptLabel,
-  workspaceRegistryFile
+  activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
+  readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
 import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
@@ -455,6 +455,7 @@ Usage:
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
   singularity-flow workspace restore <DIRECTORY> [--json]
   singularity-flow workspace list [--json]
+  singularity-flow workspace prune [--json]
   singularity-flow workspace current [--json]
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
@@ -564,7 +565,11 @@ async function initCommand(options) {
         for (const file of status.missingFiles) console.log(`- ${file}`);
       }
       if (status.configurationError) console.log(`Configuration: ${status.configurationError}`);
-      if (!status.complete) console.log('Fix: singularity-flow init --repair');
+      if (!status.complete) {
+        console.log(status.configurationError?.includes('workflow.yml version must be 2')
+          ? 'Fix: singularity-flow factory-reset --dry-run'
+          : 'Fix: singularity-flow init --repair');
+      }
     }
     return report;
   }
@@ -3834,6 +3839,15 @@ async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
+  const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+  if (subcommand === 'prune') {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));
+    if (!compatibility.removed.length) return console.log('All saved workspaces use workflow version 2 or are not initialized yet.');
+    for (const workspace of compatibility.removed) {
+      console.log(`Forgot ${workspace.name} (${workspace.path}): ${workspace.reason}. Files were not deleted.`);
+    }
+    return;
+  }
   if (subcommand === 'list') {
     const workspaces = await readWorkspaceRegistry(registry);
     const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false }).catch(() => null);

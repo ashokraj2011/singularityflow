@@ -120,6 +120,12 @@ singularity-flow init --repair
 singularity-flow doctor --offline
 ```
 
+Workflow schema version 2 is mandatory. `init --repair` is additive, so it will
+not convert or overwrite a version-1 workflow. There is deliberately no migration
+during the POC. If this repository has version 1, use the factory-reset flow below
+on a disposable or deliberately chosen branch, then review and commit the new v2
+configuration.
+
 ### Factory reset
 
 Use factory reset only when you intentionally want to discard every governed
@@ -131,7 +137,8 @@ defaults. Run it from the target application repository:
 cd ~/flow/app
 git rev-parse --show-toplevel
 singularity-flow factory-reset --dry-run
-singularity-flow factory-reset --confirm "RESET app"
+# Use the exact value printed by the preview, including its HEAD prefix:
+singularity-flow factory-reset --confirm "RESET app <HEAD-prefix>"
 singularity-flow init --check
 git status --short
 ```
@@ -139,7 +146,9 @@ git status --short
 The confirmation value is printed by the preview and uses the actual repository
 folder name. Factory reset does not commit the replacement. It also does not
 delete application source, Git history, workspace clones, the global workspace
-registry, or custom repository agents not bundled with Singularity Flow.
+registry, or custom repository agents not bundled with Singularity Flow. The next
+workspace registry read automatically forgets registrations whose lead explicitly
+declares a non-v2 workflow; `singularity-flow workspace prune --json` reports them.
 
 In Copilot CLI, `/sflow-init` performs the same check-and-repair sequence and
 shows every added file for review. To recover or initialize an existing Work

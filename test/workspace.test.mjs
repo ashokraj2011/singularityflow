@@ -12,8 +12,8 @@ import {
   updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceStatus
 } from '../src/workspace.mjs';
 import {
-  activateWorkspaceContext, buildWorkspaceContext, readActiveWorkspaceContext, resolveWorkspaceReference,
-  workspacePromptLabel
+  activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
+  readActiveWorkspaceContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
 import { run } from '../src/util.mjs';
 
@@ -325,6 +325,52 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   entries = await readWorkspaceRegistry(registry);
   assert.deepEqual(entries, []);
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+});
+
+test('workspace registry discards explicit non-v2 workflows without deleting workspace files', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-v2-only-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await remoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+  const lead = created.status.leadRepositoryPath;
+  await mkdir(path.join(lead, 'singularity'), { recursive: true });
+  await writeFile(path.join(lead, 'singularity', 'workflow.yml'), 'version: 1\nworkTypes: {}\n');
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaceId: created.workspace.id,
+    workspacePath: created.workspace.path
+  })}\n`);
+
+  const result = await discardUnsupportedWorkflowWorkspaces(registry, selection);
+  assert.equal(result.removed.length, 1);
+  assert.equal(result.removed[0].version, 1);
+  assert.deepEqual(await readWorkspaceRegistry(registry), []);
+  await assert.rejects(() => readFile(selection, 'utf8'), /ENOENT/);
+  assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+  assert.equal((await readFile(path.join(lead, 'singularity', 'workflow.yml'), 'utf8')).startsWith('version: 1'), true,
+    'forgetting a registration must not delete or rewrite the repository');
+});
+
+test('workspace registry retains uninitialized and repairable malformed workflow repositories', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-v2-repair-'));
+  const registry = path.join(root, 'registry.json');
+  const platform = await remoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+
+  assert.equal((await discardUnsupportedWorkflowWorkspaces(registry)).removed.length, 0,
+    'a clone awaiting initialization remains selectable');
+  const lead = created.status.leadRepositoryPath;
+  await mkdir(path.join(lead, 'singularity'), { recursive: true });
+  await writeFile(path.join(lead, 'singularity', 'workflow.yml'), 'version: [broken\n');
+  assert.equal((await discardUnsupportedWorkflowWorkspaces(registry)).removed.length, 0,
+    'a parse error remains visible for repair instead of being silently forgotten');
 });
 
 test('active workspace context resolves friendly references and adds governed Story identity', async () => {

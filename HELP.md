@@ -1646,11 +1646,12 @@ The review bundle contains the artifact in full, input provenance, checks, appro
 ### Factory-reset repository state
 
 `init --repair` is additive and preserves customization. When a genuinely clean
-restart is required, use the guarded factory reset instead:
+restart is required, use the guarded factory reset instead. Workflow schema v2 is
+the only accepted format; v1 is not migrated, and `init --repair` cannot replace it:
 
 ```bash
 singularity-flow factory-reset --dry-run --json
-singularity-flow factory-reset --confirm "RESET <repository-folder-name>"
+singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>"
 singularity-flow init --check --json
 ```
 
@@ -1660,7 +1661,10 @@ legacy `.singularity/`, and `.git/singularity-flow/`; installs workflow,
 portfolio, capability, agent-mapping, template, prompt, and packaged-agent files
 from the currently installed npm package; and leaves the result uncommitted.
 Application source, Git history, workspace clones, the global workspace
-registry, and non-packaged custom agents are preserved. Use
+registry, and non-packaged custom agents are preserved. On the next registry
+read, workspaces whose lead explicitly declares a non-v2 workflow are forgotten
+without deleting their directories. Use `singularity-flow workspace prune --json`
+to inspect that cleanup. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
 ```bash

@@ -1,7 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
-import { readFile, realpath } from 'node:fs/promises';
-import { readWorkspace, readWorkspaceRegistry, workspaceStatus } from './workspace.mjs';
+import { readFile, realpath, rm } from 'node:fs/promises';
+import YAML from 'yaml';
+import { forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceStatus } from './workspace.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 
@@ -33,6 +34,62 @@ function portableStoryId(value) {
 async function canonical(value) {
   const resolved = path.resolve(value);
   return realpath(resolved).catch(() => resolved);
+}
+
+/**
+ * The workspace registry is a machine-local convenience index, not governed state. A repository
+ * which explicitly declares an obsolete workflow version cannot be opened by any current surface,
+ * so retaining it only produces the same blocking error on every launch. Drop that registration
+ * (and an active selection pointing at it) without touching the workspace directory or clone.
+ *
+ * Missing workflow files stay registered: an uninitialized clone is a valid setup state. YAML that
+ * cannot be parsed also stays registered so Configuration can expose the file for repair. Only an
+ * unambiguous, successfully parsed non-v2 declaration is discarded. There is intentionally no
+ * conversion path during this POC.
+ */
+export async function discardUnsupportedWorkflowWorkspaces(registryFile, selectionFile = null) {
+  const entries = await readWorkspaceRegistry(registryFile);
+  const removed = [];
+  for (const entry of entries) {
+    let lead = entry.leadRepositoryPath;
+    if (!lead) {
+      try {
+        const workspace = await readWorkspace(entry.path);
+        lead = path.join(workspace.path, workspace.repositories[workspace.leadRepository].path);
+      } catch { continue; }
+    }
+    let text;
+    try { text = await readFile(path.join(lead, 'singularity', 'workflow.yml'), 'utf8'); }
+    catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      continue;
+    }
+    let workflow;
+    try { workflow = YAML.parse(text); }
+    catch { continue; }
+    if (workflow?.version === 2) continue;
+    removed.push({
+      id: entry.id,
+      name: entry.name,
+      path: entry.path,
+      leadRepositoryPath: lead,
+      version: workflow?.version ?? null,
+      reason: workflow?.version == null
+        ? 'workflow.yml does not declare version 2'
+        : `workflow.yml declares unsupported version ${workflow.version}`
+    });
+    await forgetWorkspace(registryFile, entry.path);
+  }
+
+  if (selectionFile && removed.length) {
+    let selected = null;
+    try { selected = JSON.parse(await readFile(selectionFile, 'utf8')); } catch { /* absent is fine */ }
+    if (selected && removed.some((entry) => entry.id === selected.workspaceId
+      && (!selected.workspacePath || path.resolve(entry.path) === path.resolve(selected.workspacePath)))) {
+      await rm(selectionFile, { force: true });
+    }
+  }
+  return { removed, remaining: await readWorkspaceRegistry(registryFile) };
 }
 
 export async function resolveWorkspaceReference(registryFile, reference) {

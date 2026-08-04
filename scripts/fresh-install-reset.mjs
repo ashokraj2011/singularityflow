@@ -22,8 +22,12 @@ try {
       console.log(`Already-missing registrations: ${result.missingRegistrations.length}`);
       for (const target of result.missingRegistrations) console.log(`  - ${target}`);
     }
+    if (result.installerGeneratedPaths.length) {
+      console.log('Generated state in this installer checkout:');
+      for (const target of result.installerGeneratedPaths) console.log(`  - ${target}`);
+    }
     console.log('Additional reset targets:');
-    for (const target of result.remove.slice(result.workspaces.length)) console.log(`  - ${target}`);
+    for (const target of result.remove.slice(result.installerGeneratedPaths.length + result.workspaces.length)) console.log(`  - ${target}`);
     if (!apply) console.log(`\nTo delete this exact boundary and reinstall, run: ./install.sh --factory-reset --yes`);
   }
 } catch (error) {

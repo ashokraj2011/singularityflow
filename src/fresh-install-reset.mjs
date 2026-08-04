@@ -5,10 +5,11 @@ import { copilotSkillsDirectory, uninstallDirectSkills } from './direct-skills.m
 import { machineStateRoot } from './factory-reset.mjs';
 import { readWorkspace, readWorkspaceRegistry } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const VSCODE_RESET_MARKER = 'vscode-fresh-reset-pending.json';
+const INSTALLER_GENERATED_ROOTS = ['singularity', '.singularity', '.github/agents'];
 
 function inside(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -43,6 +44,60 @@ async function managedCopilotSessions(sessionRoot) {
     .filter((entry) => entry.isDirectory() && entry.name.startsWith('singularity-'))
     .map((entry) => path.join(sessionRoot, entry.name))
     .sort();
+}
+
+function checkoutChanges(project) {
+  const result = run('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+    cwd: project,
+    allowFailure: true
+  });
+  if (result.status !== 0) return [];
+  const chunks = result.stdout.split('\0').filter(Boolean);
+  const changes = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const record = chunks[index];
+    const status = record.slice(0, 2);
+    const file = record.slice(3);
+    changes.push({ status, file });
+    if (status.includes('R') || status.includes('C')) index += 1;
+  }
+  return changes;
+}
+
+async function installerGeneratedState(project) {
+  const changes = checkoutChanges(project);
+  if (!changes.length) return [];
+  const candidates = new Set();
+  for (const change of changes) {
+    if (change.status !== '??') continue;
+    const root = INSTALLER_GENERATED_ROOTS.find((value) => change.file === value || change.file.startsWith(`${value}/`));
+    if (root) candidates.add(root);
+  }
+  const safeRoots = new Set();
+  for (const root of candidates) {
+    const tracked = run('git', ['ls-files', '--', root], { cwd: project, allowFailure: true });
+    if (tracked.status === 0 && !tracked.stdout.trim()) safeRoots.add(root);
+  }
+  const unrelated = changes.filter((change) => {
+    if (change.status !== '??') return true;
+    return ![...safeRoots].some((root) => change.file === root || change.file.startsWith(`${root}/`));
+  });
+  if (unrelated.length) {
+    throw new SingularityFlowError(
+      `The installer checkout has changes outside generated reset state. Commit or stash them first:\n${unrelated.map((change) => `${change.status} ${change.file}`).join('\n')}`
+    );
+  }
+  const targets = [];
+  for (const root of [...safeRoots].sort()) {
+    const target = path.join(project, root);
+    const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!info) continue;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new SingularityFlowError(`Generated installer reset target must be a real directory: ${target}`);
+    }
+    targets.push(target);
+  }
+  return targets;
 }
 
 /**
@@ -114,6 +169,7 @@ export async function freshInstallResetPlan({
   const copilotSessionRoot = path.join(home, '.copilot', 'session-state');
   const copilotSessions = await managedCopilotSessions(copilotSessionRoot);
   const directSkillsRoot = copilotSkillsDirectory({ env: environment, homeDirectory: home });
+  const installerGeneratedPaths = await installerGeneratedState(project);
   return {
     schemaVersion: 1,
     operation: 'fresh-install-reset',
@@ -126,7 +182,9 @@ export async function freshInstallResetPlan({
     missingRegistrations,
     copilotSessions,
     directSkillsRoot,
+    installerGeneratedPaths,
     remove: [
+      ...installerGeneratedPaths.map((target) => `${target} (untracked Singularity state generated inside the installer checkout)`),
       ...sorted.map((workspace) => `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`),
       `${localStateRoot} (workspace registry, active selection, local sessions, caches, telemetry configuration, and recovery state)`,
       ...(registryFile === path.join(localStateRoot, 'workspaces.json') ? [] : [`${registryFile} (custom workspace registry)`]),
@@ -137,7 +195,7 @@ export async function freshInstallResetPlan({
       'Singularity Flow Jira, Teams, indexed provider credentials, onboarding profile, and extension global state (cleared when the reinstalled VS Code extension next activates)'
     ],
     preserve: [
-      'this installer checkout and its Git history',
+      'this installer checkout, its tracked source, and its Git history',
       'unregistered application directories and repositories',
       'personal Copilot skills without the Singularity managed marker'
     ]
@@ -176,6 +234,7 @@ export async function freshInstallReset(options = {}) {
   }
   const moved = [];
   try {
+    for (const target of plan.installerGeneratedPaths) await moveToStaging(target, moved);
     for (const workspace of plan.workspaces) await moveToStaging(workspace.path, moved);
     await moveToStaging(plan.localStateRoot, moved);
     if (!inside(plan.localStateRoot, plan.registryFile)) await moveToStaging(plan.registryFile, moved);

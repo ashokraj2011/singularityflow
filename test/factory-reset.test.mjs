@@ -318,3 +318,54 @@ test('fresh install reset refuses existing registered paths without a matching w
   );
   assert.equal(await readFile(path.join(application, 'source.txt'), 'utf8'), 'must remain\n');
 });
+
+test('fresh install reset removes only untracked generated state from its installer checkout', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-generated-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-generated-checkout-'));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Reset Tester');
+  git(checkout, 'config', 'user.email', 'fresh-reset@example.com');
+  await writeFile(path.join(checkout, 'product.txt'), 'tracked product source\n');
+  git(checkout, 'add', 'product.txt');
+  git(checkout, 'commit', '-m', 'product baseline');
+  await mkdir(path.join(checkout, 'singularity'), { recursive: true });
+  await writeFile(path.join(checkout, 'singularity', 'workflow.yml'), 'version: 2\n');
+  await mkdir(path.join(checkout, '.github', 'agents'), { recursive: true });
+  await writeFile(path.join(checkout, '.github', 'agents', 'developer.agent.md'), 'generated\n');
+
+  const { freshInstallReset, freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const preview = await freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} });
+  assert.deepEqual(preview.installerGeneratedPaths, [
+    path.join(checkout, '.github', 'agents'),
+    path.join(checkout, 'singularity')
+  ]);
+  await freshInstallReset({
+    homeDirectory: home,
+    projectDirectory: checkout,
+    environment: {},
+    confirmation: 'RESET EVERYTHING'
+  });
+  assert.equal(await missing(path.join(checkout, 'singularity')), true);
+  assert.equal(await missing(path.join(checkout, '.github', 'agents')), true);
+  assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'tracked product source\n');
+  assert.equal(git(checkout, 'status', '--porcelain'), '');
+});
+
+test('fresh install reset still refuses unrelated installer checkout changes', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-dirty-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-dirty-checkout-'));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Reset Tester');
+  git(checkout, 'config', 'user.email', 'fresh-reset@example.com');
+  await writeFile(path.join(checkout, 'product.txt'), 'tracked product source\n');
+  git(checkout, 'add', 'product.txt');
+  git(checkout, 'commit', '-m', 'product baseline');
+  await writeFile(path.join(checkout, 'product.txt'), 'uncommitted source edit\n');
+
+  const { freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  await assert.rejects(
+    () => freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} }),
+    /changes outside generated reset state[\s\S]*product\.txt/
+  );
+  assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'uncommitted source edit\n');
+});

@@ -169,6 +169,9 @@ its managed repository clones, documents, generated artifacts, and local caches.
 It also clears `~/.singularity-flow`, Singularity-named Copilot session state,
 managed `/sf-*` aliases, old plugin copies, the old global npm package, and the
 installed VS Code extension before installing fresh copies from this checkout.
+Untracked `singularity/`, `.singularity/`, and `.github/agents/` directories
+created inside the installer checkout are included in the preview and removed;
+any other checkout change still stops the reset.
 An existing directory is deleted only when its regular `workspace.json`
 validates and exactly matches its registry entry; an ambiguous entry stops the
 whole reset. Unregistered application directories, personal Copilot skills, and

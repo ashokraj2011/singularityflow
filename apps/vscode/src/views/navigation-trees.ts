@@ -55,7 +55,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
             ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
             : 'Every screen is scoped to this workspace. Click to inspect its full details.'
           : 'Click to inspect this workspace. Use the check action to work in it.'}`,
-      icon: row.collides || row.sharesId || unavailable ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
+      icon: row.collides || row.sharesId || unavailable ? 'statusWarning' : row.active ? 'statusSuccess' : 'workspace',
       contextValue: unavailable ? 'sflow.workspace.active.unavailable'
         : row.active ? 'sflow.workspace.active' : 'sflow.workspace',
       // Carried so the commands acting on this row never have to re-read the registry to find out
@@ -146,7 +146,7 @@ export function buildCapabilityTree(
         capability.jira?.projectKey ? `Jira ${capability.jira.projectKey}` : null,
         capability.teams?.length ? `Teams: ${capability.teams.join(', ')}` : null
       ].filter(Boolean).join('\n'),
-      icon: capability.kind === 'delivery' ? 'repo' : 'type-hierarchy',
+      icon: capability.kind === 'delivery' ? 'delivery' : 'collection',
       // One value for every capability. There was a `.delivery` variant here, from when shipping and
       // containing were exclusive; the menu that gated "add one inside" on the plain value therefore
       // hid it from exactly the capabilities that ship — which may now contain others too.
@@ -193,7 +193,7 @@ function repositoryNodes(
         state?.url ?? `Repository ${id}.`,
         id === capability.leadRepository ? 'Holds the governed state for this capability.' : null
       ].filter(Boolean).join('\n'),
-      icon: state && !state.hasStateBranch ? 'warning' : 'repo',
+      icon: state && !state.hasStateBranch ? 'statusWarning' : 'delivery',
       contextValue: 'sflow.capability.repository'
     };
   });
@@ -236,7 +236,7 @@ function worldModelNodes(
     tooltip: repositories.length
       ? 'Read from the state branch first and the default branch second, in that order.'
       : 'Composed from the models beneath it when something asks for it, and stored nowhere.',
-    icon: built.length || !checked.length ? 'book' : 'warning',
+    icon: built.length || !checked.length ? 'worldModel' : 'statusWarning',
     contextValue: 'sflow.capability.worldModel'
   }];
 }

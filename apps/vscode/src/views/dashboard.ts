@@ -10,10 +10,11 @@
 import * as vscode from 'vscode';
 import { buildDashboard, dashboardHealth, type Check, type Dashboard, type Health } from './dashboard-model.ts';
 import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import type { IconName } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const PILL: Record<string, string> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: '' };
-const GLYPH: Record<string, string> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: 'wait' };
+const GLYPH: Record<string, IconName> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: 'wait' };
 
 function checkHtml(check: Check): string {
   return `

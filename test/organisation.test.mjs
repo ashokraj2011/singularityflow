@@ -495,7 +495,7 @@ test('the active workspace is matched on identifier and path, not identifier alo
   const trees = await readFile(
     new URL('../apps/vscode/src/views/navigation-trees.ts', import.meta.url), 'utf8');
   assert.match(trees, /shares the id \$\{row\.id\}/);
-  assert.match(trees, /row\.collides \|\| row\.sharesId \|\| unavailable \? 'warning'/);
+  assert.match(trees, /row\.collides \|\| row\.sharesId \|\| unavailable \? 'statusWarning'/);
 });
 
 /**

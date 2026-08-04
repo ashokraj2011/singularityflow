@@ -60,7 +60,8 @@
     "vscode:demo": "node scripts/vscode-dev.mjs --demo-only",
     "vscode:demo:github": "node scripts/vscode-dev.mjs --github",
     "vscode:demo:clean": "node scripts/vscode-dev.mjs --clean-github",
-    "vscode:package": "node scripts/vscode-dev.mjs --package"
+    "vscode:package": "node scripts/vscode-dev.mjs --package",
+    "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs"
   },
   "engines": {
     "node": ">=20"

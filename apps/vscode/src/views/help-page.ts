@@ -123,7 +123,7 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
   return `<header class="help-header">
     <div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
     <p class="eyebrow">Product guide and command reference</p>
-    <h1>${icon('document', { size: 22 })}Help Center</h1>
+    <h1>${icon('book', { size: 24 })}Help Center</h1>
     <p class="meta">Search the complete offline manual. Concepts and commands come from the same <code>HELP.md</code> packaged with the CLI.</p>
     <input class="help-search" type="search" data-help-search placeholder="Search workspace, capability, Story intake, commands…" aria-label="Search help">
   </header>

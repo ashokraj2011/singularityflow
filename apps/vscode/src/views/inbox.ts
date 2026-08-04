@@ -28,7 +28,7 @@ function artifactRows(inbox: Inbox): string {
 
 function decisionCards(inbox: Inbox): string {
   const decisions = inbox.approvals.pending.filter((approval) => approval.standing === 'yours');
-  if (!decisions.length) return '<p class="ok-text">✓ Nothing is waiting for your decision.</p>';
+  if (!decisions.length) return `<p class="ok-text">${icon('ok')}Nothing is waiting for your decision.</p>`;
   return `<div class="decision-cards">${decisions.map((approval) => `
     <article class="decision-card">
       <div><span class="eyebrow">${escape(approval.kind)}</span><h3>${escape(approval.label)}</h3></div>

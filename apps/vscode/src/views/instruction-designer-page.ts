@@ -3,6 +3,11 @@ import { escape, icon } from './webview.ts';
 import type {
   AgentDraft, InstructionCatalog, InstructionEntry, InstructionTab, PromptDraft, SkillDraft
 } from './instruction-designer-model.ts';
+import type { IconName } from './webview.ts';
+
+const TAB_ICONS: Record<InstructionTab, IconName> = {
+  agents: 'agent', prompts: 'prompt', skills: 'skill', packs: 'pack'
+};
 
 export interface InstructionDesignerView {
   tab: InstructionTab;
@@ -20,17 +25,17 @@ function tabs(tab: InstructionTab, catalog: InstructionCatalog): string {
     ['skills', 'Skills', catalog.skills.length], ['packs', 'Prompt packs', catalog.packs.length]
   ];
   return `<nav class="instruction-tabs" aria-label="Instruction types">${choices.map(([id, label, count]) =>
-    `<button class="${id === tab ? '' : 'secondary'}" data-tab="${id}">${escape(label)} <span>${count}</span></button>`
+    `<button class="tab${id === tab ? ' active' : ''}" aria-current="${id === tab ? 'page' : 'false'}" data-tab="${id}">${icon(TAB_ICONS[id])}${escape(label)} <span>${count}</span></button>`
   ).join('')}</nav>`;
 }
 
 function inventory(tab: InstructionTab, entries: InstructionEntry[], selected: InstructionEntry | null): string {
   return `<aside class="instruction-library">
     <div class="library-head"><div><p class="eyebrow">${escape(tab)}</p><h2>${tab === 'packs' ? 'Packaged library' : 'Repository library'}</h2></div>
-      ${tab === 'packs' ? '' : '<button class="icon-button" data-new="1" title="Create new">+</button>'}</div>
+      ${tab === 'packs' ? '' : `<button class="icon-button" data-new="1" title="Create new ${escape(tab.slice(0, -1))}" aria-label="Create new ${escape(tab.slice(0, -1))}">${icon('add')}</button>`}</div>
     <input type="search" data-search placeholder="Filter ${escape(tab)}…" aria-label="Filter library">
     <div class="instruction-list">${entries.length ? entries.map((entry) => `<button class="instruction-item${selected?.path === entry.path ? ' selected' : ''}" data-select="${escape(entry.path)}" data-filter-text="${escape(`${entry.name} ${entry.description}`.toLowerCase())}">
-      <strong>${escape(entry.name)}</strong><span>${escape(entry.description || (entry.scope === 'packaged' ? 'Packaged instruction' : 'Repository instruction'))}</span>
+      <strong>${icon(TAB_ICONS[tab])}${escape(entry.name)}</strong><span>${escape(entry.description || (entry.scope === 'packaged' ? 'Packaged instruction' : 'Repository instruction'))}</span>
       <small>${entry.scope === 'packaged' ? 'read only' : 'editable'}</small></button>`).join('') : `<p class="empty-state">No ${escape(tab)} yet.</p>`}</div>
   </aside>`;
 }
@@ -62,7 +67,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
     <h2>${icon('book')}Repository world-model views</h2>${checks('agent-views', catalog.worldModelViews.map((id) => ({ id, label: id })), draft.worldModelViews, packaged)}
     <h2>${icon('code')}Allowed tools</h2>${checks('agent-tools', tools.map((id) => ({ id, label: id })), draft.tools, packaged)}
     <label class="field full"><span>Agent instructions</span><textarea data-agent-body rows="18"${packaged ? ' readonly' : ''}>${escape(draft.body)}</textarea></label>
-    <div class="composition-map"><strong>Prompt composition</strong><span>Phase contract</span><b>+</b><span>This agent</span><b>+</b><span>World model</span><b>+</b><span>Approved inputs</span></div>
+    <div class="composition-map"><strong>Prompt composition</strong><span>${icon('phase')}Phase contract</span><i>${icon('add')}</i><span>${icon('agent')}This agent</span><i>${icon('add')}</i><span>${icon('worldModel')}World model</span><i>${icon('add')}</i><span>${icon('approval')}Approved inputs</span></div>
     <div class="form-actions">${packaged ? `<button data-copy-agent="${escape(view.selected?.path)}">Copy into repository</button>` : `<button data-save-agent="1">${isNew ? 'Create agent' : 'Save agent'}</button>`}<button class="secondary" data-cancel="1">Cancel</button></div>
   </section>`;
 }
@@ -120,7 +125,7 @@ export function instructionDesignerHtml(catalog: InstructionCatalog, view: Instr
       return draft.phases.includes(phase.id);
     }).map((agent) => agent.name); return result;
   }, {})).filter(([, agents]) => agents.length);
-  return `<header><div class="brand-lockup">SINGULARITY <span>Flow</span></div><h1>Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p></header>
+  return `<header><div class="brand-lockup">SINGULARITY <span>Flow</span></div><h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p></header>
     ${tabs(view.tab, catalog)}
     <section class="relationship-strip"><strong>Phase routing</strong>${links.length ? links.map(([phase, agents]) => `<span><b>${escape(phase)}</b> → ${escape(agents.join(', '))}</span>`).join('') : '<span class="muted">No repository agents are routed to phases yet.</span>'}</section>
     <main class="instruction-studio">${inventory(view.tab, entries, view.selected)}<div>${editor}</div></main>`;

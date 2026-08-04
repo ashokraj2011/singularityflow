@@ -1801,6 +1801,8 @@ test('a delivery capability is rendered as shipping from its declared repository
 
 
 const { icon, STYLE } = await import(source('views/webview.ts'));
+const { ICON_NAMES, TREE_ICONS, treeIcon } = await import(source('views/icons.ts'));
+const { enterpriseVisualFixture, VISUAL_REVIEW_CASES } = await import(source('views/visual-fixture.ts'));
 const { helpCenterHtml, renderHelpMarkdown } = await import(source('views/help-page.ts'));
 
 test('the VS Code Help Center renders searchable concepts and copyable command blocks safely', () => {
@@ -1833,12 +1835,40 @@ test('icons are inline paths, so no font has to be let through the CSP', () => {
 
 test('every domain noun has an icon, so nothing falls back to a bare label', () => {
   for (const name of [
-    'git', 'repository', 'branch', 'commit', 'merge', 'code',
-    'capability', 'directory', 'workspace', 'teams',
-    'approval', 'policy', 'gate', 'epic', 'story', 'tracker', 'document', 'impact',
-    'ok', 'wait', 'bad'
+    'workspace', 'collection', 'delivery', 'repository', 'workflow', 'phase', 'artifact',
+    'agent', 'prompt', 'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative',
+    'git', 'branch', 'commit', 'merge', 'code', 'capability', 'directory', 'teams', 'policy',
+    'gate', 'epic', 'tracker', 'document', 'impact', 'success', 'waiting', 'warning',
+    'blocked', 'stale', 'ok', 'wait', 'bad'
   ]) {
+    assert.ok(ICON_NAMES.includes(name), `${name} is not registered`);
     assert.notEqual(icon(name), '', `${name} has no icon`);
+  }
+});
+
+test('every core semantic icon resolves for native trees and theme-aware states name their color', () => {
+  for (const name of [
+    'workspace', 'collection', 'delivery', 'workflow', 'phase', 'artifact', 'agent', 'prompt',
+    'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative'
+  ]) {
+    assert.ok(TREE_ICONS[name], `${name} has no native-tree mapping`);
+    assert.match(treeIcon(name).id, /\S+/, `${name} resolved to an empty Codicon`);
+  }
+  for (const state of ['statusSuccess', 'statusWaiting', 'statusWarning', 'statusBlocked', 'statusStale']) {
+    assert.match(treeIcon(state).color, /\S+/, `${state} must use a VS Code theme color`);
+  }
+});
+
+test('icon-only actions are labelled and raw Unicode action glyphs cannot return', async () => {
+  const files = ['designer-page.ts', 'instruction-designer-page.ts', 'approvals.ts', 'inbox.ts'];
+  for (const file of files) {
+    const content = await readFile(source(`views/${file}`), 'utf8');
+    assert.doesNotMatch(content, /<button[^>]*>[↑↓×+]/u, `${file} contains a raw action glyph`);
+    assert.doesNotMatch(content, /drag-handle[^>]*>⋮⋮/u, `${file} contains a raw drag glyph`);
+    for (const control of content.matchAll(/<button class="[^"]*icon-button[^"]*"[\s\S]*?<\/button>/g)) {
+      assert.match(control[0], /aria-label=/, `${file} contains an unlabelled icon button`);
+      assert.match(control[0], /title=/, `${file} contains an icon button without a tooltip`);
+    }
   }
 });
 
@@ -1856,7 +1886,7 @@ test('exactly one filled button per page, so the consequential action is findabl
   }
 });
 
-test('the accent is defined for both themes and never hard-codes the surface', () => {
+test('the enterprise tokens support light, dark, high contrast, reduced motion, and compact controls', () => {
   // The editor's tokens carry background and foreground so the panel stays right in light, dark and
   // high-contrast; only the accent is ours. A literal surface colour here would break one of them.
   assert.match(STYLE, /--sf-accent:/);
@@ -1864,8 +1894,33 @@ test('the accent is defined for both themes and never hard-codes the surface', (
   assert.match(STYLE, /background: var\(--vscode-input-background\)/);
   assert.match(STYLE, /color: var\(--vscode-foreground\)/);
   assert.doesNotMatch(STYLE, /background:\s*#(fff|ffffff|000|000000)\b/i);
-  // Pill-shaped, which is the shape the whole language is built on.
-  assert.match(STYLE, /button \{[\s\S]*?border-radius: 999px/);
+  assert.match(STYLE, /--sf-radius:\s*6px/);
+  assert.match(STYLE, /@media \(forced-colors: active\)/);
+  assert.match(STYLE, /@media \(prefers-reduced-motion: reduce\)/);
+  const buttonRule = STYLE.match(/\n  button \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+  assert.match(buttonRule, /min-height:\s*2rem/);
+  assert.match(buttonRule, /border-radius:\s*var\(--sf-radius\)/);
+  assert.doesNotMatch(buttonRule, /999px/, 'primary actions are compact controls, not pills');
+});
+
+test('visual-review fixtures are deterministic across three themes and narrow and wide widths', () => {
+  assert.deepEqual([...new Set(VISUAL_REVIEW_CASES.map((entry) => entry.theme))],
+    ['light', 'dark', 'high-contrast']);
+  assert.deepEqual([...new Set(VISUAL_REVIEW_CASES.map((entry) => entry.width))], [640, 1200]);
+  for (const review of VISUAL_REVIEW_CASES) {
+    const first = enterpriseVisualFixture(review);
+    assert.equal(first, enterpriseVisualFixture(review), `${review.theme}/${review.width} changed between renders`);
+    assert.match(first, /default-src 'none'/);
+    assert.doesNotMatch(first, /https?:\/\/|font-src|unsafe-inline|unsafe-eval/);
+    assert.match(first, /Approval inbox/);
+    assert.match(first, /Workflow progress/);
+    assert.match(first, /Governed agent/);
+    assert.match(first, /Artifact inventory/);
+    for (const task of first.matchAll(/<section class="fixture-task[^>]*">([\s\S]*?)<\/section>/g)) {
+      assert.ok([...task[1].matchAll(/<button(?![^>]*class=)[^>]*>/g)].length <= 1,
+        `${review.theme}/${review.width} has competing primary actions in one task area`);
+    }
+  }
 });
 
 const { humanError } = await import(source('cli/runner.ts'));
@@ -2258,7 +2313,7 @@ test('a workspace sharing a directory with another is marked in the tree', () =>
   ]);
   const shared = rows.filter((row) => row.description === 'shares a directory');
   assert.equal(shared.length, 2);
-  assert.equal(shared[0].icon, 'warning');
+  assert.equal(shared[0].icon, 'statusWarning');
   assert.match(shared[0].tooltip, /Another workspace occupies this directory/);
 });
 
@@ -2267,7 +2322,7 @@ test('the selected workspace warns when its lead repository is unavailable', () 
     ...REGISTRY[0], active: 'yes', repositoryState: 'missing'
   }]);
   assert.equal(selected.description, 'selected · repository missing');
-  assert.equal(selected.icon, 'warning');
+  assert.equal(selected.icon, 'statusWarning');
   assert.equal(selected.contextValue, 'sflow.workspace.active.unavailable');
   assert.match(selected.tooltip, /Repair the workspace/);
 });
@@ -2286,14 +2341,14 @@ test('capabilities are the tree they already are, and say what ships', () => {
   const snapshot = { capabilityMap: { capabilities: capabilityFixture }, capabilityMapPath: 'singularity/capabilities.yml' };
   const [commerce] = buildCapabilityTree(snapshot);
   assert.equal(commerce.label, 'Commerce');
-  assert.equal(commerce.icon, 'type-hierarchy');
+  assert.equal(commerce.icon, 'collection');
   assert.equal(commerce.contextValue, 'sflow.capability', 'a grouping can contain more');
 
   const payments = capabilitiesUnder(commerce)[0];
   const api = capabilitiesUnder(payments)[0];
   assert.equal(api.label, 'Payments API');
   assert.equal(api.description, 'api', 'the repository it ships from');
-  assert.equal(api.icon, 'repo');
+  assert.equal(api.icon, 'delivery');
   // Shipping and containing stopped being exclusive, so there is one context value: the menu that
   // gated "add one inside" on the plain value had been hiding it from every capability that ships.
   assert.equal(api.contextValue, 'sflow.capability');
@@ -2333,7 +2388,7 @@ test('a capability shows the repositories it ships from and where its world mode
   assert.equal(api.description, 'lead · state branch');
   assert.equal(api.tooltip.split('\n')[0], 'git@github:acme/commerce-api.git');
   assert.equal(web.description, 'no state branch');
-  assert.equal(web.icon, 'warning', 'a repository with nowhere to record governance is a problem');
+  assert.equal(web.icon, 'statusWarning', 'a repository with nowhere to record governance is a problem');
 
   const model = beneath(commerce).find((row) => row.label === 'World model');
   assert.equal(model.description, 'on state-branch');
@@ -2354,7 +2409,7 @@ test('unasked is not the same as absent in the capability tree', () => {
   }];
   const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } });
   assert.equal(beneath(commerce)[0].description, 'lead · not checked');
-  assert.equal(beneath(commerce)[0].icon, 'repo', 'not a warning: nothing is known to be wrong');
+  assert.equal(beneath(commerce)[0].icon, 'delivery', 'not a warning: nothing is known to be wrong');
   assert.equal(beneath(commerce).find((row) => row.label === 'World model').description, 'not checked');
 });
 

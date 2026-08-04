@@ -1,44 +1,8 @@
-/**
- * Shared webview plumbing: escaping, nonces, the CSP, and the stylesheet.
- *
- * One copy so the security posture cannot drift between panels. A second panel that quietly forgot
- * to escape, or relaxed its CSP, would be exactly the kind of difference nobody notices until it
- * matters — and there is no reason for two panels in the same extension to disagree about this.
- */
-import type * as vscode from 'vscode';
-export { icon, ICON_NAMES, type IconName } from './icons.ts';
-
-/** Everything that reaches a page goes through this. */
-export function escape(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/** Not a secret — a CSP nonce only has to be unpredictable per render. */
-export function nonce(): string {
-  let value = '';
-  for (let index = 0; index < 32; index += 1) value += Math.floor(Math.random() * 16).toString(16);
-  return value;
-}
-
-/**
- * No default source at all, and the only style and script are the ones carrying this render's nonce.
- * Images are limited to the webview's own resource scheme; nothing else is loadable.
- */
-export function contentSecurityPolicy(webview: vscode.Webview, token: string): string {
-  return [
-    "default-src 'none'",
-    `style-src 'nonce-${token}'`,
-    `script-src 'nonce-${token}'`,
-    `img-src ${webview.cspSource}`
-  ].join('; ');
-}
-
-export const STYLE = `
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-singularity-flow-visual-fixture'">
+<title>Singularity Flow light 640</title>
+<style nonce="singularity-flow-visual-fixture">
   /* The editor's own tokens carry the surface — background, foreground, inputs — so a panel reads as
      part of VS Code and stays correct in light, dark and high-contrast. Singularity green is reserved
      for branding, the action that commits, and active progress. Navigation keeps the editor's native
@@ -416,17 +380,43 @@ export const STYLE = `
     .help-nav { position: static; max-height: 18rem; }
     .help-header { position: static; }
   }
-  `;
-
-/** Wrap a rendered body in the document shell, with the CSP and nonce already applied. */
-export function page(title: string, body: string, csp: string, token: string, script = ''): string {
-  return `<!DOCTYPE html><html lang="en"><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
-<title>${escape(title)}</title>
-<style nonce="${token}">${STYLE}</style>
+  </style>
 </head><body>
-${body}
-${script ? `<script nonce="${token}">${script}</script>` : ''}
-</body></html>`;
-}
+<style nonce="singularity-flow-visual-fixture">:root{--vscode-editor-background:#ffffff;--vscode-foreground:#242424;--vscode-descriptionForeground:#666666;
+    --vscode-panel-border:#d8d8d8;--vscode-editorWidget-background:#fafafa;--vscode-sideBar-background:#f5f5f5;
+    --vscode-input-background:#ffffff;--vscode-input-foreground:#242424;--vscode-input-border:#b8b8b8;
+    --vscode-textLink-foreground:#0969da;--vscode-textCodeBlock-background:#f2f2f2;--vscode-list-hoverBackground:#eeeeee}body{max-width:640px}</style><div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+  <header><p class="eyebrow">Enterprise component review</p><h1><svg class="ico" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M7 5h10M18 7l-5 10M11 17 6 7"/></svg>Lifecycle workspace</h1>
+    <p class="meta">light theme · dashboard, intake, approval, configuration, and instruction patterns</p></header>
+  <div class="summary-grid">
+    <div class="summary-card important"><strong>7</strong><span>phases complete</span></div>
+    <div class="summary-card"><strong>12</strong><span>generated artifacts</span></div>
+    <div class="summary-card"><strong>2</strong><span>waiting for approval</span></div>
+  </div>
+  <section class="fixture-task"><div class="section-heading"><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 8 3.5v6c0 5-3.2 8.5-8 10.5-4.8-2-8-5.5-8-10.5v-6z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg>Approval inbox</h2><span class="pill wait"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Waiting</span></div>
+    <article class="decision-card"><p class="eyebrow">Phase gate</p><h3>Solution design</h3><p class="muted">Review the exact approved specification and its source hash.</p>
+      <div class="card-foot"><button>Review &amp; approve</button><button class="secondary">Open artifact</button><button class="link">Reject</button></div></article></section>
+  <section><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M7 5h10M18 7l-5 10M11 17 6 7"/></svg>Workflow progress</h2><div class="workflow-rail"><span class="rail-node"><b>1</b>Intake</span><span class="rail-arrow"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span class="rail-node"><b>2</b>Requirements</span><span class="rail-arrow"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span><span class="rail-node"><b>3</b>Planning</span></div></section>
+  <section class="fixture-task editor-card"><div class="editor-title"><p class="eyebrow">Configuration studio</p><h3><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V3M9 3h6"/></svg>Governed agent</h3></div>
+    <div class="form-grid"><label class="field"><span>Display name</span><input type="text" value="Solution architect"></label>
+      <label class="field"><span>Default phase</span><select><option>Design</option></select></label>
+      <label class="field full"><span>Prompt guidance</span><textarea rows="3">Ground every recommendation in the selected world-model views.</textarea></label></div>
+    <div class="form-actions"><button>Save agent</button><button class="secondary">Cancel</button><button class="icon-button danger" aria-label="Delete agent" title="Delete agent"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V4h6v3M8 7l1 14h6l1-14M10 11v6M14 11v6"/></svg></button></div></section>
+  <section><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>
+    <tbody><tr><td><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Requirements specification</td><td><span class="pill ok"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.7 2.7L16.5 9"/></svg>Approved</span></td><td>Product owner</td></tr>
+    <tr><td><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Implementation specification</td><td><span class="pill bad"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 8 8 8M16 8l-8 8"/></svg>Blocked</span></td><td>Architect</td></tr></tbody></table></section>
+
+</body></html>

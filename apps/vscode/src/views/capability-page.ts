@@ -28,11 +28,11 @@ function treeHtml(tree: CapabilityNode[], selected: string | null): string {
       <tbody>${rows.map((row) => `
         <tr${row.id === selected ? ' class="drift"' : ''}>
           <td style="padding-left:${row.depth * 1.2}rem">
-            <a href="#" data-select="${escape(row.id)}">${escape(row.name)}</a>
+            <a href="#" data-select="${escape(row.id)}">${icon(row.kind === 'delivery' ? 'delivery' : 'collection')}${escape(row.name)}</a>
           </td>
           <td class="muted">${escape(row.kind)}</td>
           <td>${row.repository ? `${icon('repository')}<code>${escape(row.repository)}</code>` : '<span class="muted">—</span>'}</td>
-          <td class="muted">${row.jira?.projectKey ? `${icon('tracker')}${escape(row.jira.projectKey)}` : '—'}</td>
+          <td class="muted">${row.jira?.projectKey ? `${icon('jira')}${escape(row.jira.projectKey)}` : '—'}</td>
           <td class="muted">${escape((row.teams ?? []).join(', ') || '—')}</td>
         </tr>`).join('')}</tbody>
     </table>`;
@@ -132,7 +132,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   return `
   <div class="card-head">
     <div><p class="eyebrow">Capability details</p><h3>${escape(detail.name)}</h3></div>
-    <span class="pill ${detail.delivery ? 'ok' : ''}">${icon(detail.delivery ? 'repository' : 'capability')}${detail.delivery ? 'delivers' : 'groups'}</span>
+    <span class="pill ${detail.delivery ? 'ok' : ''}">${icon(detail.delivery ? 'delivery' : 'collection')}${detail.delivery ? 'delivery' : 'collection'}</span>
     <span class="grow"></span>
     <span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span>
   </div>
@@ -157,7 +157,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   </div>
 
   <div class="subsection">
-    <h2>${icon('tracker')}Tracking and ownership</h2>
+    <h2>${icon('jira')}Tracking and ownership</h2>
     <div class="form-grid">
       <label class="field"><span>Jira project</span>
         <input type="text" value="${escape(detail.jira?.projectKey ?? '')}" data-field="jira.projectKey" placeholder="PAY">

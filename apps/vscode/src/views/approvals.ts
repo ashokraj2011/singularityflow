@@ -31,7 +31,7 @@ function chainHtml(approval: PendingApproval): string {
   }
   return `<ul class="chain">${approval.chain.map((step) => `
     <li class="${step.satisfied ? 'satisfied' : step.open ? 'open' : ''}">
-      ${step.satisfied ? '✓' : step.open ? '●' : '○'} ${escape(step.label)}
+      ${icon(step.satisfied ? 'ok' : 'wait')} ${escape(step.label)}
       <span class="muted">${step.signatures}/${step.minimum}</span>
     </li>`).join('')}</ul>`;
 }

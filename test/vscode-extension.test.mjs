@@ -1609,6 +1609,8 @@ const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
 const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
+const { EMPTY_MAP_FORM, mapCapabilityHtml, mapProblems } =
+  await import(source('views/map-capability-form.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
 const capabilityFixture = [{
@@ -1636,6 +1638,49 @@ const capabilityFixture = [{
     }]
   }]
 }];
+
+test('mapping a capability selects the only map repository without a separate read step', () => {
+  const lead = 'https://git.example/platform.git';
+  const html = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, leads: [lead], lead, loaded: true, capabilityId: 'commerce'
+  });
+
+  assert.doesNotMatch(html, /Where the map lives/);
+  assert.doesNotMatch(html, /Read the map/);
+  assert.match(html, /Selected automatically because it is the only available capability map/);
+  assert.match(html, /Only available capability-map repository/);
+});
+
+test('mapping a capability asks which map to use only when multiple maps exist', () => {
+  const html = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    leads: ['https://git.example/platform.git', 'https://git.example/retail.git'],
+    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git'
+  });
+
+  assert.match(html, /<select data-map="lead">/);
+  assert.match(html, /More than one capability map is available/);
+  assert.match(html, /Choose one of the available capability-map repositories/);
+  assert.ok(mapProblems({
+    ...EMPTY_MAP_FORM,
+    leads: ['https://git.example/platform.git', 'https://git.example/retail.git'],
+    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git'
+  }).includes('Choose which repository stores the capability map.'));
+});
+
+test('the shipping repository can become the first capability-map repository in place', () => {
+  const repository = 'https://git.example/payments.git';
+  const html = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    kind: 'delivery', repositoryUrl: repository, lead: repository, loaded: true,
+    capabilityId: 'payments-api'
+  });
+
+  assert.match(html, /Repository it ships from/);
+  assert.match(html, /data-use-shipping-repository checked/);
+  assert.match(html, /Use this repository for the capability map/);
+  assert.doesNotMatch(html, /Choose which repository stores the capability map/);
+});
 
 test('a declared policy value an ancestor overrides is shown as overridden, not as what was written', () => {
   // The whole reason this screen exists. `payments` asks for one approval beneath a parent demanding

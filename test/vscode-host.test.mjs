@@ -1970,11 +1970,24 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.doesNotMatch(panel.webview.html, /Workflow state branch/);
   // Kind is a closed structural choice, so it is a dropdown rather than free text.
   assert.match(panel.webview.html, /<select data-map="kind">/);
+  assert.doesNotMatch(panel.webview.html, /Where the map lives|Read the map/,
+    'repository selection is part of the capability form rather than a separate setup step');
 
-  await panel.post({ type: 'field', field: 'lead', value: bare });
-  await panel.post({ type: 'read' });
-  await until(() => (panel.webview.html.includes('Read the map') && !panel.webview.html.includes('Reading…')
+  // With no registered map, the first shipping repository is the only possible candidate and is
+  // selected in place. There is no second URL field or button to press.
+  await panel.post({ type: 'field', field: 'kind', value: 'delivery' });
+  await panel.post({ type: 'redraw' });
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: bare });
+  await panel.post({ type: 'repositoryCommitted', value: bare });
+  await until(() => (panel.webview.html.includes('0 capabilities available as parents')
     ? panel.webview.html : null));
+  assert.match(panel.webview.html, /data-use-shipping-repository checked/,
+    'the first shipping repository also holds the capability map by default');
+
+  // Continue with a grouping capability to prove that changing kind does not forget the selected
+  // map even though a Collection correctly clears the shipping property.
+  await panel.post({ type: 'field', field: 'kind', value: 'collection' });
+  await panel.post({ type: 'redraw' });
 
   await panel.post({ type: 'field', field: 'capabilityId', value: 'commerce' });
   await panel.post({ type: 'field', field: 'name', value: 'Commerce' });
@@ -2005,8 +2018,8 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await registered.commands.get('singularityFlow.mapCapability')();
   const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.mapCapability').at(-1);
   assert.notEqual(second, panel, 'the screen reopened rather than reusing a disposed panel');
-  await second.post({ type: 'field', field: 'lead', value: bare });
-  await second.post({ type: 'read' });
+  assert.match(second.webview.html, /Selected automatically because it is the only available capability map/,
+    'the only known map repository is selected without another prompt');
   // The capability just mapped is offered as a parent, which is how a tree gets built at all.
   const reloaded = await until(() =>
     (second.webview.html.includes('<option value="commerce"') ? second.webview.html : null));

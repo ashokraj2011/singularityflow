@@ -28,6 +28,7 @@ import {
   DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalPolicy
 } from './approval-authority.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { normalizeClarificationPolicy } from './clarifications.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -208,6 +209,7 @@ export function validateDefinition(definition) {
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
+    normalizeClarificationPolicy(phase.clarification);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     const resolved = resolveWorkType(definition, workTypeId);
@@ -467,7 +469,8 @@ export function resolveWorkType(definition, workTypeId) {
     const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
-    return { id, order, ...merged, approval, inputs, template };
+    const clarification = normalizeClarificationPolicy(merged.clarification);
+    return { id, order, ...merged, approval, clarification, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

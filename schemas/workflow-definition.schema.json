@@ -143,7 +143,10 @@
             "description": "Per-profile overrides for artifact, qualityCommands, worldModel, comparison, approval, or other phase fields.",
             "additionalProperties": {
               "type": "object",
-              "properties": { "inputs": { "$ref": "#/$defs/phaseInputs" } }
+              "properties": {
+                "inputs": { "$ref": "#/$defs/phaseInputs" },
+                "clarification": { "$ref": "#/$defs/clarificationPolicy" }
+              }
             }
           },
           "sequenceGates": { "$ref": "#/$defs/sequenceGates" }
@@ -159,6 +162,7 @@
         "properties": {
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "inputs": { "$ref": "#/$defs/phaseInputs" },
+          "clarification": { "$ref": "#/$defs/clarificationPolicy" },
           "approval": { "$ref": "#/$defs/approvalPolicy" }
         }
       }
@@ -221,6 +225,24 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "clarificationPolicy": {
+      "oneOf": [
+        { "enum": ["off", "when-needed", "required"] },
+        {
+          "type": "object",
+          "properties": {
+            "mode": { "enum": ["off", "when-needed", "required"] },
+            "maxQuestions": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "topics": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "sequenceGates": {
       "type": "object",
       "properties": {

@@ -221,6 +221,10 @@ phases:
     defaultTemplate: common/intake.md
     artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
     worldModel: { views: [business], depth: quick }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [problem, outcome, users, scope, constraints]
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake] }
   requirements:
@@ -228,6 +232,10 @@ phases:
     defaultTemplate: feature/requirements.md
     artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
     worldModel: { views: [business], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [scope, acceptance criteria, dependencies, constraints, risks]
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake, requirements] }
   design:
@@ -249,6 +257,10 @@ phases:
     defaultTemplate: bugfix/reproduction.md
     artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [observed behavior, expected behavior, reproduction, environment, impact]
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, reproduction] }
   fix-design:
@@ -270,6 +282,10 @@ phases:
     defaultTemplate: figma-mobile/design-intake.md
     artifact: { path: artifacts/design-intake/design-package-intake.md, kind: design-intake, minimumBytes: 350 }
     worldModel: { views: [business, architecture], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [target platforms, screen states, interactions, accessibility, design constraints]
     writeScope: artifact-only
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake] }
   design-inventory:

@@ -55,6 +55,8 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
       lines.push('### Merge sequence', '');
       lines.push(`- Position ${entry.order} of ${mergeSequence.stories.length}${entry.blocking ? ' (blocking)' : ''}`);
       if (entry.blockedBy?.length) lines.push(`- Blocked by: ${entry.blockedBy.join(', ')}`);
+      if (entry.mergeBlockedBy?.length) lines.push(`- Earlier stack entries still outstanding: ${entry.mergeBlockedBy.join(', ')}`);
+      if (entry.status) lines.push(`- Stack status: ${entry.status}`);
       lines.push('');
     }
   }
@@ -88,14 +90,20 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
     body: storyPullRequestBody(workflow, seed, { mergeSequence }),
     requiredChecks: seed?.story?.requiredChecks ?? [],
-    blockedBy: mergeSequence?.stories?.find((item) => item.workId === workflow.workItem.id)?.blockedBy ?? []
+    blockedBy: (() => {
+      const entry = mergeSequence?.stories?.find((item) => item.workId === workflow.workItem.id || item.id === workflow.workItem.id);
+      if (!entry) return [];
+      const blockers = [...new Set([...(entry.blockedBy ?? []), ...(entry.mergeBlockedBy ?? [])])];
+      if (!['ready', 'merged'].includes(entry.status)) blockers.push(`${workflow.workItem.id} workflow is ${entry.status}`);
+      return blockers;
+    })()
   };
 }
 
 // Create the pull request. Outward action: callers must obtain explicit confirmation first.
 export function createStoryPullRequest(root, plan, { remote = 'origin', runCommand = run } = {}) {
   if (plan.blockedBy.length) {
-    throw new SingularityFlowError(`${plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge into ${plan.base} first.`);
+    throw new SingularityFlowError(`${plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`);
   }
   if (runCommand === run && !commandExists('gh')) {
     throw new SingularityFlowError('Opening a pull request requires the GitHub CLI. Install gh and run gh auth login, or open the pull request manually using the generated body.');

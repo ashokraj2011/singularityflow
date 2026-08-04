@@ -98,6 +98,18 @@ test('plugin provides a read-only effective prompt inspection skill', async () =
   assert.match(content, /Never shorten the skill, world-model sections/);
 });
 
+test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {
+  const expectations = {
+    'sflow-refresh-branch': /singularity-flow refresh-branch --json/,
+    'sflow-stack': /singularity-flow stack sync --epic/,
+    'sflow-regression-investigate': /singularity-flow regression analyze --base main/
+  };
+  for (const [name, pattern] of Object.entries(expectations)) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, pattern);
+  }
+});
+
 test('Epic Story drafting stops for UI review before Jira publication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-story-draft', 'SKILL.md'), 'utf8');
   assert.match(content, /name: sflow-epic-story-draft/);

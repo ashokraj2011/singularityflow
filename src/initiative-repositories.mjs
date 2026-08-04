@@ -351,7 +351,7 @@ function cacheRoot(root, initiativeId) {
   return path.join(gitDir(root), 'singularity-flow', 'initiatives', initiativeId, 'repositories');
 }
 
-async function managedClonePath(root, initiativeId, repositoryId) {
+export async function initiativeRepositoryClonePath(root, initiativeId, repositoryId) {
   const base = cacheRoot(root, initiativeId);
   await ensureDir(base);
   const target = await secureRepositoryPath(base, repositoryId, {
@@ -360,6 +360,8 @@ async function managedClonePath(root, initiativeId, repositoryId) {
   });
   return target.absolute;
 }
+
+const managedClonePath = initiativeRepositoryClonePath;
 
 async function validateManagedClone(target, repositoryId) {
   const gitMetadata = await secureRepositoryPath(target, '.git', {

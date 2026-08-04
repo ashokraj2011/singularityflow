@@ -300,6 +300,9 @@ use the four-phase `epic-planning` profile:
 /sflow-epic-review
 /sflow-epic-review-decision
 /sflow-epic-merge-plan
+/sf-stack
+/sf-refresh-branch
+/sf-regression-investigate
 /sflow-story-start
 /sflow-story-fetch
 /sflow-story-checks
@@ -318,8 +321,10 @@ main
       └── MOB-124
 ```
 
-Story pull requests target the Epic branch and merge in dependency order
-(`singularity-flow epic merge-plan`); one final pull request `MOB-100 → main`
+Story pull requests target the Epic branch and merge in a dependency-safe stack.
+`singularity-flow stack sync --epic MOB-100` publishes the current order to the
+orphan `state` branch in every participating repository; `singularity-flow pr`
+reads it and refuses out-of-order work. One final pull request `MOB-100 → main`
 lands the Epic once every blocking Story has merged. Stories in other
 repositories keep branching from that repository's own default branch — an Epic
 branch is never created where one does not already exist. See
@@ -1174,6 +1179,9 @@ token downloads are not supported in this delivery. See
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |
+| `singularity-flow stack status\|sync [--epic ID]` | Inspect or replicate the enforced Story/PR order to each repository's orphan state branch. |
+| `singularity-flow refresh-branch [--remote origin]` | Fetch and fast-forward only the checked-out clean branch; stop safely when it diverges. |
+| `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
 | `singularity-flow wm build [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; parallel view discovery is enabled by default, interrupted builds reuse exact-match checkpoints, and `--local` commits without pushing. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest quick validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |

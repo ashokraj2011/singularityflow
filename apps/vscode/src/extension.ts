@@ -51,6 +51,7 @@ const COPILOT_HANDOFF_KEY = 'singularityFlow.pendingCopilotHandoff';
 interface PendingCopilotHandoff {
   repository: string;
   workId: string | null;
+  workspaceName?: string | null;
   requestedAt: string;
 }
 
@@ -589,6 +590,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const chosen = nodeWorkspace(node);
       if (chosen) await selectWorkspace(chosen.path, chosen.lead, chosen.name);
     }));
+
   /**
    * Open a workspace's lead repository as this window's folder.
    *
@@ -607,6 +609,60 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // object truthy on versions implementing the documented signature, which opened an unwanted
       // second window. `false` means replace this window everywhere.
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(chosen.lead), false);
+    }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.attachSessionToWorkspace',
+    async (node?: TreeNode) => {
+      let chosen = nodeWorkspace(node);
+      if (!chosen) {
+        await refreshWorkspaceTree();
+        const picked = await vscode.window.showQuickPick(workspaceEntries.map((entry) => ({
+          label: entry.name,
+          description: entry.anchorKey || entry.id,
+          detail: entry.path,
+          entry
+        })), {
+          title: 'Attach Copilot to a Singularity Flow workspace',
+          placeHolder: 'Choose the workspace whose governed repository Copilot should use'
+        });
+        if (!picked) return;
+        chosen = {
+          path: picked.entry.path,
+          lead: picked.entry.leadRepositoryPath || picked.entry.path,
+          name: picked.entry.name
+        };
+      }
+      try {
+        const chooser = new SingularityFlowClient({
+          location: resolveCli({ extensionPath: context.extensionPath }),
+          repository: process.cwd(),
+          onOutput: (text) => output.append(text)
+        });
+        const attached = await chooser.run<{
+          repositoryPath: string; storyId?: string | null; workspaceName?: string;
+        }>(['session', 'workspace', chosen.path, '--json']);
+        const target = path.resolve(attached.repositoryPath || chosen.lead);
+        const pending: PendingCopilotHandoff = {
+          repository: target,
+          workId: attached.storyId ?? null,
+          workspaceName: attached.workspaceName ?? chosen.name,
+          requestedAt: new Date().toISOString()
+        };
+        await context.globalState.update(COPILOT_HANDOFF_KEY, pending);
+        const targetIsOpen = vscode.workspace.workspaceFolders?.some(
+          (folder) => path.resolve(folder.uri.fsPath) === target
+        ) === true;
+        if (targetIsOpen) {
+          await vscode.commands.executeCommand('workbench.action.reloadWindow');
+          return;
+        }
+        void vscode.window.showInformationMessage(
+          `${pending.workspaceName} attached. Switching this window to ${target}; Copilot will open after reload.`
+        );
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not attach the Copilot session to a workspace: ${(error as Error).message}`);
+      }
     }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.repairWorkspace', async () => {
@@ -1179,6 +1235,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  const openWorkspaceCopilot = async (workspaceName?: string | null): Promise<void> => {
+    const handoff = [
+      '# Singularity Flow workspace session',
+      '',
+      ...(workspaceName ? [`Workspace: ${workspaceName}`] : []),
+      `Working directory: ${client.repository}`,
+      '',
+      'Use this repository as the working directory for every file and shell operation.',
+      'This workspace is attached, but no governed Story is selected yet.',
+      'Ask the contributor to run /sf-session and choose the exact Story before lifecycle work.',
+      'Do not inspect or modify another repository merely because it was open in the previous chat.'
+    ].join('\n');
+    await vscode.commands.executeCommand('workbench.action.chat.newChat');
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+      query: handoff,
+      isPartialQuery: false
+    });
+  };
+
   // The commands themselves were registered at activation; this is what they do once there is a
   // repository to do it against.
   const registered: Record<string, (...args: never[]) => unknown> = {
@@ -1293,7 +1368,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // an endless retry loop; the visible error leaves the person in the correct repository.
     await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
     try {
-      await openGovernedCopilot(pendingHandoff.workId);
+      if (pendingHandoff.workId || store.current.snapshot?.workflow?.workItem.id) {
+        await openGovernedCopilot(pendingHandoff.workId);
+      } else {
+        await openWorkspaceCopilot(pendingHandoff.workspaceName);
+      }
     } catch (error) {
       void vscode.window.showErrorMessage(`Could not resume governed Copilot handoff: ${(error as Error).message}`);
     }

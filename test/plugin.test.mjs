@@ -160,11 +160,16 @@ test('legacy Epic planning skill redirects to the canonical Story drafting bound
 test('plugin provides workspace discovery and switching skills', async () => {
   const list = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspaces', 'SKILL.md'), 'utf8');
   const select = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace', 'SKILL.md'), 'utf8');
+  const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-workspace-session', 'SKILL.md'), 'utf8');
   assert.match(list, /name: sflow-workspaces/);
   assert.match(list, /workspace current --json/);
   assert.match(select, /name: sflow-workspace/);
   assert.match(select, /workspace use <WORKSPACE-ID>/);
   assert.match(select, /Do not launch a nested Copilot process/);
+  assert.match(session, /name: sflow-workspace-session/);
+  assert.match(session, /session workspace <WORKSPACE>/);
+  assert.match(session, /cannot change the parent Copilot or VS Code process/);
+  assert.match(session, /disable-model-invocation:\s*true/);
 });
 
 test('plugin hooks provide nonblocking guidance and deterministic custom-agent mapping without tool guards', async () => {

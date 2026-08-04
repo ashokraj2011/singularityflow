@@ -718,6 +718,7 @@ Useful diagnostics:
 ```bash
 singularity-flow workspace list
 singularity-flow workspace use <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
+singularity-flow session workspace <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
 singularity-flow workspace current
 singularity-flow workspace prompt
 singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY] [--mode plan]
@@ -735,6 +736,14 @@ session name. Copilot's native `>` input marker is not configurable; Singularity
 shows the label as a launch banner and supplies it to the session hook as
 governed context. In Copilot, `/sflow-workspaces` lists contexts and
 `/sflow-workspace` switches them without launching a nested process.
+
+`session workspace` is the safe bridge when the shell, Copilot chat, or editor
+was opened in the wrong checkout. It resolves the saved workspace from the
+machine registry, records its repository and optional Story, and reports whether
+the host must reopen that repository. A child CLI process cannot change its
+parent application's working directory, so use **Singularity Flow: Attach Copilot
+Session to Workspace** in VS Code or run the returned `workspace copilot` command
+from a terminal. `/sflow-workspace-session` provides the same guided flow.
 
 For creation, offline provisioning, recovery, and safety details, open
 `WORKSPACES.md`.

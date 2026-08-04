@@ -251,6 +251,7 @@ Usage:
   singularity-flow resume <WORK-ID|BRANCH> [--fetch] [--allow-dirty]
   singularity-flow agent [WORK-ID] [--agent ID]
   singularity-flow session status|candidates [--json]
+  singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]
   singularity-flow session attach <WORK-ID> [--json]
   singularity-flow inbox [--offline] [--json]
   singularity-flow status [WORK-ID] [--json]
@@ -2180,6 +2181,56 @@ async function hookCommand(positionals) {
 
 async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'workspace') {
+    const registry = workspaceRegistryFile();
+    const selectionFile = activeWorkspaceFile();
+    const reference = requirePositional(positionals, 2, 'workspace ID, name, Jira anchor, or directory');
+    const context = await activateWorkspaceContext(registry, selectionFile, reference, {
+      repositoryId: optionString(options, 'repository'),
+      storyId: optionString(options, 'story')
+    });
+    if (context.repositoryState !== 'ready') {
+      throw new SingularityFlowError(
+        `Workspace '${context.workspaceName}' is selected, but repository '${context.repositoryId}' is ${context.repositoryState}. `
+        + `Run 'singularity-flow workspace repair ${context.workspacePath}' before attaching a session.`
+      );
+    }
+    const currentDirectory = path.resolve(process.cwd());
+    const repositoryPath = path.resolve(context.repositoryPath);
+    const hostAction = currentDirectory === repositoryPath ? 'ready' : 'reopen-repository';
+    const result = {
+      attached: true,
+      workspaceId: context.workspaceId,
+      workspaceName: context.workspaceName,
+      workspacePath: context.workspacePath,
+      repositoryId: context.repositoryId,
+      repositoryPath: context.repositoryPath,
+      storyId: context.storyId,
+      prompt: workspacePromptLabel(context),
+      hostAction,
+      commands: {
+        openCopilot: `singularity-flow workspace copilot ${JSON.stringify(context.workspaceId)}`
+          + ` --repository ${JSON.stringify(context.repositoryId)}`
+          + (context.storyId ? ` --story ${JSON.stringify(context.storyId)}` : ''),
+        attachStory: context.storyId
+          ? `singularity-flow session attach ${JSON.stringify(context.storyId)}`
+          : 'singularity-flow session candidates'
+      }
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Attached workspace session: ${workspacePromptLabel(context)}`);
+    console.log(`Repository: ${context.repositoryId} · ${context.repositoryPath}`);
+    console.log(`Story: ${context.storyId ?? 'not selected'}`);
+    if (hostAction === 'reopen-repository') {
+      console.log('This process cannot change the working directory of the Copilot or editor process that launched it.');
+      console.log(`Open a correctly rooted Copilot session: ${result.commands.openCopilot}`);
+    } else if (context.storyId) {
+      console.log(`Synchronize the Story branch: ${result.commands.attachStory}`);
+    } else {
+      console.log('The workspace is active. Select a Story with /sf-session before lifecycle work.');
+    }
+    return;
+  }
   let root;
   try { root = repoRoot(); } catch {
     const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [] };

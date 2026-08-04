@@ -196,32 +196,18 @@ export function unavailableTree(
   leadRepository?: string | null
 ): TreeNode[] {
   const repositoryUnavailable = contextValue === 'sflow.workspace.repositoryUnavailable';
+  const nothingSelected = label === 'No workspace is active';
   return [{
-    kind: 'message',
+    kind: 'action',
     id: 'unavailable',
-    label,
+    label: nothingSelected ? 'Choose a workspace to begin' : label,
+    description: repositoryUnavailable ? 'repository required' : 'intake and delivery',
     tooltip: detail,
-    icon: 'info',
+    icon: repositoryUnavailable ? 'statusWarning' : 'workspace',
+    runCommand: repositoryUnavailable ? 'singularityFlow.repairWorkspace' : 'singularityFlow.openWorkspaces',
     ...(contextValue ? { contextValue } : {}),
-    children: [
-      { kind: 'message', id: 'unavailable-detail', label: detail, icon: 'blank' },
-      // Lifecycle is deliberately not another workspace-setup surface. The Workspaces view above
-      // owns local directories and capability mapping; this view begins at intake once one is
-      // selected. Repeating create/map actions here made the three concepts look interchangeable.
-      {
-        kind: 'action', id: 'unavailable:workspaces',
-        label: repositoryUnavailable ? 'Repair the selected workspace' : 'Select a workspace above to start intake',
-        description: repositoryUnavailable ? 'repository required' : 'workspace required',
-        tooltip: repositoryUnavailable
-          ? 'Materialize the missing repository from the URL and branch saved in workspace.json.'
-          : 'Workspace selection establishes the local directory and capability scope. '
-            + 'Lifecycle then starts intake and asks which workflow to use.',
-        icon: repositoryUnavailable ? 'tools' : 'root-folder',
-        runCommand: repositoryUnavailable ? 'singularityFlow.repairWorkspace' : 'singularityFlow.openWorkspaces'
-      },
-      // Creating, opening, initializing and capability-mapping are all workspace concerns and are
-      // intentionally offered by the Workspaces view instead of being repeated here.
-    ]
+    // Lifecycle deliberately remains an intake surface rather than repeating workspace setup as a
+    // nested mini-wizard. The single row is both the explanation and the recovery action.
   }];
 }
 

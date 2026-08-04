@@ -35,12 +35,18 @@ async function sources() {
 }
 
 const source = await sources();
-const views = manifest.contributes.views.singularityFlow.map((view) => view.id);
+const viewContainer = manifest.contributes.viewsContainers.activitybar
+  .find((container) => container.id === 'singularityFlowNavigator');
+const contributedViews = manifest.contributes.views.singularityFlowNavigator;
+const views = contributedViews.map((view) => view.id);
 const commands = manifest.contributes.commands.map((command) => command.command);
 const activation = manifest.activationEvents ?? [];
 
 test('the activity view opens in the compact enterprise navigation order', () => {
-  const contributed = manifest.contributes.views.singularityFlow;
+  assert.equal(viewContainer.title, 'SINGULARITY FLOW');
+  assert.equal(manifest.contributes.views.singularityFlow, undefined,
+    'the versioned container intentionally discards the stale pre-refresh sidebar sizing');
+  const contributed = contributedViews;
   assert.deepEqual(
     contributed.map(({ id }) => id),
     [

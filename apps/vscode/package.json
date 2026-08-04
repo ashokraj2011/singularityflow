@@ -68,14 +68,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "singularityFlow",
+          "id": "singularityFlowNavigator",
           "title": "SINGULARITY FLOW",
           "icon": "media/activity.svg"
         }
       ]
     },
     "views": {
-      "singularityFlow": [
+      "singularityFlowNavigator": [
         {
           "id": "singularityFlow.workspaces",
           "name": "Workspaces",

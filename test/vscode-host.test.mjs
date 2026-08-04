@@ -506,16 +506,16 @@ test('a window with nothing open and no active workspace says which of the two t
   const view = registered.trees.get('singularityFlow.lifecycle');
   assert.ok(view, 'the view always has a provider');
   const [noWorkspaceNode] = view.treeDataProvider.getChildren();
-  assert.match(noWorkspaceNode.label, /No workspace is active/);
-  assert.equal(view.treeDataProvider.getTreeItem(noWorkspaceNode).collapsibleState,
-    api.TreeItemCollapsibleState.Expanded, 'the available actions are visible without another click');
+  assert.equal(noWorkspaceNode.label, 'Choose a workspace to begin');
+  assert.equal(view.treeDataProvider.getTreeItem(noWorkspaceNode).command.command,
+    'singularityFlow.openWorkspaces', 'the compact empty state is itself the recovery action');
 
   const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
   const configurationActions = configuration.getChildren();
-  assert.equal(configurationActions[0].label, 'Create capability');
+  assert.equal(configurationActions[0].label, 'Create first capability');
   assert.equal(configuration.getTreeItem(configurationActions[0]).command.command,
     'singularityFlow.mapCapability', 'capability setup does not depend on a workspace');
-  assert.match(configurationActions[1].label, /Choose or create a workspace/);
+  assert.equal(configurationActions[1].label, 'Choose a workspace');
   assert.equal(configuration.getTreeItem(configurationActions[1]).command.command,
     'singularityFlow.openWorkspaces');
 });
@@ -563,7 +563,7 @@ test('a selected workspace with a missing lead repository offers repair instead 
   assert.match(problem.label, /Workspace repository is missing/);
   assert.doesNotMatch(problem.label, /No workspace is active/);
   assert.match(problem.tooltip, /missing-lead/);
-  assert.ok(lifecycle.getChildren(problem).some((node) => node.runCommand === 'singularityFlow.repairWorkspace'));
+  assert.equal(lifecycle.getTreeItem(problem).command.command, 'singularityFlow.repairWorkspace');
 
   const [configuration] = registered.trees.get('singularityFlow.configuration').treeDataProvider.getChildren();
   assert.match(configuration.label, /Workspace repository is missing/);
@@ -583,12 +583,12 @@ test('the view activates on being opened, not only when a workflow file happens 
   // the contributed view sits there with nothing behind it.
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(manifest.activationEvents.includes('onView:singularityFlow.lifecycle'));
-  assert.ok(manifest.contributes.views.singularityFlow.some((view) => view.id === 'singularityFlow.lifecycle'),
+  assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.lifecycle'),
     'the activation event names the view that is actually contributed');
   // Workspaces leads: work happens in one, and everything else is scoped to it.
-  assert.equal(manifest.contributes.views.singularityFlow[0].id, 'singularityFlow.workspaces');
+  assert.equal(manifest.contributes.views.singularityFlowNavigator[0].id, 'singularityFlow.workspaces');
   assert.ok(manifest.activationEvents.includes('onView:singularityFlow.help'));
-  assert.ok(manifest.contributes.views.singularityFlow.some((view) => view.id === 'singularityFlow.help'));
+  assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.help'));
 });
 
 test('Help is available without a workspace and opens the canonical offline manual', async (t) => {
@@ -1583,7 +1583,7 @@ test('every contributed command exists, whatever state the window is in', async 
     // tree can never disagree about what is wrong with the folder.
     const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
     const [explanation] = provider.getChildren();
-    const detail = provider.getChildren(explanation)[0].label;
+    const detail = explanation.tooltip;
     assert.ok(detail, `${label}: the tree explains itself`);
 
     await registered.commands.get('singularityFlow.openCapabilities')();
@@ -1609,7 +1609,7 @@ test('with a repository, every contributed command actually does something', asy
 /** Every view package.json contributes, in the order the sidebar will show them. */
 function contributedViews() {
   const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
-  return manifest.contributes.views.singularityFlow.map((view) => view.id);
+  return manifest.contributes.views.singularityFlowNavigator.map((view) => view.id);
 }
 
 test('every contributed view has a provider, whatever state the window is in', async (t) => {
@@ -1799,8 +1799,7 @@ test('a window with nothing open keeps workspace setup out of Lifecycle', async 
 
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const [explanation] = provider.getChildren();
-  const rows = provider.getChildren(explanation);
-  const actions = rows.filter((row) => row.runCommand);
+  const actions = [explanation].filter((row) => row.runCommand);
   assert.deepEqual(actions.map((row) => row.runCommand), ['singularityFlow.openWorkspaces'],
     'Lifecycle starts at intake; workspace selection stays outside it');
   for (const action of actions) assert.ok(registered.commands.has(action.runCommand));
@@ -1825,7 +1824,7 @@ test('an ungoverned folder still directs Lifecycle to workspace selection', asyn
   await extension.activate(context());
 
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  const rows = provider.getChildren(provider.getChildren()[0]);
+  const rows = provider.getChildren();
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
     ['singularityFlow.openWorkspaces']);
 });

@@ -26,13 +26,14 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
   const rows = workspaceRows(entries);
   if (!rows.length) {
     return [{
-      kind: 'message',
+      kind: 'action',
       id: 'workspaces:empty',
-      label: 'No workspaces yet',
-      description: 'create one',
-      tooltip: 'A workspace is a working directory and the capabilities worked on in it.',
-      icon: 'info',
-      contextValue: 'sflow.workspaces.empty'
+      label: 'Create your first workspace',
+      description: 'local scope + repositories',
+      tooltip: 'Choose a working directory, then select the capabilities and repositories used there.',
+      icon: 'workspace',
+      contextValue: 'sflow.workspaces.empty',
+      runCommand: 'singularityFlow.createWorkspace'
     }];
   }
 

@@ -1949,6 +1949,9 @@ test('every core semantic icon resolves for native trees and theme-aware states 
   for (const state of ['statusSuccess', 'statusWaiting', 'statusWarning', 'statusBlocked', 'statusStale']) {
     assert.match(treeIcon(state).color, /\S+/, `${state} must use a VS Code theme color`);
   }
+  for (const entry of ['workspace', 'capability', 'workflow']) {
+    assert.equal(treeIcon(entry).color, 'charts.green', `${entry} is a branded navigation entry`);
+  }
 });
 
 test('icon-only actions are labelled and raw Unicode action glyphs cannot return', async () => {
@@ -2422,7 +2425,9 @@ test('the selected workspace warns when its lead repository is unavailable', () 
 test('an empty registry offers the one thing to do about it', () => {
   const [empty] = buildWorkspaceTree([]);
   assert.equal(empty.contextValue, 'sflow.workspaces.empty');
-  assert.match(empty.label, /No workspaces yet/);
+  assert.equal(empty.label, 'Create your first workspace');
+  assert.equal(empty.runCommand, 'singularityFlow.createWorkspace');
+  assert.equal(empty.icon, 'workspace');
 });
 
 /** What a capability shows about itself, and what it contains — the same split the commands make. */

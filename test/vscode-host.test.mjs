@@ -1411,15 +1411,35 @@ test('an organisation that has not described what it builds says so, and where t
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
 
   const html = await until(() =>
-    (panel.webview.html.includes('Map a capability from the Capabilities screen')
+    (panel.webview.html.includes('Create first capability')
       ? panel.webview.html : null));
 
   assert.match(html, /This organisation does not describe what it builds yet/);
-  assert.match(html, /Map a capability from the Capabilities screen/);
+  assert.match(html, /Create first capability/);
+  assert.match(html, /data-open="capabilities"/);
   assert.doesNotMatch(html, /Add a repository/, 'no by-URL fallback to walk into');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
   assert.equal(registered.warnings.length, 0, 'reported on the form rather than over it');
   assert.match(html, /<button data-submit="create" disabled>/);
+
+  // The form fixes its own blocker instead of sending the user to hunt through Configuration.
+  await panel.post({ type: 'field', field: 'id', value: 'rules-workspace' });
+  await panel.post({ type: 'open', what: 'capabilities' });
+  const capabilityPanel = await until(() =>
+    registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability'));
+  await until(() => (capabilityPanel.webview.html.includes('0 capabilities available as parents')
+    ? capabilityPanel.webview.html : null));
+  await capabilityPanel.post({ type: 'field', field: 'capabilityId', value: 'payments-api' });
+  await capabilityPanel.post({ type: 'field', field: 'name', value: 'Payments API' });
+  await capabilityPanel.post({ type: 'field', field: 'kind', value: 'delivery' });
+  await capabilityPanel.post({ type: 'field', field: 'repositoryUrl', value: origin });
+  await capabilityPanel.post({ type: 'map' });
+
+  const refreshed = await until(() =>
+    (panel.webview.html.includes('<option value="payments-api"') ? panel.webview.html : null),
+  { attempts: 200 });
+  assert.match(refreshed, /value="rules-workspace"/, 'the workspace draft survived capability setup');
+  assert.match(refreshed, /Payments API/, 'the new capability is selectable without reopening the form');
 });
 
 test('with no organisation mapped at all, the form offers the screen that maps one', async (t) => {

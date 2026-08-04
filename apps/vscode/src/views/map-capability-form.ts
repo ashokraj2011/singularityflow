@@ -193,7 +193,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     <div data-map-ready${problems.length ? ' hidden' : ''}>
       <h2>${icon('ok')}Ready</h2><p class="ok-text">Commits the map to ${escape(form.lead)} and pushes.</p>
     </div>
-    ${form.notice ? `<p class="warning-text">${icon('info')}${escape(form.notice)}</p>` : ''}
+    ${form.notice ? `<p class="warning-text">${icon('warning')}${escape(form.notice)}</p>` : ''}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-map-submit="1" data-map-busy="${form.busy ? 'true' : 'false'}" ${problems.length || form.busy ? 'disabled' : ''}>

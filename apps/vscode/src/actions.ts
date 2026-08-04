@@ -25,13 +25,22 @@ export interface Confirmation {
 }
 
 /** An approval, which goes through a selection receipt rather than through plain flags. */
-export interface ApprovalRequest {
-  initiativeId: string;
-  /** "business-case", "phase", "pack:opportunity-investment-brief". */
-  subject: string;
-  expected: string;
-  summary: string;
-}
+export type ApprovalRequest =
+  | {
+    kind: 'initiative';
+    initiativeId: string;
+    /** "business-case", "phase", "pack:opportunity-investment-brief". */
+    subject: string;
+    expected: string;
+    summary: string;
+  }
+  | {
+    kind: 'story';
+    workId: string;
+    phaseId: string;
+    expected: string;
+    summary: string;
+  };
 
 interface ChoiceOption { id: string; label?: string; description?: string }
 interface ReceiptChoiceSet { id: string; label: string; options: ChoiceOption[] }
@@ -179,9 +188,9 @@ export async function approveWithReceipt(
 ): Promise<boolean> {
   let receipt: Receipt;
   try {
-    receipt = await client.run<Receipt>([
-      'initiative', 'choices', 'begin', 'approve', request.initiativeId, request.subject, '--json'
-    ]);
+    receipt = await client.run<Receipt>(request.kind === 'story'
+      ? ['choices', 'begin', 'approve', request.workId, '--fetch', '--json']
+      : ['initiative', 'choices', 'begin', 'approve', request.initiativeId, request.subject, '--json']);
   } catch (error) {
     void vscode.window.showErrorMessage((error as Error).message);
     return false;
@@ -194,13 +203,17 @@ export async function approveWithReceipt(
   }
 
   try {
-    await client.run(['initiative', 'choices', 'answer', receipt.token, 'decision-confirmation', confirmed, '--json']);
+    await client.run(request.kind === 'story'
+      ? ['choices', 'answer', receipt.token, 'phase-confirmation', confirmed, '--json']
+      : ['initiative', 'choices', 'answer', receipt.token, 'decision-confirmation', confirmed, '--json']);
   } catch (error) {
     void vscode.window.showErrorMessage((error as Error).message);
     return false;
   }
 
-  const argv = ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
+  const argv = request.kind === 'story'
+    ? ['approve', request.workId, '--fetch', '--phase', request.phaseId, '--selection-receipt', receipt.token]
+    : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
   const run = async (extra: string[] = []): Promise<boolean> => {
     output.appendLine(`\n$ singularity-flow ${[...argv, ...extra].join(' ')}`);
     await vscode.window.withProgress(

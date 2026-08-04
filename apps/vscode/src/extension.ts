@@ -170,6 +170,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
+    'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
+    'singularityFlow.submitStoryPhase',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
@@ -526,7 +528,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
-  void refreshWorkspaceTree();
+  // The workspace list is part of the activation read model, not a background decoration. Await it
+  // so a selected-but-unmaterialized workspace cannot briefly render as "No workspaces yet" (and
+  // so commands/context menus are derived from the same registry revision as Lifecycle).
+  await refreshWorkspaceTree();
 
   /** Diagnostics, as the CLI reports them. */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', async () => {
@@ -696,7 +701,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
     if (state.error) { status.text = '$(error) Singularity Flow'; status.tooltip = state.error.message; status.show(); return; }
     const initiative = state.snapshot?.initiative;
+    const workflow = state.snapshot?.workflow;
     const where = workspaceLabel ? `${workspaceLabel} · ` : '';
+    if (workflow) {
+      const phase = workflow.currentPhase ?? 'complete';
+      status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
+      status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
+      status.show();
+      return;
+    }
     if (!initiative) {
       status.text = `$(rocket) ${where}No work`;
       status.tooltip = workspaceLabel
@@ -767,6 +780,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (ran) await store.refresh();
   };
 
+  /** Named Story commands work both from a phase row and directly from the command palette. */
+  const runStoryPhase = async (
+    action: 'prepare' | 'publish' | 'submit', node?: TreeNode
+  ): Promise<void> => {
+    if (node?.command) return runNode(node);
+    const workflow = store.current.snapshot?.workflow;
+    const phaseId = workflow?.currentPhase;
+    if (!workflow || !phaseId) {
+      void vscode.window.showWarningMessage('No governed Story phase is active in this workspace.');
+      return;
+    }
+    const command = action === 'prepare'
+      ? ['prepare', phaseId]
+      : action === 'publish'
+        ? ['phase', 'publish', phaseId]
+        : ['submit', '--phase', phaseId];
+    await runNode({
+      kind: 'action', id: `story:${phaseId}:${action}`,
+      label: `${action} ${phaseId}`, command
+    });
+  };
+
   /** Resolve a webview's artifact id against the snapshot; ids from a page are never paths. */
   const nodeForOutput = (outputId: string): TreeNode | null => {
     const initiative = store.current.snapshot?.initiative;
@@ -782,6 +817,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       readOnly: output.status === 'approved',
       ...(output.sha256 && output.status !== 'approved' ? {
         approve: {
+          kind: 'initiative',
           initiativeId: initiative.state.initiative.id,
           subject: output.id,
           expected: `${phaseId}:${output.id}`,
@@ -874,10 +910,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { approval } = message;
     const initiative = store.current.snapshot?.initiative;
     if (message.type === 'open') {
-      const output = initiative?.state.phases[approval.phase]?.outputs?.[approval.subject];
-      if (output) {
+      const output = approval.source === 'initiative'
+        ? initiative?.state.phases[approval.phase]?.outputs?.[approval.subject]
+        : null;
+      const artifactPath = output?.path ?? approval.artifactPath;
+      if (artifactPath) {
         await openArtifact(repository, {
-          kind: 'artifact', id: approval.id, label: approval.label, path: output.path
+          kind: 'artifact', id: approval.id, label: approval.label, path: artifactPath
         });
       }
       return;
@@ -885,12 +924,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (message.type === 'approve') {
       return runNode({
         kind: 'action', id: approval.id, label: approval.label,
-        approve: {
-          initiativeId: initiative?.state.initiative.id ?? '',
-          subject: approval.subject,
-          expected: approval.expected,
-          summary: `Approve ${approval.label}`
-        }
+        approve: approval.source === 'story'
+          ? {
+            kind: 'story', workId: approval.workId ?? '', phaseId: approval.phase,
+            expected: approval.expected, summary: `Approve ${approval.label}`
+          }
+          : {
+            kind: 'initiative', initiativeId: initiative?.state.initiative.id ?? '',
+            subject: approval.subject, expected: approval.expected,
+            summary: `Approve ${approval.label}`
+          }
       });
     }
     // Rejecting needs a reason: an invalidation nobody can explain is worse than none at all.
@@ -903,7 +946,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!reason?.trim()) return;
     await runNode({
       kind: 'action', id: approval.id, label: approval.label,
-      command: ['initiative', 'reject', approval.subject, '--reason', reason.trim()]
+      command: approval.source === 'story'
+        ? ['reject', approval.workId ?? '', '--fetch', '--phase', approval.phase, '--reason', reason.trim()]
+        : ['initiative', 'reject', approval.subject, '--reason', reason.trim()]
     });
   };
 
@@ -1001,6 +1046,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openArtifact':
       ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,
     'singularityFlow.runAction': runNode as never,
+    'singularityFlow.prepareStoryPhase': ((node?: TreeNode) => runStoryPhase('prepare', node)) as never,
+    'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,
+    'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),

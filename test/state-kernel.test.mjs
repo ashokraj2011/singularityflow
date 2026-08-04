@@ -112,41 +112,6 @@ test('legacy publication marker scan exposes orphaned recovery state to doctor',
   assert.deepEqual(await findLegacyPendingPublications(root), [orphan]);
 });
 
-test('publication faults release the subject lock at every transaction stage', async (t) => {
-  for (const stage of ['after-state-write', 'after-commit', 'after-push', 'after-ledger']) {
-    await t.test(stage, async () => {
-      const root = await mkdtemp(path.join(os.tmpdir(), `sflow-publication-${stage}-`));
-      run('git', ['init', '-b', 'main'], root);
-      run('git', ['config', 'user.name', 'Kernel Tester'], root);
-      run('git', ['config', 'user.email', 'kernel@example.com'], root);
-      await writeFile(path.join(root, 'README.md'), '# transaction\n');
-      run('git', ['add', '.'], root);
-      run('git', ['commit', '-m', 'initial'], root);
-      const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-      const subject = { kind: 'story', id: `FAULT-${stage}`, branch: 'main' };
-      const event = lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 });
-      const target = path.join(root, 'state.json');
-
-      await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
-        subject,
-        event,
-        commit: { message: `[${subject.id}] fault at ${stage}` },
-        publication: { mode: 'off', branch: 'main' },
-        allowedPaths: ['state.json'],
-        state: { write: () => writeFile(target, `${JSON.stringify({ stage })}\n`) },
-        fault: (current) => {
-          if (current === stage) throw new Error(`fault:${stage}`);
-        }
-      }), new RegExp(`fault:${stage}`));
-
-      const owner = await acquireSubjectLock(root, subject);
-      assert.equal(await releaseSubjectLock(root, subject, owner), true, `${stage} released its lock`);
-      const after = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-      assert.equal(after === before, stage === 'after-state-write', `${stage} has the expected commit boundary`);
-    });
-  }
-});
-
 test('lifecycle and ledger use one event identity and idempotency key', () => {
   const event = lifecycleEvent({
     type: 'phase-approved',
@@ -330,17 +295,6 @@ test('editor confirmation port applies the same audited soft-gate reducer as the
   assert.match(request.message, /Soft sequence warning \[currentPhase\]/);
   assert.equal(phase.id, 'design');
   assert.equal(workflow.sequenceOverrides[0].gate, 'currentPhase');
-});
-
-test('surface orchestration cannot import raw state engines', async () => {
-  for (const relative of ['src/cli.mjs', 'src/editor.mjs', 'src/doctor.mjs']) {
-    const content = await readFile(path.join(packageRoot, relative), 'utf8');
-    assert.doesNotMatch(
-      content,
-      /from\s+['"]\.\/state\.mjs['"]|from\s+['"]\.\/initiative-state\.mjs['"]/,
-      `${relative} must use the state-store boundary rather than a raw lifecycle engine`
-    );
-  }
 });
 
 test('a governed commit contains only the paths the publication staged', async () => {

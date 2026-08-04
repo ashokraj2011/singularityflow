@@ -203,6 +203,53 @@ export interface WorkItemSummary {
   [key: string]: unknown;
 }
 
+export interface StoryArtifact {
+  id?: string;
+  label?: string;
+  kind?: string;
+  path: string;
+  sha256?: string | null;
+  status?: string;
+  generation?: number;
+  phase?: string | null;
+  generatedBy?: string | null;
+}
+
+export interface StoryApproval {
+  decision?: string;
+  invalidatedAt?: string | null;
+  selfApproval?: boolean;
+  at?: string;
+  actor?: { name?: string; email?: string; login?: string };
+  authorityGroup?: string;
+}
+
+export interface StoryPhase {
+  id: string;
+  label: string;
+  status: PhaseStatus;
+  generation: number;
+  submittedAt?: string | null;
+  generatedBy?: { name?: string; email?: string; login?: string } | null;
+  requiredArtifact?: { path: string } | null;
+  artifacts: StoryArtifact[];
+  approvals: StoryApproval[];
+  approvalPolicy?: { authorities?: string[]; minimum?: number };
+}
+
+export interface StoryWorkflow {
+  workItem: { id: string; title?: string; branch?: string; workType?: string };
+  currentPhase: string | null;
+  phaseOrder: string[];
+  phases: Record<string, StoryPhase>;
+  status?: string;
+  resolution?: {
+    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface InitiativeSummary {
   id: string;
   branch?: string;
@@ -219,8 +266,8 @@ export interface RepositorySnapshot {
   selectedWorkId: string | null;
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
-  workflow: unknown;
-  documents?: unknown[];
+  workflow: StoryWorkflow | null;
+  documents?: StoryArtifact[];
   worldModel?: {
     root: string;
     generatedAt: string | null;
@@ -253,6 +300,7 @@ export interface RepositorySnapshot {
    * offer the lenses this repository declares, not a list this extension keeps.
    */
   definition?: {
+    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
     personas?: Record<string, { label?: string; description?: string }>;
     phases?: Record<string, {
       label?: string;

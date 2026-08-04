@@ -11,7 +11,9 @@
  * arrives with the engine's own reason. It must never *hide* an approval the engine would accept,
  * so every uncertain case is treated as actionable.
  */
-import type { ApprovalPolicy, RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type {
+  ApprovalPolicy, RepositorySnapshot, InitiativeSnapshot, StoryWorkflow
+} from '../cli/snapshot.ts';
 
 export type Standing = 'yours' | 'others' | 'blocked';
 
@@ -25,6 +27,7 @@ export interface ChainStep {
 }
 
 export interface PendingApproval {
+  source: 'initiative' | 'story';
   id: string;
   kind: 'output' | 'phase' | 'pack';
   phase: string;
@@ -43,6 +46,9 @@ export interface PendingApproval {
   chain: ChainStep[];
   authorities: string[];
   signatures: Array<{ actor: string; at: string | null }>;
+  /** Exact governed file shown when this decision represents a Story phase. */
+  artifactPath?: string | null;
+  workId?: string;
 }
 
 export interface Approvals {
@@ -68,7 +74,10 @@ const lower = (value: unknown): string => String(value ?? '').trim().toLowerCase
 
 /** Members of an authority, as lowercase emails. */
 function members(snapshot: RepositorySnapshot, authority: string): Set<string> {
-  const listed = snapshot.portfolio?.approvalAuthorities?.[authority]?.members ?? [];
+  const listed = snapshot.workflow?.resolution?.approvalAuthorities?.[authority]?.members
+    ?? snapshot.definition?.approvalAuthorities?.[authority]?.members
+    ?? snapshot.portfolio?.approvalAuthorities?.[authority]?.members
+    ?? [];
   return new Set(listed.map((member) => lower(member.email)).filter(Boolean));
 }
 
@@ -160,6 +169,7 @@ function packTerminalPhase(phaseOrder: string[], members2: string[]): string | n
 
 export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
   if (!snapshot) return { initiativeId: '', actor: null, pending: [], obstacles: [], empty: 'Reading the repository…' };
+  if (snapshot.workflow) return storyApprovalsOf(snapshot, snapshot.workflow);
   const initiative = snapshot.initiative;
   if (!initiative) {
     return {
@@ -168,6 +178,74 @@ export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
     };
   }
   return approvalsOf(snapshot, initiative);
+}
+
+function identityOf(value: unknown): string {
+  if (typeof value === 'string') return lower(value);
+  const identity = value as { email?: string; login?: string; name?: string } | null | undefined;
+  return lower(identity?.email ?? identity?.login ?? identity?.name);
+}
+
+/** The checked-out Story's exact phase decision, derived from workflow.json rather than Initiative state. */
+function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow): Approvals {
+  const actor = lower(snapshot.identities?.git?.email) || null;
+  const phaseId = workflow.currentPhase;
+  const phase = phaseId ? workflow.phases[phaseId] : null;
+  if (!phase || phase.status !== 'awaiting_approval') {
+    return {
+      initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
+      empty: workflow.status === 'complete'
+        ? 'This Story workflow is complete.'
+        : 'Nothing is waiting for a decision.'
+    };
+  }
+
+  const active = (phase.approvals ?? []).filter((approval) =>
+    approval.decision === 'approved' && !approval.invalidatedAt);
+  const minimum = phase.approvalPolicy?.minimum ?? 1;
+  if (new Set(active.map((approval) => identityOf(approval.actor)).filter(Boolean)).size >= minimum) {
+    return {
+      initiativeId: workflow.workItem.id, actor, pending: [], obstacles: [],
+      empty: 'Nothing is waiting for a decision.'
+    };
+  }
+
+  const policy: ApprovalPolicy = {
+    mode: 'individual', authorities: phase.approvalPolicy?.authorities ?? [], minimum,
+    allowSelfApproval: true, chain: null
+  };
+  const { standing, reason, authorities } = standingFor(snapshot, actor, policy, []);
+  // `phase.requiredArtifact.path` is relative to the work-item directory. The document catalog is
+  // already repository-relative, so it is the only safe path for an editor tab to open.
+  const catalogArtifact = snapshot.documents?.find((item) => item.phase === phase.id && Boolean(item.path));
+  const artifact = catalogArtifact?.path ?? null;
+  return {
+    initiativeId: workflow.workItem.id,
+    actor,
+    pending: [{
+      source: 'story',
+      id: `story-phase:${phase.id}`,
+      kind: 'phase',
+      phase: phase.id,
+      subject: 'phase',
+      label: `${phase.label} — Story phase`,
+      detail: `Generation ${phase.generation} of ${workflow.workItem.id}`,
+      sha256: catalogArtifact?.sha256 ?? null,
+      expected: phase.id,
+      standing,
+      reason,
+      selfApproval: Boolean(actor) && identityOf(phase.generatedBy) === actor,
+      chain: [],
+      authorities,
+      signatures: active.map((approval) => ({
+        actor: identityOf(approval.actor) || 'unknown', at: approval.at ?? null
+      })),
+      artifactPath: artifact,
+      workId: workflow.workItem.id
+    }],
+    obstacles: [],
+    empty: null
+  };
 }
 
 function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapshot): Approvals {
@@ -196,6 +274,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
       const chain = chainProgress(policy, openStepFrom(gateErrors, output.id));
       const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
       pending.push({
+        source: 'initiative',
         id: `output:${phaseId}/${output.id}`,
         kind: 'output',
         phase: phaseId,
@@ -231,6 +310,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
       const chain = chainProgress(policy, open);
       const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
       pending.push({
+        source: 'initiative',
         id: `pack:${pack.id}`,
         kind: 'pack',
         phase: phaseId,
@@ -255,6 +335,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
       const chain = chainProgress(policy, openStepFrom(gateErrors, phaseId));
       const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
       pending.push({
+        source: 'initiative',
         id: `phase:${phaseId}`,
         kind: 'phase',
         phase: phaseId,

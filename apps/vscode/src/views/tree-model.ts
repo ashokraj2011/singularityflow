@@ -15,7 +15,8 @@
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
   type BreakdownStory, type InitiativeOutput, type InitiativeSnapshot,
-  type RepositorySnapshot, type PhaseStatus
+  type RepositorySnapshot, type PhaseStatus, type StoryArtifact, type StoryPhase,
+  type StoryWorkflow
 } from '../cli/snapshot.ts';
 import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
 
@@ -61,7 +62,9 @@ export interface TreeNode {
    * HEAD and to the exact artifact hashes, and it is also where `initiative approve`'s governed-agent
    * answer lives, since that path has no --agent.
    */
-  approve?: { initiativeId: string; subject: string; expected: string; summary: string };
+  approve?:
+    | { kind: 'initiative'; initiativeId: string; subject: string; expected: string; summary: string }
+    | { kind: 'story'; workId: string; phaseId: string; expected: string; summary: string };
   contextValue?: string;
 }
 
@@ -131,6 +134,7 @@ function artifactNode(output: InitiativeOutput, phaseId: string, initiativeId: s
     // on an unwritten artifact would produce a refusal the reviewer could have been spared.
     ...(output.sha256 && output.status !== 'approved' ? {
       approve: {
+        kind: 'initiative',
         initiativeId,
         subject: output.id,
         expected: `${phaseId}:${output.id}`,
@@ -279,9 +283,11 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
   }
 
+  if (snapshot.workflow) return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [])];
+
   const initiative = snapshot.initiative;
   if (!initiative) {
-    const available = snapshot.initiatives?.length ?? 0;
+    const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
     return [{
       kind: 'message',
       id: 'no-initiative',
@@ -311,6 +317,88 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   // phases; showing every other configured workflow beside it made Configuration and Lifecycle look
   // like duplicate workflow browsers.
   return [initiativeNode(initiative)];
+}
+
+function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNode[] {
+  return documents
+    .filter((document) => document.phase === phaseId && Boolean(document.path))
+    .sort((left, right) => (left.label ?? left.path).localeCompare(right.label ?? right.path))
+    .map((document) => ({
+      kind: 'artifact' as const,
+      id: `story-document:${phaseId}:${document.id ?? document.path}`,
+      label: document.label ?? document.id ?? document.path,
+      description: document.status?.replace(/_/g, ' ') ?? 'generated',
+      tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
+      icon: document.status === 'approved' ? 'lock-small' : 'file',
+      path: document.path,
+      readOnly: document.status === 'approved',
+      contextValue: document.status === 'approved' ? 'sflow.artifact.pinned' : 'sflow.artifact'
+    }));
+}
+
+function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode[] {
+  if (workflow.currentPhase !== phase.id) return [];
+  if (phase.status === 'awaiting_approval') {
+    return [{
+      kind: 'action', id: `story:${phase.id}:approve`, label: `Review and approve ${phase.label}`,
+      description: 'exact generation', icon: 'verified',
+      approve: {
+        kind: 'story', workId: workflow.workItem.id, phaseId: phase.id, expected: phase.id,
+        summary: `Approve ${workflow.workItem.id} / ${phase.label}`
+      },
+      contextValue: 'sflow.story.approval'
+    }];
+  }
+  if (phase.status !== 'in_progress' && phase.status !== 'rejected') return [];
+  return [{
+    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Open governed context in Copilot',
+    description: 'author this phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+  }, {
+    kind: 'action', id: `story:${phase.id}:prepare`, label: `Prepare ${phase.label}`,
+    description: 'create phase workspace', icon: 'tools', command: ['prepare', phase.id],
+    runCommand: 'singularityFlow.prepareStoryPhase', contextValue: 'sflow.story.prepare'
+  }, {
+    kind: 'action', id: `story:${phase.id}:publish`, label: 'Publish generated artifacts',
+    description: `generation ${phase.generation + 1}`, icon: 'cloud-upload',
+    command: ['phase', 'publish', phase.id], runCommand: 'singularityFlow.publishStoryPhase',
+    contextValue: 'sflow.story.publish'
+  }, ...(phase.generation > 0 ? [{
+    kind: 'action' as const, id: `story:${phase.id}:submit`, label: 'Submit for approval',
+    description: `generation ${phase.generation}`, icon: 'send',
+    command: ['submit', '--phase', phase.id], runCommand: 'singularityFlow.submitStoryPhase',
+    contextValue: 'sflow.story.submit'
+  }] : [])];
+}
+
+function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+  const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
+    .filter((phase): phase is StoryPhase => Boolean(phase));
+  const approved = phases.filter((phase) => phase.status === 'approved').length;
+  return {
+    kind: 'story',
+    id: `active-story:${workflow.workItem.id}`,
+    label: workflow.workItem.id,
+    description: workflow.workItem.title ?? workflow.workItem.workType ?? 'Story',
+    tooltip: `${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
+    icon: 'git-pull-request',
+    contextValue: 'sflow.story.active',
+    children: [{
+      kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
+      description: `${approved}/${phases.length} approved`, icon: 'list-ordered',
+      children: phases.map((phase) => ({
+        kind: 'phase', id: `story-phase:${phase.id}`, label: phase.label,
+        description: workflow.currentPhase === phase.id
+          ? `${phaseDescription(phase.status)} · current`
+          : phaseDescription(phase.status),
+        icon: phaseIcon(phase.status),
+        contextValue: workflow.currentPhase === phase.id ? 'sflow.story.phase.current' : 'sflow.story.phase',
+        children: [
+          ...storyPhaseActions(workflow, phase),
+          ...storyDocumentNodes(documents, phase.id)
+        ]
+      }))
+    }]
+  };
 }
 
 /**
@@ -700,8 +788,9 @@ function packApproval(
   const terminal = packTerminalPhase(phaseOrder, pack.members);
   if (!terminal) return null;
   return {
-    approve: {
-      initiativeId,
+      approve: {
+        kind: 'initiative',
+        initiativeId,
       subject: `pack:${pack.id}`,
       expected: `${terminal}:pack:${pack.id}`,
       summary: `Approve pack ${pack.label}`

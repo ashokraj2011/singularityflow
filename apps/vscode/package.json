@@ -224,6 +224,21 @@
         "icon": "$(play)"
       },
       {
+        "command": "singularityFlow.prepareStoryPhase",
+        "title": "Singularity Flow: Prepare Current Story Phase",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "singularityFlow.publishStoryPhase",
+        "title": "Singularity Flow: Publish Current Story Phase",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "singularityFlow.submitStoryPhase",
+        "title": "Singularity Flow: Submit Current Story Phase",
+        "icon": "$(send)"
+      },
+      {
         "command": "singularityFlow.approve",
         "title": "Singularity Flow: Approve\u2026",
         "icon": "$(check)"
@@ -370,6 +385,26 @@
         {
           "command": "singularityFlow.approve",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.pack.approvable",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.approve",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.approval",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.prepareStoryPhase",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.prepare",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.publishStoryPhase",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.publish",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.submitStoryPhase",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.submit",
           "group": "inline"
         },
         {

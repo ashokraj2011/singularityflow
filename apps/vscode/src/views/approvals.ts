@@ -61,7 +61,8 @@ function cardHtml(approval: PendingApproval): string {
     ? `<button data-approve="${escape(approval.id)}">Approve…</button>
          <button class="secondary" data-reject="${escape(approval.id)}">Reject…</button>`
     : ''}
-      ${approval.kind === 'output' ? `<button class="link" data-open="${escape(approval.id)}">Open artifact</button>` : ''}
+      ${approval.kind === 'output' || approval.artifactPath
+    ? `<button class="link" data-open="${escape(approval.id)}">Open artifact</button>` : ''}
     </div>
   </article>`;
 }

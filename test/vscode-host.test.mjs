@@ -134,7 +134,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -261,6 +261,20 @@ function stubVscode() {
     };
     registered.panels.push(panel);
     return panel;
+  };
+  api.window.registerWebviewViewProvider = (id, provider, options) => {
+    let handler = null;
+    const view = {
+      id, provider, options,
+      webview: {
+        html: '', cspSource: 'vscode-resource:', options: {},
+        onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; }
+      },
+      post: async (message) => { await handler?.(message); }
+    };
+    registered.webviewViews.set(id, view);
+    provider.resolveWebviewView(view);
+    return { dispose() { registered.webviewViews.delete(id); } };
   };
   api.Uri.joinPath = (base, ...parts) => ({ fsPath: [base.fsPath, ...parts].join('/') });
   return { api, registered };
@@ -586,9 +600,27 @@ test('the view activates on being opened, not only when a workflow file happens 
   assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.lifecycle'),
     'the activation event names the view that is actually contributed');
   // Workspaces leads: work happens in one, and everything else is scoped to it.
-  assert.equal(manifest.contributes.views.singularityFlowNavigator[0].id, 'singularityFlow.workspaces');
+  assert.equal(manifest.contributes.views.singularityFlowNavigator[0].id, 'singularityFlow.navigation');
   assert.ok(manifest.activationEvents.includes('onView:singularityFlow.help'));
   assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.help'));
+});
+
+test('the visible sidebar is one branded, scrollable navigation surface', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.ok(navigation, 'the visible webview provider is registered');
+  assert.match(navigation.webview.html, /<small>Singularity<\/small><strong>Flow<\/strong>/);
+  for (const section of ['workspaces', 'lifecycle', 'inbox', 'configuration', 'help']) {
+    assert.match(navigation.webview.html, new RegExp(`data-section="${section}"`));
+  }
+  assert.match(navigation.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(navigation.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.match(navigation.webview.html, /prefers-reduced-motion/);
 });
 
 test('Help is available without a workspace and opens the canonical offline manual', async (t) => {
@@ -1623,7 +1655,8 @@ test('every contributed view has a provider, whatever state the window is in', a
     const extension = loadExtension(api);
     await extension.activate(context());
 
-    const missing = contributedViews().filter((id) => !registered.trees.has(id));
+    const missing = contributedViews().filter((id) =>
+      !registered.trees.has(id) && !registered.webviewViews.has(id));
     assert.deepEqual(missing, [], `${missing.join(', ')} would report "no data provider registered"`);
 
     // Workspaces contains only real saved workspaces. Repository configuration is not represented

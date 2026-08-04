@@ -401,7 +401,7 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
  * The workspace is the context everything else hangs off.
  *
  * Work happens in a workspace: it says which capabilities are being worked on and where. So it is
- * the first thing chosen and the first view in the container, and the governed repository is
+ * the first thing chosen and the first section in the navigation surface, and the governed repository is
  * resolved from it before the open folder is even consulted. It used to be the last view, below the
  * things that depend on it, and a fallback for whatever folder happened to be open.
  */
@@ -409,7 +409,10 @@ test('choosing a workspace is what scopes the rest', async () => {
   const manifest = JSON.parse(await readFile(
     new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   const views = manifest.contributes.views.singularityFlowNavigator.map((view) => view.id);
-  assert.equal(views[0], 'singularityFlow.workspaces', 'workspaces lead');
+  assert.equal(views[0], 'singularityFlow.navigation', 'one navigation surface leads');
+  const sidebar = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
+  assert.ok(sidebar.indexOf("'workspaces'") < sidebar.indexOf("'lifecycle'"),
+    'workspaces lead the sections inside the navigation surface');
 
   // Choosing one is an action on the row, and it is the CLI's own machine-wide selection so the
   // terminal and the editor agree about where you are.

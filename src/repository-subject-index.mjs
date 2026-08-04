@@ -181,7 +181,6 @@ export function resolveContext(index, {
   reference,
   kind = null,
   required = true,
-  mutation = false,
   creation = false
 } = {}) {
   const requested = String(reference ?? '').trim();
@@ -203,19 +202,6 @@ export function resolveContext(index, {
   const selectedLocation = resolved.locations.find((location) => location.branch === selectedBranch)
     ?? resolved.locations.find((location) => location.branch === resolved.canonicalBranch)
     ?? resolved.location;
-  /*
-   * Evidence-only state cannot be mutated.
-   *
-   * Note that no index entry sets `readOnly` — neither entry builder nor `add` produces the field —
-   * so today this only fires for the ledger-fallback subject that sets it explicitly, and never for
-   * an index resolution. Widening it to every `source: 'ref'` location is *not* the fix: `resume`
-   * legitimately resolves an Initiative from its branch and then checks that branch out, so it is a
-   * mutation of exactly the state this would refuse. Which ref resolutions are evidence-only is a
-   * per-caller decision, and until callers make it the guard stays as narrow as it reads.
-   */
-  if (mutation && resolved.readOnly) {
-    throw new SingularityFlowError(`${resolved.kind} '${resolved.id}' was resolved from evidence only and cannot be mutated until its lifecycle branch is available.`);
-  }
   return {
     ...resolved,
     location: selectedLocation,

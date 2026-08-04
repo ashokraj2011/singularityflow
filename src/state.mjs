@@ -439,7 +439,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   const requested = String(idOrRef ?? '').trim();
   if (!requested) throw new SingularityFlowError('Enter a Work ID or canonical/child branch reference.');
   const index = await buildRepositorySubjectIndex(root, { definition: config });
-  const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false, mutation });
+  const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false });
   if (indexed) {
     const workflow = normalizeCurrentWorkflow(indexed.state);
     return {
@@ -454,6 +454,9 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   const ledgerConfig = normalizeLedgerConfig(config.ledger ?? {});
   if (ledgerConfig.enabled) {
     try {
+      // Ledger bindings are evidence-only and never enter RepositorySubjectIndex. Keep their
+      // mutation guard here, where the caller's requested access and the ledger source are both
+      // explicit; a ref-backed lifecycle subject is materializable by resume and is not read-only.
       const entries = await ledgerLog(root, ledgerConfig, { limit: 1000000 });
       const binding = entries.find((entry) =>
         entry.eventType === 'binding'

@@ -817,7 +817,7 @@ async function resumeCommand(positionals, options) {
     ...(fetch ? remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` })) : [])
   ];
   const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
-  const refSubject = resolveContext(refIndex, { reference, kind: 'story', required: false, mutation: true });
+  const refSubject = resolveContext(refIndex, { reference, kind: 'story', required: false });
   const resolved = refSubject
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
@@ -2070,7 +2070,7 @@ async function sessionCommand(positionals, options) {
     fetchRemote(root, remote);
     const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
-    const subject = resolveContext(subjectIndex, { reference, kind: 'story', mutation: true });
+    const subject = resolveContext(subjectIndex, { reference, kind: 'story' });
     const id = subject.id;
     validateId(config, id);
     const targetBranch = subject.selectedBranch;
@@ -3047,7 +3047,9 @@ async function initiativeCommand(positionals, options) {
       ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
     ];
     const index = await buildRepositorySubjectIndexFromRefs(root, { definition: config, portfolio, refs });
-    const resolved = resolveContext(index, { reference, kind: 'initiative', mutation: true });
+    // A remote ref is the materialization source: resume checks out that exact lifecycle branch.
+    // It is not ledger-only evidence and must remain eligible for checkout.
+    const resolved = resolveContext(index, { reference, kind: 'initiative' });
     const initiativeId = resolved.id;
     const targetBranch = resolved.selectedBranch;
     if (branch(root) !== targetBranch) assertClean(root);

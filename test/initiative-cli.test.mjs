@@ -112,6 +112,42 @@ test('initiative Copilot selection receipts preserve the explicit profile while 
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
 });
 
+test('initiative resume materializes an Initiative that exists only on a remote branch', async () => {
+  const source = await repository();
+  execute(source, ['initiative', 'start', 'INIT-REMOTE', '--title', 'Remote-only initiative']);
+
+  const remoteParent = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-remote-'));
+  const remote = path.join(remoteParent, 'origin.git');
+  git(remoteParent, ['init', '--bare', remote]);
+  git(source, ['remote', 'add', 'origin', remote]);
+  git(source, ['push', 'origin', 'main:main', 'INIT-REMOTE:INIT-REMOTE']);
+
+  const cloneParent = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-resume-'));
+  const clone = path.join(cloneParent, 'lead');
+  git(cloneParent, ['clone', '--single-branch', '--branch', 'main', remote, clone]);
+  git(clone, ['config', 'user.name', actor]);
+  git(clone, ['config', 'user.email', actorEmail]);
+
+  assert.equal(git(clone, ['branch', '--show-current']), 'main');
+  assert.equal(git(clone, ['branch', '--list', 'INIT-REMOTE']), '', 'the Initiative has no local branch before resume');
+  assert.equal(
+    git(clone, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/INIT-REMOTE']),
+    '',
+    'the single-branch clone has not fetched the Initiative ref'
+  );
+
+  const resumed = execute(clone, ['initiative', 'resume', 'INIT-REMOTE', '--fetch']);
+  assert.match(resumed.stdout, /Resumed INIT-REMOTE at define with governed agent product-owner/);
+  assert.equal(git(clone, ['branch', '--show-current']), 'INIT-REMOTE');
+  assert.equal(
+    git(clone, ['rev-parse', 'HEAD']),
+    git(clone, ['rev-parse', 'origin/INIT-REMOTE']),
+    'resume materializes the exact remote lifecycle branch'
+  );
+  const state = JSON.parse(await readFile(path.join(clone, 'singularity/initiatives/INIT-REMOTE/state.json'), 'utf8'));
+  assert.equal(state.initiative.id, 'INIT-REMOTE');
+});
+
 test('Epic Planning approval is an explicit business review, available outside the desktop', async () => {
   // Planning approval used to throw "must be reviewed and approved in the Singularity Flow desktop
   // UI", so the plan could not be approved from every surface. It is available here now, while the

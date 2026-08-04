@@ -1498,8 +1498,8 @@ test('the capability map is shown as the tree it is, to any depth', () => {
   withMap.capabilityMap = {
     repositories: ['api', 'web'],
     capabilities: [{
-      id: 'commerce', name: 'Commerce', kind: 'business', children: [{
-        id: 'storefront', name: 'Storefront', kind: 'business', children: [
+      id: 'commerce', name: 'Commerce', kind: 'collection', children: [{
+        id: 'storefront', name: 'Storefront', kind: 'collection', children: [
           { id: 'checkout', name: 'Checkout', kind: 'delivery', repository: 'web', children: [] }
         ]
       }, { id: 'payments-api', name: 'Payments', kind: 'delivery', repository: 'api', children: [] }]
@@ -1612,12 +1612,12 @@ const { buildCapabilityDashboard } = await import(source('views/capability-dashb
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
 const capabilityFixture = [{
-  id: 'commerce', name: 'Commerce', kind: 'portfolio', delivery: false, repository: null,
+  id: 'commerce', name: 'Commerce', kind: 'collection', delivery: false, repository: null,
   jira: null, teams: ['Commerce leadership'], owns: [],
   policy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
   effectivePolicy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
   children: [{
-    id: 'payments', name: 'Payments', kind: 'product', delivery: false, repository: null,
+    id: 'payments', name: 'Payments', kind: 'collection', delivery: false, repository: null,
     jira: { projectKey: 'PAY', board: 'Payments board' }, teams: ['Payments squad'], owns: [],
     policy: { approvalMinimum: 1, protectedPaths: ['src/payments/**'] },
     effectivePolicy: {
@@ -1625,7 +1625,7 @@ const capabilityFixture = [{
       protectedPaths: ['singularity/workflow.yml', 'src/payments/**']
     },
     children: [{
-      id: 'payments-api', name: 'Payments API', kind: 'service', delivery: true, repository: 'api',
+      id: 'payments-api', name: 'Payments API', kind: 'delivery', delivery: true, repository: 'api',
       jira: null, teams: [], owns: [],
       policy: {},
       effectivePolicy: {
@@ -1694,8 +1694,8 @@ test('the parent chooser offers every capability except moves that would create 
 test('the capability form uses controlled kinds and makes its relationship editable', () => {
   const create = capabilitiesHtml(capabilityFixture, null, { parent: 'payments' }, null);
   assert.match(create, /<select data-field="kind"/);
-  assert.match(create, /<option value="business" selected>Business<\/option>/);
-  assert.match(create, /<option value="collection">Collection<\/option>/);
+  assert.match(create, /<option value="collection" selected>Collection<\/option>/);
+  assert.match(create, /<option value="delivery">Delivery<\/option>/);
   assert.doesNotMatch(create, /<input[^>]+data-field="kind"/);
   assert.match(create, /Linked under/);
   assert.match(create, /<option value="payments" selected>[^<]*Payments<\/option>/);
@@ -1709,16 +1709,15 @@ test('the capability form uses controlled kinds and makes its relationship edita
 });
 
 test('an empty field is sent as a clearance, and an untouched one is not sent at all', () => {
-  // Turning a delivery capability back into a grouping is `--repository ''`; omitting the flag says
-  // nothing about the repository. A form that could only set things could never do the first.
+  // Turning a Delivery into a Collection clears its repository in the same validated edit.
   assert.deepEqual(
-    capabilityArgv('set', 'payments-api', { repository: '', teams: 'Payments squad, Platform' }),
-    ['capability', 'set', 'payments-api', '--repository', '', '--teams', 'Payments squad, Platform']);
+    capabilityArgv('set', 'payments-api', { kind: 'collection', repository: '', teams: 'Payments squad, Platform' }),
+    ['capability', 'set', 'payments-api', '--kind', 'collection', '--repository', '', '--teams', 'Payments squad, Platform']);
   assert.deepEqual(capabilityArgv('set', 'payments', { name: ' Payments ' }),
     ['capability', 'set', 'payments', '--name', 'Payments']);
   assert.deepEqual(capabilityArgv('remove', 'payments'), ['capability', 'remove', 'payments']);
-  assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'service' }),
-    ['capability', 'add', 'ledger', '--kind', 'service', '--parent', 'payments']);
+  assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'collection' }),
+    ['capability', 'add', 'ledger', '--kind', 'collection', '--parent', 'payments']);
 });
 
 test('the page cannot widen what an edit writes', () => {
@@ -1783,15 +1782,13 @@ test('a repository with no capability map offers to describe the first capabilit
   assert.match(refused, /which the portfolio does not declare/);
 });
 
-test('a capability that ships is rendered as one whatever its kind says', () => {
-  // `kind` is free text the organisation chooses. Reading it as the delivery flag made a capability
-  // labelled anything other than "delivery" render as an empty grouping beside its own repository.
+test('a delivery capability is rendered as shipping from its declared repository', () => {
   const withMap = structuredClone(snapshot);
   withMap.capabilityMap = {
     repositories: ['api'],
     capabilities: [{
-      id: 'commerce', name: 'Commerce', kind: 'portfolio', children: [
-        { id: 'payments-api', name: 'Payments API', kind: 'service', repository: 'api', children: [] }
+      id: 'commerce', name: 'Commerce', kind: 'collection', children: [
+        { id: 'payments-api', name: 'Payments API', kind: 'delivery', repository: 'api', children: [] }
       ]
     }]
   };
@@ -2310,7 +2307,7 @@ test('a capability shows the repositories it ships from and where its world mode
   // capability rendered as a name with a repository in grey and nothing about whether it could
   // actually be worked in.
   const capabilities = [{
-    id: 'commerce', name: 'Commerce', kind: 'product', type: 'tech',
+    id: 'commerce', name: 'Commerce', kind: 'delivery', type: 'tech',
     repository: 'commerce-api', repositories: ['commerce-api', 'commerce-web'],
     leadRepository: 'commerce-api',
     documentation: { Charter: 'https://confluence/charter' },
@@ -2352,7 +2349,7 @@ test('unasked is not the same as absent in the capability tree', () => {
   // Readiness costs an ls-remote per repository, so the tree renders before it arrives. Saying "no
   // state branch" when nobody looked would be a claim about the remote with nothing behind it.
   const capabilities = [{
-    id: 'commerce', name: 'Commerce', kind: 'product',
+    id: 'commerce', name: 'Commerce', kind: 'delivery',
     repositories: ['commerce-api'], leadRepository: 'commerce-api', children: []
   }];
   const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } });
@@ -2366,9 +2363,9 @@ test('a grouping capability composes its world model from what is beneath it', (
   // composed on read and stored nowhere. Saying "not built" would be false; saying nothing would
   // hide that half its capabilities cannot ground anything.
   const capabilities = [{
-    id: 'commerce', name: 'Commerce', kind: 'portfolio', repositories: [], children: [
-      { id: 'checkout', name: 'Checkout', kind: 'service', repositories: ['checkout'], leadRepository: 'checkout', children: [] },
-      { id: 'catalog', name: 'Catalog', kind: 'service', repositories: ['catalog'], leadRepository: 'catalog', children: [] }
+    id: 'commerce', name: 'Commerce', kind: 'collection', repositories: [], children: [
+      { id: 'checkout', name: 'Checkout', kind: 'delivery', repositories: ['checkout'], leadRepository: 'checkout', children: [] },
+      { id: 'catalog', name: 'Catalog', kind: 'delivery', repositories: ['catalog'], leadRepository: 'catalog', children: [] }
     ]
   }];
   const readiness = {

@@ -198,11 +198,12 @@ branch before phase work begins.
 
 ## Capabilities, and the workspaces made of them
 
-What an organisation builds is a tree of **capabilities**. A capability that
-names a repository is a leaf that **ships**; one that names no repository
-**groups** the capabilities beneath it. The tree has exactly one root and may go
-to any depth. Jira projects and team names belong to a capability, not to a
-repository and not to a workspace.
+What an organisation builds is a tree of **capabilities**. Capability `kind` is a
+closed pair: a **collection** groups related capabilities and names no repository;
+a **delivery** ships from one or more repositories. Either kind may contain child
+capabilities. The tree has exactly one root and may go to any depth. Jira projects
+and team names belong to a capability, not to a repository or workspace. Optional
+`type: tech|business` is a separate domain classification; it is not capability kind.
 
 The map lives in `singularity/capabilities.yml` in the **lead repository**, with
 the repositories it refers to declared in that repository's
@@ -211,7 +212,7 @@ a temporary directory, edited, pushed and discarded.
 
 ```
 singularity-flow capability map payments-api --lead https://github.com/acme/platform.git \
-  --name "Payments API" --kind service --parent payments --repository https://github.com/acme/api.git
+  --name "Payments API" --kind delivery --parent payments --repository https://github.com/acme/api.git
 ```
 
 The first capability mapped into a repository governs it — `singularity/` is

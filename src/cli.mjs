@@ -170,7 +170,7 @@ import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
 import {
-  CAPABILITY_TYPES,
+  CAPABILITY_KINDS, CAPABILITY_TYPES,
   CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability,
   flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
   validateCapabilities
@@ -229,7 +229,7 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 Usage:
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
-  singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind TEXT]
+  singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
     [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
@@ -444,15 +444,15 @@ Usage:
   singularity-flow capability [tree] [--json]
   singularity-flow capability show <CAPABILITY-ID> [--json]
   singularity-flow capability of <REPOSITORY-ID> [--json]
-  singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind TEXT] [--parent ID]
+  singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind collection|delivery] [--parent ID]
     [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
-    [--kind TEXT] [--type tech|business] [--parent ID] [--lead-repository URL]
+    [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
-    (--repository is repeatable; omit it for a capability that groups others. --lead-repository
-     says which one holds the governed state when there are several.)
-  singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind TEXT]
+    (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
+     says which delivery repository holds governed state when there are several.)
+  singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
@@ -2710,9 +2710,9 @@ function commitKnowledge(root, message) {
 /**
  * Structure a capability edit from options, leaving unnamed fields alone.
  *
- * `--repository ''` is not the same as omitting `--repository`: the first makes a delivery capability
- * into a grouping, the second says nothing about it. So absent options become `undefined` and empty
- * ones become the empty string, which `editCapability` reads as a clearance.
+ * `--repository ''` is not the same as omitting `--repository`: the first clears the repository,
+ * while the second says nothing about it. A valid edit that changes a delivery into a collection
+ * therefore sends both `--kind collection` and `--repository ''`.
  */
 function capabilityChanges(options) {
   // Insertion order is the order new keys land in the file, so this is the order a person reads a
@@ -2724,7 +2724,13 @@ function capabilityChanges(options) {
   };
   const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
   put('name', 'name');
-  put('kind', 'kind');
+  const kind = optionString(options, 'kind');
+  if (kind != null) {
+    if (!CAPABILITY_KINDS.includes(kind)) {
+      throw new SingularityFlowError(`--kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
+    }
+    changes.kind = kind;
+  }
   put('type', 'type');
   put('parent', 'parent', (value) => value || null);
   put('repository', 'repository');
@@ -2776,10 +2782,14 @@ async function capabilityCommand(positionals, options) {
     if (type && !CAPABILITY_TYPES.includes(type)) {
       throw new SingularityFlowError(`--type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
     }
+    const kind = optionString(options, 'kind');
+    if (kind && !CAPABILITY_KINDS.includes(kind)) {
+      throw new SingularityFlowError(`--kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
+    }
     const mapped = await mapCapability(leadUrl, {
       capabilityId: requirePositional(positionals, 2, 'capability ID'),
       name: optionString(options, 'name'),
-      kind: optionString(options, 'kind', 'service'),
+      kind,
       type,
       parent: optionString(options, 'parent'),
       // Repeatable: a capability may ship from several repositories, and --lead-repository says
@@ -3006,7 +3016,7 @@ async function bootstrapCommand(positionals, options) {
   const result = await bootstrapRepository(url, {
     capabilityId,
     capabilityName: optionString(options, 'name'),
-    kind: optionString(options, 'kind', 'portfolio'),
+    kind: optionString(options, 'kind', 'collection'),
     jiraProject: optionString(options, 'jira-project'),
     teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean),
     into: optionString(options, 'into'),

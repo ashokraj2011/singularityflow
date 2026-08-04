@@ -53,7 +53,7 @@ test('the first capability governs the repository it is mapped into', async () =
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
 
   const first = await mapCapability(org.platform, {
-    capabilityId: 'commerce', name: 'Commerce', kind: 'portfolio'
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   assert.equal(first.capabilityId, 'commerce');
 
@@ -67,7 +67,7 @@ test('the first capability governs the repository it is mapped into', async () =
 
   // And the second one finds the map already there rather than governing again.
   await mapCapability(org.platform, {
-    capabilityId: 'payments', name: 'Payments', kind: 'product', parent: 'commerce'
+    capabilityId: 'payments', name: 'Payments', kind: 'collection', parent: 'commerce'
   });
   const both = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(both, /parent: commerce/);
@@ -80,7 +80,7 @@ test('mapping leaves nothing behind: the lead is borrowed, not checked out', asy
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const before = await readdir(org.base);
 
-  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'portfolio' });
+  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'collection' });
 
   assert.deepEqual((await readdir(org.base)).sort(), before.sort());
 });
@@ -88,7 +88,7 @@ test('mapping leaves nothing behind: the lead is borrowed, not checked out', asy
 test('a capability that ships declares its repository; a grouping declares none', async () => {
   const org = await remotes('platform', 'api');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'portfolio' });
+  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'collection' });
   await mapCapability(org.platform, {
     capabilityId: 'payments-api', name: 'Payments API', parent: 'commerce', repositoryUrl: org.api
   });
@@ -439,7 +439,7 @@ test('choosing a workspace is what scopes the rest', async () => {
   // and therefore resolved to nothing every time, so the open folder always won.
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'portfolio', repositoryUrl: org.platform });
+  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'delivery', repositoryUrl: org.platform });
   const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   // Both the registry and the selection are redirected: the selection is machine-wide, and a test
   // that wrote to the real one would change which workspace the person running it is working in.
@@ -563,7 +563,7 @@ test('documentation and resources merge on edit rather than replacing', async ()
   await writeFile(path.join(root, CAPABILITIES_PATH), [
     'version: 1',
     'capabilities:',
-    '  payments: { kind: product, type: tech, parent: null }',
+    '  payments: { kind: collection, type: tech, parent: null }',
     ''
   ].join('\n'));
 
@@ -683,7 +683,7 @@ test('the capability map is published to the state branch as well as the branch 
   // The first map governs the repository, which names the state branch — so the governed copy
   // exists from the moment there is a map to govern, rather than from the first workspace.
   const mapped = await mapCapability(org.platform, {
-    capabilityId: 'commerce', name: 'Commerce', kind: 'portfolio'
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
   assert.equal(mapped.state.published, true);
   assert.equal(mapped.state.branch, 'state');

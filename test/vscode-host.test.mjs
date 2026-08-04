@@ -1143,7 +1143,7 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
   // A delivery capability, naming a repository the portfolio actually declares.
   await panel.post({
     type: 'create',
-    edits: { id: 'checkout-api', name: 'Checkout API', kind: 'service', parent: 'product', repository: 'api' }
+    edits: { id: 'checkout-api', name: 'Checkout API', kind: 'delivery', parent: 'product', repository: 'api' }
   });
   assert.match(await shows(/Checkout API/), /Checkout API/);
   assert.match(await readFile(capabilitiesFile, 'utf8'), /name: Checkout API/);
@@ -1198,12 +1198,12 @@ test('the capability screen shows the policy that applies, not only the policy t
     'capabilities:',
     '  enterprise:',
     '    name: Enterprise',
-    '    kind: portfolio',
+    '    kind: collection',
     '    parent: null',
     '    policy: { gateSeverity: block, approvalMinimum: 2, protectedPaths: [singularity/workflow.yml] }',
     '  checkout:',
     '    name: Checkout',
-    '    kind: product',
+    '    kind: collection',
     '    parent: enterprise',
     '    policy: { approvalMinimum: 1, protectedPaths: [src/checkout/**] }',
     ''
@@ -1255,11 +1255,11 @@ async function organisation() {
   await writeFile(path.join(lead.seed, 'singularity/capabilities.yml'), [
     'version: 1',
     'capabilities:',
-    '  commerce: { name: Commerce, kind: portfolio, parent: null }',
-    '  payments: { name: Payments, kind: product, parent: commerce }',
-    '  payments-api: { name: Payments API, kind: service, parent: payments, repository: api }',
-    '  storefront: { name: Storefront, kind: product, parent: commerce }',
-    '  storefront-web: { name: Storefront Web, kind: service, parent: storefront, repository: web }',
+    '  commerce: { name: Commerce, kind: collection, parent: null }',
+    '  payments: { name: Payments, kind: collection, parent: commerce }',
+    '  payments-api: { name: Payments API, kind: delivery, parent: payments, repository: api }',
+    '  storefront: { name: Storefront, kind: collection, parent: commerce }',
+    '  storefront-web: { name: Storefront Web, kind: delivery, parent: storefront, repository: web }',
     ''
   ].join('\n'));
   await writeFile(path.join(lead.seed, 'singularity/portfolio.yml'), [
@@ -1615,9 +1615,9 @@ test('Configuration opens the capability editor and creates new capabilities', a
   await writeFile(path.join(root, 'singularity/capabilities.yml'), [
     'version: 1',
     'capabilities:',
-    '  commerce: { name: Commerce, kind: portfolio, parent: null }',
-    '  payments: { name: Payments, kind: product, parent: commerce }',
-    '  payments-api: { name: Payments API, kind: service, parent: payments, repository: api }',
+    '  commerce: { name: Commerce, kind: collection, parent: null }',
+    '  payments: { name: Payments, kind: collection, parent: commerce }',
+    '  payments-api: { name: Payments API, kind: delivery, parent: payments, repository: api }',
     ''
   ].join('\n'));
   await registered.commands.get('singularityFlow.refresh')();
@@ -1967,7 +1967,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   // No folder to choose: mapping a capability checks nothing out, so there is nowhere to put it.
   assert.doesNotMatch(panel.webview.html, /data-choose="base"/);
   assert.doesNotMatch(panel.webview.html, /Workflow state branch/);
-  // Kind is a classification, so it is a dropdown rather than four spellings of one word.
+  // Kind is a closed structural choice, so it is a dropdown rather than free text.
   assert.match(panel.webview.html, /<select data-map="kind">/);
 
   await panel.post({ type: 'field', field: 'lead', value: bare });
@@ -1977,7 +1977,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
 
   await panel.post({ type: 'field', field: 'capabilityId', value: 'commerce' });
   await panel.post({ type: 'field', field: 'name', value: 'Commerce' });
-  await panel.post({ type: 'field', field: 'kind', value: 'portfolio' });
+  await panel.post({ type: 'field', field: 'kind', value: 'collection' });
   await panel.post({ type: 'map' });
 
   // The map reached the remote, which is the end of the work — nothing local is left behind.
@@ -2014,7 +2014,7 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   const panel2 = second;
   await panel2.post({ type: 'field', field: 'capabilityId', value: 'platform-api' });
   await panel2.post({ type: 'field', field: 'name', value: 'Platform API' });
-  await panel2.post({ type: 'field', field: 'kind', value: 'service' });
+  await panel2.post({ type: 'field', field: 'kind', value: 'delivery' });
   await panel2.post({ type: 'field', field: 'parent', value: 'commerce' });
   await panel2.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await panel2.post({ type: 'map' });

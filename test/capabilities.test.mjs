@@ -65,9 +65,9 @@ test('capability tree validates a single root and resolves inherited policy', ()
   const definition = validateCapabilities({
     version: 1,
     capabilities: {
-      enterprise: { kind: 'portfolio', parent: null, policy: { approvalMinimum: 1, requiredChecks: ['unit'] } },
-      payments: { kind: 'product', parent: 'enterprise', policy: { approvalMinimum: 2, requiredChecks: ['security'] } },
-      checkout: { kind: 'service', parent: 'payments', policy: { gateSeverity: 'block' } }
+      enterprise: { kind: 'collection', parent: null, policy: { approvalMinimum: 1, requiredChecks: ['unit'] } },
+      payments: { kind: 'collection', parent: 'enterprise', policy: { approvalMinimum: 2, requiredChecks: ['security'] } },
+      checkout: { kind: 'collection', parent: 'payments', policy: { gateSeverity: 'block' } }
     }
   });
   assert.deepEqual(capabilityPath(definition, 'checkout'), ['enterprise', 'payments', 'checkout']);
@@ -81,15 +81,15 @@ test('capability validation rejects multiple roots and cycles', () => {
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: {
-      one: { kind: 'portfolio' },
-      two: { kind: 'portfolio' }
+      one: { kind: 'collection' },
+      two: { kind: 'collection' }
     }
   }), /exactly one root/);
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: {
-      one: { kind: 'portfolio', parent: 'two' },
-      two: { kind: 'portfolio', parent: 'one' }
+      one: { kind: 'collection', parent: 'two' },
+      two: { kind: 'collection', parent: 'one' }
     }
   }), /exactly one root|cycle/);
 });
@@ -98,8 +98,8 @@ test('break-glass leases relax policy outside the monotone fold and expire or re
   const definition = validateCapabilities({
     version: 1,
     capabilities: {
-      enterprise: { kind: 'portfolio', policy: { approvalMinimum: 2, gateSeverity: 'block' } },
-      checkout: { kind: 'service', parent: 'enterprise', policy: {} }
+      enterprise: { kind: 'collection', policy: { approvalMinimum: 2, gateSeverity: 'block' } },
+      checkout: { kind: 'collection', parent: 'enterprise', policy: {} }
     }
   });
   const grant = {
@@ -133,15 +133,13 @@ test('break-glass leases relax policy outside the monotone fold and expire or re
   }).length, 0);
 });
 
-test('a capability that names a repository is the leaf that ships; one that does not is a grouping', () => {
-  // Inferred from the presence of a repository rather than a separate flag, so the two can never
-  // disagree about which a capability is.
+test('collection and delivery kinds agree with repository responsibility', () => {
   const definition = validateCapabilities({
     version: 1,
     capabilities: {
-      commerce: { kind: 'portfolio', parent: null },
-      payments: { kind: 'product', parent: 'commerce' },
-      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' }
+      commerce: { kind: 'collection', parent: null },
+      payments: { kind: 'collection', parent: 'commerce' },
+      'payments-api': { kind: 'delivery', parent: 'payments', repository: 'api' }
     }
   }, { repositories: { api: {} } });
 
@@ -158,10 +156,10 @@ test('a capability may ship and contain, and may ship from several repositories'
     version: 1,
     capabilities: {
       payments: {
-        kind: 'product', type: 'tech', parent: null,
+        kind: 'delivery', type: 'tech', parent: null,
         repositories: ['api', 'web'], leadRepository: 'api'
       },
-      'payments-api': { kind: 'service', type: 'tech', parent: 'payments', repository: 'api' }
+      'payments-api': { kind: 'delivery', type: 'tech', parent: 'payments', repository: 'api' }
     }
   };
   const portfolio = { repositories: { api: {}, web: {} } };
@@ -174,26 +172,51 @@ test('a capability may ship and contain, and may ship from several repositories'
   assert.deepEqual(root.children.map((child) => child.id), ['payments-api']);
 });
 
+test('capability kind is exactly collection or delivery and controls repository responsibility', () => {
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'business', parent: null } }
+  }), /kind must be one of: collection, delivery/);
+
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'collection', parent: null, repository: 'api' } }
+  }), /collection and cannot name repositories/);
+
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'delivery', parent: null } }
+  }), /delivery and must name at least one repository/);
+
+  validateCapabilities({
+    version: 1,
+    capabilities: {
+      payments: { kind: 'collection', parent: null },
+      'payments-api': { kind: 'delivery', parent: 'payments', repository: 'api' }
+    }
+  }, { repositories: { api: {} } });
+});
+
 test('the lead repository must be one the capability actually ships from', () => {
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: {
-      payments: { kind: 'product', parent: null, repositories: ['api'], leadRepository: 'web' }
+      payments: { kind: 'delivery', parent: null, repositories: ['api'], leadRepository: 'web' }
     }
   }, { repositories: { api: {}, web: {} } }), /leads with 'web', which is not one of its repositories/);
 });
 
-test('a capability is tech or business, and nothing else', () => {
+test('optional capability type is tech or business and remains separate from kind', () => {
   // A closed pair is the whole point: a tree where half the leaves say "technical" and half say
   // "tech" is a tree nobody can filter.
   assert.throws(() => validateCapabilities({
     version: 1,
-    capabilities: { payments: { kind: 'product', type: 'technical', parent: null } }
+    capabilities: { payments: { kind: 'collection', type: 'technical', parent: null } }
   }), /type must be one of: tech, business/);
 
   for (const type of ['tech', 'business']) {
     validateCapabilities({
-      version: 1, capabilities: { payments: { kind: 'product', type, parent: null } }
+      version: 1, capabilities: { payments: { kind: 'collection', type, parent: null } }
     });
   }
 });
@@ -205,7 +228,7 @@ test('documentation and resources are free-form links, checked only for being te
     version: 1,
     capabilities: {
       payments: {
-        kind: 'product', type: 'business', parent: null,
+        kind: 'collection', type: 'business', parent: null,
         documentation: { confluence: 'https://wiki.example/payments', runbook: 'docs/runbook.md' },
         resources: { aws: 'arn:aws:iam::1234:role/payments', dashboard: 'https://grafana/payments' }
       }
@@ -218,20 +241,20 @@ test('documentation and resources are free-form links, checked only for being te
 
   assert.throws(() => validateCapabilities({
     version: 1,
-    capabilities: { payments: { kind: 'product', parent: null, documentation: { confluence: 42 } } }
+    capabilities: { payments: { kind: 'collection', parent: null, documentation: { confluence: 42 } } }
   }), /documentation\.confluence must be text/);
 });
 
 test('a delivery capability must name a repository the portfolio declares', () => {
   assert.throws(() => validateCapabilities({
     version: 1,
-    capabilities: { ghost: { kind: 'service', parent: null, repository: 'not-configured' } }
+    capabilities: { ghost: { kind: 'delivery', parent: null, repository: 'not-configured' } }
   }, { repositories: { api: {} } }), /which the portfolio does not declare/);
 
   // Without a portfolio it validates, so a map can be drafted before the repositories exist.
   assert.ok(validateCapabilities({
     version: 1,
-    capabilities: { ghost: { kind: 'service', parent: null, repository: 'not-configured' } }
+    capabilities: { ghost: { kind: 'delivery', parent: null, repository: 'not-configured' } }
   }));
 });
 
@@ -242,7 +265,7 @@ test('Jira and teams belong to the capability, not to the workspace', () => {
     version: 1,
     capabilities: {
       payments: {
-        kind: 'product', parent: null,
+        kind: 'collection', parent: null,
         jira: { projectKey: 'PAY', board: 'Payments board' },
         teams: ['Payments squad', 'Platform']
       }
@@ -254,20 +277,20 @@ test('Jira and teams belong to the capability, not to the workspace', () => {
 
   assert.throws(() => validateCapabilities({
     version: 1,
-    capabilities: { payments: { kind: 'product', parent: null, jira: { projectKey: 42 } } }
+    capabilities: { payments: { kind: 'collection', parent: null, jira: { projectKey: 42 } } }
   }), /jira\.projectKey must be text/);
 
   // Team lists are trimmed and de-duplicated rather than rejected, which is the convention `owns`
   // already follows: a repeated name is a typo, not a decision worth failing a build over.
   const [tidied] = capabilityTree(validateCapabilities({
     version: 1,
-    capabilities: { payments: { kind: 'product', parent: null, teams: [' Platform ', 'Platform'] } }
+    capabilities: { payments: { kind: 'collection', parent: null, teams: [' Platform ', 'Platform'] } }
   }));
   assert.deepEqual(tidied.teams, ['Platform']);
 
   assert.throws(() => validateCapabilities({
     version: 1,
-    capabilities: { payments: { kind: 'product', parent: null, teams: ['ok', ''] } }
+    capabilities: { payments: { kind: 'collection', parent: null, teams: ['ok', ''] } }
   }), /must be an array of non-empty strings/);
 });
 
@@ -275,11 +298,11 @@ test('what a capability ships, and which capability ships a repository', () => {
   const definition = validateCapabilities({
     version: 1,
     capabilities: {
-      commerce: { kind: 'portfolio', parent: null },
-      payments: { kind: 'product', parent: 'commerce' },
-      'payments-api': { kind: 'service', parent: 'payments', repository: 'api' },
-      storefront: { kind: 'product', parent: 'commerce' },
-      'storefront-web': { kind: 'service', parent: 'storefront', repository: 'web' }
+      commerce: { kind: 'collection', parent: null },
+      payments: { kind: 'collection', parent: 'commerce' },
+      'payments-api': { kind: 'delivery', parent: 'payments', repository: 'api' },
+      storefront: { kind: 'collection', parent: 'commerce' },
+      'storefront-web': { kind: 'delivery', parent: 'storefront', repository: 'web' }
     }
   }, { repositories: { api: {}, web: {} } });
 
@@ -303,13 +326,13 @@ test('editing a capability preserves the comments and ordering of the file it ed
       'version: 1',
       'capabilities:',
       '  commerce:',
-      '    kind: portfolio',
+      '    kind: collection',
       '    parent: null',
       '    # Two approvals, because money moves through everything beneath this.',
       '    policy:',
       '      approvalMinimum: 2',
       '  payments:',
-      '    kind: product',
+      '    kind: collection',
       '    parent: commerce',
       ''
     ].join('\n'), 'utf8');
@@ -323,7 +346,7 @@ test('editing a capability preserves the comments and ordering of the file it ed
     assert.match(text, /name: Payments/);
     assert.match(text, /- Payments squad/);
     // Untouched fields stay untouched rather than being re-emitted from a parsed object.
-    assert.match(text, /kind: portfolio/);
+    assert.match(text, /kind: collection/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -336,8 +359,8 @@ test('a refused capability edit leaves the file exactly as it was', async () => 
     const original = [
       'version: 1',
       'capabilities:',
-      '  commerce: { kind: portfolio, parent: null }',
-      '  payments: { kind: product, parent: commerce }',
+      '  commerce: { kind: collection, parent: null }',
+      '  payments: { kind: collection, parent: commerce }',
       ''
     ].join('\n');
     await writeFile(path.join(root, CAPABILITIES_PATH), original, 'utf8');
@@ -345,12 +368,12 @@ test('a refused capability edit leaves the file exactly as it was', async () => 
     // The refusal has to happen before the write — a map that is briefly invalid on disk is a map
     // something else can read while it is invalid.
     await assert.rejects(
-      () => editCapability(root, 'commerce', { repository: 'nowhere' }, { portfolio: { repositories: { api: {} } } }),
+      () => editCapability(root, 'commerce', { kind: 'delivery', repository: 'nowhere' }, { portfolio: { repositories: { api: {} } } }),
       /which the portfolio does not declare/);
     assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
 
     await assert.rejects(
-      () => editCapability(root, 'payments', { repository: 'unconfigured' }, { portfolio: { repositories: { api: {} } } }),
+      () => editCapability(root, 'payments', { kind: 'delivery', repository: 'unconfigured' }, { portfolio: { repositories: { api: {} } } }),
       /which the portfolio does not declare/);
     await assert.rejects(() => editCapability(root, 'payments', { parent: 'payments' }), /cycle/);
     await assert.rejects(() => editCapability(root, 'Payments', {}, { mode: 'add' }), /kebab-case/);
@@ -370,9 +393,9 @@ test('an empty value clears a field, and an omitted one leaves it alone', async 
     await writeFile(path.join(root, CAPABILITIES_PATH), [
       'version: 1',
       'capabilities:',
-      '  commerce: { kind: portfolio, parent: null }',
+      '  commerce: { kind: collection, parent: null }',
       '  payments-api:',
-      '    kind: service',
+      '    kind: delivery',
       '    parent: commerce',
       '    repository: api',
       '    teams: [Payments squad]',
@@ -381,16 +404,16 @@ test('an empty value clears a field, and an omitted one leaves it alone', async 
     ].join('\n'), 'utf8');
     const portfolio = { repositories: { api: {} } };
 
-    // Naming no repository is how a delivery capability becomes a grouping again; it is a different
-    // edit from saying nothing about the repository, so both have to be expressible.
-    const cleared = await editCapability(root, 'payments-api', { repository: '', teams: [] }, { portfolio });
+    // Changing structural responsibility is explicit: switch the kind and clear the repository.
+    // That is a different edit from saying nothing about either field, so both must be expressible.
+    const cleared = await editCapability(root, 'payments-api', { kind: 'collection', repository: '', teams: [] }, { portfolio });
     assert.equal(cleared.capabilities['payments-api'].repository, undefined);
     assert.equal(cleared.capabilities['payments-api'].teams, undefined);
     assert.deepEqual(cleared.capabilities['payments-api'].jira, { projectKey: 'PAY' }, 'untouched');
-    assert.equal(cleared.capabilities['payments-api'].kind, 'service', 'untouched');
+    assert.equal(cleared.capabilities['payments-api'].kind, 'collection');
 
     const added = await editCapability(root, 'payments-web',
-      { name: 'Payments Web', kind: 'service', parent: 'commerce', repository: 'api' },
+      { name: 'Payments Web', kind: 'delivery', parent: 'commerce', repository: 'api' },
       { mode: 'add', portfolio });
     assert.equal(added.capabilities['payments-web'].name, 'Payments Web');
 

@@ -115,9 +115,9 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
 /**
  * What a capability delivers, who runs it, and where its work is tracked.
  *
- * A capability that names a repository is a delivery capability: the leaf that actually ships. One
- * that does not is a grouping. That is the whole distinction, and inferring it from the presence of
- * a repository rather than a separate flag means the two can never disagree.
+ * A delivery capability names one or more repositories it ships from. A collection groups related
+ * capabilities and names none. `kind` is the authority for that distinction; validation keeps its
+ * repository declaration consistent so the two cannot drift apart.
  *
  * Jira and teams belong here rather than to the workspace. A workspace is a local convenience — a
  * directory holding checkouts of whatever someone is working on this week — while which board tracks
@@ -125,12 +125,11 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
  * cloned what.
  */
 /**
- * What a capability is, as opposed to where it sits.
- *
- * Hard-coded on purpose. `kind` is the organisation's own vocabulary and grows with it; this is a
- * closed pair, because the whole value of it is that every capability answers the same question the
- * same way.
+ * The two structural capability kinds exposed by every surface.
  */
+export const CAPABILITY_KINDS = Object.freeze(['collection', 'delivery']);
+
+/** Optional domain classification, separate from the structural kind. */
 export const CAPABILITY_TYPES = Object.freeze(['tech', 'business']);
 
 /** Fields that are sets of named links, where an edit changes entries rather than replacing all. */
@@ -156,11 +155,13 @@ export function capabilityLeadRepository(capability) {
 }
 
 function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
-  // Tech or business, and nothing else. `kind` says where a capability sits in the hierarchy —
-  // portfolio, domain, product, service — which is a different question from whether the thing
-  // being described is software or the business it serves. Two axes, so two fields, and this one is
-  // a closed vocabulary because a tree where half the leaves say "technical" and half say "tech" is
-  // a tree nobody can filter.
+  if (!CAPABILITY_KINDS.includes(capability.kind)) {
+    throw new SingularityFlowError(
+      `Capability '${id}'.kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
+  }
+
+  // `type` remains an optional domain classification. It must never be confused with structural
+  // kind: collection/delivery determines hierarchy and repository responsibility.
   if (capability.type != null && !CAPABILITY_TYPES.includes(capability.type)) {
     throw new SingularityFlowError(
       `Capability '${id}'.type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
@@ -171,6 +172,14 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
   // product with a web app and a service is one capability with two repositories, and it may still
   // group the capabilities beneath it.
   const repositories = capabilityRepositories(capability);
+  if (capability.kind === 'collection' && repositories.length) {
+    throw new SingularityFlowError(
+      `Capability '${id}' is a collection and cannot name repositories. Change kind to delivery or remove its repositories.`);
+  }
+  if (capability.kind === 'delivery' && !repositories.length) {
+    throw new SingularityFlowError(
+      `Capability '${id}' is a delivery and must name at least one repository.`);
+  }
   for (const repository of repositories) {
     if (typeof repository !== 'string' || !repository.trim()) {
       throw new SingularityFlowError(`Capability '${id}' repository must be a repository identifier.`);
@@ -264,9 +273,10 @@ export async function loadCapabilities(root, { required = false } = {}) {
  * and a tool also writes has to be readable after the tool has written it.
  *
  * Only the fields a caller names are touched; an empty string clears a field rather than setting it
- * to nothing, which is how a delivery capability becomes a grouping again. Policy is deliberately not
- * editable here — it folds, so the value that applies is rarely the value written, and a field-by-
- * field form would teach the wrong model. The screen shows the fold and sends the reader to the file.
+ * to nothing. Changing a delivery to a collection is an explicit paired edit: change `kind` and clear
+ * its repository declaration. Policy is deliberately not editable here — it folds, so the value that
+ * applies is rarely the value written, and a field-by-field form would teach the wrong model. The
+ * screen shows the fold and sends the reader to the file.
  *
  * @param mode `add` refuses an identifier that exists, `set` refuses one that does not. A screen
  *   knows which it meant, and a typo that silently creates a sibling is the expensive mistake.
@@ -425,12 +435,11 @@ export function capabilityTree(definition) {
       id,
       name: capability.name ?? id,
       kind: capability.kind,
-      // Tech or business. Absent on capabilities mapped before the field existed, and that is a
-      // fact about them rather than a default to invent.
+      // Optional domain classification, distinct from collection/delivery kind.
       type: capability.type ?? null,
-      // Inferred, never declared separately: a capability that ships names a repository. It may
-      // ship from several and still contain other capabilities.
-      delivery: capabilityRepositories(capability).length > 0,
+      // Kind is authoritative; validation guarantees every delivery names repositories and every
+      // collection names none. A delivery may still contain child capabilities.
+      delivery: capability.kind === 'delivery',
       // `repository` stays the first one so every existing reader keeps working; `repositories` is
       // the whole list and `leadRepository` says which holds the governed state.
       repository: capabilityRepositories(capability)[0] ?? null,

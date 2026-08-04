@@ -69,14 +69,9 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
   </section>`;
 }
 
-function kindSelect(current = 'business'): string {
-  const values = CAPABILITY_KINDS.includes(current as typeof CAPABILITY_KINDS[number])
-    ? [...CAPABILITY_KINDS]
-    : [current, ...CAPABILITY_KINDS];
+function kindSelect(current = 'collection'): string {
   return `<select data-field="kind" aria-label="Capability kind">
-    ${values.map((kind) => `<option value="${escape(kind)}"${kind === current ? ' selected' : ''}>${escape(
-    kind === 'business' ? 'Business' : kind === 'collection' ? 'Collection' : `${kind} (existing)`
-  )}</option>`).join('')}
+    ${CAPABILITY_KINDS.map((kind) => `<option value="${escape(kind)}"${kind === current ? ' selected' : ''}>${kind === 'collection' ? 'Collection' : 'Delivery'}</option>`).join('')}
   </select>`;
 }
 
@@ -112,15 +107,15 @@ function newHtml(tree: CapabilityNode[], parent: string | null): string {
     </label>
     <label class="field"><span>Kind</span>
       ${kindSelect()}
-      <small>Business delivers value. Collection groups related capabilities.</small>
+      <small>Collection groups related capabilities. Delivery ships from repositories.</small>
     </label>
     <label class="field"><span>Linked under</span>
       ${parentSelect(tree, null, parent, { creating: true })}
       <small>Every available capability is offered. You can change this link later.</small>
     </label>
     <label class="field span-2"><span>Repository</span>
-      <input type="text" data-field="repository" placeholder="Repository ID (optional)">
-      <small>Leave empty when this capability does not directly ship from a repository.</small>
+      <input type="text" data-field="repository" placeholder="Repository ID">
+      <small>Required for Delivery; leave empty for Collection.</small>
     </label>
   </div>
   <p class="card-foot">
@@ -148,7 +143,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     </label>
     <label class="field"><span>Kind</span>
       ${kindSelect(detail.kind)}
-      <small>Business delivers value. Collection groups related capabilities.</small>
+      <small>Collection groups related capabilities. Delivery ships from repositories.</small>
     </label>
     <label class="field span-2 relationship-field"><span>Linked under</span>
       ${parentSelect(tree, detail.id, detail.ancestors.at(-1) ?? null)}
@@ -156,8 +151,8 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     </label>
     <label class="field span-2"><span>Repository</span>
       <input type="text" value="${escape(detail.repository ?? '')}" data-field="repository"
-        placeholder="Repository ID (optional)">
-      <small>A capability can own a repository and still contain other capabilities.</small>
+        placeholder="Repository ID">
+      <small>Required for Delivery and unavailable to Collection. A Delivery may still contain children.</small>
     </label>
   </div>
 
@@ -179,7 +174,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
 
   <p class="card-foot">
     <button data-save="${escape(detail.id)}">Save changes</button>
-    ${detail.delivery ? '' : `<button class="secondary" data-add="${escape(detail.id)}">Add one inside</button>`}
+    <button class="secondary" data-add="${escape(detail.id)}">Add one inside</button>
     <button class="link" data-remove="${escape(detail.id)}">Remove</button>
   </p>
 
@@ -212,7 +207,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     <tbody>${detail.ships.map((ship) => `
       <tr><td>${escape(ship.id)}</td><td><code>${escape(ship.repository)}</code></td></tr>`).join('')}</tbody>
   </table>`
-    : '<p class="muted">Nothing beneath this capability names a repository yet, so it ships nothing.</p>'}`;
+    : '<p class="muted">No delivery capability in this subtree names a repository yet.</p>'}`;
 }
 
 export function bodyHtml(
@@ -251,6 +246,17 @@ export const SCRIPT = `
     for (const field of document.querySelectorAll('[data-field]')) edits[field.dataset.field] = field.value;
     return edits;
   };
+  const synchronizeKind = () => {
+    const kind = document.querySelector('[data-field="kind"]');
+    const repository = document.querySelector('[data-field="repository"]');
+    if (!kind || !repository) return;
+    repository.disabled = kind.value === 'collection';
+    if (repository.disabled) repository.value = '';
+  };
+  synchronizeKind();
+  document.addEventListener('change', (event) => {
+    if (event.target.dataset?.field === 'kind') synchronizeKind();
+  });
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-select],[data-add],[data-save],[data-create],[data-remove],[data-cancel]');
     if (!target) return;

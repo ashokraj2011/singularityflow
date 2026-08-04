@@ -364,6 +364,35 @@ export const STYLE = `
   .choice input { margin-top: .25rem; }
   .choice span { display: grid; }
   .choice small { color: var(--sf-dim); }
+  /* Workflow choices use their full card width: identity on row one, ordered phases on row two.
+     A step owns its connector so a wrapped line never begins with a detached arrow. */
+  .choice.workflow-choice {
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "selector summary" ". phases";
+    gap: .35rem .65rem; align-items: start; padding: .7rem .8rem;
+  }
+  .choice.workflow-choice > input { grid-area: selector; margin-top: .2rem; }
+  .choice.workflow-choice > .workflow-copy {
+    grid-area: summary; display: flex; align-items: baseline; flex-wrap: wrap; gap: .2rem .7rem;
+  }
+  .choice.workflow-choice .workflow-description {
+    display: inline; color: var(--sf-dim); font-size: .86rem;
+  }
+  .choice.workflow-choice > .workflow-phases {
+    grid-area: phases; display: flex; flex-wrap: wrap; align-items: center;
+    gap: .4rem .5rem; min-width: 0; margin-top: .15rem;
+  }
+  .choice.workflow-choice .workflow-step {
+    display: inline-flex; flex: 0 0 auto; align-items: center; gap: .4rem;
+  }
+  .choice.workflow-choice .workflow-connector {
+    display: inline-flex; color: var(--sf-dim);
+  }
+  .choice.workflow-choice code {
+    display: inline-flex; width: auto; padding: .16rem .42rem;
+    border: var(--sf-border); border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background);
+  }
   .composition-map { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-top: 1rem; padding: .75rem; border-radius: var(--sf-radius); background: var(--sf-accent-quiet); }
   .composition-map strong { width: 100%; }
   .composition-map span { display: inline-flex; align-items: center; gap: .3rem; border: var(--sf-border); border-radius: var(--sf-radius); padding: .3rem .55rem; background: var(--vscode-editor-background); }

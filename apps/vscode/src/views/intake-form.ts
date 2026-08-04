@@ -303,11 +303,13 @@ function profileHtml(form: IntakeForm): string {
       configuration cannot change work already under way.</p>
     <div class="choices">
       ${form.profiles.map((profile) => `
-      <label class="choice${profile.id === form.profile ? ' chosen' : ''}">
+      <label class="choice workflow-choice${profile.id === form.profile ? ' chosen' : ''}">
         <input type="radio" name="profile" value="${escape(profile.id)}" data-profile="${escape(profile.id)}"${profile.id === form.profile ? ' checked' : ''}>
-        <span class="choice-label">${escape(profile.label)}</span>
-        <span class="choice-detail">${escape(profile.description)}</span>
-        <span class="choice-detail phases">${profile.phases.map((phase) => `<code>${escape(phase)}</code>`).join(' → ')}</span>
+        <span class="workflow-copy">
+          <span class="choice-label">${escape(profile.label)}</span>
+          <span class="workflow-description">${escape(profile.description)}</span>
+        </span>
+        ${phaseRailHtml(profile.phases)}
       </label>`).join('')}
     </div>
   </section>`;
@@ -333,14 +335,27 @@ function storyWorkflowHtml(form: IntakeForm): string {
       when work starts and cannot change underneath the Story.</p>
     <div class="choices">
       ${form.storyWorkflows.map((workflow) => `
-      <label class="choice${workflow.id === form.workType ? ' chosen' : ''}">
+      <label class="choice workflow-choice${workflow.id === form.workType ? ' chosen' : ''}">
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
-        <span class="choice-label">${escape(workflow.label)}</span>
-        <span class="choice-detail">${escape(workflow.description)}</span>
-        <span class="choice-detail phases">${workflow.phases.map((phase) => `<code>${escape(phase)}</code>`).join(' → ')}</span>
+        <span class="workflow-copy">
+          <span class="choice-label">${escape(workflow.label)}</span>
+          <span class="workflow-description">${escape(workflow.description)}</span>
+        </span>
+        ${phaseRailHtml(workflow.phases)}
       </label>`).join('')}
     </div>
   </section>`;
+}
+
+/** A workflow reads left-to-right, while wrapping whole steps together on narrow editor columns. */
+function phaseRailHtml(phases: string[]): string {
+  const label = `Ordered phases: ${phases.join(', ')}`;
+  return `<span class="workflow-phases" aria-label="${escape(label)}">
+    ${phases.map((phase, index) => `<span class="workflow-step">
+      ${index > 0 ? `<span class="workflow-connector">${icon('next', { size: 14 })}</span>` : ''}
+      <code>${escape(phase)}</code>
+    </span>`).join('')}
+  </span>`;
 }
 
 /** What is already under way, so nobody starts the same thing twice. */

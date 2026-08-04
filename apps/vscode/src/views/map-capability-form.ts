@@ -45,8 +45,10 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
 
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
-  if (!form.lead.trim()) problems.push('Name the repository that holds the capability map.');
-  else if (!form.loaded) problems.push('Read the map, so this capability can be placed in it.');
+  if (!form.lead.trim()) problems.push('Choose which repository stores the capability map.');
+  else if (!form.loaded) problems.push(form.busy
+    ? 'The selected capability map is loading.'
+    : 'Select the capability-map repository again so its current map can be loaded.');
   if (!form.capabilityId.trim()) problems.push('Give the capability an identifier.');
   else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.capabilityId.trim())) {
     problems.push('The identifier must be lower-case kebab-case, like payments-api.');
@@ -60,7 +62,7 @@ export function mapProblems(form: MapCapabilityForm): string[] {
     problems.push('Kind must be Collection or Delivery.');
   }
   if (form.kind === 'delivery' && !form.repositoryUrl.trim()) {
-    problems.push('A Delivery capability must name the repository it ships from.');
+    problems.push('Select or enter the repository this Delivery capability ships from.');
   }
   if (form.kind === 'collection' && form.repositoryUrl.trim()) {
     problems.push('A Collection cannot name a repository. Choose Delivery or clear the clone URL.');
@@ -82,35 +84,21 @@ export function mapCommand(form: MapCapabilityForm): string[] {
 export function mapCapabilityHtml(form: MapCapabilityForm): string {
   const problems = mapProblems(form);
   const parents = form.parents;
+  const repository = form.repositoryUrl.trim();
+  const lead = form.lead.trim();
+  const usesShippingRepository = Boolean(repository && repository === lead);
+  const knownLeadSelected = form.leads.includes(lead);
+  const mapStatus = form.busy && !form.loaded
+    ? `<p class="muted">${icon('waiting')}Loading the selected capability map…</p>`
+    : form.loaded
+      ? `<p class="ok-text">${icon('ok')}${form.parents.length} ${form.parents.length === 1 ? 'capability' : 'capabilities'} available as parents.</p>`
+      : '<p class="muted">Choose a repository below. Its current map is loaded automatically.</p>';
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Map a capability</h1>
     <p class="meta">What this organisation builds, and which repository each part ships from.
-      Nothing is checked out: the map lives in the lead repository, and the platform borrows it for
-      the length of the edit.</p>
+      Repository choices are made together below; no separate setup step is required.</p>
   </header>
-
-  <section class="plain">
-    <h2>${icon('repository')}Where the map lives</h2>
-    <p>
-      <label>Lead repository
-        ${form.leads.length ? `<select data-map="lead">
-          ${form.leads.map((lead) => `<option value="${escape(lead)}"${lead === form.lead ? ' selected' : ''}>${escape(lead)}</option>`).join('')}
-          <option value=""${form.lead && form.leads.includes(form.lead) ? '' : ' selected'}>— another —</option>
-        </select>`
-    : `<input type="text" value="${escape(form.lead)}" data-map="lead" size="46"
-            placeholder="https://github.com/acme/platform.git">`}
-      </label>
-      <button class="secondary" data-read="1"${form.busy || !form.lead.trim() ? ' disabled' : ''}>
-        ${form.busy && !form.loaded ? 'Reading…' : 'Read the map'}
-      </button>
-    </p>
-    ${form.leads.length ? `<p><label>Or another <input type="text" value="" data-map="leadOther" size="46"
-      placeholder="https://github.com/acme/platform.git"></label></p>` : ''}
-    ${form.loaded
-    ? `<p class="ok-text">${icon('ok')}${form.parents.length} ${form.parents.length === 1 ? 'capability' : 'capabilities'} in this map.</p>`
-    : '<p class="muted">The map is read to offer the parents this capability can sit under.</p>'}
-  </section>
 
   <section>
     <h2>${icon('capability')}The capability</h2>
@@ -131,13 +119,45 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
 
   <section>
     <h2>${icon('git')}Repository it ships from</h2>
-    <p>
-      <label>Clone URL <input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-        size="46" placeholder="https://github.com/acme/payments-api.git"${form.kind === 'collection' ? ' disabled' : ''}></label>
-    </p>
-    <p class="muted">A Collection leaves this empty. A Delivery must name the repository it ships
-      from. Either kind may contain child capabilities; the repository is declared in the portfolio
-      at the same time so a workspace can clone it.</p>
+    ${form.kind === 'delivery' ? `<div class="form-grid">
+      <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
+        placeholder="https://github.com/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
+    </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository.</p>'}
+
+    <div class="editor-card">
+      <p class="eyebrow">Capability map</p>
+      <h3>${icon('repository')}Where this capability is recorded</h3>
+      ${form.leads.length > 1 ? `<label class="field"><span>Repository</span><select data-map="lead">
+        <option value=""${knownLeadSelected || usesShippingRepository ? '' : ' selected'}>Choose a repository…</option>
+        ${form.leads.map((choice) => `<option value="${escape(choice)}"${choice === lead ? ' selected' : ''}>${escape(choice)}</option>`).join('')}
+        ${usesShippingRepository && !knownLeadSelected
+    ? `<option value="${escape(lead)}" selected>${escape(lead)} (shipping repository)</option>` : ''}
+      </select><small>More than one capability map is available, so choose the one this belongs to.</small></label>` : ''}
+      ${form.leads.length === 1 ? `<label class="choice${knownLeadSelected ? ' chosen' : ''}">
+        <input type="radio" name="capability-map-repository" value="${escape(form.leads[0])}" data-map="lead"${knownLeadSelected ? ' checked' : ''}
+          aria-label="Only available capability-map repository">
+        <span class="choice-label">${icon('repository')}${escape(form.leads[0])}</span>
+        <span class="choice-detail">${knownLeadSelected
+    ? 'Selected automatically because it is the only available capability map.'
+    : 'Use the existing capability map instead of the shipping repository.'}</span>
+      </label>` : ''}
+      ${!form.leads.length && form.kind === 'collection' ? `<label class="field full"><span>Repository</span>
+        <input type="text" value="${escape(form.lead)}" data-map="lead" placeholder="https://github.com/acme/platform.git">
+        <small>No capability-map repository is registered yet. Enter the repository that should hold it.</small></label>` : ''}
+      ${form.kind === 'delivery' ? `<label class="choice${usesShippingRepository ? ' chosen' : ''}">
+        <input type="checkbox" data-use-shipping-repository${usesShippingRepository ? ' checked' : ''}${repository ? '' : ' disabled'}>
+        <span class="choice-label">Use this repository for the capability map</span>
+        <span class="choice-detail">${repository
+    ? 'Record the capability map in the same repository entered above.'
+    : 'Enter the shipping repository first to make this option available.'}</span>
+      </label>` : ''}
+      ${!lead && form.leads.length > 1
+    ? `<p class="warning-text">${icon('warning')}Choose one of the available capability-map repositories.</p>`
+    : !lead && form.kind === 'delivery'
+      ? `<p class="warning-text">${icon('warning')}No capability-map repository is selected. Enter the shipping repository and keep the checkbox selected, or choose an existing map.</p>`
+      : ''}
+      ${mapStatus}
+    </div>
   </section>
 
   <section>
@@ -168,10 +188,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
 export const MAP_CAPABILITY_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-read],[data-map-submit]');
+    const target = event.target.closest('[data-map-submit]');
     if (!target) return;
-    if (target.dataset.read !== undefined) vscode.postMessage({ type: 'read' });
-    else vscode.postMessage({ type: 'map' });
+    vscode.postMessage({ type: 'map' });
   });
   const report = (event) => {
     const field = event.target.dataset?.map;
@@ -184,8 +203,15 @@ export const MAP_CAPABILITY_SCRIPT = `
   document.addEventListener('change', (event) => {
     report(event);
     const field = event.target.dataset?.map;
-    if (field === 'lead' || field === 'parent' || field === 'kind') {
+    if (field === 'lead') {
+      vscode.postMessage({ type: 'selectLead', value: event.target.value });
+    } else if (field === 'repositoryUrl') {
+      vscode.postMessage({ type: 'repositoryCommitted', value: event.target.value });
+    } else if (field === 'parent' || field === 'kind') {
       vscode.postMessage({ type: 'redraw' });
+    }
+    if (event.target.matches('[data-use-shipping-repository]')) {
+      vscode.postMessage({ type: 'useShippingRepository', checked: event.target.checked });
     }
   });
 `;

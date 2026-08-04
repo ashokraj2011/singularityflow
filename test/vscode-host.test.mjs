@@ -960,6 +960,15 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.match(loaded, /data-profile="epic-planning"/);
   assert.match(loaded, /epic-intake/);
 
+  // Story intake reads workflow.yml through `workflow list`, selects the repository's familiar
+  // default, and therefore never asks the non-interactive extension to answer a terminal prompt.
+  await intakePanel.post({ type: 'shape', value: 'story' });
+  const storyForm = await until(() =>
+    (intakePanel.webview.html.includes('data-work-type="feature"') ? intakePanel.webview.html : null));
+  assert.match(storyForm, /Story workflow/);
+  assert.match(storyForm, /data-work-type="feature"[^>]*checked/);
+  assert.match(storyForm, /implementation/);
+
   await intakePanel.post({ type: 'shape', value: 'epic' });
   await intakePanel.post({ type: 'tracker', value: 'none' });
   await intakePanel.post({ type: 'field', field: 'title', value: 'One-tap checkout' });

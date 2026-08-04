@@ -2050,7 +2050,15 @@ const INTAKE_CHOICES = {
       phases: ['epic-intake', 'epic-requirements', 'epic-impact', 'epic-planning'] },
     { id: 'enterprise-delivery', label: 'Enterprise delivery', description: '7 governed phases',
       phases: ['discover-define', 'design-iterate', 'pre-inception', 'inception', 'elaboration', 'construction', 'delivery'] }
-  ]
+  ],
+  storyWorkflows: [
+    { id: 'feature', label: 'Feature', description: 'Build a new capability',
+      phases: ['intake', 'requirements', 'design', 'implementation', 'verification'] },
+    { id: 'bugfix', label: 'Bug fix', description: 'Diagnose and correct a defect',
+      phases: ['intake', 'reproduction', 'fix-design', 'implementation', 'verification'] }
+  ],
+  workType: 'feature',
+  workflowReason: null
 };
 const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
@@ -2171,18 +2179,39 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     'start', 'checkout-retry', '--json',
     '--title', 'Retry a failed charge',
     '--description', 'One retry with backoff',
+    '--work-type', 'feature',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
   assert.match(intakeHtml(form), /data-field="acceptanceCriteria"/);
-  // A Story takes its phases from its work type, so there is no profile to choose.
+  // A Story takes its phases from its workflow, so there is no Initiative profile to choose.
   assert.equal(needsProfile('story'), false);
   assert.doesNotMatch(intakeHtml(form), /Delivery profile/);
+  assert.match(intakeHtml(form), /Story workflow/);
+  assert.match(intakeHtml(form), /data-work-type="feature"/);
+  assert.match(intakeHtml(form), /reproduction/);
 });
 
 test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);
-  assert.deepEqual(intakeCommand(form), ['story', 'start', 'ENG-142', '--json']);
+  assert.deepEqual(intakeCommand(form), [
+    'story', 'start', 'ENG-142', '--json', '--work-type', 'feature'
+  ]);
+});
+
+test('Story intake refuses to fall through to an interactive workflow prompt', () => {
+  const missing = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',
+    description: 'Retry once', storyWorkflows: [], workType: null,
+    workflowReason: 'Could not load Story workflows from this repository.'
+  });
+  assert.match(intakeProblems(missing).join(' '), /Could not load Story workflows/);
+  assert.match(intakeHtml(missing), /Could not load Story workflows/);
+
+  const selected = { ...missing, storyWorkflows: INTAKE_CHOICES.storyWorkflows,
+    workType: 'bugfix', workflowReason: null };
+  assert.deepEqual(intakeProblems(selected), []);
+  assert.match(intakeCommand(selected).join(' '), /--work-type bugfix/);
 });
 
 test('the profiles are shown with the phases that distinguish them', () => {

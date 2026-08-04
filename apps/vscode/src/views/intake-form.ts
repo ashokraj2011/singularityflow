@@ -52,6 +52,11 @@ export interface IntakeForm {
   acceptanceCriteria: string;
   profile: string | null;
   profiles: ProfileChoice[];
+  /** Story workflow selected from workflow.yml. Passed explicitly because VS Code has no TTY. */
+  workType: string | null;
+  storyWorkflows: ProfileChoice[];
+  /** Why Story workflows could not be loaded, when the repository could not provide them. */
+  workflowReason: string | null;
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -63,7 +68,8 @@ export interface IntakeForm {
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
-  acceptanceCriteria: '', profile: null, profiles: [],
+  acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  workflowReason: null,
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
 
@@ -142,6 +148,13 @@ export function intakeProblems(form: IntakeForm): string[] {
   if (needsProfile(form.shape) && form.profiles.length && !form.profile) {
     problems.push('Choose the delivery profile, which decides the phases this runs.');
   }
+  if (form.shape === 'story') {
+    if (form.storyWorkflows.length && !form.workType) {
+      problems.push('Choose the Story workflow, which decides the phases this runs.');
+    } else if (!form.storyWorkflows.length) {
+      problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
+    }
+  }
   if (identifier && form.inFlight.some((entry) => entry.id === identifier)) {
     problems.push(`'${identifier}' has already been started. Open it rather than starting it again.`);
   }
@@ -183,9 +196,10 @@ export function intakeCommand(form: IntakeForm): string[] {
   }
 
   // A Story with a tracker is fetched by key; without one, its content is what was typed here.
-  if (tracked) return ['story', 'start', identifier, '--json'];
+  if (tracked) return ['story', 'start', identifier, '--json', '--work-type', form.workType!];
   const args = ['start', identifier, '--json',
-    '--title', form.title.trim(), '--description', form.description.trim()];
+    '--title', form.title.trim(), '--description', form.description.trim(),
+    '--work-type', form.workType!];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -299,6 +313,36 @@ function profileHtml(form: IntakeForm): string {
   </section>`;
 }
 
+/**
+ * Story workflow selection is deliberately part of intake.
+ *
+ * The CLI can ask this question in a terminal; a VS Code webview cannot. Showing the repository's
+ * configured workflows here keeps the decision visible and means every Story start carries an
+ * explicit `--work-type` instead of falling into the non-interactive guard.
+ */
+function storyWorkflowHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
+  if (!form.storyWorkflows.length) {
+    return `<section><h2>${icon('workflow')}Story workflow</h2>
+      <p class="blockers">${escape(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.')}</p></section>`;
+  }
+  return `
+  <section>
+    <h2>${icon('workflow')}Story workflow</h2>
+    <p class="question">Choose the workflow template for this Story. Its ordered phases are pinned
+      when work starts and cannot change underneath the Story.</p>
+    <div class="choices">
+      ${form.storyWorkflows.map((workflow) => `
+      <label class="choice${workflow.id === form.workType ? ' chosen' : ''}">
+        <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
+        <span class="choice-label">${escape(workflow.label)}</span>
+        <span class="choice-detail">${escape(workflow.description)}</span>
+        <span class="choice-detail phases">${workflow.phases.map((phase) => `<code>${escape(phase)}</code>`).join(' → ')}</span>
+      </label>`).join('')}
+    </div>
+  </section>`;
+}
+
 /** What is already under way, so nobody starts the same thing twice. */
 function inFlightHtml(form: IntakeForm): string {
   if (!form.inFlight.length) return '';
@@ -342,6 +386,7 @@ export function intakeHtml(form: IntakeForm): string {
   </section>
 
   ${profileHtml(form)}
+  ${storyWorkflowHtml(form)}
   ${inFlightHtml(form)}
 
   <section>
@@ -376,6 +421,7 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });
     if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
     if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
+    if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {

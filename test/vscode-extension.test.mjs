@@ -1613,7 +1613,7 @@ const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
 const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
-const { EMPTY_MAP_FORM, mapCapabilityHtml, mapProblems } =
+const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapProblems } =
   await import(source('views/map-capability-form.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
@@ -1684,6 +1684,28 @@ test('the shipping repository can become the first capability-map repository in 
   assert.match(html, /data-use-shipping-repository checked/);
   assert.match(html, /Use this repository for the capability map/);
   assert.doesNotMatch(html, /Choose which repository stores the capability map/);
+});
+
+test('capability identifier validation updates in place without reloading the webview', () => {
+  const repository = 'https://git.example/rule-ui.git';
+  const base = {
+    ...EMPTY_MAP_FORM,
+    kind: 'delivery', repositoryUrl: repository, lead: repository, loaded: true
+  };
+
+  assert.equal(capabilityIdentifierProblem({ ...base, capabilityId: 'RuleUX' }),
+    'The identifier must be lower-case kebab-case, like payments-api.');
+  assert.equal(capabilityIdentifierProblem({ ...base, capabilityId: 'rule-ux' }), null);
+
+  const blocked = mapCapabilityHtml(base);
+  assert.match(blocked, /<li data-map-identifier-problem>Give the capability an identifier\.<\/li>/);
+  assert.match(blocked, /data-map-submit="1"[^>]* disabled/);
+
+  const ready = mapCapabilityHtml({ ...base, capabilityId: 'rule-ux' });
+  assert.match(ready, /<li data-map-identifier-problem hidden><\/li>/);
+  assert.doesNotMatch(ready, /data-map-submit="1"[^>]* disabled/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /syncIdentifierValidation/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /submit\.disabled = hasProblems/);
 });
 
 test('a declared policy value an ancestor overrides is shown as overridden, not as what was written', () => {

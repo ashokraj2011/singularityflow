@@ -72,7 +72,7 @@ for repository-owned configuration:
   phase scope, instructions, tool policy, and added world-model views.
 - **Prompt, Skill, and Prompt Pack Designer** — inspect and edit reusable Markdown,
   assemble ordered packs, and preview the final composition.
-- **Capability Designer** — add or edit business/grouping and delivery
+- **Capability Designer** — add or edit collection and delivery
   capabilities, connect repositories and Jira routes, and view inherited policy.
 - **Integrations and policy** — Jira, storage, Teams notifications, approval
   authorities, remote-agent locks, and world-model rules.
@@ -121,4 +121,3 @@ code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 
 Then run **Developer: Reload Window**. Open the Singularity Flow activity-bar icon,
 select a workspace, and use Lifecycle to start or resume governed work.
-

@@ -150,17 +150,17 @@ export async function readOrganisation(url) {
 /**
  * Map a git repository to a capability, in the lead repository's map.
  *
- * A capability that names a repository is a leaf that ships; one that does not groups the
- * capabilities beneath it. So `repository` is what makes this a mapping rather than a grouping, and
- * it is declared in the portfolio at the same time — a capability pointing at a repository nobody
- * configured looks fine until something tries to clone it.
+ * `kind` states the structural responsibility: a collection groups related capabilities, while a
+ * delivery capability ships from one or more repositories. A delivery may still contain children.
+ * Repositories are declared in the portfolio at the same time — a capability pointing at a
+ * repository nobody configured looks fine until something tries to clone it.
  *
  * @param leadUrl the repository holding the map. When it holds none yet, this call establishes it.
  */
 export async function mapCapability(leadUrl, {
   capabilityId,
   name = null,
-  kind = 'service',
+  kind = null,
   type = null,
   parent = null,
   repositoryUrl = null,
@@ -194,6 +194,7 @@ export async function mapCapability(leadUrl, {
     // Every repository this capability ships from, declared in the portfolio so the capability may
     // name them. A capability commonly has one; a product with a web app and a service has two.
     const urls = [...new Set([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls])];
+    const effectiveKind = kind ?? (urls.length ? 'delivery' : 'collection');
     const repositoryIds = [];
     if (urls.length) {
       const file = path.join(root, PORTFOLIO_PATH);
@@ -229,7 +230,7 @@ export async function mapCapability(leadUrl, {
     document.setIn(['capabilities', capabilityId], document.createNode({}));
     const set = (key, value) => document.setIn(['capabilities', capabilityId, ...key.split('.')], value);
     set('name', name ?? capabilityId);
-    set('kind', kind);
+    set('kind', effectiveKind);
     if (type) set('type', type);
     set('parent', parent || null);
     // One repository is written as the shorthand every existing map already uses; several are

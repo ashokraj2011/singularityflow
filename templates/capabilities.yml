@@ -16,7 +16,7 @@ capabilities:
       protectedPaths: [singularity/workflow.yml, singularity/capabilities.yml]
 
   product:
-    kind: business
+    kind: collection
     parent: enterprise
     owns: [initiatives, stories]
     policy: {}

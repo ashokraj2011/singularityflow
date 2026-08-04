@@ -15,8 +15,8 @@ import type { CapabilityNode, CapabilityPolicyValue as PolicyValue } from '../cl
 
 export type { PolicyValue };
 
-/** The two capability shapes exposed by the editor. */
-export const CAPABILITY_KINDS = ['business', 'collection'] as const;
+/** The two structural capability kinds exposed by every surface. */
+export const CAPABILITY_KINDS = ['collection', 'delivery'] as const;
 
 export interface PolicyField {
   key: string;
@@ -126,7 +126,7 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     name: row.name,
     kind: row.kind,
     ancestors: row.ancestors,
-    delivery: Boolean(row.repository),
+    delivery: row.kind === 'delivery',
     repository: row.repository ?? null,
     jira: row.jira ?? null,
     teams: row.teams ?? [],
@@ -145,9 +145,8 @@ const EDIT_FLAGS: Array<[string, string]> = [
 /**
  * The CLI call one edit becomes.
  *
- * An empty value is passed rather than dropped: `--repository ''` turns a delivery capability back
- * into a grouping, while omitting the flag says nothing about it. Those are different edits, and a
- * form that could only ever set things would make the second one unreachable.
+ * Empty values are passed rather than dropped. A collection/delivery change and its repository edit
+ * therefore reach the engine in one validated operation.
  */
 export function capabilityArgv(
   mode: 'add' | 'set' | 'remove',

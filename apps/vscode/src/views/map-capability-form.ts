@@ -17,10 +17,7 @@ import { escape, icon } from './webview.ts';
 /** A capability already in the map, offered as a parent. */
 export interface ParentChoice { id: string; name: string; depth: number; ships: boolean }
 
-/**
- * Kept as an export for callers that seed the form. Existing custom values are preserved when an
- * older map is opened, while every newly created capability starts from this controlled vocabulary.
- */
+/** The same closed structural vocabulary used by the engine and schema. */
 export { CAPABILITY_KINDS };
 
 export interface MapCapabilityForm {
@@ -29,7 +26,6 @@ export interface MapCapabilityForm {
   capabilityId: string;
   name: string;
   kind: string;
-  kinds: string[];
   parent: string;
   parents: ParentChoice[];
   repositoryUrl: string;
@@ -42,7 +38,7 @@ export interface MapCapabilityForm {
 }
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
-  lead: '', leads: [], capabilityId: '', name: '', kind: 'business', kinds: [...CAPABILITY_KINDS],
+  lead: '', leads: [], capabilityId: '', name: '', kind: 'collection',
   parent: '', parents: [], repositoryUrl: '', jiraProject: '', teams: '',
   loaded: false, busy: false, error: null
 };
@@ -59,6 +55,15 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   }
   if (form.loaded && form.parents.length && !form.parent) {
     problems.push('Choose the capability this belongs under.');
+  }
+  if (!CAPABILITY_KINDS.includes(form.kind as typeof CAPABILITY_KINDS[number])) {
+    problems.push('Kind must be Collection or Delivery.');
+  }
+  if (form.kind === 'delivery' && !form.repositoryUrl.trim()) {
+    problems.push('A Delivery capability must name the repository it ships from.');
+  }
+  if (form.kind === 'collection' && form.repositoryUrl.trim()) {
+    problems.push('A Collection cannot name a repository. Choose Delivery or clear the clone URL.');
   }
   return problems;
 }
@@ -115,8 +120,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
       <label class="field"><span>Display name</span><input type="text" value="${escape(form.name)}" data-map="name"
         placeholder="Payments API"></label>
       <label class="field"><span>Kind</span><select data-map="kind">
-        ${form.kinds.map((kind) => `<option value="${escape(kind)}"${kind === form.kind ? ' selected' : ''}>${escape(kind)}</option>`).join('')}
-      </select><small>Business delivers value; Collection groups related capabilities.</small></label>
+        ${CAPABILITY_KINDS.map((kind) => `<option value="${escape(kind)}"${kind === form.kind ? ' selected' : ''}>${kind === 'collection' ? 'Collection' : 'Delivery'}</option>`).join('')}
+      </select><small>Collection groups related capabilities; Delivery ships from repositories.</small></label>
       <label class="field"><span>Linked under</span><select data-map="parent"${form.loaded ? '' : ' disabled'}>
         <option value=""${form.parent ? '' : ' selected'}>${parents.length ? 'Choose a capability…' : 'Top of the tree'}</option>
         ${parents.map((parent) => `<option value="${escape(parent.id)}"${parent.id === form.parent ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(parent.depth)}${escape(parent.name)}</option>`).join('')}
@@ -128,11 +133,11 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     <h2>${icon('git')}Repository it ships from</h2>
     <p>
       <label>Clone URL <input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-        size="46" placeholder="https://github.com/acme/payments-api.git"></label>
+        size="46" placeholder="https://github.com/acme/payments-api.git"${form.kind === 'collection' ? ' disabled' : ''}></label>
     </p>
-    <p class="muted">Leave this empty for a grouping — a capability that organises the ones beneath
-      it rather than shipping anything itself. Naming a repository makes this a leaf, and the
-      repository is declared in the portfolio at the same time so a workspace can clone it.</p>
+    <p class="muted">A Collection leaves this empty. A Delivery must name the repository it ships
+      from. Either kind may contain child capabilities; the repository is declared in the portfolio
+      at the same time so a workspace can clone it.</p>
   </section>
 
   <section>

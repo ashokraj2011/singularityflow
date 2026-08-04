@@ -641,8 +641,10 @@ These two concepts answer different questions:
 | Capability | What does the organisation build, and which repositories deliver it? | Shared lead Git repository | `singularity/capabilities.yml` and the state branch |
 | Workspace | Where does this person work on selected capabilities and repositories? | Local machine | `workspace.json` plus the machine workspace registry |
 
-A **capability** is a durable business or technology ownership boundary. It may
-group other capabilities, or it may map to one or more delivery repositories.
+A **capability** is a durable ownership boundary. Its `kind` is exactly one of:
+`collection`, which groups related capabilities and names no repository; or
+`delivery`, which ships from one or more repositories. Either kind may contain
+children. Optional `type: tech|business` is a separate domain classification.
 Repository, Jira-project, team, documentation, resource, and lead-repository
 metadata belong here because they remain true when another contributor clones
 the work. A capability is not a phase, governed agent, Story, or local folder.

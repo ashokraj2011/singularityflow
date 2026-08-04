@@ -71,9 +71,8 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
 /**
  * What the organisation builds, as the tree it already is.
  *
- * A capability that names a repository is a leaf that ships; one that does not groups the
- * capabilities beneath it. That distinction decides the icon, because it is the only structural
- * fact about a capability that matters to a reader scanning the tree.
+ * Kind decides the icon: a collection groups related capabilities and a delivery ships from one or
+ * more repositories. Either kind may contain children, so the icon does not imply leaf status.
  */
 /**
  * What `capability organisation --readiness --json` answers, keyed by repository id.
@@ -129,8 +128,7 @@ export function buildCapabilityTree(
       ? capability.repositories
       : (capability.repository ? [capability.repository] : []);
     return {
-      // Whether a capability ships is decided by naming a repository, not by what its `kind` says.
-      kind: repositories.length ? 'repository' : 'group',
+      kind: capability.kind === 'delivery' ? 'repository' : 'group',
       id: `capability:${capability.id}`,
       label: capability.name,
       // The lead is the one worth naming here: it is where the governed state lives, and the others
@@ -148,7 +146,7 @@ export function buildCapabilityTree(
         capability.jira?.projectKey ? `Jira ${capability.jira.projectKey}` : null,
         capability.teams?.length ? `Teams: ${capability.teams.join(', ')}` : null
       ].filter(Boolean).join('\n'),
-      icon: repositories.length ? 'repo' : 'type-hierarchy',
+      icon: capability.kind === 'delivery' ? 'repo' : 'type-hierarchy',
       // One value for every capability. There was a `.delivery` variant here, from when shipping and
       // containing were exclusive; the menu that gated "add one inside" on the plain value therefore
       // hid it from exactly the capabilities that ship — which may now contain others too.

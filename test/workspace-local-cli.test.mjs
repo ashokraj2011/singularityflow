@@ -220,9 +220,9 @@ async function describe(base, source, { portfolio = true } = {}) {
   await writeFile(path.join(seed, 'singularity/capabilities.yml'), [
     'version: 1',
     'capabilities:',
-    '  commerce: { name: Commerce, kind: portfolio, parent: null }',
-    '  payments-api: { name: Payments API, kind: service, parent: commerce, repository: api }',
-    '  storefront-web: { name: Storefront Web, kind: service, parent: commerce, repository: web }',
+    '  commerce: { name: Commerce, kind: collection, parent: null }',
+    '  payments-api: { name: Payments API, kind: delivery, parent: commerce, repository: api }',
+    '  storefront-web: { name: Storefront Web, kind: delivery, parent: commerce, repository: web }',
     ''
   ].join('\n'));
   if (portfolio) {

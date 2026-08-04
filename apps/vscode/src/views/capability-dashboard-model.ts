@@ -55,9 +55,7 @@ function rootSummary(root: CapabilityNode): CapabilityRootSummary {
     name: root.name,
     kind: root.kind,
     capabilities: rows.length,
-    deliveryCapabilities: rows.filter((row) => Boolean(
-      row.repositories?.length || row.repository
-    )).length,
+    deliveryCapabilities: rows.filter((row) => row.kind === 'delivery').length,
     repositories: [...repositories].sort(),
     jiraProjects: [...jiraProjects].sort(),
     teams: [...teams].sort()
@@ -84,9 +82,7 @@ export function buildCapabilityDashboard(snapshot: RepositorySnapshot | null): C
 
   return {
     capabilities: rows.length,
-    deliveryCapabilities: rows.filter((row) => Boolean(
-      row.repositories?.length || row.repository
-    )).length,
+    deliveryCapabilities: rows.filter((row) => row.kind === 'delivery').length,
     repositories: repositories.size,
     jiraRoutes: jiraProjects.size,
     openWork,

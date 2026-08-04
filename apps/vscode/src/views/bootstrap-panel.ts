@@ -8,7 +8,7 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import {
-  CAPABILITY_KINDS, EMPTY_MAP_FORM, mapCapabilityHtml, mapCommand, mapProblems,
+  EMPTY_MAP_FORM, mapCapabilityHtml, mapCommand, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type ParentChoice
 } from './map-capability-form.ts';
 
@@ -27,14 +27,6 @@ function parentChoices(nodes: Organisation['capabilities'], depth = 0): ParentCh
   return nodes.flatMap((node) => [
     { id: node.id, name: node.name, depth, ships: Boolean(node.repository) },
     ...parentChoices((node.children ?? []) as Organisation['capabilities'], depth + 1)
-  ]);
-}
-
-/** The kinds this map already uses, so a vocabulary somebody chose is not quietly replaced. */
-function kindsInUse(nodes: Organisation['capabilities']): string[] {
-  return nodes.flatMap((node) => [
-    ...(node.kind ? [node.kind] : []),
-    ...kindsInUse((node.children ?? []) as Organisation['capabilities'])
   ]);
 }
 
@@ -110,6 +102,7 @@ export class BootstrapPanel {
           this.form = { ...this.form, loaded: false, parents: [], parent: '' };
         }
         this.form[field] = message.value;
+        if (field === 'kind' && message.value === 'collection') this.form.repositoryUrl = '';
       }
       return;
     }
@@ -127,9 +120,6 @@ export class BootstrapPanel {
         busy: false,
         loaded: true,
         parents,
-        // Kinds the map already uses come first: an organisation that chose its own words keeps
-        // them, and a dropdown that cannot express what is already there is worse than free text.
-        kinds: [...new Set([...kindsInUse(organisation.capabilities ?? []), ...CAPABILITY_KINDS])],
         error: organisation.governed ? null : `${this.form.lead} holds no capability map yet.`
       });
       return;

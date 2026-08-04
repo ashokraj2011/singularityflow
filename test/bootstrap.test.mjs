@@ -65,6 +65,8 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   const map = YAML.parse(await readFile(path.join(result.root, 'singularity/capabilities.yml'), 'utf8'));
   assert.deepEqual(Object.keys(map.capabilities), ['commerce']);
   assert.equal(map.capabilities.commerce.name, 'Commerce');
+  assert.equal(map.capabilities.commerce.kind, 'collection');
+  assert.equal(map.capabilities.commerce.repository, undefined);
   assert.equal(map.capabilities.commerce.parent, null);
   assert.equal(map.capabilities.commerce.jira.projectKey, 'COM');
   assert.deepEqual(map.capabilities.commerce.teams, ['Platform', 'Payments']);
@@ -113,11 +115,15 @@ test('the portfolio still parses, and still reads as the commented file it is', 
   // twice and nothing could parse it — including every command that would have reported the problem.
   const { base, bare } = await remote();
   const result = await bootstrapRepository(bare, {
-    capabilityId: 'commerce', base: path.join(base, 'work'), push: false
+    capabilityId: 'commerce', kind: 'delivery', base: path.join(base, 'work'), push: false
   });
   const text = await readFile(path.join(result.root, 'singularity/portfolio.yml'), 'utf8');
   assert.equal((text.match(/^repositories:/gm) ?? []).length, 1);
   assert.doesNotThrow(() => YAML.parse(text));
+  const capabilities = YAML.parse(await readFile(
+    path.join(result.root, 'singularity/capabilities.yml'), 'utf8'));
+  assert.equal(capabilities.capabilities.commerce.kind, 'delivery');
+  assert.equal(capabilities.capabilities.commerce.repository, 'acme-platform');
   // The commentary that explains each setting survived, on the first thing anybody does to the file.
   assert.match(text, /^#/m);
 });

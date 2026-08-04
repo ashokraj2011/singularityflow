@@ -24,8 +24,11 @@
         ],
         "properties": {
           "kind": {
-            "type": "string",
-            "minLength": 1
+            "description": "Structural responsibility: collections group capabilities; deliveries ship from repositories.",
+            "enum": [
+              "collection",
+              "delivery"
+            ]
           },
           "parent": {
             "type": [
@@ -141,7 +144,7 @@
             "additionalProperties": false
           },
           "type": {
-            "description": "What this capability is. Hard-coded: a closed pair is the point of the field.",
+            "description": "Optional domain classification, separate from the collection/delivery structural kind.",
             "enum": [
               "tech",
               "business"
@@ -187,6 +190,38 @@
             }
           }
         },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "kind": { "const": "collection" } },
+              "required": ["kind"]
+            },
+            "then": {
+              "not": {
+                "anyOf": [
+                  { "required": ["repository"] },
+                  { "required": ["repositories"] },
+                  { "required": ["leadRepository"] }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "kind": { "const": "delivery" } },
+              "required": ["kind"]
+            },
+            "then": {
+              "anyOf": [
+                { "required": ["repository"] },
+                {
+                  "required": ["repositories"],
+                  "properties": { "repositories": { "minItems": 1 } }
+                }
+              ]
+            }
+          }
+        ],
         "additionalProperties": false
       }
     }

@@ -28,7 +28,7 @@ import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
 import { initializeDefinition } from './config.mjs';
-import { CAPABILITIES_PATH, validateCapabilities } from './capabilities.mjs';
+import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
 import { remoteDefaultBranch } from './workspace.mjs';
 import { identity } from './git.mjs';
@@ -95,11 +95,14 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
  * fail with "requires exactly one root", which describes the rule and not the situation. Naming
  * your own capability is the entire point of this operation, so the placeholder gives way to it.
  */
-async function describeCapability(root, { capabilityId, capabilityName, kind, jiraProject, teams }) {
+async function describeCapability(root, {
+  capabilityId, capabilityName, kind, repositoryId, jiraProject, teams
+}) {
   const capability = {
     name: capabilityName ?? capabilityId,
     kind,
     parent: null,
+    ...(kind === 'delivery' ? { repository: repositoryId } : {}),
     ...(jiraProject ? { jira: { projectKey: jiraProject } } : {}),
     ...(teams.length ? { teams } : {})
   };
@@ -108,8 +111,8 @@ async function describeCapability(root, { capabilityId, capabilityName, kind, ji
     '# What this organisation builds. The lead repository holds this map; every other repository is',
     '# something a capability delivers.',
     '#',
-    '# A capability that names a repository is a leaf that ships; one that does not groups the',
-    '# capabilities beneath it. Policy folds from this root toward each child and every fold is',
+    '# Kind is structural: a collection groups related capabilities; a delivery ships from one or',
+    '# more repositories and may still contain children. Policy folds from this root toward each child and every fold is',
     '# monotonic, so a child may tighten what an ancestor set and can never loosen it.',
     '',
     document
@@ -140,7 +143,7 @@ export async function enableLedger(root, branch) {
 export async function bootstrapRepository(url, {
   capabilityId,
   capabilityName = null,
-  kind = 'portfolio',
+  kind = 'collection',
   jiraProject = null,
   teams = [],
   into = null,
@@ -151,6 +154,9 @@ export async function bootstrapRepository(url, {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
+  if (!CAPABILITY_KINDS.includes(kind)) {
+    throw new SingularityFlowError(`Capability kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
+  }
 
   const repositoryId = repositoryIdFromUrl(remote);
   const root = into
@@ -183,7 +189,9 @@ export async function bootstrapRepository(url, {
 
   const wrote = await initializeDefinition(root);
   await describeRepository(root, repositoryId, remote, branch, actor);
-  await describeCapability(root, { capabilityId, capabilityName, kind, jiraProject, teams });
+  await describeCapability(root, {
+    capabilityId, capabilityName, kind, repositoryId, jiraProject, teams
+  });
 
   if (stateBranch) await enableLedger(root, stateBranch);
 

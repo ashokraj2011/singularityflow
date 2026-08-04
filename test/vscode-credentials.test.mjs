@@ -26,10 +26,15 @@ test('VS Code SecretStorage is the only Jira credential persistence path', async
 });
 
 test('secure provider tokens are scoped by provider and Jira refuses plaintext transport', async () => {
-  const credentials = new SecureCredentials(new MemorySecrets());
+  const secrets = new MemorySecrets();
+  const credentials = new SecureCredentials(secrets);
   await credentials.saveProviderToken('sharepoint-main', 'provider-secret');
+  await credentials.saveTeamsWebhook('https://teams.example.com/hooks/demo');
   assert.equal(await credentials.providerToken('sharepoint-main'), 'provider-secret');
   await assert.rejects(() => credentials.saveJira({
     deployment: 'cloud', baseUrl: 'http://jira.example.com', username: 'person'
   }, 'token'), /HTTPS/);
+  await credentials.resetAll();
+  assert.equal(await credentials.providerToken('sharepoint-main'), undefined);
+  assert.equal(secrets.values.size, 0);
 });

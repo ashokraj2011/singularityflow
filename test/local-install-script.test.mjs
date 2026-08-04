@@ -28,6 +28,11 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /COPILOT_OTEL_EXPORTER_TYPE=file/);
   assert.match(script, /singularity-flow\/copilot-otel\.jsonl/);
   assert.match(script, /--no-copilot-telemetry/);
+  assert.match(script, /--factory-reset/);
+  assert.match(script, /fresh-install-reset\.mjs --yes/);
+  assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
+  assert.match(script, /npm run vscode:package/);
+  assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);
   assert.match(script, /Prompt\/response content remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
@@ -63,8 +68,10 @@ test('standalone install script executes the complete workflow with one invocati
   await fake('git', 'if [[ "$*" == "status --porcelain" ]]; then exit 0; fi');
   await fake('npm', `
 if [[ "$*" == "config get registry" ]]; then printf '%s\\n' 'https://registry.npmjs.org/'; exit 0; fi
-if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-flow-test.tgz"}]'; exit 0; fi`);
+if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-flow-test.tgz"}]'; exit 0; fi
+if [[ "$*" == "run vscode:package" ]]; then mkdir -p "$PWD/apps/vscode"; touch "$PWD/apps/vscode/singularity-flow-vscode-${version}.vsix"; fi`);
   await fake('copilot', 'if [[ "$*" == "plugin list" ]]; then printf "%s\\n" "Installed plugins: singularity-flow@singularity-flow"; fi');
+  await fake('code', 'true');
   await fake('singularity-flow', `if [[ "$*" == "--version" ]]; then printf "%s\\n" "${version}"; fi`);
 
   const registry = 'https://artifacts.example.com/api/npm/npm-virtual/';
@@ -98,6 +105,8 @@ if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-f
     'npm pack --json',
     'npm uninstall --global singularity-flow',
     `npm install --global ${fixture}/singularity-flow-test.tgz --registry=${registry}`,
+    'npm run vscode:package',
+    `code --install-extension ${fixture}/apps/vscode/singularity-flow-vscode-${version}.vsix --force`,
     'singularity-flow plugin install',
     'copilot plugin list'
   ]) assert.match(commands, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

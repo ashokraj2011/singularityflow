@@ -6,15 +6,21 @@ PUBLIC_REGISTRY="https://registry.npmjs.org/"
 REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-}"
 ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 CLI_ONLY="off"
+FACTORY_RESET="off"
+FACTORY_RESET_CONFIRMED="off"
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--factory-reset [--yes]]' \
     '' \
     'Pull, build, test, package, and globally install the Singularity Flow CLI,' \
     'and build the VS Code extension,' \
     'replace all previous Copilot plugin copies, and enable metadata-only' \
-    'Copilot OpenTelemetry for model, token, and cost collection.'
+    'Copilot OpenTelemetry for model, token, and cost collection.' \
+    '' \
+    '--factory-reset previews a machine-wide fresh install. Add --yes to delete' \
+    'every validated registered workspace and its clones, all Singularity local' \
+    'state and managed Copilot assets, then reinstall this checkout.'
 }
 
 while (($#)); do
@@ -37,6 +43,14 @@ while (($#)); do
       ENABLE_COPILOT_TELEMETRY="off"
       shift
       ;;
+    --factory-reset)
+      FACTORY_RESET="on"
+      shift
+      ;;
+    --yes)
+      FACTORY_RESET_CONFIRMED="on"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -53,6 +67,11 @@ case "$ENABLE_COPILOT_TELEMETRY" in
   on|off) ;;
   *) printf '%s\n' 'Error: SINGULARITY_FLOW_COPILOT_TELEMETRY must be on or off.' >&2; exit 1 ;;
 esac
+
+if [[ "$FACTORY_RESET_CONFIRMED" == "on" && "$FACTORY_RESET" != "on" ]]; then
+  printf '%s\n' 'Error: --yes is valid only with --factory-reset.' >&2
+  exit 1
+fi
 
 REQUIRED_COMMANDS=(git node npm)
 if [[ "$CLI_ONLY" != "on" ]]; then REQUIRED_COMMANDS+=(copilot); fi
@@ -179,6 +198,24 @@ fi
 printf '%s\n' 'Updating the current tracked branch...'
 git pull --ff-only
 
+if [[ "$FACTORY_RESET" == "on" ]]; then
+  printf '%s\n' 'Validating the complete fresh-install deletion boundary...'
+  node scripts/fresh-install-reset.mjs
+  if [[ "$FACTORY_RESET_CONFIRMED" != "on" ]]; then
+    printf '%s\n' 'Preview only: nothing was deleted. Review the paths above, then add --yes.'
+    exit 0
+  fi
+  printf '%s\n' 'Removing previous managed Copilot plugin copies...'
+  if [[ "$CLI_ONLY" != "on" ]] && command -v singularity-flow >/dev/null 2>&1; then
+    singularity-flow plugin uninstall >/dev/null 2>&1 || true
+  fi
+  if command -v code >/dev/null 2>&1; then
+    code --uninstall-extension singularityflow.singularity-flow-vscode >/dev/null 2>&1 || true
+  fi
+  node scripts/fresh-install-reset.mjs --yes
+  printf '%s\n' 'Validated workspace clones and Singularity machine state removed.'
+fi
+
 REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"
 
@@ -209,6 +246,18 @@ TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
 printf '%s\n' 'Replacing the globally installed CLI...'
 npm uninstall --global singularity-flow >/dev/null 2>&1 || true
 npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
+
+if [[ "$CLI_ONLY" != "on" ]]; then
+  printf '%s\n' 'Packaging and installing the VS Code extension when the code command is available...'
+  npm run vscode:package
+  VSIX_PATH="$(find "$PROJECT_DIR/apps/vscode" -maxdepth 1 -type f -name 'singularity-flow-vscode-*.vsix' -print | sort | tail -1)"
+  [[ -n "$VSIX_PATH" ]] || { printf '%s\n' 'Error: VS Code packaging did not produce a .vsix.' >&2; exit 1; }
+  if command -v code >/dev/null 2>&1; then
+    code --install-extension "$VSIX_PATH" --force
+  else
+    printf 'VS Code CLI not found; install the extension later with: code --install-extension %s --force\n' "$VSIX_PATH"
+  fi
+fi
 
 printf '%s\n' 'Replacing previous Copilot plugin copies...'
 if [[ "$CLI_ONLY" != "on" ]]; then singularity-flow plugin install; fi

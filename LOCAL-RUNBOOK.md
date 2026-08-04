@@ -150,6 +150,29 @@ registry, or custom repository agents not bundled with Singularity Flow. The nex
 workspace registry read automatically forgets registrations whose lead explicitly
 declares a non-v2 workflow; `singularity-flow workspace prune --json` reports them.
 
+### Fresh machine reset and reinstall
+
+Use this only when every registered POC workspace, clone, document, generated
+artifact, and local Singularity session can be discarded. Run it from a clean
+clone of the **Singularity Flow product repository**, not from an application
+workspace:
+
+```bash
+cd ~/src/singularityflow
+git status --short
+./install.sh --factory-reset
+# Inspect every workspace and additional reset target printed above.
+./install.sh --factory-reset --yes
+```
+
+The first command is a read-only preview. The second requires the explicit
+`--yes`, deletes only registry entries proven by a matching `workspace.json`,
+uninstalls old CLI/plugin/VS Code copies, and installs current CLI, plugin,
+skills, and VS Code extension builds. It refuses to run when the installer clone
+is inside a workspace that would be deleted. Unregistered directories are not
+deleted. Singularity Flow credentials and profile data are cleared when the
+reinstalled VS Code extension first activates.
+
 In Copilot CLI, `/sflow-init` performs the same check-and-repair sequence and
 shows every added file for review. To recover or initialize an existing Work
 ID from another terminal, use:

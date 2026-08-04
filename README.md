@@ -155,6 +155,28 @@ physical workspace and repository clones. VS Code keychain credentials are
 also preserved; reset Jira or Teams credentials separately in VS Code. Run
 `sf-reset-all` without `--yes` to preview the exact boundary.
 
+For a genuinely fresh Singularity installation across the machine, run the
+installer from a clean Singularity Flow source checkout. Preview first:
+
+```bash
+./install.sh --factory-reset
+# Review every path. Then perform the deletion and reinstall:
+./install.sh --factory-reset --yes
+```
+
+This broader mode deletes **every registered workspace directory**, including
+its managed repository clones, documents, generated artifacts, and local caches.
+It also clears `~/.singularity-flow`, Singularity-named Copilot session state,
+managed `/sf-*` aliases, old plugin copies, the old global npm package, and the
+installed VS Code extension before installing fresh copies from this checkout.
+An existing directory is deleted only when its regular `workspace.json`
+validates and exactly matches its registry entry; an ambiguous entry stops the
+whole reset. Unregistered application directories, personal Copilot skills, and
+the installer checkout are preserved. The reinstall leaves a one-time reset
+marker; when the new VS Code extension first activates it clears Singularity
+Flow Jira, Teams, indexed provider secrets, onboarding profile, and extension
+global state.
+
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
 The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements
@@ -516,11 +538,18 @@ npm run check
 npm pack --json
 npm uninstall --global singularity-flow
 npm install --global <generated-tarball> --registry=<selected-registry>
+npm run vscode:package
+code --install-extension <generated-vsix> --force
 singularity-flow plugin install
 configure metadata-only Copilot OpenTelemetry
 ```
 
 The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the repository after installation; environment variables cannot be injected into a process that was already running.
+
+`--factory-reset` is the deliberate exception to the installer's normal
+non-destructive behavior. Without `--yes` it is preview-only. With `--yes`, it
+applies the validated machine-wide deletion boundary described above before the
+normal build and installation steps begin.
 
 ## Configuration
 

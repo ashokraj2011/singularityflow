@@ -1,12 +1,6 @@
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [
-      {
-        "type": "prompt",
-        "prompt": "Singularity Flow is available. When the contributor wants governed Story work, remind them to invoke /sflow-session for existing work or /sflow-start for new work. Do not invoke either skill automatically, and never block unrelated tools."
-      }
-    ],
     "subagentStart": [
       {
         "type": "command",

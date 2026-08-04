@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-status
 description: Show Epic planning phase progress and read-only delivery aggregation across Jira Stories, repositories, branches, checks, conformance, duration, model, tokens, and cost.
+disable-model-invocation: true
+
 ---
 
 # Show Epic status
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow epic status [EPIC-KEY] --json`.
 2. Run `singularity-flow epic report [EPIC-KEY] --format json`.

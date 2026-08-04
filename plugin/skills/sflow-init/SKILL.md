@@ -1,10 +1,14 @@
 ---
 name: sflow-init
 description: Verify and safely repair Singularity Flow initialization assets on the current or explicitly selected Work-ID branch without overwriting repository customizations.
-argument-hint: "[WORK-ID] [--base BRANCH] [--fetch]"
 disable-model-invocation: true
+argument-hint: "[WORK-ID] [--base BRANCH] [--fetch]"
+
 ---
 # Verify or repair branch initialization
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 This is a setup-only action. Do not implement product work, generate phase
 artifacts, submit, approve, reset, stash, force-push, or edit repository

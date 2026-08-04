@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-resume
 description: Resume an existing governed Epic from its latest published lead branch and reconstruct its phase, repository, and agent context.
+disable-model-invocation: true
+
 ---
 
 # Resume an Epic
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Require the Epic key.
 2. Run `singularity-flow epic resume <EPIC-KEY> --fetch`.

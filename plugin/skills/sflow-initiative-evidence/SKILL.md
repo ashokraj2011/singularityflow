@@ -1,10 +1,14 @@
 ---
 name: sflow-initiative-evidence
 description: List or register content-addressed initiative checklist evidence with explicit assurance and provenance in GitHub Copilot.
-argument-hint: "list [CHECK-ID] | add <CHECK-ID> --assurance <LEVEL> [--path FILE | --url URL]"
 disable-model-invocation: true
+argument-hint: "list [CHECK-ID] | add <CHECK-ID> --assurance <LEVEL> [--path FILE | --url URL]"
+
 ---
 # Manage initiative evidence
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 For listing, run `singularity-flow initiative evidence list [CHECK-ID] --json` and show hash, phase, check, assurance, observation time, freshness, source, and registrar identity.
 

@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-drift
 description: Observe Jira drift for an Epic and explicitly adopt Jira observations or prepare a reviewed restore plan without automatic two-way overwrite.
+disable-model-invocation: true
+
 ---
 
 # Manage Epic Jira drift
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 Use one requested action:
 

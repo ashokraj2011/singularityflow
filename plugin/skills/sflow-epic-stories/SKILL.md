@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-stories
 description: List, inspect, and validate the editable Stories produced by an approved Epic Planning package.
+disable-model-invocation: true
+
 ---
 
 # Review planned Stories
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow epic planning status --json`.
 2. Open `artifacts/epic-planning/story-plan.yml` and the generated `artifacts/epic-planning/stories/<PLAN-ID>/story-spec.md` files.

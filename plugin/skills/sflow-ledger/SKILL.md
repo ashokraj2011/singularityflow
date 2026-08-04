@@ -1,9 +1,14 @@
 ---
 name: sflow-ledger
 description: Inspect, initialize, verify, and reconcile the opt-in Singularity Flow capability ledger without inventing lifecycle state.
+disable-model-invocation: true
+
 ---
 
 # Singularity Flow capability ledger
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 Use the deterministic CLI. Do not edit ledger entries, head files, idempotency
 indexes, or durable intents by hand.

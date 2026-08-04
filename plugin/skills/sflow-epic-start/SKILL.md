@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-start
 description: Start or resume a Jira-keyed Epic planning workspace with an explicitly selected immutable profile and an automatic phase agent.
+disable-model-invocation: true
+
 ---
 
 # Start an Epic workspace
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Require the Jira Epic key. Run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
 2. Present every profile and governed-agent option with Copilot's selectable question UI. Do not infer an answer.

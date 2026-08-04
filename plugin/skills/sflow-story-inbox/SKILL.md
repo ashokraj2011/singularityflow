@@ -1,9 +1,14 @@
 ---
 name: sflow-story-inbox
 description: List active Jira Stories carrying governed Singularity lineage so a developer can choose work safely.
+disable-model-invocation: true
+
 ---
 
 # Developer Story inbox
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow story inbox --assigned-to-me`.
 2. If the user asks for all visible governed Stories, omit `--assigned-to-me`.

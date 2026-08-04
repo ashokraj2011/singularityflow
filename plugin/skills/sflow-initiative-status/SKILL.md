@@ -1,9 +1,13 @@
 ---
 name: sflow-initiative-status
 description: Display initiative phase progress, evidence readiness, child-story milestones, and current gate state in GitHub Copilot.
+disable-model-invocation: true
 argument-hint: "[INIT-ID]"
 ---
 # Show initiative status
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow initiative status [INIT-ID] --json`.
 2. Render the ordered phase flow using approved, active, awaiting-approval, stale, and not-started states.

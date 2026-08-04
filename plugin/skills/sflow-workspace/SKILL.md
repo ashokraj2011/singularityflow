@@ -2,8 +2,12 @@
 name: sflow-workspace
 description: Select a saved Singularity Flow workspace and repository for this Copilot session, optionally binding the visible context to a Story ID.
 disable-model-invocation: true
+
 ---
 # Switch the active Singularity Flow workspace
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Run `singularity-flow workspace list --json`.
 2. If no workspaces are saved, explain how one is made: a workspace is a set of capabilities plus a local working directory, and the repositories it holds are what those capabilities ship from rather than a list anybody types. Offer `singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <ID> [--lead-capability <ID>] --base <DIRECTORY> --confirm <ID>`, or the New Workspace screen in the editor extension. Do not invent a directory, a capability, or a repository URL.

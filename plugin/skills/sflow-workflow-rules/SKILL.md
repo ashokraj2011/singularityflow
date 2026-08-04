@@ -1,13 +1,17 @@
 ---
 name: sflow-workflow-rules
 description: Background rules for Singularity Flow-managed SDLC work. Load when a repository contains singularity/work-items or when the user discusses Singularity Flow phases, approvals, handoffs, or artifact registration.
+disable-model-invocation: true
 user-invocable: false
 ---
 # Singularity Flow workflow contract
 
-This background contract does not turn session setup into delivery work. When the contributor invokes `/sflow-session`, apply only the session skill and stop after its report. Do not inspect Story artifacts or application source, infer an implementation request from the Work ID, or begin a phase until the contributor invokes a separate action.
+<!-- sflow-output-contract: guided-actions -->
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
-When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutable-profile lifecycle state; `singularity/workflow.yml` defines new work types, phases, templates, and human approval authorities. Governed Agent Markdown under `.github/agents` owns phase compatibility, defaults, prompt instructions, and added world-model views.
+`/sflow-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
+
+`workflow.json` is immutable-profile lifecycle state; `singularity/workflow.yml` defines new profiles, phases, templates, and authorities. `.github/agents` owns phase defaults, prompt instructions, and added views.
 
 1. Run `singularity-flow status` before changing files and read approved artifacts from earlier phases.
 2. Work only on the exact branch stored in `workflow.json`.
@@ -18,10 +22,10 @@ When `singularity/work-items/<WORK-ID>/workflow.json` exists, it is the immutabl
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
 9. Treat approved artifacts as durable inputs. Document later deviations in the active phase artifact.
-10. End every successful artifact generation with `singularity-flow phase publish <phase>`; generation is incomplete until its commit is pushed. Then run `singularity-flow phase show <phase> --json` and reproduce every returned text document in full in the visible assistant response. A collapsible Shell/tool block does not count as review. Never say the documents were “shown above” and never replace them with a summary.
+10. End generation with `phase publish`; it is incomplete until pushed. Run `phase show <phase> --json` and reproduce text documents in full visibly. Shell output does not count; never say “shown above” or substitute a summary.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
-13. Before phase reasoning, run `singularity-flow wm compose --phase <phase> --task "<current objective>"` and use the complete returned prompt. If missing or stale, build with the same phase and exact task text, then compose again. Add `--evidence` for verification, review, or release decisions.
+13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.
 14. Treat `singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
 15. Never choose a workflow template for the user. Use the phase-default agent automatically; change it only when the user explicitly invokes `/sflow-agent`. Approval capability comes only from the current human Git/GitHub identity matching a configured authority group.
 16. Run `singularity-flow next` only when the user explicitly invokes `/sflow-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, exact confirmation, commit, and push.

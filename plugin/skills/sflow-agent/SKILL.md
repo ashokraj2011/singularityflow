@@ -1,11 +1,15 @@
 ---
 name: sflow-agent
 description: Choose or inspect the governed Agent Markdown used for the current phase; agent selection never changes human identity or approval authority.
-argument-hint: "[WORK-ID]"
 disable-model-invocation: true
+argument-hint: "[WORK-ID]"
+
 ---
 
 # Select the governed agent
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Run `singularity-flow agent <WORK-ID>`; omit the ID when the current branch already identifies it.
 2. The phase default is automatic. Only ask the contributor when more than one compatible agent is available or they explicitly request a change.

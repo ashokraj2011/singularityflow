@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-sync
 description: Synchronize an Epic lead branch and its registered Story repositories, then report exact repository and publication receipts.
+disable-model-invocation: true
+
 ---
 
 # Synchronize an Epic
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Resolve the Epic key from the argument or current branch.
 2. Run `singularity-flow epic sync <EPIC-KEY> --json`.

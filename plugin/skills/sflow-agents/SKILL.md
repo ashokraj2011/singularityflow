@@ -1,9 +1,14 @@
 ---
 name: sflow-agents
 description: Inspect governed Agent Markdown, mappings, and hash-pinned remote Markdown dependencies; agents are instructions, never human approval authorities.
+disable-model-invocation: true
+
 ---
 
 # Manage governed agents
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 - Discover: `singularity-flow agents list`.
 - Inspect Copilot-agent routing: `singularity-flow agents mappings`.

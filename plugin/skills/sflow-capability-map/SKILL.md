@@ -1,20 +1,18 @@
 ---
 name: sflow-capability-map
 description: Map a capability to a Git repository in an organisation's capability tree, or place a capability that groups others beneath a parent. Use when the contributor wants to describe what their organisation builds, add a new service or product to the map, or start using Singularity Flow on a repository that has never been governed.
+disable-model-invocation: true
+
 ---
 
 # Map a capability
 
-What an organisation builds is a tree of capabilities. A capability that names a
-repository is a leaf that **ships**; one that names no repository **groups** the
-capabilities beneath it. The tree has exactly one root and may go to any depth,
-like a directory.
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
-The map lives in `singularity/capabilities.yml` in the **lead repository**, and
-the repositories capabilities ship from are declared in its
-`singularity/portfolio.yml`. Nothing is checked out to edit either: the lead is
-cloned to a temporary directory, edited, pushed and discarded. So this works from
-a directory that is not a Git repository at all.
+Capabilities form a tree. A `delivery` ships from repository entries; a `collection` groups related capabilities. The tree has one root and any depth.
+
+The lead repository owns `singularity/capabilities.yml`; its `portfolio.yml` declares repositories. Flow edits it in a temporary clone, so this also works outside Git.
 
 1. Run `singularity-flow capability leads --json` for the lead repositories this
    machine already knows. If exactly one is returned, use it. If several are,
@@ -23,18 +21,7 @@ a directory that is not a Git repository at all.
 2. Run `singularity-flow capability organisation <LEAD-URL> --json` and show the
    tree. This is what the capability is being added to, and it is also the list
    of possible parents.
-3. Establish, asking only for what context has not already answered:
-   - the identifier, lower-case kebab-case, like `payments-api`;
-   - the display name;
-   - the kind — one of `portfolio`, `domain`, `product`, `service`, `platform`,
-     `component`, or a kind the map already uses. Do not invent a new spelling
-     of one that is already there;
-   - the parent, which must be a capability that groups rather than one that
-     ships. Omit it only for the root;
-   - the repository clone URL, when this capability ships from one. Omit it for
-     a capability that groups others — declaring a repository for a capability
-     that does not have one is how a portfolio fills up with repositories nobody
-     clones.
+3. Ask only for missing: kebab-case ID, display name, kind (`collection` or `delivery`), parent, and repository URL(s). A delivery requires repositories; a collection forbids them. Parent may be any capability allowed by validation; omit only for the root.
 4. Run:
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`

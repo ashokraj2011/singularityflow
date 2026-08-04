@@ -1,10 +1,13 @@
 ---
 name: sflow-help
-description: Load the Singularity Flow help manual by topic, or explain an active work item's selected workflow, phase contracts, approvals, position, and next valid action.
+description: Answer questions about Singularity Flow and its workflow.
 argument-hint: "[WORK-ID | TOPIC] [--json]"
-disable-model-invocation: true
+
 ---
 # Load help or explain how to proceed
+
+<!-- sflow-output-contract: guided-actions -->
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
 1. For a general question, no work item, or a manual topic such as `quick-start`, `jira-intake`, `copilot-commands`, or `troubleshooting`, run `singularity-flow help <topic>` and use the returned canonical manual content. With no topic, run `singularity-flow help`.
 2. For a work ID or a question about the active work item's current phase, run `singularity-flow guide <WORK-ID>` instead.

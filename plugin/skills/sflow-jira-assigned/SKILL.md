@@ -1,11 +1,15 @@
 ---
 name: sflow-jira-assigned
 description: List incomplete Jira Stories assigned to the authenticated Jira user, optionally filtered to a project, from Copilot CLI. Use only on explicit request.
-argument-hint: "[--project KEY] [--type Story] [--limit 25]"
 disable-model-invocation: true
+argument-hint: "[--project KEY] [--type Story] [--limit 25]"
+
 ---
 
 # My assigned Jira Stories
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Use Singularity Flow's direct Jira REST client. Do not use Jira MCP tools.
 

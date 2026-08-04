@@ -1,9 +1,14 @@
 ---
 name: sflow-capability-doctor
 description: Diagnose the active Singularity capability binding, inherited policy, orphan state branch, ledger chain, and pinned cross-repository world-model context.
+disable-model-invocation: true
+
 ---
 
 # Singularity Flow capability doctor
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 This is a deterministic inspection skill. Do not infer capability ownership from
 folder or branch names, and do not repair governed state by hand.

@@ -1,11 +1,15 @@
 ---
 name: sflow-jira-board
 description: List Jira Software boards and show all Stories in active or future sprints while explicitly excluding the backlog. Use only on explicit request.
-argument-hint: "[BOARD-ID] [--project KEY] [--state active,future]"
 disable-model-invocation: true
+argument-hint: "[BOARD-ID] [--project KEY] [--state active,future]"
+
 ---
 
 # Jira board Stories without backlog
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Use Singularity Flow's direct Jira Software REST client. Do not use Jira MCP tools and do not construct a backlog query.
 

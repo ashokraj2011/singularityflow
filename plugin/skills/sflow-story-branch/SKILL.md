@@ -1,9 +1,14 @@
 ---
 name: sflow-story-branch
 description: Create, attach, inspect, or promote a Developer child branch with an explicit canonical Jira Story parent and repository completion policy.
+disable-model-invocation: true
+
 ---
 
 # Manage Story branch lineage
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Run `singularity-flow story branch status --parent <STORY-KEY>`.
 2. Create with `singularity-flow story branch create <BRANCH> --parent <STORY-KEY>` only from a clean canonical Story branch.

@@ -2,9 +2,13 @@
 name: sflow-stack
 description: Show or synchronize the dependency-safe Story pull-request and merge stack for an Epic.
 disable-model-invocation: true
+
 ---
 
 # Govern the Story merge stack
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 For status from a Story repository, run:
 

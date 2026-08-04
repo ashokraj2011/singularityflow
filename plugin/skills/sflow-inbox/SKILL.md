@@ -2,8 +2,12 @@
 name: sflow-inbox
 description: Fetch and display the repository-wide inbox of committed work-item phases awaiting approval, then safely open a selected review.
 disable-model-invocation: true
+
 ---
 # Open the pending approval inbox
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow inbox --json`. This fetches the configured Git remote and reads committed work-item state without checking out every branch.
 2. If `items` is empty, report that the remote approval inbox is clear. Do not infer that uncommitted or unpublished work is ready for review.

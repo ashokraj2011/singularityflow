@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
+import { auditSkillPolicy } from './skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -61,7 +62,8 @@ for (const forbidden of ['mcpServers']) {
 }
 if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hooks.json');
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
-if (hooksJson.version !== 1 || !Array.isArray(hooksJson.hooks?.sessionStart)) fail('plugin/hooks.json must define version 1 sessionStart hooks');
+if (hooksJson.version !== 1) fail('plugin/hooks.json version must be 1');
+if (hooksJson.hooks?.sessionStart != null) fail('plugin/hooks.json must not inject a model prompt at every session start');
 if (hooksJson.hooks?.preToolUse != null) fail('plugin/hooks.json must not define a blocking preToolUse guard');
 const agentStartHooks = hooksJson.hooks?.subagentStart;
 if (!Array.isArray(agentStartHooks) || agentStartHooks.length !== 1) fail('plugin/hooks.json must define one nonblocking subagentStart mapping hook');
@@ -142,6 +144,9 @@ for (const entry of skillDirs) {
   }
   checked.push(path.relative(root, file));
 }
+const skillAudit = await auditSkillPolicy(root);
+for (const error of skillAudit.errors) fail(`skill policy: ${error}`);
+checked.push('plugin/skills/registry.yml', 'scripts/skill-policy.mjs');
 
 const agentRoot = path.join(root, 'plugin', 'agents');
 const agentFiles = (await readdir(agentRoot, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith('.agent.md'));

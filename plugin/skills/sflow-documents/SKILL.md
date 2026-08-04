@@ -1,10 +1,14 @@
 ---
 name: sflow-documents
 description: Upload, list, and view Singularity Flow supporting documents, images, Figma files, and external design links during configured intake phases.
-argument-hint: "list [WORK-ID] | view <DOCUMENT-ID> | upload <PATH...> [--url URL] [--label TEXT]"
 disable-model-invocation: true
+argument-hint: "list [WORK-ID] | view <DOCUMENT-ID> | upload <PATH...> [--url URL] [--label TEXT]"
+
 ---
 # Manage supporting documents
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Listing and viewing remain read-only; never bypass the upload gate by copying files into managed work-item folders.
 

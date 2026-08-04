@@ -196,15 +196,12 @@ test('plugin provides workspace discovery and switching skills', async () => {
   assert.match(session, /disable-model-invocation:\s*true/);
 });
 
-test('plugin hooks provide nonblocking guidance and deterministic custom-agent mapping without tool guards', async () => {
+test('plugin hooks avoid session prompt tax and retain deterministic custom-agent mapping without tool guards', async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
   assert.equal(hooks.version, 1);
-  assert.deepEqual(Object.keys(hooks.hooks), ['sessionStart', 'subagentStart']);
-  assert.equal(hooks.hooks.sessionStart.length, 1);
-  assert.equal(hooks.hooks.sessionStart[0].type, 'prompt');
-  assert.match(hooks.hooks.sessionStart[0].prompt, /remind them to invoke \/sflow-session/);
-  assert.match(hooks.hooks.sessionStart[0].prompt, /Do not invoke either skill automatically/);
+  assert.deepEqual(Object.keys(hooks.hooks), ['subagentStart']);
+  assert.equal(hooks.hooks.sessionStart, undefined);
   assert.equal(hooks.hooks.subagentStart.length, 1);
   assert.equal(hooks.hooks.subagentStart[0].type, 'command');
   assert.equal(hooks.hooks.subagentStart[0].bash, 'singularity-flow hook agent-start');

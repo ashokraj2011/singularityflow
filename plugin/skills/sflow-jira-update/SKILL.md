@@ -1,11 +1,15 @@
 ---
 name: sflow-jira-update
 description: Safely update one Jira Story's status, assignee, priority, sprint, or comments through Singularity Flow with exact Story-key confirmation. Use only on explicit request.
-argument-hint: "<STORY-KEY>"
 disable-model-invocation: true
+argument-hint: "<STORY-KEY>"
+
 ---
 
 # Update one Jira Story
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 This skill changes external Jira state. Never run it implicitly or as part of a read-only Jira request.
 

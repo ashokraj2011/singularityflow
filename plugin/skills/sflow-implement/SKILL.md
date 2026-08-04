@@ -1,10 +1,14 @@
 ---
 name: sflow-implement
 description: Implement the approved Singularity Flow design, add or update tests, and create the implementation summary while preserving phase traceability.
-argument-hint: "[implementation focus]"
 disable-model-invocation: true
+argument-hint: "[implementation focus]"
+
 ---
 # Implementation phase
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`.
 2. Run `singularity-flow wm compose --phase implementation --task "<implementation objective>"` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase implementation --task "<implementation objective>"`, then rerun the identical compose command. Use development and testing grounding to select entry points, conventions, and commands.

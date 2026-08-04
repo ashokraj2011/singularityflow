@@ -1,9 +1,14 @@
 ---
 name: sflow-story-checks
 description: Record exact-SHA GitHub PR, Actions, lineage, freshness, and conformance evidence for the current finalized Story packet.
+disable-model-invocation: true
+
 ---
 
 # Record Story checks
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Run `singularity-flow story branch status --json` to identify the parent Story and packet.
 2. Run `singularity-flow story checks --parent <STORY-KEY> --packet <SHA-256> --json`.

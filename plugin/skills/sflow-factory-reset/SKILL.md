@@ -1,10 +1,14 @@
 ---
 name: sflow-factory-reset
 description: Preview and deliberately reset repository-owned Singularity Flow configuration and machine-local runtime state from the currently installed npm package defaults.
-argument-hint: "[--dry-run]"
 disable-model-invocation: true
+argument-hint: "[--dry-run]"
+
 ---
 # Factory-reset this repository
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 This operation permanently discards uncommitted files under `singularity/`, the
 legacy `.singularity/` directory, and `.git/singularity-flow/`. Git history,

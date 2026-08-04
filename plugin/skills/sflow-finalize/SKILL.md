@@ -1,9 +1,14 @@
 ---
 name: sflow-finalize
 description: Finalize a fully approved developer Story into an exact hash-bound packet for Product Owner spec-to-code review.
+disable-model-invocation: true
+
 ---
 
 # Finalize a Story
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Run `singularity-flow progress` and confirm every configured Story phase is approved.
 2. Run `singularity-flow finalize`.

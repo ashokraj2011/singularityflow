@@ -1,10 +1,14 @@
 ---
 name: sflow-reject
 description: Reject a submitted phase as the current Git identity, recording its human authority group, phase-default agent, reason, commit, push, and downstream invalidation.
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation'"
 disable-model-invocation: true
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation'"
+
 ---
 # Reject the submitted phase
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `singularity-flow nextsteps` only for read-only guidance and never edit managed state to bypass a gate.
 

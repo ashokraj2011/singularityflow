@@ -10,6 +10,11 @@ Use this manual in three places:
 
 The short command reference is available with `singularity-flow --help`.
 
+Skill automatic-invocation policy, body budgets, utility-agent routing, phase
+context boundaries, and token measurement are documented in
+`docs/SKILL-EFFICIENCY.md`. Verify the installed catalog with
+`npm run audit:skills` from a source checkout.
+
 For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff,
 phase-input, and remote-agent diagrams, open `HOW-TO.md`. The complete navigation
 map is `docs/README.md`; terminology is defined in `docs/GLOSSARY.md`; and the

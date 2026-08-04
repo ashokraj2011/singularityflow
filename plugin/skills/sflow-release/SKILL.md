@@ -1,10 +1,14 @@
 ---
 name: sflow-release
 description: Prepare the Singularity Flow release-readiness artifact with deployment, observability, rollback, communication, and final readiness decision.
-argument-hint: "[target environment or release window]"
 disable-model-invocation: true
+argument-hint: "[target environment or release window]"
+
 ---
 # Release-readiness phase
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `release`.
 2. Run `singularity-flow wm compose --phase release --task "<release target>" --evidence` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase release --task "<release target>"`, then rerun the identical compose command. Use release, operations, security, and evidence grounding.

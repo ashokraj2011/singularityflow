@@ -1,9 +1,14 @@
 ---
 name: sflow-jira-initiative
 description: Browse Jira Epics and child stories, preview their repository mapping, adopt an Epic into a Singularity initiative, or prepare a governed outbound Jira write plan.
+disable-model-invocation: true
+
 ---
 
 # Jira initiative bridge
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 Use this skill when a contributor wants to browse Jira hierarchy or connect an existing Jira Epic to a Singularity initiative.
 

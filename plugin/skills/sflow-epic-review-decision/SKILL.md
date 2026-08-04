@@ -1,11 +1,15 @@
 ---
 name: sflow-epic-review-decision
 description: Approve or reject one finalized Epic Story against its exact review-packet hash using Copilot choice receipts and auditable Git publication.
-argument-hint: "<EPIC-KEY> <STORY-KEY> <approve|reject> <PACKET-SHA256>"
 disable-model-invocation: true
+argument-hint: "<EPIC-KEY> <STORY-KEY> <approve|reject> <PACKET-SHA256>"
+
 ---
 
 # Decide an exact Story packet
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 1. Require Epic key, Story key, decision (`approve` or `reject`), and the exact full packet SHA-256 previously displayed by `/sflow-epic-review`.
 2. Run `singularity-flow epic review-choice begin <DECISION> <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256> --json`.

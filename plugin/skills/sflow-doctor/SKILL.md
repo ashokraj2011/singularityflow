@@ -1,10 +1,14 @@
 ---
 name: sflow-doctor
 description: Diagnose Singularity Flow repository, workflow, governed-agent, human-identity authority, publication, working-tree, and remote readiness without changing state.
-argument-hint: "[work ID]"
 disable-model-invocation: true
+argument-hint: "[work ID]"
+
 ---
 # Diagnose setup and recovery
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Run `singularity-flow init --check --json` first, then run
 `singularity-flow doctor $ARGUMENTS`. Report each failure with its exact safe

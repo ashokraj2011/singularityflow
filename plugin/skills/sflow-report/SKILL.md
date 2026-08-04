@@ -1,10 +1,14 @@
 ---
 name: sflow-report
 description: Generate a read-only Singularity Flow workflow performance report with phase duration, approval waiting, rework, committed model/token telemetry, provider or configured cost, and bottlenecks.
-argument-hint: "[WORK-ID] [--format md|html|json] [--out FILE]"
 disable-model-invocation: true
+argument-hint: "[WORK-ID] [--format md|html|json] [--out FILE]"
+
 ---
 # Report workflow performance
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow report <arguments>`.
 2. Summarize elapsed wall-clock time, active time, approval waiting, generations, rejections, self-approvals, token availability, and the approval-latency bottleneck.

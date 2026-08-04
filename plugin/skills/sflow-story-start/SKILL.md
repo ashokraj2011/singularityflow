@@ -1,10 +1,14 @@
 ---
 name: sflow-story-start
 description: Select a Jira Story, workflow, and prompt-only governed agent, then create or resume its canonical governed branch.
-argument-hint: "<JIRA-STORY-KEY>"
 disable-model-invocation: true
+argument-hint: "<JIRA-STORY-KEY>"
+
 ---
 # Start a governed Jira Story
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. If no Story key was supplied, run `singularity-flow jira assigned --type Story --json` and ask the contributor to choose one. Never infer a Story.
 2. Run `singularity-flow jira pull <STORY-KEY> --json`. Show the title, description, acceptance criteria, parent Epic, attachments, assignee, status, and project before making changes.

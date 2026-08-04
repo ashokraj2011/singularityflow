@@ -1,10 +1,14 @@
 ---
 name: sflow-resume
 description: Resume an existing Singularity Flow work item by ID, check out its branch, load durable workflow state, and identify the correct SDLC phase.
-argument-hint: "<WORK-ID> [--fetch]"
 disable-model-invocation: true
+argument-hint: "<WORK-ID> [--fetch]"
+
 ---
 # Resume Singularity Flow work
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Run `singularity-flow resume <arguments>`.
 2. The CLI activates the current phase's default governed agent automatically. Do not ask the contributor to select a role. Use `/sflow-agent` only when they explicitly request an override.

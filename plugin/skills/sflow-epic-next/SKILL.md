@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-next
 description: Show the single next valid action for a governed Epic without changing Git, Jira, approvals, or lifecycle state.
+disable-model-invocation: true
+
 ---
 
 # Show the next Epic action
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Resolve the Epic key from the argument or current branch.
 2. Run `singularity-flow epic next <EPIC-KEY> --json`.

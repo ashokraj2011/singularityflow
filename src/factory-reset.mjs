@@ -1,4 +1,5 @@
 import path from 'node:path';
+import os from 'node:os';
 import { cp, lstat, mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises';
 import { branch, gitDir, head } from './git.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
@@ -6,6 +7,11 @@ import { SingularityFlowError, run } from './util.mjs';
 
 const CONTROL_ROOTS = ['singularity', '.singularity'];
 const LOCAL_RUNTIME_ROOT = 'singularity-flow';
+const RESET_ALL_CONFIRMATION = 'RESET ALL';
+
+export function machineStateRoot(home = os.homedir()) {
+  return path.join(home, '.singularity-flow');
+}
 
 async function directoryState(target, label) {
   const info = await lstat(target).catch((error) => {
@@ -235,5 +241,84 @@ export async function factoryResetRepository(root, {
     // exception is a rollback that did not fully succeed — then this directory holds the only copy
     // of the user's configuration, and deleting it is the last thing that should happen.
     if (!restoreFailed) await rm(staging, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Preview the deliberately broader local reset without treating registered workspace clones as
+ * disposable. The registry is local convenience state; the clones contain application source and
+ * therefore remain outside the deletion boundary even for RESET ALL.
+ */
+export async function factoryResetAllPlan(root, {
+  packageVersion = null,
+  localStateRoot = machineStateRoot()
+} = {}) {
+  const repository = await factoryResetPlan(root, { packageVersion });
+  await directoryState(localStateRoot, 'Singularity machine-local state root');
+  return {
+    ...repository,
+    operation: 'factory-reset-all',
+    confirmation: RESET_ALL_CONFIRMATION,
+    localStateRoot,
+    remove: [
+      ...repository.remove,
+      `${localStateRoot} (saved workspace registry, active selection, lead-repository registry, and CLI telemetry setup)`
+    ],
+    preserve: [
+      ...repository.preserve.filter((item) => item !== 'the global workspace registry and workspace clones'),
+      'physical workspace directories and repository clones; only their local registrations are removed',
+      'VS Code SecretStorage credentials; reset Jira or Teams credentials separately in VS Code'
+    ]
+  };
+}
+
+/** Reset repository-owned state and the machine-local registry as one recoverable operation. */
+export async function factoryResetAll(root, {
+  confirmation,
+  packageVersion = null,
+  localStateRoot = machineStateRoot(),
+  fault = null
+} = {}) {
+  const plan = await factoryResetAllPlan(root, { packageVersion, localStateRoot });
+  if (confirmation !== RESET_ALL_CONFIRMATION) {
+    throw new SingularityFlowError(
+      `Reset all requires --yes (confirmation '${RESET_ALL_CONFIRMATION}'). Run 'sflow reset-all' to preview its exact scope.`
+    );
+  }
+
+  // Move the machine state aside first. If the repository reset fails, restore it, so an attempted
+  // repair cannot strand the user with neither their old repository state nor workspace registry.
+  const machineParent = path.dirname(localStateRoot);
+  await mkdir(machineParent, { recursive: true });
+  const staging = await mkdtemp(path.join(machineParent, '.sflow-reset-all-'));
+  const machineBackup = path.join(staging, 'machine-state');
+  const machineState = await directoryState(localStateRoot, 'Singularity machine-local state root');
+  let machineMoved = false;
+  try {
+    if (machineState.exists) {
+      await rename(localStateRoot, machineBackup);
+      machineMoved = true;
+    }
+    if (fault) await fault('after-machine-state-move');
+    const repository = await factoryResetRepository(root, {
+      confirmation: (await factoryResetPlan(root, { packageVersion })).confirmation,
+      packageVersion,
+      allowDirty: true,
+      fault: fault ? (stage) => fault(`repository:${stage}`) : null
+    });
+    await rm(staging, { recursive: true, force: true });
+    return {
+      ...plan,
+      completed: true,
+      installedAgents: repository.installedAgents,
+      next: repository.next
+    };
+  } catch (error) {
+    if (machineMoved) {
+      await rm(localStateRoot, { recursive: true, force: true });
+      await rename(machineBackup, localStateRoot);
+    }
+    await rm(staging, { recursive: true, force: true });
+    throw error;
   }
 }

@@ -180,3 +180,61 @@ test('a factory reset refuses to discard uncommitted reset-scope changes by defa
   // And it really did refuse rather than warning after the fact.
   assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8').then((t) => t.includes('# unsaved')), true);
 });
+
+test('reset all replaces repository controls and clears machine registrations without deleting clones', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-repository-'));
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-machine-'));
+  const clone = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-clone-'));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'application source remains\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'version: 1\n');
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({ workspaces: [{ path: clone }] })}\n`);
+  await writeFile(path.join(clone, 'source.txt'), 'workspace source remains\n');
+
+  const { factoryResetAll, factoryResetAllPlan } = await import('../src/factory-reset.mjs');
+  const preview = await factoryResetAllPlan(root, { localStateRoot: machine });
+  assert.equal(preview.operation, 'factory-reset-all');
+  assert.equal(preview.confirmation, 'RESET ALL');
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'WRONG', localStateRoot: machine
+  }), /requires --yes/);
+
+  const result = await factoryResetAll(root, {
+    confirmation: 'RESET ALL', localStateRoot: machine
+  });
+  assert.equal(result.completed, true);
+  assert.equal(await missing(machine), true, 'machine registry and active selection root are cleared');
+  assert.equal(await readFile(path.join(clone, 'source.txt'), 'utf8'), 'workspace source remains\n');
+  assert.equal(await readFile(path.join(root, 'app.txt'), 'utf8'), 'application source remains\n');
+  assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'),
+    await readFile(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
+});
+
+test('reset all restores machine registrations when repository replacement fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-fault-repository-'));
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-fault-machine-'));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Factory Reset Tester');
+  git(root, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(root, 'app.txt'), 'source\n');
+  git(root, 'add', 'app.txt');
+  git(root, 'commit', '-m', 'initial');
+  command(process.execPath, [cli, 'init'], root);
+  await writeFile(path.join(machine, 'active-workspace.json'), '{"workspaceId":"important"}\n');
+
+  const { factoryResetAll } = await import('../src/factory-reset.mjs');
+  await assert.rejects(() => factoryResetAll(root, {
+    confirmation: 'RESET ALL',
+    localStateRoot: machine,
+    fault: (stage) => {
+      if (stage === 'repository:after-fresh-install') throw new Error('injected replacement failure');
+    }
+  }), /injected replacement failure/);
+  assert.equal(await readFile(path.join(machine, 'active-workspace.json'), 'utf8'),
+    '{"workspaceId":"important"}\n');
+});

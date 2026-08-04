@@ -238,3 +238,83 @@ test('reset all restores machine registrations when repository replacement fails
   assert.equal(await readFile(path.join(machine, 'active-workspace.json'), 'utf8'),
     '{"workspaceId":"important"}\n');
 });
+
+test('fresh install reset deletes every proven registered workspace and only managed Copilot state', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-checkout-'));
+  const baseDirectory = path.join(home, 'workspaces');
+  const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');
+  const created = await createWorkspaceConfiguration({
+    baseDirectory,
+    id: 'fresh-reset-demo',
+    name: 'Fresh reset demo',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: 'https://example.invalid/platform.git',
+        defaultBranch: 'main',
+        required: true,
+        metadata: { appId: 'APP-RESET', name: 'Reset platform' }
+      }
+    }
+  }, { confirmation: 'fresh-reset-demo', clone: false });
+  await writeFile(path.join(created.workspace.path, 'documents', 'proof.txt'), 'delete me\n');
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(machine, { recursive: true });
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{
+      id: created.workspace.id, path: created.workspace.path, name: created.workspace.name,
+      openedAt: new Date().toISOString()
+    }]
+  })}\n`);
+  await writeFile(path.join(machine, 'active-workspace.json'), '{}\n');
+  const sessionRoot = path.join(home, '.copilot', 'session-state');
+  await mkdir(path.join(sessionRoot, 'singularity-demo'), { recursive: true });
+  await mkdir(path.join(sessionRoot, 'unrelated-session'), { recursive: true });
+  const skills = path.join(home, '.copilot', 'skills');
+  await mkdir(path.join(skills, 'sf-managed'), { recursive: true });
+  await writeFile(path.join(skills, 'sf-managed', 'SKILL.md'), '<!-- managed-by: singularity-flow direct-skill-alias -->\n');
+  await mkdir(path.join(skills, 'sf-personal'), { recursive: true });
+  await writeFile(path.join(skills, 'sf-personal', 'SKILL.md'), 'personal\n');
+
+  const { freshInstallReset, freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const preview = await freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} });
+  assert.equal(preview.operation, 'fresh-install-reset');
+  assert.deepEqual(preview.workspaces.map((item) => item.path), [created.workspace.path]);
+  await assert.rejects(() => freshInstallReset({
+    homeDirectory: home, projectDirectory: checkout, environment: {}, confirmation: 'WRONG'
+  }), /RESET EVERYTHING/);
+  const result = await freshInstallReset({
+    homeDirectory: home, projectDirectory: checkout, environment: {}, confirmation: 'RESET EVERYTHING'
+  });
+  assert.equal(result.completed, true);
+  assert.equal(await missing(created.workspace.path), true);
+  assert.equal(await missing(path.join(machine, 'workspaces.json')), true);
+  assert.equal(await missing(path.join(machine, 'active-workspace.json')), true);
+  assert.equal(await missing(path.join(machine, 'vscode-fresh-reset-pending.json')), false);
+  assert.equal(await missing(path.join(sessionRoot, 'singularity-demo')), true);
+  assert.equal(await missing(path.join(sessionRoot, 'unrelated-session')), false);
+  assert.equal(await missing(path.join(skills, 'sf-managed')), true);
+  assert.equal(await readFile(path.join(skills, 'sf-personal', 'SKILL.md'), 'utf8'), 'personal\n');
+});
+
+test('fresh install reset refuses existing registered paths without a matching workspace manifest', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-refuse-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-refuse-checkout-'));
+  const application = path.join(home, 'important-application');
+  await mkdir(application);
+  await writeFile(path.join(application, 'source.txt'), 'must remain\n');
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(machine);
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{ id: 'not-a-workspace', path: application, name: 'Important', openedAt: new Date().toISOString() }]
+  })}\n`);
+  const { freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  await assert.rejects(
+    () => freshInstallResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} }),
+    /Refusing to delete unproven registered workspace/
+  );
+  assert.equal(await readFile(path.join(application, 'source.txt'), 'utf8'), 'must remain\n');
+});

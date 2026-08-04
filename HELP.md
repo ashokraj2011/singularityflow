@@ -95,6 +95,27 @@ The normal phase loop is:
 
 Use `/sf-progress` for deterministic completion and `/sf-report` for timing, waiting, rework, and token metrics.
 
+## Reset and fresh reinstall
+
+There are three intentionally different reset boundaries:
+
+- `singularity-flow factory-reset --dry-run` resets one application repository's
+  governed configuration and lifecycle state while preserving its source and Git.
+- `sf-reset-all` resets that repository plus the machine registry, but preserves
+  every physical workspace and clone.
+- `./install.sh --factory-reset` previews a true fresh machine install. After
+  reviewing the exact paths, `./install.sh --factory-reset --yes` deletes all
+  validated registered workspace roots and clones, clears Singularity local and
+  managed Copilot state, uninstalls old product copies, and reinstalls the CLI,
+  VS Code extension, Copilot plugin, and `/sf-*` skills.
+
+The full reset will not delete an existing registered path unless a regular,
+valid `workspace.json` proves that the path is a Singularity-managed workspace.
+It preserves the installer checkout, unregistered repositories, and personal
+skills. A one-time marker makes the reinstalled extension clear its Singularity
+Flow SecretStorage credentials, onboarding profile, and global state on first
+activation.
+
 ## Multi-repository initiatives
 
 Initiative orchestration is an opt-in layer above repository story workflows. `singularity/portfolio.yml` defines repositories, four- or seven-phase profiles, phase outputs, checklists, evidence assurance/freshness, authority groups, contracts, and gates. Repositories without this file retain existing behavior and make no initiative network calls.

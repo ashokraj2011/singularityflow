@@ -7,6 +7,8 @@
  */
 import * as vscode from 'vscode';
 import path from 'node:path';
+import os from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
@@ -50,6 +52,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
   const secureCredentials = new SecureCredentials(context.secrets);
+  const resetMarker = path.resolve(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER
+    || path.join(os.homedir(), '.singularity-flow', 'vscode-fresh-reset-pending.json'));
+  const pendingFreshReset = await readFile(resetMarker, 'utf8').then(() => true).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false;
+    output.appendLine(`Could not inspect fresh-reset marker: ${error.message}`);
+    return false;
+  });
+  if (pendingFreshReset) {
+    const settings = vscode.workspace.getConfiguration('singularityFlow');
+    const globalKeys = typeof context.globalState.keys === 'function'
+      ? context.globalState.keys()
+      : ['onboardingComplete'];
+    await Promise.all([
+      secureCredentials.resetAll(),
+      ...globalKeys.map((key) => context.globalState.update(key, undefined)),
+      settings.update('userName', undefined, vscode.ConfigurationTarget.Global),
+      settings.update('role', undefined, vscode.ConfigurationTarget.Global)
+    ]);
+    await rm(resetMarker, { force: true });
+    output.appendLine('Fresh-install reset: cleared Singularity Flow credentials, profile, and extension global state.');
+  }
   let cliEnvironment = await secureCredentials.environment();
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureProfile', async () => {

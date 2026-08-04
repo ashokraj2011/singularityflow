@@ -3,6 +3,7 @@ import type * as vscode from 'vscode';
 const JIRA_CONFIG = 'singularityFlow.jira.config';
 const JIRA_TOKEN = 'singularityFlow.jira.token';
 const STORAGE_PREFIX = 'singularityFlow.storage.';
+const STORAGE_INDEX = 'singularityFlow.storage.index';
 const TEAMS_WEBHOOK = 'singularityFlow.teams.webhook';
 
 export interface JiraSecretConfig {
@@ -67,9 +68,24 @@ export class SecureCredentials {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(providerId)) throw new Error('Storage provider ID is invalid.');
     if (!token.trim()) throw new Error('Provider token is required.');
     await this.secrets.store(`${STORAGE_PREFIX}${providerId}`, token);
+    let current: string[] = [];
+    try { current = JSON.parse(await this.secrets.get(STORAGE_INDEX) ?? '[]') as string[]; } catch { /* reset below */ }
+    const next = [...new Set([...current, providerId])].sort();
+    await this.secrets.store(STORAGE_INDEX, JSON.stringify(next));
   }
 
   async providerToken(providerId: string): Promise<string | undefined> {
     return this.secrets.get(`${STORAGE_PREFIX}${providerId}`);
+  }
+
+  async resetAll(): Promise<void> {
+    let providerIds: string[] = [];
+    try { providerIds = JSON.parse(await this.secrets.get(STORAGE_INDEX) ?? '[]') as string[]; } catch { /* ignore corrupt index */ }
+    await Promise.all([
+      this.resetJira(),
+      this.resetTeamsWebhook(),
+      ...providerIds.filter((id) => typeof id === 'string').map((id) => this.secrets.delete(`${STORAGE_PREFIX}${id}`)),
+      this.secrets.delete(STORAGE_INDEX)
+    ]);
   }
 }

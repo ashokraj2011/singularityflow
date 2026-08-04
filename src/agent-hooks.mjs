@@ -184,8 +184,9 @@ function isRepositoryWorldModelCall(payload) {
   const branchOption = `--(?:branch|remote) ${identifier}`;
   if (new RegExp(`^${prefix} check(?: ${branchOption})*(?: 2>&1)?$`).test(command)) return true;
 
-  const buildOption = `(?:--local|--depth (?:quick|standard|deep)|--(?:phase|views) ${identifier}|${branchOption}|--(?:task|focus) (?:${quoted}|${identifier}))`;
+  const buildOption = `(?:--local|--depth (?:light|quick|standard|deep)|--(?:phase|views) ${identifier}|${branchOption}|--(?:task|focus) (?:${quoted}|${identifier}))`;
   if (new RegExp(`^${prefix} build(?: ${buildOption})*(?: 2>&1)?$`).test(command)) return true;
+  if (new RegExp(`^${prefix} light(?: ${buildOption})*(?: 2>&1)?$`).test(command)) return true;
 
   const contextOption = `(?:--concat|--evidence|--no-agent|${branchOption}|--task (?:${quoted}|${identifier}))`;
   return new RegExp(`^${prefix} context ${identifier}(?: ${contextOption})*(?: 2>&1)?$`).test(command);

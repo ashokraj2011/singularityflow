@@ -973,13 +973,27 @@ sflow-wm-minimal --phase design
 sflow-wm-minimal --branch WORK-123 --publish
 ```
 
-The minimum wrapper uses `--depth quick`, one `development` view when no phase
-is supplied, no parallel discovery, and `--local` by default. The result is
-still validated and committed; `--local` only prevents an unexpected push. Add
-`--publish` for the configured publication policy, or `--parallel --workers 2`
-when multiple configured views should be checkpointed independently and
-resumed after interruption. From a source checkout the equivalent command is
+The minimum wrapper uses deterministic `light` mode, one `development` view
+when no phase is supplied, and `--local` by default. It calls no AI model and
+therefore consumes **zero model tokens**. The result still has the validated
+world-model structure, source-tree hash, freshness checks, Git commit, and
+normal prompt-injection routing. Its content is intentionally limited to a
+compact path/build-manifest inventory; it does not claim source behavior,
+architecture, security, or impact analysis. Add `--publish` for the configured
+publication policy. From a source checkout the equivalent command is
 `./scripts/worldmodel-minimal.sh`.
+
+```bash
+singularity-flow wm light --local
+singularity-flow wm light --phase design --local
+singularity-flow wm light --branch WORK-123 --phase implementation --local
+# Equivalent spelling for configuration and automation
+singularity-flow wm build --depth light --phase design --local
+```
+
+Use `--parallel --workers 2` with `sflow-wm-minimal` only when you deliberately
+want to upgrade to a semantic `quick` build with independently checkpointed
+model calls.
 
 ```bash
 singularity-flow wm build --phase design --task "Design invoice export"
@@ -994,9 +1008,9 @@ singularity-flow wm show-prompt
 singularity-flow wm check
 ```
 
-`wm build` runs the model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune it. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
+`wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
 
-`wm build`, `wm check`, and `wm context` are repository operations and never
+`wm light`, `wm build`, `wm check`, and `wm context` are repository operations and never
 require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
 local or remote branch. Singularity Flow fetches the selected remote, opens the
 branch in an isolated worktree, and leaves the active checkout unchanged. It
@@ -1232,8 +1246,9 @@ token downloads are not supported in this delivery. See
 | `singularity-flow stack status\|sync [--epic ID]` | Inspect or replicate the enforced Story/PR order to each repository's orphan state branch. |
 | `singularity-flow refresh-branch [--remote origin]` | Fetch and fast-forward only the checked-out clean branch; stop safely when it diverges. |
 | `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
-| `singularity-flow wm build [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; parallel view discovery is enabled by default, interrupted builds reuse exact-match checkpoints, and `--local` commits without pushing. |
-| `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest quick validated model; defaults to one development view and a local commit. |
+| `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic repository inventory with zero model tokens, then validate and commit it like any other world model. |
+| `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
+| `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |

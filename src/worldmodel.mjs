@@ -24,6 +24,7 @@ import {
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
+import { generateLightWorldModel } from './worldmodel-light.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
@@ -619,7 +620,80 @@ function outsideBuilderScratch(changes, config) {
   return changes.filter((entry) => !String(entry).includes(scratch));
 }
 
+async function buildLight(root, config, options) {
+  if (optionString(options, 'runner')) {
+    throw new SingularityFlowError('Light world-model mode is deterministic and does not use --runner. Remove --runner or choose quick, standard, or deep depth.');
+  }
+  if (optionBoolean(options, 'parallel') || options.workers !== undefined) {
+    throw new SingularityFlowError('Light world-model mode does not start discovery workers. Remove --parallel and --workers.');
+  }
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-light-'));
+  const staging = path.join(temporary, 'output');
+  await mkdir(staging, { recursive: true });
+  try {
+    const generatedAt = new Date().toISOString();
+    const sourceCommit = head(root);
+    const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    const views = requestedViews(config, options);
+    if (!views.length) views.push('development');
+    const metadata = {
+      generated_at: generatedAt,
+      generated_date: new Intl.DateTimeFormat('en-GB', {
+        day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC'
+      }).format(new Date(generatedAt)),
+      builder_version: '2.1-light',
+      builder_prompt_sha256: sha256('singularity-flow deterministic light world model v1'),
+      repository_commit: sourceCommit,
+      repository_branch: branch(root),
+      working_tree_clean: changedFiles(root).length === 0,
+      generated_for_phase: optionString(options, 'phase') ?? null
+    };
+    await generateLightWorldModel({
+      root,
+      staging,
+      metadata,
+      sourceState,
+      views,
+      task: optionString(options, 'task')
+    });
+    await validateWorldModelDirectory(staging, {
+      expectedCommit: sourceCommit,
+      expectedTask: optionString(options, 'task'),
+      requiredViews: views,
+      requireEvidence: true
+    });
+    await installWorldModel(staging, path.join(root, config.outputDir));
+    const phase = optionString(options, 'phase');
+    const local = optionBoolean(options, 'local');
+    const publication = await publishWorldModel(
+      root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
+    );
+    console.log(
+      `Light world model built with 0 model tokens from source ${sourceState.sha256.slice(7, 19)} `
+      + `and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}`
+      + `${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`
+    );
+    console.log(`  views: ${views.join(', ')} · files indexed: ${sourceState.files.length} · semantic analysis: not performed`);
+    if (!local) {
+      const governed = await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light');
+      console.log(governed.published
+        ? `  published to the ${governed.branch} branch at ${governed.commit.slice(0, 10)}.`
+        : governed.branch
+          ? `  the ${governed.branch} branch already has this model.`
+          : `  not published to the state branch: ${governed.reason}.`);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 async function build(root, config, options) {
+  const phase = optionString(options, 'phase');
+  const depth = optionString(options, 'depth', phase ? config.phases[phase]?.depth : 'standard');
+  if (!['light', 'quick', 'standard', 'deep'].includes(depth)) {
+    throw new SingularityFlowError('--depth must be light, quick, standard, or deep.');
+  }
+  if (depth === 'light') return buildLight(root, config, { ...options, depth: 'light' });
   const cacheRoot = path.join(gitDir(root), 'singularity-flow');
   await mkdir(cacheRoot, { recursive: true });
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));
@@ -1174,13 +1248,14 @@ export async function worldModelCommand(root, positionals, options) {
   }
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
-  if (!['prompt', 'build', 'context', 'check'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|context <phase>|compose|show-prompt|inject|check');
+  if (!['prompt', 'build', 'light', 'context', 'check'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check');
   }
   return withTargetBranch(root, options, async (targetRoot) => {
     const config = await load(targetRoot);
     if (command === 'prompt') return prompt(targetRoot, config, options);
     if (command === 'build') return build(targetRoot, config, options);
+    if (command === 'light') return build(targetRoot, config, { ...options, depth: 'light' });
     if (command === 'context') {
       return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     }

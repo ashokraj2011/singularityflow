@@ -1351,7 +1351,7 @@ Sync retries the existing history without rebasing, resetting, or force-pushing.
 
 The world model grounds phase generation in repository facts:
 
-For a quick, minimum-token baseline, run this inside the application
+For a deterministic zero-token baseline, run this inside the application
 repository:
 
 ```bash
@@ -1360,15 +1360,18 @@ sflow-wm-minimal --phase design
 sflow-wm-minimal --branch WORK-123 --publish
 ```
 
-This wrapper performs a validated `quick` build, uses only the `development`
-view unless a phase supplies its required views, disables extra discovery
-workers, and commits locally without pushing. `--publish` restores the normal
-publication policy. Use `--parallel --workers N` when independently resumable
-view checkpoints matter more than the minimum number of model calls.
+This wrapper performs a validated `light` build, uses only the `development`
+view unless a phase supplies its required views, and commits locally without
+pushing. It does not call Copilot and consumes zero model tokens. Light content
+is a compact deterministic path and build-manifest inventory, not semantic
+analysis. `--publish` restores the normal publication policy. Use `--parallel
+--workers N` only to deliberately upgrade the wrapper to a semantic `quick`
+build with independently resumable model calls.
 
 ```bash
 cd /path/to/the/repository
 singularity-flow wm init
+singularity-flow wm light --phase design --local
 singularity-flow wm build --depth standard
 singularity-flow wm check
 
@@ -1386,20 +1389,23 @@ singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
 ```
 
-The low-level `wm init`, `wm build`, `wm check`, and `wm context` commands remain
+The low-level `wm init`, `wm light`, `wm build`, `wm check`, and `wm context` commands remain
 repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sflow-story-start` lifecycle, however, generation is deliberately deferred
 until Story intake has created and checked out the canonical Story branch. A
 governed work ID and agent apply when `wm compose` creates a phase prompt.
 
-Use `--branch <name>` on `wm build`, `wm check`, or `wm context` to operate on
+Use `--branch <name>` on `wm light`, `wm build`, `wm check`, or `wm context` to operate on
 any existing local or remote branch. The CLI fetches the remote (default
 `origin`), fast-forwards only when safe, and opens an isolated worktree; your
 active checkout is never switched. `--remote <name>` selects another remote.
 The command stops on divergence or when the target branch is already checked
 out elsewhere.
 
-`wm build` runs the configured generator in a detached analysis worktree. Only
+`wm light` reads repository paths and bounded package metadata locally, creates
+the same validated schema-2 structure, records zero model tokens, and does not
+launch a generator. `wm build` with `quick`, `standard`, or `deep` runs the
+configured generator in a detached analysis worktree. Only
 its isolated output is accepted. Singularity Flow validates the manifest and
 every declared regular file, rejects escaping paths/symlinks and unexpected
 repository writes, records a source-tree hash, atomically installs the output,
@@ -1944,7 +1950,8 @@ singularity-flow ledger status|verify|publish ...
 singularity-flow capabilities inspect|request|approve|revoke ...
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
-singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
+singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
+singularity-flow wm build [--depth light|quick|standard|deep] [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
 sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [--workers N] [--publish]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject

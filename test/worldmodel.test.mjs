@@ -271,6 +271,73 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   assert.match(`${stale.stdout}${stale.stderr}`, /World model is stale/);
 });
 
+test('wm light creates a compact validated repository inventory with zero model tokens', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Light Model Tester'], root);
+  run('git', ['config', 'user.email', 'light-model@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'README.md'), '# Compact application\n');
+  await writeFile(path.join(root, 'src/index.js'), 'export const answer = 42;\n');
+  await writeFile(path.join(root, 'test/index.test.js'), 'void 42;\n');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    name: 'compact-application',
+    scripts: { test: 'node --test', check: 'node --check src/index.js' },
+    dependencies: { yaml: '^2.0.0' }
+  }, null, 2));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const task = 'Design the compact application';
+  const output = run(process.execPath, [bin, 'wm', 'light', '--phase', 'design', '--task', task, '--local'], root);
+  assert.match(output, /built with 0 model tokens/);
+  assert.match(output, /semantic analysis: not performed/);
+
+  const modelRoot = path.join(root, 'singularity/world-model');
+  const manifest = JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.schema_version, '2.0');
+  assert.equal(manifest.analysis_depth, 'light');
+  assert.equal(manifest.generated_for_phase, 'design');
+  assert.deepEqual(manifest.generator, { type: 'deterministic-local', model: null, model_tokens: 0 });
+  assert.deepEqual(manifest.requested_views, ['architecture', 'security']);
+  assert.deepEqual(manifest.views_generated, ['architecture', 'security']);
+  assert.equal(manifest.generation.parallel, false);
+  assert.equal(manifest.task_guides[0].task, task);
+  await validateWorldModelDirectory(modelRoot, {
+    expectedTask: task,
+    requiredViews: ['architecture', 'security'],
+    requireEvidence: true
+  });
+
+  const promptContext = run(process.execPath, [bin, 'wm', 'context', 'design', '--task', task, '--concat'], root);
+  assert.match(promptContext, /zero model tokens/i);
+  assert.match(promptContext, /deterministic repository metadata/i);
+  assert.match(run(process.execPath, [bin, 'wm', 'check'], root), /fresh:/);
+  assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\].*design/);
+
+  const injectedBytes = Buffer.byteLength(await readFile(path.join(modelRoot, 'core/summary.md'), 'utf8'))
+    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.architecture.path), 'utf8'))
+    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.security.path), 'utf8'));
+  assert.ok(injectedBytes < 12 * 1024, `light prompt context should stay compact, received ${injectedBytes} bytes`);
+
+  const rejected = result(process.execPath, [bin, 'wm', 'light', '--runner', 'copilot'], root);
+  assert.notEqual(rejected.status, 0);
+  assert.match(`${rejected.stdout}${rejected.stderr}`, /does not use --runner/);
+
+  const depthAlias = run(process.execPath, [bin, 'wm', 'build', '--depth', 'light', '--views', 'development', '--local'], root);
+  assert.match(depthAlias, /built with 0 model tokens/);
+  assert.equal(
+    JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8')).analysis_depth,
+    'light'
+  );
+});
+
 test('wm build discovers requested views concurrently and synthesizes one validated model', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-parallel-'));
   const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-parallel-${process.pid}-${Date.now()}.jsonl`);

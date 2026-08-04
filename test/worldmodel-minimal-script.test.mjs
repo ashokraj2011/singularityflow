@@ -24,17 +24,18 @@ async function repository() {
   return root;
 }
 
-test('minimum world-model script defaults to one quick local development build', async () => {
+test('minimum world-model script defaults to one deterministic zero-token light build', async () => {
   const root = await repository();
   run('bash', ['-n', script], packageRoot);
   const result = run(script, ['--repository', root, '--dry-run'], packageRoot, {
     ...process.env,
     SINGULARITY_FLOW_BIN: '/opt/singularity-flow'
   });
-  assert.match(result.stdout, /Mode: quick minimum/);
-  assert.match(result.stdout, /\/opt\/singularity-flow wm build --depth quick --resume/);
+  assert.match(result.stdout, /Mode: deterministic light \(zero model tokens\)/);
+  assert.match(result.stdout, /\/opt\/singularity-flow wm light/);
   assert.match(result.stdout, /--views development/);
-  assert.match(result.stdout, /--no-parallel/);
+  assert.doesNotMatch(result.stdout, /--depth quick/);
+  assert.doesNotMatch(result.stdout, /--parallel/);
   assert.match(result.stdout, /--local/);
 });
 
@@ -58,6 +59,7 @@ test('minimum world-model script can use phase policy, checkpoints, a target bra
   assert.match(result.stdout, /--views security/);
   assert.match(result.stdout, /--task Design\\ safely/);
   assert.match(result.stdout, /--branch WORK-123/);
+  assert.match(result.stdout, /wm build --depth quick/);
   assert.match(result.stdout, /--parallel --workers 3/);
   assert.doesNotMatch(result.stdout, /--local/);
 });

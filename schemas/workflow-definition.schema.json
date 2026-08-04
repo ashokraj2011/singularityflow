@@ -207,7 +207,7 @@
                   },
                   "include": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
                   "evidence": { "type": "boolean" },
-                  "depth": { "enum": ["quick", "standard", "deep"] }
+                  "depth": { "enum": ["light", "quick", "standard", "deep"] }
                 },
                 "additionalProperties": false
               }

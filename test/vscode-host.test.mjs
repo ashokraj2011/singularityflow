@@ -510,11 +510,14 @@ test('a window with nothing open and no active workspace says which of the two t
   assert.equal(view.treeDataProvider.getTreeItem(noWorkspaceNode).collapsibleState,
     api.TreeItemCollapsibleState.Expanded, 'the available actions are visible without another click');
 
-  const [configuration] = registered.trees.get('singularityFlow.configuration')
-    .treeDataProvider.getChildren();
-  assert.match(configuration.label, /Choose a workspace/);
-  assert.equal(registered.trees.get('singularityFlow.configuration').treeDataProvider
-    .getTreeItem(configuration).command.command, 'singularityFlow.openWorkspaces');
+  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configurationActions = configuration.getChildren();
+  assert.equal(configurationActions[0].label, 'Create capability');
+  assert.equal(configuration.getTreeItem(configurationActions[0]).command.command,
+    'singularityFlow.mapCapability', 'capability setup does not depend on a workspace');
+  assert.match(configurationActions[1].label, /Choose or create a workspace/);
+  assert.equal(configuration.getTreeItem(configurationActions[1]).command.command,
+    'singularityFlow.openWorkspaces');
 });
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {
@@ -1631,6 +1634,8 @@ test('Configuration opens the capability editor and creates new capabilities', a
 
   const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
   const configurationRoot = configuration.getChildren().find((node) => node.id === 'configuration');
+  assert.equal(configuration.getChildren(configurationRoot)[0].id, 'config:capabilities',
+    'capabilities are the first repository-configuration concept');
   const capabilityGroup = configuration.getChildren(configurationRoot).find((node) => node.id === 'config:capabilities');
   assert.ok(capabilityGroup, 'capabilities are visible under Configuration');
   const add = configuration.getChildren(capabilityGroup).find((node) => node.id === 'config:capabilities:add');

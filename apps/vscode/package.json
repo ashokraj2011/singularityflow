@@ -177,7 +177,7 @@
       },
       {
         "command": "singularityFlow.openDashboard",
-        "title": "Singularity Flow: Status",
+        "title": "Singularity Flow: Lifecycle Analytics",
         "icon": "$(pulse)"
       },
       {

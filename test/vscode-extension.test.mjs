@@ -416,6 +416,8 @@ test('a repository with nothing started at all offers the command that starts so
 test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
   const tree = buildTree(storySnapshot({ generation: 1 }));
   assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42']);
+  assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
+  assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
   assert.equal(find(tree, 'story:phase-rail').description, '1/2 approved');
   assert.equal(find(tree, 'story-phase:design').description, 'in progress · current');
   assert.equal(find(tree, 'story:design:prepare').runCommand, 'singularityFlow.prepareStoryPhase');
@@ -2610,7 +2612,8 @@ test('a tree node resolves back to the thing it stands for', () => {
   assert.equal(workspacePathOf({ id: 'capability:commerce' }), null);
 });
 
-const { buildDashboard, dashboardHealth } = await import(source('views/dashboard-model.ts'));
+const { buildDashboard, buildLifecycleAnalytics, dashboardHealth, humanizeDuration } =
+  await import(source('views/dashboard-model.ts'));
 
 const DIAGNOSTICS = {
   repository: '/work/platform', branch: 'SF-1',
@@ -2695,6 +2698,89 @@ test('the Epic section reports where it has got to, and what is holding it', () 
 
   const none = buildDashboard({ ...snapshot, initiative: null });
   assert.match(none.sections.find((section) => section.id === 'epic').headline, /Nothing governed is checked out/);
+});
+
+const LIFECYCLE_REPORT = {
+  schemaVersion: 1,
+  generatedAt: '2026-08-04T12:00:00.000Z',
+  workItem: { id: 'STORY-42', title: 'Trace governed analytics', workType: 'feature', branch: 'STORY-42', status: 'in_progress' },
+  startedAt: '2026-08-04T08:00:00.000Z', completedAt: null,
+  elapsedMs: 14_400_000, activeMs: 9_000_000, waitingMs: 5_400_000,
+  reworkCycles: 1,
+  rejections: [{ phase: 'requirements' }],
+  selfApprovals: 1,
+  sequenceOverrides: [{ gate: 'freshGeneration' }],
+  tokens: {
+    total: 18_000, exactRecords: 2, unavailableRecords: 1, byAgent: {}, byPhase: {},
+    byModel: [{
+      provider: 'github-copilot', model: 'model-alpha', records: 3, exactRecords: 2,
+      unavailableRecords: 1, totalTokens: 18_000, cost: 0.42, costStatus: 'partial'
+    }]
+  },
+  cost: 0.42, costStatus: 'partial',
+  costCoverage: {
+    usageRecords: 3, exactUsageRecords: 2, pendingRecords: 0, pricedRecords: 2,
+    fullyPricedRecords: 2, providerCostRecords: 2, configuredPriceRecords: 0,
+    missingModels: ['github-copilot/model-alpha']
+  },
+  bottleneck: { phase: 'requirements', waitingMs: 5_400_000, share: 38 },
+  phases: [
+    {
+      id: 'intake', label: 'Intake', status: 'approved', generations: 1,
+      elapsedMs: 3_600_000, activeMs: 3_000_000, waitingMs: 600_000, openSubmission: null,
+      approvals: 1, selfApprovals: 0, rejections: [], usageRecords: 1, pendingTelemetry: 0,
+      tokens: 8_000, tokenStatus: 'exact', models: ['model-alpha'],
+      modelUsage: [], agents: ['product-owner'], cost: 0.2, costStatus: 'exact'
+    },
+    {
+      id: 'requirements', label: 'Requirements', status: 'approved', generations: 2,
+      elapsedMs: 7_200_000, activeMs: 2_400_000, waitingMs: 4_800_000, openSubmission: null,
+      approvals: 1, selfApprovals: 1, rejections: [{}], usageRecords: 2, pendingTelemetry: 0,
+      tokens: 10_000, tokenStatus: 'partial', models: ['model-alpha'],
+      modelUsage: [], agents: ['product-owner'], cost: 0.22, costStatus: 'partial'
+    },
+    {
+      id: 'design', label: 'Design', status: 'in_progress', generations: 1,
+      elapsedMs: 3_600_000, activeMs: 3_600_000, waitingMs: 0, openSubmission: null,
+      approvals: 0, selfApprovals: 0, rejections: [], usageRecords: 0, pendingTelemetry: 0,
+      tokens: 0, tokenStatus: 'none', models: [], modelUsage: [], agents: [], cost: null, costStatus: 'unavailable'
+    }
+  ]
+};
+
+test('lifecycle analytics presents phase completion, time, usage, cost, and governance from one report', () => {
+  const analytics = buildLifecycleAnalytics(LIFECYCLE_REPORT);
+  assert.equal(analytics.id, 'STORY-42');
+  assert.equal(analytics.completionPercent, 67);
+  assert.equal(analytics.currentPhase, 'design');
+  assert.equal(analytics.usageStatus, 'partial');
+  assert.equal(analytics.totalTokens, 18_000);
+  assert.equal(analytics.cost, 0.42);
+  assert.equal(analytics.reworkCycles, 1);
+  assert.equal(analytics.rejections, 1);
+  assert.equal(analytics.selfApprovals, 1);
+  assert.equal(analytics.phases.find((phase) => phase.id === 'requirements').waitingShare, 67);
+  assert.equal(humanizeDuration(analytics.elapsedMs), '4.0h');
+});
+
+test('missing provider telemetry is unavailable rather than a misleading zero', () => {
+  const report = structuredClone(LIFECYCLE_REPORT);
+  report.tokens.total = 0;
+  report.tokens.byModel = [];
+  report.cost = null;
+  report.costStatus = 'unavailable';
+  report.costCoverage = { ...report.costCoverage, usageRecords: 1, exactUsageRecords: 0, pricedRecords: 0 };
+  const analytics = buildLifecycleAnalytics(report);
+  assert.equal(analytics.usageStatus, 'unavailable');
+  assert.equal(analytics.cost, null);
+  assert.equal(humanizeDuration(null), 'Unavailable');
+});
+
+test('the status dashboard carries lifecycle analytics without inventing them when no Story is selected', () => {
+  const withStory = buildDashboard({ ...snapshot, report: LIFECYCLE_REPORT });
+  assert.equal(withStory.analytics.id, 'STORY-42');
+  const withoutStory = buildDashboard({ ...snapshot, report: null });
+  assert.equal(withoutStory.analytics, null);
 });
 
 const { buildProfiles, buildTemplateUsage, consequence, standingOn } =

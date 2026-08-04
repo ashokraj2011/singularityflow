@@ -250,6 +250,78 @@ export interface StoryWorkflow {
   [key: string]: unknown;
 }
 
+export interface StoryModelUsage {
+  provider: string;
+  model: string;
+  records: number;
+  exactRecords: number;
+  unavailableRecords: number;
+  totalTokens: number;
+  cost: number | null;
+  costStatus: string;
+}
+
+export interface StoryPhaseReport {
+  id: string;
+  label: string;
+  status: PhaseStatus;
+  generations: number;
+  elapsedMs: number | null;
+  activeMs: number | null;
+  waitingMs: number | null;
+  openSubmission: string | null;
+  approvals: number;
+  selfApprovals: number;
+  rejections: unknown[];
+  usageRecords: number;
+  pendingTelemetry: number;
+  tokens: number;
+  tokenStatus: string;
+  models: string[];
+  modelUsage: StoryModelUsage[];
+  agents: string[];
+  cost: number | null;
+  costStatus: string;
+}
+
+/** The deterministic lifecycle report produced by `deriveReport`; never recalculated in VS Code. */
+export interface StoryWorkflowReport {
+  schemaVersion: number;
+  generatedAt: string;
+  workItem: { id: string; title: string | null; workType: string | null; branch: string | null; status?: string };
+  startedAt: string | null;
+  completedAt: string | null;
+  elapsedMs: number | null;
+  waitingMs: number;
+  activeMs: number | null;
+  reworkCycles: number;
+  rejections: unknown[];
+  selfApprovals: number;
+  sequenceOverrides: unknown[];
+  tokens: {
+    total: number;
+    exactRecords: number | null;
+    unavailableRecords: number | null;
+    byAgent: Record<string, unknown>;
+    byPhase: Record<string, unknown>;
+    byModel: StoryModelUsage[];
+  };
+  cost: number | null;
+  costStatus: string;
+  costCoverage: {
+    usageRecords: number;
+    exactUsageRecords: number;
+    pendingRecords: number;
+    pricedRecords: number;
+    fullyPricedRecords: number;
+    providerCostRecords: number;
+    configuredPriceRecords: number;
+    missingModels: string[];
+  };
+  bottleneck: { phase: string; waitingMs: number; share: number | null } | null;
+  phases: StoryPhaseReport[];
+}
+
 export interface InitiativeSummary {
   id: string;
   branch?: string;
@@ -267,6 +339,7 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  report?: StoryWorkflowReport | null;
   documents?: StoryArtifact[];
   worldModel?: {
     root: string;

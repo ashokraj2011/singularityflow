@@ -134,7 +134,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -204,7 +204,10 @@ function stubVscode() {
       // could be asserted on and the assertion could not fail, because nothing was ever going to
       // happen. Built-ins nobody registered — `vscode.openFolder` and friends — still do nothing,
       // which is the correct outcome for a stub rather than a hidden one.
-      executeCommand: async (id, ...args) => registered.commands.get(id)?.(...args)
+      executeCommand: async (id, ...args) => {
+        registered.executedCommands.push({ id, args });
+        return registered.commands.get(id)?.(...args);
+      }
     },
     languages: {
       createDiagnosticCollection: () => ({
@@ -361,9 +364,8 @@ async function demoRepository() {
   return root;
 }
 
-function context() {
+function context(values = new Map()) {
   const root = path.join(packageRoot, 'apps', 'vscode');
-  const values = new Map();
   return {
     subscriptions: [],
     extensionPath: root,
@@ -1926,6 +1928,104 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   const chosen = await until(() =>
     provider.getChildren().find((row) => row.description === 'working here') ?? null);
   assert.equal(chosen.label, 'commerce');
+});
+
+test('the Copilot handoff switches this window to the governed repository before opening chat', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registryFile = path.join(org.base, 'registry.json');
+  const selectionFile = path.join(org.base, 'active-workspace.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+  const selected = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'use', 'commerce', '--json'], { encoding: 'utf8', env: process.env });
+  assert.equal(selected.status, 0, selected.stderr);
+
+  // Reproduce the reported case: Singularity Flow's own source happens to be open, while the
+  // selected workspace points at a different governed repository.
+  const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-unrelated-window-'));
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: unrelated } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.openCopilot')();
+
+  const open = registered.executedCommands.find((entry) => entry.id === 'vscode.openFolder');
+  assert.ok(open, 'the same VS Code window is moved to the Story repository first');
+  assert.equal(open.args[1], false, 'the handoff replaces this window instead of opening another one');
+  const pending = values.get('singularityFlow.pendingCopilotHandoff');
+  assert.equal(path.resolve(pending.repository), path.resolve(open.args[0].fsPath));
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'workbench.action.chat.open'), false,
+    'chat is not opened against the unrelated repository before the window reloads');
+  assert.match(registered.infos.at(-1), /Switching this window to that repository/);
+});
+
+test('a pending Copilot handoff resumes in a fresh chat after the repository window reloads', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Use local publication for handoff test'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'STORY-001', '--title', 'Checkout Story', '--description', 'Complete checkout',
+    '--acceptance-criteria', 'Checkout succeeds', '--work-type', 'feature', '--agent', 'developer',
+    '--base', 'INIT-CHECKOUT'], {
+    cwd: root, encoding: 'utf8', env: process.env
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const grounded = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'wm', 'light', '--phase', 'intake', '--local'], { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(grounded.status, 0, grounded.stderr);
+  const isolated = await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-resume-'));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(isolated, 'registry.json');
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(isolated, 'active.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const values = new Map([['singularityFlow.pendingCopilotHandoff', {
+    repository: root, workId: 'STORY-001', requestedAt: new Date().toISOString()
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const fresh = registered.executedCommands.find((entry) => entry.id === 'workbench.action.chat.newChat');
+  const opened = registered.executedCommands.find((entry) => entry.id === 'workbench.action.chat.open');
+  assert.deepEqual(registered.errors, [], 'prompt composition succeeds after the repository reload');
+  assert.ok(fresh, 'an unrelated previous Copilot agent conversation is not reused');
+  assert.ok(opened, 'the governed prompt opens after the owning repository is active');
+  const canonicalRoot = await realpath(root);
+  assert.ok(opened.args[0].query.includes(`Working directory: ${canonicalRoot}`));
+  assert.match(opened.args[0].query, /Story: STORY-001/);
+  assert.match(opened.args[0].query, /Do not inspect or modify another repository/);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined,
+    'the one-shot handoff cannot reopen chat on every later reload');
 });
 
 test('opening a workspace explicitly replaces the current window rather than scattering new ones', async (t) => {

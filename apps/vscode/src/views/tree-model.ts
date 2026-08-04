@@ -335,8 +335,8 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode
   }
   if (phase.status !== 'in_progress' && phase.status !== 'rejected') return [];
   return [{
-    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Open governed context in Copilot',
-    description: 'author this phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Continue this Story in Copilot',
+    description: 'open its repository + governed phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
   }, {
     kind: 'action', id: `story:${phase.id}:prepare`, label: `Prepare ${phase.label}`,
     description: 'create phase workspace', icon: 'tools', command: ['prepare', phase.id],
@@ -689,8 +689,8 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           kind: 'action', id: 'config:jira-reset', label: 'Reset saved Jira',
           description: 'remove keychain secret', icon: 'trash', runCommand: 'singularityFlow.resetJira'
         }, {
-          kind: 'action', id: 'config:copilot', label: 'Open governed context in Copilot',
-          description: 'native VS Code chat', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+          kind: 'action', id: 'config:copilot', label: 'Continue active Story in Copilot',
+          description: 'open its repository + governed phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
         }]
       },
       worldModelNode(snapshot),

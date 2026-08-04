@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-sources
 description: List, upload, pin, materialize, and verify governed Epic source files used to generate requirements and Story plans.
+disable-model-invocation: true
+
 ---
 
 # Manage Epic sources
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 For a short upload-first experience, use `/sflow-upload`. This skill remains the complete Epic-source lifecycle interface.
 

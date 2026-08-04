@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-requirements
 description: Formalize pinned Epic sources into requirements, traceability, and repository impact analysis, then publish one governed Requirements bundle.
+disable-model-invocation: true
+
 ---
 
 # Build the Epic Requirements bundle
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow epic requirements status --json`. Epic Intake accepts the Jira identity and pinned sources automatically; do not build or request a repository world model on `main` or the Epic branch.
 2. List pinned inputs with `singularity-flow epic sources list --epic <EPIC-KEY>`.

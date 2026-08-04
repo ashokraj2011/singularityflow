@@ -1,11 +1,15 @@
 ---
 name: sflow-upload
 description: Upload local files, folders, images, PDFs, Figma exports, notes, and HTTPS references as governed Epic or Story evidence.
-argument-hint: "<PATH...> [--epic EPIC-KEY | --work-id WORK-ID] [--url URL] [--label TEXT]"
 disable-model-invocation: true
+argument-hint: "<PATH...> [--epic EPIC-KEY | --work-id WORK-ID] [--url URL] [--label TEXT]"
+
 ---
 
 # Upload governed evidence
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 Use this skill whenever a user wants to add files or links to the active Epic or Story. Do not copy files directly into `singularity/`.
 

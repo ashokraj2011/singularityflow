@@ -1,0 +1,126 @@
+version: 1
+
+# Only these skills may be selected automatically from natural-language requests.
+# Every other skill remains user-invocable through its /sflow-* command.
+automaticInvocationAllowlist:
+  - sflow-help
+  - sflow-nextsteps
+  - sflow-status
+
+classes:
+  conversational:
+    outputContract: guided-actions
+    warningTokens: 500
+    maximumTokens: 800
+  echo:
+    outputContract: concise-relay
+    warningTokens: 500
+    maximumTokens: 800
+  interactive:
+    outputContract: explicit-selection
+    warningTokens: 500
+    maximumTokens: 800
+  review:
+    outputContract: governed-review
+    warningTokens: 500
+    maximumTokens: 800
+  generative:
+    outputContract: clarification-and-artifact
+    warningTokens: 500
+    maximumTokens: 800
+  mutation:
+    outputContract: deterministic-mutation
+    warningTokens: 500
+    maximumTokens: 800
+
+# Every public skill is deliberately classified. All classes share the same body
+# budget so catalog growth cannot hide behind per-skill exceptions.
+skills:
+  sflow-about: { class: echo }
+  sflow-agent: { class: interactive }
+  sflow-agents: { class: echo }
+  sflow-approve: { class: review }
+  sflow-capabilities: { class: echo }
+  sflow-capability-doctor: { class: echo }
+  sflow-capability-map: { class: interactive }
+  sflow-design: { class: generative }
+  sflow-doctor: { class: echo }
+  sflow-documents: { class: mutation }
+  sflow-epic-complete: { class: review }
+  sflow-epic-drift: { class: mutation }
+  sflow-epic-journey: { class: echo }
+  sflow-epic-merge-plan: { class: echo }
+  sflow-epic-next: { class: echo }
+  sflow-epic-planning: { class: generative }
+  sflow-epic-publish: { class: review }
+  sflow-epic-requirements: { class: generative }
+  sflow-epic-resume: { class: interactive }
+  sflow-epic-review: { class: review }
+  sflow-epic-review-decision: { class: review }
+  sflow-epic-sources: { class: mutation }
+  sflow-epic-start: { class: interactive }
+  sflow-epic-status: { class: echo }
+  sflow-epic-stories: { class: echo }
+  sflow-epic-story-draft: { class: generative }
+  sflow-epic-sync: { class: mutation }
+  sflow-factory-reset: { class: mutation }
+  sflow-finalize: { class: mutation }
+  sflow-help: { class: conversational }
+  sflow-home: { class: echo }
+  sflow-implement: { class: generative }
+  sflow-inbox: { class: echo }
+  sflow-init: { class: mutation }
+  sflow-initiative-approve: { class: review }
+  sflow-initiative-checklist: { class: echo }
+  sflow-initiative-documents: { class: echo }
+  sflow-initiative-evidence: { class: mutation }
+  sflow-initiative-materialize: { class: mutation }
+  sflow-initiative-next: { class: echo }
+  sflow-initiative-phase: { class: generative }
+  sflow-initiative-start: { class: interactive }
+  sflow-initiative-status: { class: echo }
+  sflow-inputs: { class: echo }
+  sflow-jira-assigned: { class: echo }
+  sflow-jira-board: { class: echo }
+  sflow-jira-doctor: { class: echo }
+  sflow-jira-initiative: { class: interactive }
+  sflow-jira-status: { class: echo }
+  sflow-jira-story: { class: echo }
+  sflow-jira-update: { class: mutation }
+  sflow-jira-work: { class: echo }
+  sflow-ledger: { class: mutation }
+  sflow-logs: { class: echo }
+  sflow-next: { class: mutation }
+  sflow-nextsteps: { class: conversational }
+  sflow-phase: { class: generative }
+  sflow-progress: { class: echo }
+  sflow-prompt-log: { class: mutation }
+  sflow-refresh-branch: { class: mutation }
+  sflow-regression-investigate: { class: generative }
+  sflow-reject: { class: review }
+  sflow-release: { class: generative }
+  sflow-report: { class: echo }
+  sflow-requirements: { class: generative }
+  sflow-resume: { class: interactive }
+  sflow-review: { class: review }
+  sflow-run: { class: mutation }
+  sflow-session: { class: interactive }
+  sflow-show-prompt: { class: echo }
+  sflow-stack: { class: mutation }
+  sflow-start: { class: interactive }
+  sflow-status: { class: conversational }
+  sflow-story-branch: { class: interactive }
+  sflow-story-checks: { class: mutation }
+  sflow-story-fetch: { class: interactive }
+  sflow-story-inbox: { class: echo }
+  sflow-story-start: { class: interactive }
+  sflow-submit: { class: review }
+  sflow-telemetry: { class: echo }
+  sflow-upload: { class: mutation }
+  sflow-verify: { class: generative }
+  sflow-workflow-rules: { class: conversational }
+  sflow-workflows: { class: mutation }
+  sflow-workspace: { class: interactive }
+  sflow-workspace-session: { class: interactive }
+  sflow-workspaces: { class: echo }
+  sflow-worldmodel: { class: generative }

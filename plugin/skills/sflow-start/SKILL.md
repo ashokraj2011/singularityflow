@@ -1,35 +1,21 @@
 ---
 name: sflow-start
 description: Interactively choose Jira or manual intake and a workflow template; activate its phase-default agent and publish durable Singularity Flow state.
-argument-hint: "<WORK-ID> [--jira | manual story details] [documents and URLs]"
 disable-model-invocation: true
+argument-hint: "<WORK-ID> [--jira | manual story details] [documents and URLs]"
+
 ---
 # Start Singularity Flow work
 
-Use Copilot's interactive selection bridge for every finite choice:
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
-- Start the Singularity Flow command in a persistent interactive shell. When it prints `Choose intake source` or `Choose workflow template`, call `ask_user` with the displayed labels, IDs, and descriptions as selectable options.
-- Never infer or preselect an answer. Map the chosen ID to the displayed number and send that number plus a newline to the same shell process with `write_bash`.
-- If `write_bash` or persistent terminal input is unavailable, use the one-time selection-receipt bridge below. If `ask_user` itself is unavailable or disabled, stop and tell the contributor that explicit choices cannot be collected safely. Never edit the session file or answer a receipt without the contributor's choice.
-
-Selection-receipt bridge for shells without persistent stdin:
-
-1. Run `singularity-flow choices begin start <WORK-ID> --json` and retain its `token`. The receipt is local under `.git`, bound to the work ID, repository HEAD, and current Copilot session when available, and expires after 15 minutes.
-2. Present each returned `choiceSets` group through `ask_user`. When `--story-file` or other manual details were explicitly supplied, record `manual` for `intake-source`; when `--jira` was explicitly supplied, record `jira`. Ask for the workflow template; the first phase's agent is automatic.
-3. For each exact answer, run `singularity-flow choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`. Never construct or infer an answer.
-4. Confirm the last response says `ready: true`, then add `--selection-receipt <TOKEN>` to the original `singularity-flow start` command. The CLI validates and consumes the receipt exactly once. Missing, incomplete, expired, different-session, different-work-item, changed-HEAD, or no-longer-configured choices fail before branch or workflow mutation.
-
-1. Treat the invocation arguments as explicit user intent, but do not invent a work ID.
-2. Run `singularity-flow version`. If unavailable, explain that the reviewed npm package must be installed; do not install an unknown package automatically.
-3. Run `git status --short` and report existing changes. Singularity Flow refuses a dirty tree unless `--allow-dirty` was supplied.
-4. If `singularity/workflow.yml` is absent, run `singularity-flow init --work-id <WORK-ID> --base <BASE> --fetch`. This creates or reuses the Work-ID branch before writing configuration, so a protected base branch is never modified. Ask the user to review, commit, and push the generated workflow, templates, governed-agent prompts, approval authorities, and builder prompt on the Work-ID branch before starting work. Do not require a direct push or merge to `main`.
-5. Use `ask_user` to select whether the source is a Jira story or manual description and documents. Finish source intake before showing or choosing a workflow template. For Jira, use `--jira`. For manual intake, collect the title, user or audience, problem, desired outcome, in/out scope, stakeholders, urgency, constraints, dependencies, measurable acceptance criteria, risks, notes, and every local document or HTTPS reference the user wants attached. Do not invent missing answers; mark them as open questions.
-6. For manual intake, create a temporary YAML or JSON story file outside tracked repository paths using the structure in `examples/manual-story.yml`. Use absolute paths for supplied local documents, or paths relative to the story file, and include URLs under `documents`. Run `singularity-flow start <WORK-ID> --story-file <file>` through either interactive bridge. The CLI imports and publishes every listed document. Explicit `--document <path>` and `--document-url <url>` options may be repeated for additional inputs.
-7. For Jira intake, run `singularity-flow start <WORK-ID> --jira` through either interactive bridge. After Jira or manual intake is complete, collect the immutable workflow template. Report the phase-default governed agent selected by that workflow; it is not the contributor's identity or approval authority.
-8. Confirm that the current branch exactly equals the work ID.
-9. Read the created `workflow.json`, `STATUS.md`, `source.json`, `USER-STORY.md`, and `documents.json` when documents were supplied.
-10. Summarize the source, imported documents and stable `DOC-nnn` IDs, current phase, required artifact, open questions, and next valid action.
-11. Offer `/sflow-documents upload` for later supporting inputs during configured initial phases.
-12. Do not generate the active artifact unless also requested. Recommend `/sflow-nextsteps` for the read-only ordered plan, `/sflow-next` to execute one next action, `/sflow-help` to explain the selected template, and `/sflow-phase` to begin its current phase directly.
+1. Require an explicit work ID. Run `singularity-flow version` and `git status --short`; report missing CLI or dirty-tree failures without installing or discarding anything.
+2. If `singularity/workflow.yml` is absent, run `singularity-flow init --work-id <WORK-ID> --base <BASE> --fetch`. It must create/reuse the Work-ID branch before configuration so protected `main` is untouched. Stop for review, commit, and push of those initialized assets.
+3. Collect source before workflow. Use `ask_user` to choose Jira or manual intake. For manual intake, collect title, audience, problem, outcome, scope, constraints, dependencies, acceptance criteria, risks, notes, and supplied files/URLs; keep missing facts as open questions. Write a temporary story file outside tracked paths using `examples/manual-story.yml`. Use `--jira` for Jira or `--story-file <file>` for manual input; repeat `--document` and `--document-url` as needed.
+4. Start in a persistent interactive shell. For `Choose intake source` and `Choose workflow template`, display the exact options with `ask_user`, then send the contributor's selected number to that same process with `write_bash`. Never infer or preselect a choice. The workflow's phase-default governed agent is automatic, not a human identity or approval authority. If `ask_user` is unavailable or disabled, stop.
+5. If persistent input is unavailable, run `singularity-flow choices begin start <WORK-ID> --json`. Present every `choiceSets` group with `ask_user`; record each exact answer using `singularity-flow choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`. The token expires after 15 minutes. Once `ready: true`, rerun start with `--selection-receipt <TOKEN>`. The CLI validates and consumes the receipt exactly once; never construct an answer.
+6. Confirm branch = work ID. Read `workflow.json`, `STATUS.md`, `source.json`, `USER-STORY.md`, and `documents.json` when present. Report source, `DOC-nnn` inputs, current phase/artifact, open questions, phase agent, and next action.
+7. Do not generate the artifact unless requested. Offer `/sflow-documents upload`, `/sflow-nextsteps`, `/sflow-next`, `/sflow-help`, and `/sflow-phase`.
 
 `--jira` uses direct Jira REST through the npm utility and environment credentials. It does not use MCP or an IDE Jira plugin.

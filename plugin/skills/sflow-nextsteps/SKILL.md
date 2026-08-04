@@ -1,8 +1,11 @@
 ---
 name: sflow-nextsteps
-description: Show the ordered next, subsequent, and alternative Singularity Flow actions from the current repository and work-item state. Use whenever the user asks what to do next, how to proceed, or invokes /sflow-nextsteps.
+description: Show ordered next actions from the current workflow state.
 ---
 # Show next actions
+
+<!-- sflow-output-contract: guided-actions -->
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
 1. Run `singularity-flow nextsteps <arguments>`, passing a work ID when the user supplied one.
 2. Present every returned action in order, preserving its `NOW`, `THEN`, or `ALTERNATIVE` timing, `/sflow-*` skill, CLI command, and reason.

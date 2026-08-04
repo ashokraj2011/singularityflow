@@ -1,10 +1,14 @@
 ---
 name: sflow-jira-story
 description: Pull one Jira user story by key through Singularity Flow's direct Jira REST client and present its normalized details without changing Jira or Git.
-argument-hint: "<JIRA-ID> [--json]"
 disable-model-invocation: true
+argument-hint: "<JIRA-ID> [--json]"
+
 ---
 # Pull a Jira user story
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Require an explicit Jira key; do not invent or guess one.
 2. Run `singularity-flow jira pull <JIRA-ID>` with supplied arguments.

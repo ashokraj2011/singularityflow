@@ -1,9 +1,13 @@
 ---
 name: sflow-initiative-checklist
 description: Review an initiative phase checklist, evidence assurance, freshness, applicability decisions, and blocking gates in GitHub Copilot.
+disable-model-invocation: true
 argument-hint: "[PHASE] [--initiative INIT-ID]"
 ---
 # Review an initiative checklist
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow initiative checklist [PHASE] [--initiative INIT-ID] --json`.
 2. Show every checklist ID, requirement, gate mode, status, accepted assurance levels, current evidence hashes, expiration, and reason.

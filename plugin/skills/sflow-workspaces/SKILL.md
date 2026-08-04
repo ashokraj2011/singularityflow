@@ -2,8 +2,12 @@
 name: sflow-workspaces
 description: List saved Singularity Flow workspaces, show the active workspace and repository, and display the workspace or Story context label.
 disable-model-invocation: true
+
 ---
 # Show Singularity Flow workspaces
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow workspace list --json`.
 2. Run `singularity-flow workspace current --json`.

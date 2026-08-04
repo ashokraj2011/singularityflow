@@ -47,6 +47,8 @@
     "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-suite.mjs all",
     "check": "node scripts/check.mjs",
+    "audit:skills": "node scripts/audit-skills.mjs",
+    "audit:skills:write": "node scripts/audit-skills.mjs --write",
     "codeowners:generate": "node scripts/generate-codeowners.mjs --write",
     "codeowners:check": "node scripts/generate-codeowners.mjs",
     "gate": "node scripts/gate.mjs",

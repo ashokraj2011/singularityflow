@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-planning
 description: Compatibility entry point for the canonical sflow-epic-story-draft workflow that creates governed Story plans and specifications.
+disable-model-invocation: true
+
 ---
 
 # Plan governed Stories
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 This is the compatibility name for `/sflow-epic-story-draft`. Follow that skill's canonical procedure:
 

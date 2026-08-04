@@ -1,10 +1,14 @@
 ---
 name: sflow-initiative-phase
 description: Compose the governed GitHub Copilot prompt, author all configured outputs, and publish the active phase of a multi-repository Singularity Flow initiative.
-argument-hint: "[PHASE] [--initiative INIT-ID]"
 disable-model-invocation: true
+argument-hint: "[PHASE] [--initiative INIT-ID]"
+
 ---
 # Generate an initiative phase
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow initiative status [INIT-ID] --json` and use only its current phase.
 2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, required repository world-model views, active agent Markdown, and approved upstream initiative artifacts.

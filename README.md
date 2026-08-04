@@ -638,14 +638,20 @@ session:
   requireBeforeTools: false
 ```
 
-The bundled Copilot plugin registers an advisory `sessionStart` prompt and one
-nonblocking `subagentStart` command hook. The first may remind the contributor
-to use `/sflow-session` or `/sflow-start`; it never invokes either skill. The
-second maps an exact Copilot custom-agent name to the same Singularity Flow
-agent ID for the local session. Neither hook denies Bash, edit, search, or
-view tools, and deterministic CLI lifecycle checks remain the enforcement
-boundary. The retained `session-start` and `agent-guard` CLI hook handlers are
-available only for teams that deliberately install a custom command-hook policy.
+The bundled Copilot plugin registers only a nonblocking `subagentStart` command
+hook. It maps an exact Copilot custom-agent name to the same Singularity Flow
+agent ID for the local session. It never injects a startup model prompt and never
+denies Bash, edit, search, or view tools; deterministic CLI lifecycle checks remain
+the enforcement boundary. The retained `session-start` and `agent-guard` CLI hook
+handlers are available only for teams that deliberately install a custom
+command-hook policy.
+
+The skill catalog is governed by [`plugin/skills/registry.yml`](plugin/skills/registry.yml):
+only help, next steps, and status may be selected automatically; all other skills
+are explicit `/sf-*` operations. Body budgets, output contracts, utility-agent
+routing, and measurement guidance are documented in
+[`docs/SKILL-EFFICIENCY.md`](docs/SKILL-EFFICIENCY.md). Run `npm run audit:skills`
+to verify the catalog.
 
 New repositories also rotate Copilot context after an approved phase:
 

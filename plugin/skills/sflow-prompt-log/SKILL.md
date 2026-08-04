@@ -1,9 +1,14 @@
 ---
 name: sflow-prompt-log
 description: Enable, disable, inspect, or display the workspace-local audit log of governed prompts Singularity Flow sends to Copilot for each agent and Story phase. Use when a contributor or reviewer needs prompt provenance without changing workflow state.
+disable-model-invocation: true
+
 ---
 
 # Manage governed prompt auditing
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Interpret `$ARGUMENTS` as one of `on`, `off`, `status`, `list`, or `view <record-id>`; use `status` when no action is supplied.
 2. Run `singularity-flow prompt-log <action>`, forwarding filters such as `--agent`, `--phase`, `--work-id`, and `--limit` unchanged.

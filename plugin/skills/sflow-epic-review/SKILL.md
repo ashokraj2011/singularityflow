@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-review
 description: Review hash-bound Story submissions across Epic repositories and record exact-SHA governance, GitHub Actions, PR, and conformance evidence.
+disable-model-invocation: true
+
 ---
 
 # Review an Epic Story submission
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 1. Run `singularity-flow epic review --epic <EPIC-KEY>` to show the cross-repository review inbox.
 2. Open one exact packet with `singularity-flow epic review <STORY-KEY> --epic <EPIC-KEY>`.

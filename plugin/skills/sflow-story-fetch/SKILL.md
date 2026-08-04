@@ -1,9 +1,14 @@
 ---
 name: sflow-story-fetch
 description: Securely fetch a governed Jira Story branch, verify its parent and Story specifications, and start its pinned repository workflow.
+disable-model-invocation: true
+
 ---
 
 # Fetch a governed Story
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Ask the user to choose a Story from `/sflow-story-inbox`.
 2. Run `singularity-flow story fetch <JIRA-KEY>`. If it belongs to another configured repository, provide the user's chosen local directory through `--directory`.

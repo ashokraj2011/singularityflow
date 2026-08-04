@@ -1,10 +1,14 @@
 ---
 name: sflow-initiative-materialize
 description: Preview and explicitly materialize approved initiative stories across registered repositories from GitHub Copilot.
-argument-hint: "[--initiative INIT-ID]"
 disable-model-invocation: true
+argument-hint: "[--initiative INIT-ID]"
+
 ---
 # Materialize initiative stories
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Run `singularity-flow initiative breakdown --json` and `singularity-flow initiative materialize --dry-run --json`.
 2. Show every Epic, story, repository, branch, blocking flag, dependency, contract, Jira operation, and reachability problem.

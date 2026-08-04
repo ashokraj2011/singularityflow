@@ -1,10 +1,14 @@
 ---
 name: sflow-submit
 description: Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.
-argument-hint: "[--skip-checks only when explicitly authorized]"
 disable-model-invocation: true
+argument-hint: "[--skip-checks only when explicitly authorized]"
+
 ---
 # Submit the current phase
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and relay the error. On `Soft sequence warning`, show the full warning and leave the interactive `continue` decision to the human; never self-confirm. Use `singularity-flow nextsteps` only for read-only guidance and never edit managed state to bypass a gate.
 

@@ -1,10 +1,14 @@
 ---
 name: sflow-design
 description: Produce and register the architecture and design artifact for the active Singularity Flow design phase, grounded in approved requirements and the codebase.
-argument-hint: "[design constraints or emphasis]"
 disable-model-invocation: true
+argument-hint: "[design constraints or emphasis]"
+
 ---
 # Architecture and design phase
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `design`.
 2. Run `singularity-flow wm compose --phase design --task "<design objective>"` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase design --task "<design objective>"`, then rerun the identical compose command. Use architecture and security grounding as evidence.

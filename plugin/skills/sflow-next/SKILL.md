@@ -1,18 +1,22 @@
 ---
 name: sflow-next
 description: Execute the single next valid Singularity Flow action, including grounded phase generation, submission, interactive approval, publication recovery, or final governance.
-argument-hint: "[task focus]"
 disable-model-invocation: true
+argument-hint: "[task focus]"
+
 ---
 # Execute the next workflow action
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 This is an explicitly invoked mutating command. Execute one lifecycle action, report its durable Git result, and stop. Never loop through multiple approvals. The phase contract selects the agent; human identity grants approval authority.
 
 1. Run `singularity-flow nextsteps --json` to show the state and prerequisites, then run `singularity-flow next --task "<current objective>"`.
 2. If the CLI synchronizes, submits, runs the terminal gate, or opens approval, let that action finish. Before approval, run `singularity-flow phase show <phase> --json` and use the visible artifact review protocol below. Validate the real reviewer identity and authority group, report the automatic phase agent, and require the reviewer to type the exact phase name. Every recorded approval must produce its own commit and push.
-3. If the CLI reports `Next step prepared`, use the composed grounding printed by the command and inspect the prepared artifact and approved inputs. When that prompt contains **Human clarification checkpoint**, use `ask_user` for the configured batch and wait before authoring. A `required` checkpoint must pause at least once, even when the evidence appears complete. If `ask_user` is unavailable, display the questions and stop before authoring or publication. After the checkpoint, complete exactly the active phase contract and follow the same scope, traceability, evidence, test, and placeholder rules as `/sflow-phase`.
-4. After authoring, run relevant validation and `singularity-flow phase publish <phase>`. Repository-scoped Copilot telemetry is recorded automatically; a `pending` record is expected until Copilot completes the current response, and the next submit action reconciles and publishes it before submission. Include `--usage-json <file>` only for an exact external provider record. Confirm the sanitized `telemetry/<phase>-gen<N>.json` was committed with the generation.
+3. If `Next step prepared`, use its composed grounding and approved inputs. At **Human clarification checkpoint**, use `ask_user` and wait; a `required` checkpoint always pauses. Without `ask_user`, show questions and stop before authoring or publication. Then follow `/sflow-phase` scope, traceability, tests, and placeholder rules.
+4. Validate and run `singularity-flow phase publish <phase>`. Confirm sanitized `telemetry/<phase>-gen<N>.json`; use `--usage-json` only for exact external usage. A current-response record may be pending until the next submit reconciles it.
 5. After any publish or submit action, run `singularity-flow phase show <phase> --json`. In the visible assistant response, reproduce every published text document in full between `--- BEGIN <path> ---` and `--- END <path> ---`, preceded by its stable ID, kind, byte count, and SHA-256. A Shell/tool block, even when it contains the text, is collapsible and does not satisfy artifact review. Never say “shown above,” “rendered above,” or “documents shown,” and never replace the published document with a summary. For a binary document, show its absolute path, metadata, and open instruction.
-6. Report the executed action, commit, push destination, real actor identity and authority group for decisions, governed agent when applicable, telemetry record, resolved model, token/cost status, and the next valid action. Do not automatically submit a generation you just published; the next `/sflow-next` invocation handles that separate lifecycle action.
+6. Report action, commit/push, actor/authority for decisions, agent, telemetry, resolved model, token/cost status, and next action. Do not automatically submit a generation you just published.
 7. If an approval prints a `Context boundary`, obey it and stop. For `new`, tell the contributor to run `/clear` and then `/sflow-next`; for `compact`, tell them to run `/compact` and then `/sflow-next`. Never start the newly unlocked phase before the requested boundary.
-8. If any step fails, run `singularity-flow logs --level error --tail 40` and report the recorded message, command, and exit code verbatim before proposing a fix. Never re-run a failing action without first reading why it failed.
+8. On failure, run `singularity-flow logs --level error --tail 40` and relay message, command, and exit code before retrying.

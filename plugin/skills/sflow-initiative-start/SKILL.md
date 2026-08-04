@@ -1,10 +1,14 @@
 ---
 name: sflow-initiative-start
 description: Start a multi-repository Singularity Flow initiative by selecting its immutable profile and automatically activating the first phase agent.
-argument-hint: "<INIT-ID> [--jira] [--title TEXT] [--description TEXT]"
 disable-model-invocation: true
+argument-hint: "<INIT-ID> [--jira] [--title TEXT] [--description TEXT]"
+
 ---
 # Start an initiative
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 Keep every choice and confirmation inside GitHub Copilot.
 

@@ -1,9 +1,14 @@
 ---
 name: sflow-capabilities
 description: Inspect the configured Singularity capability tree and explain the effective inherited policy for a selected capability.
+disable-model-invocation: true
+
 ---
 
 # Singularity Flow capability policy
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 What an organisation builds is a tree of capabilities with exactly one root. A
 capability that names a repository is a leaf that **ships**; one that names no

@@ -1,10 +1,14 @@
 ---
 name: sflow-review
 description: Perform an independent Singularity Flow review, record actionable findings, and register the review decision.
-argument-hint: "[review emphasis]"
 disable-model-invocation: true
+argument-hint: "[review emphasis]"
+
 ---
 # Portable review bundle and independent review
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 First run `singularity-flow review` and reproduce its unified artifact, approved-input provenance, checks, decisions, source-change summary, usage, and supporting evidence. Use `singularity-flow review --format html --out <file>` when the user wants a portable browser view.
 

@@ -1,9 +1,14 @@
 ---
 name: sflow-epic-publish
 description: Preview and apply the exact approved Jira and Git Story publication plan with lineage properties, comments, specifications, and branch receipts.
+disable-model-invocation: true
+
 ---
 
 # Publish Stories to Jira and Git
+
+<!-- sflow-output-contract: governed-review -->
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 1. Confirm the combined Planning package is approved.
 2. Ask which approved artifacts should also be attached and whether their target is the Epic, Stories, or both.

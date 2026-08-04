@@ -2,8 +2,12 @@
 name: sflow-workspace-session
 description: Attach the current terminal or Copilot session to a saved Singularity Flow workspace before selecting Story work.
 disable-model-invocation: true
+
 ---
 # Attach this session to a workspace
+
+<!-- sflow-output-contract: explicit-selection -->
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 This is context setup only. Do not inspect application files, start implementation, generate artifacts, or advance lifecycle state.
 

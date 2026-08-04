@@ -1,10 +1,14 @@
 ---
 name: sflow-progress
 description: Show how far a Singularity Flow work item has progressed, including percentage, approved phases, current position, approval thresholds, generations, documents, and token usage.
-argument-hint: "[WORK-ID] [--json]"
 disable-model-invocation: true
+argument-hint: "[WORK-ID] [--json]"
+
 ---
 # Show workflow progress
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Run `singularity-flow progress <arguments>`.
 2. Preserve the arrow-based workflow map from the command output so completed, current, awaiting-approval, and pending phases are visually clear.

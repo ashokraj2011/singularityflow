@@ -1,10 +1,14 @@
 ---
 name: sflow-logs
 description: Read the Singularity Flow activity log to explain what a command, hook, or native Copilot handoff actually did, including failures and refused tool calls.
-argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N] [--since WHEN]"
 disable-model-invocation: true
+argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N] [--since WHEN]"
+
 ---
 # Read the activity log
+
+<!-- sflow-output-contract: concise-relay -->
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Run `singularity-flow logs $ARGUMENTS`. This command is read-only: it never
 changes repository, workflow, or lifecycle state, and it works even while a

@@ -2,9 +2,13 @@
 name: sflow-refresh-branch
 description: Safely refresh the checked-out Story or Epic branch from Git using fetch and fast-forward only.
 disable-model-invocation: true
+
 ---
 
 # Refresh the current branch
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Run `singularity-flow refresh-branch --json` from the active repository.
 2. Report whether the branch was already current, fast-forwarded, ahead, or diverged.

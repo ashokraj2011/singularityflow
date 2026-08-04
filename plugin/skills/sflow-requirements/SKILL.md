@@ -1,10 +1,14 @@
 ---
 name: sflow-requirements
 description: Produce and register the requirements artifact for the active Singularity Flow requirements phase, including scope and testable acceptance criteria.
-argument-hint: "[additional business context]"
 disable-model-invocation: true
+argument-hint: "[additional business context]"
+
 ---
 # Requirements phase
+
+<!-- sflow-output-contract: clarification-and-artifact -->
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `requirements`.
 2. Run `singularity-flow documents list` and view every relevant supporting input before deciding what is unclear.

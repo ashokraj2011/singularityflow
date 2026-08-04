@@ -85,14 +85,20 @@ export class IntakePanel {
    * Each is separately best effort, so a temporarily unavailable tracker does not stop local work.
    */
   private async load(): Promise<void> {
-    const [profiles, tracker, inFlight] = await Promise.all([
-      this.profiles(), this.tracker(), this.inFlight()
+    const [profiles, storyWorkflows, tracker, inFlight] = await Promise.all([
+      this.profiles(), this.storyWorkflows(), this.tracker(), this.inFlight()
     ]);
     this.update({
       profiles,
       // Defaulted so the form is not blocked on a choice with one sensible answer, but still shown,
       // because it decides the phases for the life of the work.
       profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
+      storyWorkflows: storyWorkflows.workflows,
+      // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
+      // click; multiple custom workflows remain an explicit, visible choice in the form.
+      workType: storyWorkflows.workflows.find((entry) => entry.id === 'feature')?.id
+        ?? storyWorkflows.workflows[0]?.id ?? null,
+      workflowReason: storyWorkflows.reason,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
@@ -116,6 +122,26 @@ export class IntakePanel {
     } catch (error) {
       this.output.appendLine(`No delivery profiles could be read: ${(error as Error).message}`);
       return [];
+    }
+  }
+
+  /** Story workflows come from workflow.yml through the engine's unified workflow catalog. */
+  private async storyWorkflows(): Promise<{ workflows: ProfileChoice[]; reason: string | null }> {
+    try {
+      const listed = await this.client.run<{
+        id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
+      }[]>(['workflow', 'list', '--json']);
+      return {
+        workflows: listed.filter((entry) => entry.id && entry.governs === 'story').map((entry) => ({
+          id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
+          phases: entry.phases ?? []
+        })),
+        reason: null
+      };
+    } catch (error) {
+      const reason = `Could not load Story workflows: ${(error as Error).message}`;
+      this.output.appendLine(reason);
+      return { workflows: [], reason };
     }
   }
 
@@ -188,6 +214,11 @@ export class IntakePanel {
     if (message.type === 'profile') {
       const profile = this.form.profiles.find((entry) => entry.id === message.value);
       if (profile) this.update({ profile: profile.id, error: null });
+      return;
+    }
+    if (message.type === 'workType') {
+      const workflow = this.form.storyWorkflows.find((entry) => entry.id === message.value);
+      if (workflow) this.update({ workType: workflow.id, error: null });
       return;
     }
 

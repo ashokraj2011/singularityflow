@@ -329,4 +329,4 @@ The final tree hash excludes `singularity` state and hashes tracked source/test 
 
 ## Migration boundary
 
-This development release intentionally accepts only agent-only workflow schema version 2. Legacy role-bearing definitions and work-item state fail with a clear recreate message; no automatic migration path is provided.
+This development release intentionally accepts only agent-only workflow schema version 2. Legacy role-bearing definitions and work-item state fail with a guarded factory-reset instruction; no automatic migration path is provided. Machine-local workspace registrations whose lead explicitly declares a non-v2 workflow are discarded on registry access, while their directories and repository clones remain untouched.

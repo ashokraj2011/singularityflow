@@ -106,7 +106,9 @@ singularity-flow init --repair
 ```
 
 Repair copies only missing packaged files and never overwrites repository
-customizations. In Copilot CLI, use `/sflow-init [WORK-ID]`; `/sflow-doctor`
+customizations. It therefore does **not** convert or overwrite a version-1
+`workflow.yml`. Version 2 is the only supported workflow schema; this POC has no
+migration path. In Copilot CLI, use `/sflow-init [WORK-ID]`; `/sflow-doctor`
 also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
@@ -118,10 +120,17 @@ package** and removes machine-local runtime state under
 ```bash
 singularity-flow factory-reset --dry-run
 # Then copy the exact confirmation string printed by the preview:
-singularity-flow factory-reset --confirm "RESET <repository-folder-name>"
+singularity-flow factory-reset --confirm "RESET <repository-folder-name> <HEAD-prefix>"
 singularity-flow init --check
 git status --short
 ```
+
+Saved workspaces whose lead repository explicitly declares workflow version 1
+are automatically forgotten when the workspace registry is read. This removes
+only the machine-local registration and active selection; it never deletes the
+workspace directory or repository clone. Run `singularity-flow workspace prune`
+to see the discarded registrations. Recreate the workspace after resetting its
+lead repository to the bundled version-2 configuration.
 
 This discards uncommitted workflow state, generated artifacts, world-model
 files, templates, prompts, sessions, locks, local telemetry, and pending

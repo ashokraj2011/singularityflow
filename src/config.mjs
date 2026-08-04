@@ -128,7 +128,7 @@ export function normalizePlanning(value = {}) {
 }
 
 export function validateDefinition(definition) {
-  if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Legacy role configurations are not supported; recreate the repository configuration with singularity-flow init.');
+  if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current version-2 configuration.');
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');

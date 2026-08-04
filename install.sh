@@ -3,7 +3,10 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
-REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-}"
+# Precedence: --registry, Singularity-specific environment, standard npm environment,
+# then the user's/project's normal npm configuration. Keeping the standard variable in
+# the chain means corporate launchers and Artifactory-managed shells need no special case.
+REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-}}"
 ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 CLI_ONLY="off"
 FACTORY_RESET="off"
@@ -218,6 +221,11 @@ git pull --ff-only
 
 REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"
+
+# Make the selected registry authoritative for every npm process in this installation,
+# including npm run lifecycle subprocesses and packaging helpers. Individual install
+# commands retain --registry as an auditable defence in depth.
+export NPM_CONFIG_REGISTRY="$REGISTRY"
 
 printf '%s\n' 'Installing locked dependencies...'
 if [[ "$CLI_ONLY" == "on" ]]; then

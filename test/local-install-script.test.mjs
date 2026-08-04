@@ -18,6 +18,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
+  assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);
   assert.match(script, /npm pack --json/);
   assert.match(script, /npm uninstall --global singularity-flow/);
@@ -45,6 +46,7 @@ test('single installer supports Artifactory without accepting credentials in URL
   const script = await readFile(path.join(root, 'install.sh'), 'utf8');
   assert.match(script, /--registry=\*/);
   assert.match(script, /SINGULARITY_FLOW_NPM_REGISTRY/);
+  assert.match(script, /NPM_CONFIG_REGISTRY/);
   assert.match(script, /registry\.username \|\| registry\.password/);
   assert.match(script, /configure authentication in \.npmrc/);
   assert.match(script, /registry\.search \|\| registry\.hash/);
@@ -63,7 +65,7 @@ test('standalone install script executes the complete workflow with one invocati
 
   const fake = async (name, body) => {
     const file = path.join(bin, name);
-    await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $*" >> "$INSTALL_TEST_LOG"\n${body}\n`);
+    await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $* registry=\${NPM_CONFIG_REGISTRY:-}" >> "$INSTALL_TEST_LOG"\n${body}\n`);
     await chmod(file, 0o755);
   };
   await fake('git', 'if [[ "$*" == "status --porcelain" ]]; then exit 0; fi');
@@ -111,7 +113,36 @@ if [[ "$*" == "run vscode:package" ]]; then mkdir -p "$PWD/apps/vscode"; touch "
     'singularity-flow plugin install',
     'copilot plugin list'
   ]) assert.match(commands, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const npmCommands = commands.split('\n').filter((line) => line.startsWith('npm '));
+  assert.ok(npmCommands.length >= 8, 'the complete install exercises every npm subprocess');
+  for (const command of npmCommands) {
+    if (command.startsWith('npm config get registry')) continue;
+    assert.match(command, new RegExp(` registry=${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+      `selected Artifactory registry must reach: ${command}`);
+  }
   assert.ok(commands.indexOf('git pull --ff-only') < commands.indexOf('npm ci --registry='));
   assert.ok(commands.indexOf('npm pack --json') < commands.indexOf('npm install --global'));
   assert.ok(commands.indexOf('npm install --global') < commands.indexOf('singularity-flow plugin install'));
+
+  await writeFile(log, '');
+  const standardEnvironment = spawnSync('bash', [path.join(fixture, 'install.sh'), '--cli-only'], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:${process.env.PATH}`,
+      INSTALL_TEST_LOG: log,
+      NPM_CONFIG_REGISTRY: registry
+    }
+  });
+  assert.equal(standardEnvironment.status, 0, `${standardEnvironment.stdout}\n${standardEnvironment.stderr}`);
+  assert.match(standardEnvironment.stdout, new RegExp(`Using npm registry: ${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  const environmentCommands = (await readFile(log, 'utf8')).split('\n').filter((line) => line.startsWith('npm '));
+  assert.ok(environmentCommands.length >= 6);
+  for (const command of environmentCommands) {
+    assert.match(command, new RegExp(` registry=${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+      `NPM_CONFIG_REGISTRY must reach: ${command}`);
+  }
 });

@@ -11,7 +11,10 @@ The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and bran
 
 ## Build and verify
 
+Select the approved registry once for every npm subprocess in the build:
+
 ```bash
+export NPM_CONFIG_REGISTRY="https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
 npm ci
 npm run check
 npm run test:all
@@ -51,8 +54,10 @@ singularity-flow plugin install
 ```
 
 `install.sh --registry <URL>` performs the verified CLI/plugin installation using a public or
-corporate npm registry and builds the VS Code extension sources. Repository credentials are never
-placed in registry URLs; configure approved npm authentication in `.npmrc`.
+corporate npm registry and builds the VS Code extension sources. The same value can be supplied as
+`SINGULARITY_FLOW_NPM_REGISTRY` or the standard `NPM_CONFIG_REGISTRY`; it is inherited by every npm
+subprocess. Repository credentials are never placed in registry URLs; configure approved npm
+authentication in `.npmrc`.
 
 ## Credentials
 

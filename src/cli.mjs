@@ -53,6 +53,7 @@ import {
   workDir
 } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
+import { listPromptAudits, promptAuditStatus, readPromptAudit, setPromptAudit } from './prompt-audit.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import {
   addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
@@ -259,6 +260,9 @@ Usage:
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
   singularity-flow telemetry status [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
+  singularity-flow prompt-log on|off|status
+  singularity-flow prompt-log list [--agent ID] [--phase ID] [--work-id ID] [--limit N] [--include-prompt] [--json]
+  singularity-flow prompt-log view [RECORD-ID|latest] [--json]
   singularity-flow ledger init [--json]
   singularity-flow ledger doctor [--json]
   singularity-flow ledger status [--json]
@@ -3815,6 +3819,45 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function promptLogCommand(positionals, options) {
+  const root = repoRoot();
+  const action = positionals[1] ?? 'status';
+  let result;
+  if (action === 'on' || action === 'off') {
+    result = await setPromptAudit(root, action === 'on');
+  } else if (action === 'status') {
+    result = await promptAuditStatus(root);
+  } else if (action === 'list') {
+    result = await listPromptAudits(root, {
+      agent: optionString(options, 'agent'),
+      phase: optionString(options, 'phase'),
+      workId: optionString(options, 'work-id'),
+      limit: optionNumber(options, 'limit', 100),
+      includePrompt: optionBoolean(options, 'include-prompt')
+    });
+  } else if (action === 'view') {
+    result = await readPromptAudit(root, positionals[2] ?? 'latest');
+  } else {
+    throw new SingularityFlowError(`Unknown prompt-log action '${action}'. Use on, off, status, list, or view.`);
+  }
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  if (action === 'view') return process.stdout.write(`${result.record.prompt}${result.record.prompt.endsWith('\n') ? '' : '\n'}`);
+  if (action === 'list') {
+    if (!result.records.length) return console.log(`Prompt audit is ${result.enabled ? 'on' : 'off'}; no governed prompts have been captured.`);
+    return console.log(table(result.records.map((record) => ({
+      time: record.recordedAt, agent: record.agent, story: record.workId ?? '—', phase: record.phase,
+      generation: record.generation ?? '—', id: record.id
+    })), [
+      { key: 'time', label: 'TIME' }, { key: 'agent', label: 'AGENT' },
+      { key: 'story', label: 'STORY' }, { key: 'phase', label: 'PHASE' },
+      { key: 'generation', label: 'GEN' }, { key: 'id', label: 'RECORD' }
+    ]));
+  }
+  console.log(`Prompt audit: ${result.enabled ? 'on' : 'off'} · ${result.count} record(s) · ${result.scope} scope`);
+  console.log(`File: ${result.logFile}`);
+  if (action === 'on') console.log('Future governed prompts composed for Copilot will be captured. Existing prompts are not backfilled.');
+}
+
 async function snapshotCommand(positionals, options) {
   const root = repoRoot();
   const included = optionStrings(options, 'include');
@@ -5558,6 +5601,7 @@ async function dispatch(command, positionals, options) {
     progress: () => progressCommand(positionals, options),
     report: () => reportCommand(positionals, options),
     telemetry: () => telemetryCommand(positionals, options),
+    'prompt-log': () => promptLogCommand(positionals, options),
     guide: () => guideCommand(positionals, options),
     'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),

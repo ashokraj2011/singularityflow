@@ -1052,6 +1052,12 @@ prepare an artifact, edit workflow state, commit, or push. Pass
 `--skill sflow-design` (or another installed Flow skill ID) to inspect that
 skill contract with the same current-phase prompt.
 
+For an opt-in, workspace-local history of the governed prompts actually composed for Copilot, use
+`/sf-prompt-log on` (or `singularity-flow prompt-log on`). Review records in VS Code under
+**Configuration → Prompt audit**, or run `singularity-flow prompt-log list` and
+`singularity-flow prompt-log view latest`. Capture is off by default and never includes Copilot's
+hidden system prompt or chat history.
+
 Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` to disable the grounding gate. This development release accepts only current state schemas; recreate old work with `factory-reset`.
 
 ## Remote Markdown agents

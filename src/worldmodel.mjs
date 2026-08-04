@@ -24,6 +24,7 @@ import {
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
+import { recordPromptAudit } from './prompt-audit.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1184,11 +1185,25 @@ async function compose(root, options) {
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
   }
+  if (!renderOnly) {
+    const audit = await recordPromptAudit(root, {
+      prompt: composedText,
+      agent,
+      phase: signals.phase,
+      generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+      workId: workflow?.workItem?.id ?? workId ?? null,
+      workType: workflow?.workItem?.workType ?? null,
+      task: optionString(options, 'task') ?? null,
+      source: 'wm-compose'
+    });
+    if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
+  }
   const destination = optionString(options, 'out');
   if (destination) {
     await writeFile(path.resolve(root, destination), composedText);
     console.log(`Composed prompt written to ${destination}.`);
   } else process.stdout.write(composedText);
+  return composedText;
 }
 
 async function showPrompt(root, options) {
@@ -1211,7 +1226,7 @@ async function showPrompt(root, options) {
   }
 
   const skill = await readFile(skillFile, 'utf8');
-  process.stdout.write([
+  const prefix = [
     '# Effective Copilot context',
     '',
     `- Skill: \`/${skillId}\``,
@@ -1224,7 +1239,8 @@ async function showPrompt(root, options) {
     '',
     '--- BEGIN GOVERNED PHASE PROMPT ---',
     ''
-  ].join('\n'));
+  ].join('\n');
+  process.stdout.write(prefix);
 
   const composeOptions = {
     ...options,
@@ -1234,8 +1250,26 @@ async function showPrompt(root, options) {
   delete composeOptions.skill;
   delete composeOptions.out;
   delete composeOptions['dry-run'];
-  await compose(root, composeOptions);
-  process.stdout.write('--- END GOVERNED PHASE PROMPT ---\n');
+  const governedPrompt = await compose(root, composeOptions);
+  const suffix = '--- END GOVERNED PHASE PROMPT ---\n';
+  process.stdout.write(suffix);
+  if (optionBoolean(options, 'record-audit')) {
+    const session = await loadSession(root, { required: false });
+    const agent = optionString(options, 'agent') ?? session?.agent;
+    if (!agent) throw new SingularityFlowError('Prompt audit requires an active governed agent or --agent ID.');
+    const audit = await recordPromptAudit(root, {
+      prompt: `${prefix}${governedPrompt}${suffix}`,
+      agent,
+      phase,
+      generation: config.workflow?.phases?.[phase]
+        ? Number(config.workflow.phases[phase].generation ?? 0) + 1 : null,
+      workId: config.workflow?.workItem?.id ?? optionString(options, 'work-id') ?? null,
+      workType: config.workflow?.workItem?.workType ?? null,
+      task: optionString(options, 'task') ?? null,
+      source: 'vscode-governed-handoff'
+    });
+    if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
+  }
 }
 
 export async function worldModelCommand(root, positionals, options) {

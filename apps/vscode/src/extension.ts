@@ -28,6 +28,7 @@ import { IntakePanel } from './views/intake-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
+import { PromptAuditPanel } from './views/prompt-audit.ts';
 import { HelpPanel } from './views/help.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
@@ -210,7 +211,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openCopilot'
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -1216,7 +1217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await store.refresh();
       }
     }
-    const prompt = await client.runText(['wm', 'show-prompt']);
+    const prompt = await client.runText(['wm', 'show-prompt', '--record-audit']);
     const handoff = [
       '# Singularity Flow governed Story handoff',
       '',
@@ -1316,6 +1317,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return (error as Error).message;
       }
     }),
+    'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
     'singularityFlow.openCopilot': async () => {
       try {
         const target = path.resolve(client.repository);

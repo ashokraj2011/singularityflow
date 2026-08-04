@@ -191,6 +191,11 @@
         "icon": "$(hubot)"
       },
       {
+        "command": "singularityFlow.openPromptAudit",
+        "title": "Singularity Flow: Prompt Audit",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"

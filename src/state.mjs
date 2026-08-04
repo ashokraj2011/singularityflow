@@ -223,7 +223,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   if (!(await exists(file))) return;
   const text = await readFile(file, 'utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
-  const pattern = /<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+  const pattern = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
   await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
 }
 
@@ -532,7 +532,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       templateSnapshot: workflow.resolution.templates?.[phase.id]
     });
     text = applyInputsBlock(text, rendered.text, inputs.mode);
-    if (!/<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
+    if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
     if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });

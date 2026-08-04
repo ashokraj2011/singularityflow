@@ -186,6 +186,14 @@ Trusted hashes are committed in `singularity/agents.lock.yml`; verified bytes
 are cached under `.git/singularity-flow/`. agents are context, not global
 slash commands, people, governed agents, or approval authorities.
 
+The cache is only a transport optimization. Generation copies every selected
+remote skill into committed work-item context and writes an
+`agents-<phase>-gen<N>.json` audit record. An explicitly referenced remote
+artifact template is copied into `context/agent-templates/` when the work item
+is created, and its hash is pinned in the immutable workflow resolution. Thus a
+new lock can affect future work, but it cannot silently change an active work
+item or an already published generation.
+
 ## 2. What installation creates
 
 The npm package declares these main executable mappings:

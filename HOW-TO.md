@@ -326,7 +326,7 @@ Do not manually edit `workflow.json`, `STATUS.md`, approval records, or the mana
 The workflow controls whether approved upstream artifacts enter later phases:
 
 ```yaml
-inputsMode: record  # off | record | enforce
+inputsMode: enforce  # off | record | enforce
 
 phases:
   design:

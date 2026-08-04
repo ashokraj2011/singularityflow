@@ -208,11 +208,15 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   assert.match(workflow.phases.design.generationCommit, /^[0-9a-f]{40}$/); assert.equal(workflow.phases.design.publicationCommit, workflow.phases.design.generationCommit);
   assert.match(workflow.resolution.sourceSha256, /^[0-9a-f]{64}$/);
   const designArtifact = await readFile(path.join(root, 'singularity/work-items', workId, workflow.phases.design.requiredArtifact.path), 'utf8');
+  assert.match(designArtifact, /^<!-- singularity-flow:metadata/);
   assert.match(designArtifact, /"generationCommit": "[0-9a-f]{40}"/); assert.match(designArtifact, /"publicationCommit": "[0-9a-f]{40}"/);
   assert.ok(workflow.phases.design.approvals[0].selfApproval); assert.equal(workflow.workItem.workType, 'feature'); assert.ok(workflow.resolution.templates['implementation-spec'].sha256);
-  assert.equal(workflow.resolution.inputsMode, 'record');
+  assert.equal(workflow.resolution.inputsMode, 'enforce');
   const designInputRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'context/inputs-design-gen1.json'), 'utf8'));
   assert.equal(designInputRecord.inputs[0].phase, 'requirements'); assert.equal(designInputRecord.inputs[0].status, 'captured');
+  const implementationInputRecord = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'context/inputs-implementation-gen1.json'), 'utf8'));
+  assert.deepEqual(implementationInputRecord.inputs.map((input) => input.phase), ['design', 'implementation-spec']);
+  assert.ok(implementationInputRecord.inputs.every((input) => input.status === 'captured'));
   assert.match(designArtifact, /singularity-flow:inputs:start/);
   const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'complete'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
   assert.match(flow(root, ['report', workId]).stdout, /wall-clock elapsed time/);

@@ -878,9 +878,10 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     const configuration = find(tree, 'configuration');
     assert.ok(configuration, 'configuration is always reachable');
     const children = configuration.children.map((child) => child.id);
-    // Local identity/integrations lead, then grounding and the governed design files.
-    assert.deepEqual(children.slice(0, 3),
-      ['config:local-profile', 'world-model', 'config:workflow-design']);
+    // Capabilities lead because they decide which repositories a workspace will contain; local
+    // identity, grounding and governed design follow.
+    assert.deepEqual(children.slice(0, 4),
+      ['config:capabilities', 'config:local-profile', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
       ['config:designer', 'config:instruction-designer', 'config:workflow', 'config:portfolio']);
@@ -1556,11 +1557,13 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
   assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
 
-  // Local identity and integrations lead Configuration; the world model follows as the repository
-  // grounding that is built rather than edited.
+  // Capabilities lead Configuration because they are the prerequisite for creating a workspace.
+  // Local identity and integrations follow, then the repository grounding that is built rather
+  // than edited.
   const configuration = find(configurationTree, 'configuration');
-  assert.equal(configuration.children[0].id, 'config:local-profile');
-  assert.equal(configuration.children[1].id, 'world-model');
+  assert.equal(configuration.children[0].id, 'config:capabilities');
+  assert.equal(configuration.children[1].id, 'config:local-profile');
+  assert.equal(configuration.children[2].id, 'world-model');
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
   const capabilities = find(configurationTree, 'config:capabilities');
   assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');

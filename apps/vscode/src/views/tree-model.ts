@@ -686,6 +686,10 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
       ? `Workflow progress is recorded on the orphan branch '${ledger.branch}'.`
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
+      // Capabilities come first because they define what the organisation builds and which
+      // repositories a workspace will contain. Hiding them behind workspace and workflow settings
+      // recreates the onboarding circle the standalone mapper exists to remove.
+      capabilityConfigurationNode(snapshot, readiness),
       {
         kind: 'group', id: 'config:local-profile', label: 'User and integrations',
         description: 'local · keychain protected', icon: 'account',
@@ -724,7 +728,6 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
         }]
       },
-      capabilityConfigurationNode(snapshot, readiness),
       ...fileSetNodes(snapshot)
     ]
   };

@@ -292,11 +292,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       description: recoveryDescription, tooltip: detail,
       icon: repositoryUnavailable ? 'warning' : 'root-folder', runCommand: recoveryCommand
     }]);
-    const configuration = new LifecycleTreeProvider(null, [{
-      kind: 'action', id: 'configuration:unavailable',
-      label: repositoryUnavailable ? label : 'Choose a workspace to load configuration',
+    const configuration = new LifecycleTreeProvider(null, repositoryUnavailable ? [{
+      kind: 'action', id: 'configuration:unavailable', label,
       description: recoveryDescription, tooltip: detail,
-      icon: repositoryUnavailable ? 'warning' : 'root-folder', runCommand: recoveryCommand
+      icon: 'warning', runCommand: recoveryCommand
+    }] : [{
+      kind: 'action', id: 'configuration:create-capability',
+      label: 'Create capability', description: 'first configuration step',
+      tooltip: 'Describe what the organisation builds and which repository ships it. No workspace is required.',
+      icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
+    }, {
+      kind: 'action', id: 'configuration:choose-workspace',
+      label: 'Choose or create a workspace', description: 'then load repository configuration',
+      tooltip: detail, icon: 'root-folder', runCommand: recoveryCommand
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {

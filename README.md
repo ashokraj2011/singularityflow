@@ -884,7 +884,7 @@ Lifecycle commands normally follow `prepare/edit → publish → submit → appr
 
 ## Approved phase inputs
 
-Starter repositories use `inputsMode: record` and connect the full feature, bugfix, chore, and Figma-mobile phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation.
+Starter repositories use `inputsMode: enforce` and connect the full feature, bugfix, chore, and Figma-mobile phase chains. Existing repositories with no key resolve to `off`. Each work item pins its mode and normalized input declarations at creation. In the feature profile, implementation receives both the approved design and approved implementation specification directly; either being missing, unapproved, or hash-mismatched blocks preparation and publication.
 
 ```yaml
 inputsMode: enforce
@@ -1220,6 +1220,27 @@ lock status. Lock creation and updates remain explicit CLI
 trust operations. Authenticated private Git, Artifactory, cookie, and bearer
 token downloads are not supported in this delivery. See
 [HELP.md](HELP.md#remote-agent-markdown) for lifecycle and integrity details.
+
+### Where remote skills and templates are managed
+
+Remote Markdown has two storage planes so trust is shared while downloaded bytes
+remain local until a work item actually uses them:
+
+| Item | Managed in | Lifecycle |
+|---|---|---|
+| Dependency declarations | `.github/agents/<agent-id>.agent.md` | Edited and reviewed like repository code. Only the three exact Markdown tables are active. |
+| Trusted hashes | `singularity/agents.lock.yml` | Created or changed only by `agents lock`; commit and push it for the team. |
+| Verified download cache | `.git/singularity-flow/agents/` | Created by `agents sync`; machine-local, disposable, and never authoritative. |
+| Skill snapshot used by one generation | `singularity/work-items/<WORK-ID>/context/agent-snapshots/` | Copied and committed with the generated phase so later remote changes cannot rewrite history. |
+| Skill audit record | `singularity/work-items/<WORK-ID>/context/agents-<phase>-gen<N>.json` | Records agent, URL, hash, size, phase, and generation. |
+| Template snapshot used by a work item | `singularity/work-items/<WORK-ID>/context/agent-templates/` | Copied when the work item starts and pinned in `workflow.json`; active work never follows a changed URL. |
+
+The safe operating sequence is therefore **declare → lock → review and commit →
+sync → start work**. `sync` cannot update a trusted hash. A changed remote file
+stops with a stale-lock error until a contributor runs `agents lock <id>
+--update`, reviews the hash change, confirms the exact agent ID, and commits the
+new lock. Remote templates are inert unless a workflow explicitly names
+`agent:<agent-id>/<template-id>`.
 
 ## Useful commands
 

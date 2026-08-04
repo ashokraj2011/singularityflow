@@ -32,7 +32,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(bugfix.documents.allowedPhases, ['intake', 'reproduction', 'fix-design', 'fix-spec']);
   assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
-  assert.equal(definition.inputsMode, 'record');
+  assert.equal(definition.inputsMode, 'enforce');
   assert.equal(definition.worldModel.grounding, 'enforce');
   assert.deepEqual(definition.session, { workItemSelection: 'prompt', requireBeforeTools: false });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');

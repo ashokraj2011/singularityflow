@@ -53,8 +53,8 @@ import {
 } from './util.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const INITIATIVE_METADATA = /<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
-const WORK_ITEM_METADATA = /<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
+const WORK_ITEM_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function sha256(value) {

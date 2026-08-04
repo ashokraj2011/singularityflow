@@ -14,8 +14,8 @@ import {
 } from './initiative-evidence.mjs';
 import { exists, repoRelative, SingularityFlowError, writeAtomic } from './util.mjs';
 
-const STORY_METADATA = /<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
-const INITIATIVE_METADATA = /<!-- singularity-flow:initiative-metadata\n[\s\S]*?\n-->/;
+const STORY_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata\n[\s\S]*?\n-->/;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');

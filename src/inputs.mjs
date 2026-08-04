@@ -18,6 +18,12 @@ function utf8Prefix(buffer, maxBytes) {
   return buffer.subarray(0, end).toString('utf8');
 }
 
+function embeddedInputContent(buffer, maxBytes) {
+  return utf8Prefix(buffer, maxBytes)
+    .replaceAll(INPUTS_START, '<!-- approved source inputs:start -->')
+    .replaceAll(INPUTS_END, '<!-- approved source inputs:end -->');
+}
+
 function severity(mode, optional, status) {
   if (status === 'captured' || (optional && ['missing', 'unapproved'].includes(status))) return null;
   return mode === 'enforce' ? 'error' : 'warning';
@@ -76,7 +82,11 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
     };
     if (status === 'captured') {
       const raw = await readFile(path.join(itemDirectory, relativeArtifact));
-      record.content = utf8Prefix(raw, declaration.maxBytes ?? null);
+      // Producer artifacts may already contain their own managed input block. Keep
+      // that approved context, but neutralize its control markers before nesting
+      // it in the consumer's block so extraction and integrity hashing remain
+      // unambiguous at every depth of the phase chain.
+      record.content = embeddedInputContent(raw, declaration.maxBytes ?? null);
       record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
       record.truncated = record.injectedBytes < raw.length;
     }

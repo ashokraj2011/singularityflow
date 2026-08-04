@@ -44,6 +44,23 @@ test('record mode captures complete approved content and records a managed block
   assert.equal(JSON.parse(await readFile(recorded.file, 'utf8')).renderedSha256, rendered.sha256);
 });
 
+test('approved artifacts with managed inputs remain safe when injected downstream', async () => {
+  const value = await fixture('enforce');
+  await writeFile(value.producerPath, `# Requirements\n\n<!-- singularity-flow:inputs:start -->\n\n# Approved phase inputs\n\nUpstream evidence.\n\n<!-- singularity-flow:inputs:end -->\n\nAC-001 complete behavior.\n`);
+  const info = await snapshot(value.producerPath);
+  value.workflow.phases.requirements.artifacts[0] = {
+    ...value.workflow.phases.requirements.artifacts[0],
+    ...info
+  };
+  const result = await collectInputs(value.root, value.workflow, value.phase, value);
+  const rendered = renderInputsBlock(result);
+  const artifact = applyInputsBlock('# Design\n\n{{inputs}}\n', rendered.text, 'enforce');
+  assert.equal((artifact.match(/singularity-flow:inputs:start/g) ?? []).length, 1);
+  assert.equal((artifact.match(/singularity-flow:inputs:end/g) ?? []).length, 1);
+  assert.match(artifact, /approved source inputs:start/);
+  assert.equal(extractInputsBlock(artifact), rendered.text);
+});
+
 test('explicit input budgets truncate safely while omitted budgets do not', async () => {
   const value = await fixture('record', { phase: 'requirements', optional: false, maxBytes: 12, path: 'artifacts/requirements/requirements.md' });
   const limited = await collectInputs(value.root, value.workflow, value.phase, value);

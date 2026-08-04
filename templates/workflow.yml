@@ -1,5 +1,5 @@
 version: 2
-inputsMode: record
+inputsMode: enforce
 
 # Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
 # followed by `/sflow-next`; the new conversation reconstructs its prompt from
@@ -163,7 +163,7 @@ workTypes:
       requirements: { inputs: [intake] }
       design: { inputs: [requirements] }
       implementation-spec: { inputs: [requirements, design] }
-      implementation: { inputs: [implementation-spec] }
+      implementation: { inputs: [design, implementation-spec] }
       verification: { inputs: [implementation-spec, implementation] }
       conformance: { inputs: [implementation-spec, implementation, verification] }
   bugfix:

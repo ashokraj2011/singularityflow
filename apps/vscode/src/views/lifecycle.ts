@@ -55,6 +55,11 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     return node ? (node.children ?? []) : this.roots;
   }
 
+  /** A read-only presentation snapshot for the unified sidebar webview. */
+  snapshot(): readonly TreeNode[] {
+    return this.roots;
+  }
+
   getTreeItem(node: TreeNode): vscode.TreeItem {
     const collapsible = node.children?.length
       // The lifecycle and the current Epic are the things someone opened the view to see.

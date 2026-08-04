@@ -42,7 +42,7 @@ const views = contributedViews.map((view) => view.id);
 const commands = manifest.contributes.commands.map((command) => command.command);
 const activation = manifest.activationEvents ?? [];
 
-test('the activity view opens in the compact enterprise navigation order', () => {
+test('the activity view opens as one compact enterprise navigation surface', () => {
   assert.equal(viewContainer.title, 'SINGULARITY FLOW');
   assert.equal(manifest.contributes.views.singularityFlow, undefined,
     'the versioned container intentionally discards the stale pre-refresh sidebar sizing');
@@ -50,6 +50,7 @@ test('the activity view opens in the compact enterprise navigation order', () =>
   assert.deepEqual(
     contributed.map(({ id }) => id),
     [
+      'singularityFlow.navigation',
       'singularityFlow.workspaces',
       'singularityFlow.lifecycle',
       'singularityFlow.inbox',
@@ -58,18 +59,11 @@ test('the activity view opens in the compact enterprise navigation order', () =>
     ],
   );
 
-  const sizes = Object.fromEntries(contributed.map(({ id, initialSize }) => [id, initialSize]));
-  assert.deepEqual(sizes, {
-    'singularityFlow.workspaces': 2,
-    'singularityFlow.lifecycle': 3,
-    'singularityFlow.inbox': 1,
-    'singularityFlow.configuration': 1,
-    'singularityFlow.help': 7,
-  });
-  assert.ok(
-    sizes['singularityFlow.help'] > sizes['singularityFlow.lifecycle'],
-    'Help should absorb spare height rather than leaving large empty operational views',
-  );
+  assert.equal(contributed[0].type, 'webview', 'the visible navigation is one styled webview');
+  for (const legacy of contributed.slice(1)) {
+    assert.equal(legacy.when, 'singularityFlow.legacyNavigation',
+      `${legacy.id} must stay hidden; it only adapts the tested native read model`);
+  }
 });
 
 test('every contributed view can wake the extension', () => {

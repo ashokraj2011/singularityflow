@@ -37,6 +37,7 @@ import { capabilityChoices, type RemoteCapability } from './views/workspace-form
 import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
+import { SidebarViewProvider } from './views/sidebar.ts';
 import {
   buildWorkspaceTree, capabilityIdOf, workspacePathOf, type CapabilityReadiness
 } from './views/navigation-trees.ts';
@@ -239,6 +240,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { kind: 'action', id: 'help:all', label: 'Open searchable Help Center', description: 'complete offline manual', icon: 'search', runCommand: 'singularityFlow.openHelp' }
   ]);
   context.subscriptions.push(helpTree, vscode.window.createTreeView('singularityFlow.help', { treeDataProvider: helpTree }));
+  // One continuous navigation surface replaces five independently-sized native panes. The hidden
+  // native TreeViews remain compatibility adapters for their mature, tested read models and context
+  // commands; the webview binds to the exact same providers so it cannot tell a different story.
+  const sidebar = new SidebarViewProvider();
+  sidebar.bind('workspaces', workspaceTree);
+  sidebar.bind('help', helpTree);
+  context.subscriptions.push(sidebar, vscode.window.registerWebviewViewProvider(
+    'singularityFlow.navigation', sidebar, { webviewOptions: { retainContextWhenHidden: true } }
+  ));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {
     try {
       const location = resolveCli({ extensionPath: context.extensionPath });
@@ -308,6 +318,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       tooltip: detail, icon: 'workspace', runCommand: recoveryCommand
     }]);
     context.subscriptions.push(provider, inbox, configuration);
+    sidebar.bind('lifecycle', provider);
+    sidebar.bind('inbox', inbox);
+    sidebar.bind('configuration', configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
       treeDataProvider: provider
     }), vscode.window.createTreeView('singularityFlow.inbox', {
@@ -768,6 +781,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   configurationTree = new LifecycleTreeProvider(
     store, [], (snapshot, error) => buildConfigurationTree(snapshot, error, readiness));
   context.subscriptions.push(tree, inboxTree, configurationTree);
+  sidebar.bind('lifecycle', tree);
+  sidebar.bind('inbox', inboxTree);
+  sidebar.bind('configuration', configurationTree);
   context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
     treeDataProvider: tree,
     showCollapseAll: true

@@ -26,6 +26,11 @@ export class NodeTreeProvider implements vscode.TreeDataProvider<TreeNode>, vsco
     return node ? (node.children ?? []) : this.roots;
   }
 
+  /** A read-only presentation snapshot for the unified sidebar webview. */
+  snapshot(): readonly TreeNode[] {
+    return this.roots;
+  }
+
   getTreeItem(node: TreeNode): vscode.TreeItem {
     const item = new vscode.TreeItem(
       node.label,

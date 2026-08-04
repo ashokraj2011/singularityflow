@@ -165,7 +165,7 @@ export function formProblems(form: WorkspaceForm): string[] {
   if (!form.organisation) problems.push('Choose the organisation whose capabilities this is for.');
   else if (form.reading) problems.push('Wait for the capability map to be read.');
   else if (!hasCapabilityMap(form)) {
-    problems.push('This organisation has no capabilities yet. Map one from the Capabilities screen first.');
+    problems.push('Create the first capability for this organisation.');
   } else if (!form.selected.length) {
     problems.push('Choose the capabilities this workspace is for.');
   } else if (!shippingCapabilities(form).length) {
@@ -229,7 +229,8 @@ function capabilityHtml(form: WorkspaceForm): string {
   if (form.reading) return '<p class="muted">Reading the capability map…</p>';
   if (!hasCapabilityMap(form)) {
     return `<p class="muted">${escape(form.capabilitiesReason ?? 'This organisation does not describe what it builds yet.')}
-      Map a capability from the Capabilities screen, then come back.</p>`;
+      Create its first capability here; this form will refresh when it has been mapped.</p>
+      <p><button class="secondary" data-open="capabilities">${icon('capability')}Create first capability</button></p>`;
   }
 
   const covered = coveredCapabilities(form);

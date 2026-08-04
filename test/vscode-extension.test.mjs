@@ -1054,6 +1054,24 @@ test('with no organisation mapped the form says so and offers the screen that fi
   assert.doesNotMatch(html, /Add a repository/);
 });
 
+test('a mapped organisation with no capabilities can create its first one in place', () => {
+  const form = {
+    ...EMPTY_WORKSPACE_FORM,
+    base: '/work',
+    id: 'rule-ux',
+    name: 'Rule UX',
+    organisations: ['https://example.com/rules.git'],
+    organisation: 'https://example.com/rules.git',
+    capabilities: [],
+    capabilitiesReason: 'This organisation does not describe what it builds yet.'
+  };
+  const html = workspaceFormHtml(form);
+  assert.match(html, /Create first capability/);
+  assert.match(html, /data-open="capabilities"/);
+  assert.match(formProblems(form).join(' '), /Create the first capability/);
+  assert.doesNotMatch(html, /Map one from the Capabilities screen first/);
+});
+
 test('capabilities are picked from a dropdown, and each pick shows what it drags in', () => {
   // A real map runs to dozens; a checkbox table asks a reader to scan all of them to find two.
   const html = workspaceFormHtml(withMap(['payments']));

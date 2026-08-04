@@ -330,16 +330,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return void vscode.window.showErrorMessage((error as Error).message);
     }
 
-    WorkspacePanel.show(context, location, output, async (created) => {
+    let workspacePanel: WorkspacePanel;
+    workspacePanel = WorkspacePanel.show(context, location, output, async (created) => {
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
       void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.lead}.`);
       await selectWorkspace(created.directory, created.leadDirectory, created.lead);
     }, async () => {
-      // The form's own way out of the empty case: with no organisation mapped there is nothing to
-      // choose from, and mapping one is the step that was missed rather than a different task.
-      await vscode.commands.executeCommand('singularityFlow.mapCapability');
+      // Keep the workspace draft open. Successful capability setup returns here, refreshes the map,
+      // and preserves the directory, identifier and name the person already entered.
+      await vscode.commands.executeCommand(
+        'singularityFlow.mapCapability',
+        async () => workspacePanel.refreshCapabilityMap()
+      );
     });
   }));
 
@@ -350,7 +354,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * thing every other command needs, so requiring one would be the whole chicken-and-egg problem
    * written into the extension.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.mapCapability', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.mapCapability',
+    async (returnToWorkspace?: (mapped: Mapped) => Promise<void>) => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -377,6 +383,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .catch(() => []);
 
     BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
+      if (typeof returnToWorkspace === 'function') {
+        await returnToWorkspace(mapped);
+        return;
+      }
       void vscode.window.showInformationMessage(
         `${mapped.capabilityId} is mapped${mapped.repositoryId ? ` to ${mapped.repositoryId}` : ''}. `
         + 'Create a workspace on it to work in it.', 'Create a workspace')

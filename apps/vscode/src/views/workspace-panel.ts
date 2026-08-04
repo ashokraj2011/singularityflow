@@ -71,6 +71,9 @@ export class WorkspacePanel {
   ): WorkspacePanel {
     if (WorkspacePanel.current) {
       WorkspacePanel.current.panel.reveal(vscode.ViewColumn.Active);
+      // A capability may have been mapped while this retained panel was hidden. Re-read rather than
+      // revealing the stale "no capabilities" snapshot that originally opened the form.
+      void WorkspacePanel.current.refreshCapabilityMap();
       return WorkspacePanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -121,8 +124,25 @@ export class WorkspacePanel {
     }
     const organisations = leads.map((lead) => lead.url ?? '').filter(Boolean);
     const only = organisations.length === 1 ? organisations[0] : null;
-    this.update({ organisations, organisation: only, reading: Boolean(only) });
-    if (only) await this.readOrganisation(only);
+    const current = this.form.organisation && organisations.includes(this.form.organisation)
+      ? this.form.organisation
+      : null;
+    const selected = current ?? only;
+    this.update({
+      organisations,
+      organisation: selected,
+      capabilities: null,
+      capabilitiesReason: null,
+      reading: Boolean(selected),
+      error: null
+    });
+    if (selected) await this.readOrganisation(selected);
+  }
+
+  /** Return from capability setup without losing the workspace directory or identity already typed. */
+  async refreshCapabilityMap(): Promise<void> {
+    this.panel.reveal(vscode.ViewColumn.Active);
+    await this.loadOrganisations();
   }
 
   /**

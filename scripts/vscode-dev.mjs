@@ -393,16 +393,16 @@ async function demoRepository({ github = false } = {}) {
  * `yaml` comes along because it is the engine's one dependency; `npm run check` asserts there is
  * exactly one, so this list does not quietly grow.
  */
-const CLI_PAYLOAD = ['bin', 'src', 'templates', 'plugin', 'schemas', 'package.json'];
+export const CLI_PAYLOAD = ['bin', 'src', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md'];
 
-async function stageCli() {
-  const staged = path.join(extension, 'cli');
+export async function stageCli({ rootDir = root, extensionDir = extension } = {}) {
+  const staged = path.join(extensionDir, 'cli');
   await rm(staged, { recursive: true, force: true });
   await mkdir(staged, { recursive: true });
   for (const entry of CLI_PAYLOAD) {
-    await cp(path.join(root, entry), path.join(staged, entry), { recursive: true });
+    await cp(path.join(rootDir, entry), path.join(staged, entry), { recursive: true });
   }
-  await cp(path.join(root, 'node_modules', 'yaml'), path.join(staged, 'node_modules', 'yaml'), { recursive: true });
+  await cp(path.join(rootDir, 'node_modules', 'yaml'), path.join(staged, 'node_modules', 'yaml'), { recursive: true });
   return staged;
 }
 
@@ -506,7 +506,9 @@ async function main() {
   ].join('\n'));
 }
 
-main().catch((error) => {
-  console.error(`\n${error.message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`\n${error.message}`);
+    process.exitCode = 1;
+  });
+}

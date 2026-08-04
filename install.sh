@@ -189,15 +189,6 @@ install_copilot_telemetry() {
 
 cd "$PROJECT_DIR"
 
-if [[ -n "$(git status --porcelain)" ]]; then
-  printf '%s\n' 'Error: the checkout has uncommitted changes. Commit or stash them before installation.' >&2
-  git status --short >&2
-  exit 1
-fi
-
-printf '%s\n' 'Updating the current tracked branch...'
-git pull --ff-only
-
 if [[ "$FACTORY_RESET" == "on" ]]; then
   printf '%s\n' 'Validating the complete fresh-install deletion boundary...'
   node scripts/fresh-install-reset.mjs
@@ -215,6 +206,15 @@ if [[ "$FACTORY_RESET" == "on" ]]; then
   node scripts/fresh-install-reset.mjs --yes
   printf '%s\n' 'Validated workspace clones and Singularity machine state removed.'
 fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  printf '%s\n' 'Error: the checkout has uncommitted changes outside the validated factory-reset boundary. Commit or stash them before installation.' >&2
+  git status --short >&2
+  exit 1
+fi
+
+printf '%s\n' 'Updating the current tracked branch...'
+git pull --ff-only
 
 REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"

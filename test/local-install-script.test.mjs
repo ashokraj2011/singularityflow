@@ -30,6 +30,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--factory-reset/);
   assert.match(script, /fresh-install-reset\.mjs --yes/);
+  assert.ok(script.indexOf('fresh-install-reset.mjs --yes') < script.indexOf("git status --porcelain"));
   assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
   assert.match(script, /npm run vscode:package/);
   assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);

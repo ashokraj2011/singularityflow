@@ -189,6 +189,21 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
   return { ...context, selectedAt: selected.selectedAt ?? context.selectedAt };
 }
 
+/** Clear the local selection only when it points at the workspace being forgotten. */
+export async function clearActiveWorkspaceContext(selectionFile, workspacePath) {
+  let selected;
+  try { selected = JSON.parse(await readFile(selectionFile, 'utf8')); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw new SingularityFlowError(`Unable to read active workspace selection: ${error.message}`);
+  }
+  const selectedPath = selected?.workspacePath ? await canonical(selected.workspacePath) : null;
+  const forgottenPath = await canonical(workspacePath);
+  if (!selectedPath || selectedPath !== forgottenPath) return false;
+  await rm(selectionFile, { force: true });
+  return true;
+}
+
 export async function workspaceContextForRepository(repositoryRoot, selectionFile, registryFile) {
   // Session-start hooks have a short timeout and may run in workspaces with many repositories.
   // The launcher/switch command already verified and refreshed this selection, so matching the

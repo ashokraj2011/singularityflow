@@ -577,6 +577,24 @@ test('a failed clone leaves no partial repository and can resume when the remote
   assert.equal(resumed.status.healthy, true);
 });
 
+test('workspace repair names a configured branch that the remote does not have', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-missing-branch-'));
+  const empty = path.join(root, 'empty.git');
+  run('git', ['init', '--bare', '--initial-branch', 'main', empty], { cwd: root });
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: empty, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  });
+  await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+
+  await assert.rejects(() => createWorkspace(input, { confirmation: 'PAY-100' }), (error) => {
+    assert.match(error.message, /remote does not have that branch/);
+    assert.match(error.message, /Configure a valid default branch or create 'main'/);
+    assert.doesNotMatch(error.message, /Cloning into/);
+    assert.doesNotMatch(error.message, /\.sflow-clone-/);
+    return true;
+  });
+});
+
 test('workspace configuration stays saved when repository materialization fails', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-save-before-clone-'));
   const baseDirectory = path.join(root, 'workspaces');

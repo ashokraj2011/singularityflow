@@ -52,7 +52,7 @@ export function validateInjectionDefinition(definition) {
     }
     assertStringValues(when.changedPaths, `${label}.when.changedPaths`);
     assertStringValues(when.labels, `${label}.when.labels`);
-    if (rule.depth != null && !['quick', 'standard', 'deep'].includes(rule.depth)) throw new SingularityFlowError(`${label}.depth must be quick, standard, or deep.`);
+    if (rule.depth != null && !['light', 'quick', 'standard', 'deep'].includes(rule.depth)) throw new SingularityFlowError(`${label}.depth must be light, quick, standard, or deep.`);
     if (rule.evidence != null && typeof rule.evidence !== 'boolean') throw new SingularityFlowError(`${label}.evidence must be boolean.`);
   });
   return injection;

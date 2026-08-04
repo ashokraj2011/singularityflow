@@ -15,7 +15,8 @@ current branch and use it without asking for a work identifier.
 Use the requested operation:
 
 - Initialize configuration: `singularity-flow wm init`.
-- Build from an exact branch: `singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth quick|standard|deep] [--parallel|--no-parallel] [--workers N]`.
+- Build a deterministic, very small repository inventory with zero model tokens: `singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]`.
+- Build a semantic model from an exact branch: `singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N]`. `--depth light` is the same deterministic zero-token path as `wm light`.
 - Verify freshness and generation metadata: `singularity-flow wm check [--branch BRANCH] [--remote REMOTE]`.
 - Inspect routed context: `singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]`.
 - Compose and audit a governed generation prompt: `singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run]`.
@@ -28,6 +29,12 @@ in another worktree. A successful build commits to the selected branch and
 publishes according to `git.publish`; `--local` keeps the commit local.
 
 The model remains in the repository. Always report its generated timestamp, source-tree hash, commit, selected views, and stale reason. Do not claim it is current when `wm check` fails.
+
+Prefer `wm light` when the contributor wants basic grounding, fast setup, or the
+lowest possible token use. It reads only Git path metadata and bounded package
+manifests; it does not call Copilot and must be described as an inventory rather
+than semantic architecture, behavior, security, or impact analysis. Upgrade to
+quick, standard, or deep only when the phase needs those semantic claims.
 
 When more than one explicit view is requested, the configured parallel strategy
 runs isolated read-only discovery workers and then one final synthesizer. Use

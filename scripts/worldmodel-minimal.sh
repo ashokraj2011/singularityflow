@@ -19,7 +19,8 @@ usage() {
 Usage: worldmodel-minimal.sh [options]
 
 Builds the smallest validated Singularity Flow repository world model:
-quick depth, one development view, no parallel discovery, and a local commit.
+deterministic light depth, zero Copilot/model tokens, one development view,
+and a local commit.
 Run it while your current directory is the application repository, or pass
 --repository explicitly.
 
@@ -29,9 +30,9 @@ Options:
   --views LIST       Override or add views (comma-separated).
   --task TEXT        Add an exact task guide.
   --branch NAME      Build against an existing branch without switching checkout.
-  --parallel         Enable resumable parallel view discovery.
+  --parallel         Use semantic quick mode with parallel discovery instead.
   --workers N        Parallel worker limit (default: 2; requires --parallel).
-  --runner COMMAND   Override the configured model runner.
+  --runner COMMAND   Override the semantic quick-mode model runner.
   --publish          Follow normal Git publication policy instead of --local.
   --dry-run          Print the exact command without executing it.
   -h, --help         Show this help.
@@ -130,7 +131,7 @@ else
   flow=("$(command -v node)" "${product_root}/bin/singularity-flow.mjs")
 fi
 
-command=("${flow[@]}" wm build --depth quick --resume)
+command=("${flow[@]}" wm light)
 if [[ -n "${phase}" ]]; then
   command+=(--phase "${phase}")
 elif [[ -n "${views}" ]]; then
@@ -141,18 +142,25 @@ fi
 [[ -z "${phase}" || -z "${views}" ]] || command+=(--views "${views}")
 [[ -z "${task}" ]] || command+=(--task "${task}")
 [[ -z "${branch}" ]] || command+=(--branch "${branch}")
-[[ -z "${runner}" ]] || command+=(--runner "${runner}")
 
 if ${parallel}; then
-  command+=(--parallel --workers "${workers}")
-else
-  command+=(--no-parallel)
+  command=("${flow[@]}" wm build --depth quick --parallel --workers "${workers}")
+  if [[ -n "${phase}" ]]; then command+=(--phase "${phase}");
+  elif [[ -n "${views}" ]]; then command+=(--views "${views}");
+  else command+=(--views development); fi
+  [[ -z "${phase}" || -z "${views}" ]] || command+=(--views "${views}")
+  [[ -z "${task}" ]] || command+=(--task "${task}")
+  [[ -z "${branch}" ]] || command+=(--branch "${branch}")
+  [[ -z "${runner}" ]] || command+=(--runner "${runner}")
+elif [[ -n "${runner}" ]]; then
+  echo "Error: --runner requires --parallel because deterministic light mode does not call a model." >&2
+  exit 2
 fi
 ${publish} || command+=(--local)
 
 echo "Repository: ${repository}"
-mode="quick minimum"
-${parallel} && mode+=" with resumable parallel discovery"
+mode="deterministic light (zero model tokens)"
+${parallel} && mode="semantic quick with resumable parallel discovery"
 echo "Mode: ${mode}"
 if ${dry_run}; then
   printf 'Command:'

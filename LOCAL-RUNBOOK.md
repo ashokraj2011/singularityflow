@@ -30,7 +30,7 @@ To run fully offline instead, set `git: { publish: off }` in `singularity/workfl
 
 **`worldModel.grounding: enforce` is the shipped default.** `phase publish` refuses unless `wm compose --phase <phase>` has recorded a grounding record for the next generation against a committed, fresh world model. Set `worldModel.grounding: off` before `start` to skip repository grounding entirely.
 
-**`wm build` shells out to `copilot`.** The default runner is `copilot -p "$(cat {prompt_file})" --allow-all-tools`. Without the Copilot CLI on `PATH`, pass `--runner "<command> {prompt_file}"` or disable grounding.
+**Semantic `wm build` shells out to `copilot`; `wm light` does not.** The default semantic runner is `copilot -p "$(cat {prompt_file})" --allow-all-tools`. Use `wm light` or `sflow-wm-minimal` for deterministic zero-token grounding. For semantic depths without the Copilot CLI on `PATH`, pass `--runner "<command> {prompt_file}"` or disable grounding.
 
 ### Commands that require an interactive terminal
 
@@ -206,18 +206,20 @@ cd /absolute/path/to/the/application-repository
 sflow-wm-minimal
 ```
 
-This creates a quick development-focused model and commits it locally without
-pushing. Use `sflow-wm-minimal --phase design` to take the minimum required
-views from phase configuration, or add `--publish` when the current branch is
-ready for normal publication.
+This creates a deterministic light development-focused model with zero model
+tokens and commits it locally without pushing. Use `sflow-wm-minimal --phase
+design` to take the minimum required views from phase configuration, or add
+`--publish` when the current branch is ready for normal publication. Light mode
+indexes paths and build metadata only; use a semantic depth when the phase must
+make architectural, behavioral, security, or impact claims.
 
 ### Phase-by-phase minimum commands
 
 Run these commands from the application repository on the Work-ID branch. Use
 the section for the workflow profile selected when the work item was started;
 do not run phases from a different profile. Each command reads that phase's
-configured `worldModel.views`, makes a resumable quick build, validates it, and
-commits it locally:
+configured `worldModel.views`, makes a deterministic light build, validates
+it, and commits it locally:
 
 #### Feature
 
@@ -286,7 +288,9 @@ views, use `sflow-wm-minimal --views all`.
 
 ```bash
 singularity-flow wm init
-singularity-flow wm build --depth quick --local
+singularity-flow wm light --local
+# Equivalent depth form
+singularity-flow wm build --depth light --local
 singularity-flow wm check
 ```
 
@@ -294,15 +298,16 @@ singularity-flow wm check
 `singularity-flow start WORK-123` publication pushes that commit together with
 the first workflow-state commit.
 
-If the builder is interrupted or final synthesis fails, rerun the same `wm
-build` command. Completed view packets are retained under
+Light mode has no model workers or synthesis checkpoints. If a semantic builder
+is interrupted or final synthesis fails, rerun the same `wm build` command.
+Completed view packets are retained under
 `singularity/world-model/.checkpoints/`, verified against the exact source,
 prompt, and options, and skipped; only pending views restart. Resume is the
 default, `--resume` is the explicit spelling, and `--no-resume` deliberately
 reruns all views. The checkpoint disappears after a validated model is
 installed.
 
-Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--resume`/`--no-resume` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`.
+Flags: `--phase <id>` · `--views a,b,c|all` · `--task TEXT` · `--focus TEXT` · `--depth light|quick|standard|deep` · `--parallel`/`--no-parallel` · `--workers N` · `--resume`/`--no-resume` · `--branch B` · `--remote R` · `--runner "CMD {prompt_file}"`. `--runner`, workers, and resume apply only to semantic depths.
 
 ---
 

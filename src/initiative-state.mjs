@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { add, branch, fileAtRef, head, identity, localBranches, pushBranch, remoteBranches } from './git.mjs';
 import {
@@ -243,10 +244,40 @@ async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) 
 // subtree shipped have none of it, so every referenced template would otherwise abort the phase.
 // Installed files are staged because commitInitiativeChange stages only the initiative directory;
 // leaving them unstaged makes the next command fail on an unclean tree.
+/*
+ * What this command restored, so the governed commit can claim it.
+ *
+ * Healing happens deep inside the operations while the commit is taken at the top, and threading a
+ * path list through every caller in cli.mjs would be a wide change for a narrow fact. One command
+ * per process, so the lifetime of this set is the command; `commitInitiativeChange` drains it.
+ *
+ * Before commits were bounded by their staged paths, these files rode along in the index-wide
+ * commit — which is why the comment below said staging them was enough.
+ */
+const healedTemplatePaths = new Set();
+
+/**
+ * Claim what was healed under one portfolio's templates root.
+ *
+ * Scoped by root and by what is actually on disk: a process handles many operations in tests, and
+ * an earlier operation's root is not this commit's to claim — `git add` fails outright on a
+ * pathspec that matches nothing.
+ */
+function claimHealedTemplatePaths(root, templatesRoot) {
+  const prefix = `${posix(templatesRoot)}/`;
+  const claimed = [...healedTemplatePaths]
+    .filter((relative) => relative.startsWith(prefix))
+    .filter((relative) => existsSync(path.join(root, relative)));
+  for (const relative of claimed) healedTemplatePaths.delete(relative);
+  return claimed;
+}
+
 async function healInitiativeTemplates(root, portfolio) {
   const installed = await ensureRepositoryTemplates(root, null, { templatesRoot: portfolio.templatesRoot });
   if (installed.length) {
-    add(root, installed.map((relative) => posix(path.join(portfolio.templatesRoot, relative))));
+    const paths = installed.map((relative) => posix(path.join(portfolio.templatesRoot, relative)));
+    add(root, paths);
+    for (const relative of paths) healedTemplatePaths.add(relative);
   }
   return installed;
 }
@@ -1230,10 +1261,11 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   }
   const mode = initiativePublicationMode(portfolio, initiative);
   const remote = portfolio.git?.remote ?? 'origin';
+  const priorInitiative = structuredClone(initiative);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: [initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths],
+    allowedPaths: [initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths, ...claimHealedTemplatePaths(root, portfolio.templatesRoot)],
     event: envelope,
     commit: { message },
     state: {
@@ -1242,7 +1274,10 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       write: (publicationEvent) => {
         recordPublicationProjection(initiative, publicationEvent, ledgerIntent);
         return saveInitiative(root, portfolio, initiative);
-      }
+      },
+      // Captured before the projection mutates it in place: a publication that fails after the
+      // write must not leave a committable record of an event that never happened.
+      rollback: () => saveInitiative(root, portfolio, priorInitiative)
     },
     publication: { mode, remote, branch: initiative.initiative.branch },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),

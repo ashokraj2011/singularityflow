@@ -46,7 +46,14 @@ export async function inspectStatePlanes(root, {
     context.kind === 'story' ? definition?.ledger : portfolio?.ledger
   );
   const [pending, ledger] = await Promise.all([
-    readPendingPublication(root, { kind: context.kind, id: context.id }),
+    // The configured roots, so this agrees with the mutation paths. Without them `state planes`
+    // reported healthy while every mutation refused, and `doctor` printed both verdicts at once.
+    readPendingPublication(root, {
+      kind: context.kind,
+      id: context.id,
+      roots: { workItemRoot: definition?.workItemRoot, initiativeRoot: portfolio?.initiativeRoot },
+      migrate: false
+    }),
     ledgerStatus(root, ledgerConfig, { offline }).catch((error) => ({
       enabled: ledgerConfig.enabled,
       error: error.message,

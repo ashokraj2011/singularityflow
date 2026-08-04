@@ -1987,3 +1987,45 @@ test('terminal lifecycle writes refresh every VS Code view through one watched s
   await until(() => provider.getChildren()[0]?.description === 'Changed from Copilot CLI');
   assert.equal(provider.getChildren()[0].description, 'Changed from Copilot CLI');
 });
+
+test('a workspace chosen while the views are already bound re-points them without reloading', async (t) => {
+  if (!requireBundle(t)) return;
+  // The steady state, which is where the cost was. The first selection after activation finds no
+  // repository services and reloads once, deliberately; every selection after that must not, or
+  // comparing two workspaces throws away every open editor twice. This guarantee had a regression
+  // test, the test was deleted in a later refactor, and the behaviour it protects has already
+  // shipped broken once.
+  const root = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-repoint-'));
+  const registryFile = path.join(base, 'registry.json');
+  spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'here', '--base', path.join(base, 'ws'),
+    '--lead', 'lead', '--repository', `lead=${root}`, '--confirm', 'here', '--no-clone'], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+  });
+  // Set before activation: the workspace tree is populated once, when the extension starts.
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const issued = [];
+  const dispatch = api.commands.executeCommand;
+  api.commands.executeCommand = async (command, ...args) => {
+    issued.push(command);
+    return dispatch(command, ...args);
+  };
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const rows = await until(() => {
+    const nodes = provider.getChildren();
+    return nodes[0]?.label === 'here' ? nodes : null;
+  });
+  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
+
+  assert.equal(issued.includes('workbench.action.reloadWindow'), false,
+    'the window is not reloaded once the views are already bound');
+  assert.equal(issued.includes('vscode.openFolder'), false, 'and no folder is opened');
+  assert.deepEqual(registered.errors, []);
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -341,4 +341,188 @@ test('surface orchestration cannot import raw state engines', async () => {
       `${relative} must use the state-store boundary rather than a raw lifecycle engine`
     );
   }
+});
+
+test('a governed commit contains only the paths the publication staged', async () => {
+  // `allowedPaths` named a containment the bare `git commit -m` never delivered: it staged those
+  // paths and then committed the entire index. A developer with anything already staged had it
+  // swept into the governed commit, which is pushed, pinned by the ledger and attested to by the
+  // gate — so the governance record described a commit no reviewer ever saw.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-commit-scope-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Kernel Tester'], root);
+  run('git', ['config', 'user.email', 'kernel@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# scope\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initial'], root);
+
+  // What the person at the keyboard was in the middle of, staged and unrelated to governance.
+  const unrelated = path.join(root, 'refund.ts');
+  await writeFile(unrelated, 'export const refund = () => { /* half finished */ };\n');
+  run('git', ['add', 'refund.ts'], root);
+
+  const subject = { kind: 'story', id: 'SCOPE-1', branch: 'main' };
+  const event = lifecycleEvent({ type: 'phase-approved', subject, phaseId: 'design', generation: 1 });
+  const governed = 'state.json';
+  await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event,
+    commit: { message: '[SCOPE-1][phase:design][approve]' },
+    publication: { mode: 'off', branch: 'main' },
+    allowedPaths: [governed],
+    state: { write: () => writeFile(path.join(root, governed), '{"approved":true}\n') }
+  });
+
+  const committed = run('git', ['show', '--name-only', '--format=', 'HEAD'], root).stdout
+    .split('\n').map((line) => line.trim()).filter(Boolean);
+  assert.deepEqual(committed, [governed], 'the governed commit holds only what it staged');
+  // And the developer's work is untouched, still staged, exactly where they left it.
+  assert.match(run('git', ['diff', '--name-only', '--cached'], root).stdout, /refund\.ts/);
+});
+
+test('a lock still being acquired is held, not stale', async () => {
+  // Acquisition creates the directory and then writes the record, so a lock with no record yet is
+  // the newest lock there is. Reading that as abandoned let a second process delete a live lock and
+  // proceed: both processes then believed they held it and published concurrently.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-race-'));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'RACE-1' };
+
+  // Exactly the window: the directory exists, the owner record does not.
+  await mkdir(subjectLockPath(root, subject), { recursive: true });
+  await assert.rejects(() => acquireSubjectLock(root, subject), /is locked by another process that is still acquiring it/);
+
+  // A record that will not parse is the same situation — a crash mid-write, not a free lock.
+  await writeFile(path.join(subjectLockPath(root, subject), 'owner.json'), '{"schemaVersion":1,"su');
+  await assert.rejects(() => acquireSubjectLock(root, subject), /is locked by/);
+});
+
+test('an abandoned acquisition is reclaimed once it is old enough', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lock-abandoned-'));
+  run('git', ['init', '-b', 'main'], root);
+  const subject = { kind: 'story', id: 'ABANDONED-1' };
+  const directory = subjectLockPath(root, subject);
+  await mkdir(directory, { recursive: true });
+  // Backdated past the acquisition grace period: a process that died before writing its record.
+  const old = new Date(Date.now() - 10 * 60 * 1000);
+  await utimes(directory, old, old);
+
+  const owner = await acquireSubjectLock(root, subject);
+  assert.equal(owner.subject.id, 'ABANDONED-1');
+  assert.equal(await releaseSubjectLock(root, subject, owner), true);
+});
+
+test('a publication that fails after the state write leaves no record of the event', async () => {
+  // `state.write` persists the aggregate with a publicationProjections entry carrying the whole
+  // ledger-intent recipe, and every step after it can throw. Nothing put it back — so the repair
+  // the tool recommends committed the projection, and the next sync appended an approval nobody
+  // gave into the append-only ledger.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-rollback-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Kernel Tester'], root);
+  run('git', ['config', 'user.email', 'kernel@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# rollback\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initial'], root);
+
+  const aggregate = { workItem: { id: 'ROLL-1' }, publicationProjections: [] };
+  const target = path.join(root, 'state.json');
+  await writeFile(target, `${JSON.stringify(aggregate, null, 2)}\n`);
+  run('git', ['add', 'state.json'], root);
+  run('git', ['commit', '-m', 'state'], root);
+  const prior = structuredClone(aggregate);
+
+  const subject = { kind: 'story', id: 'ROLL-1', branch: 'main' };
+  const event = lifecycleEvent({ type: 'phase-approved', subject, phaseId: 'design', generation: 1 });
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event,
+    commit: { message: '[ROLL-1][phase:design][approve]' },
+    publication: { mode: 'off', branch: 'main' },
+    allowedPaths: ['state.json'],
+    state: {
+      write: (publicationEvent) => {
+        recordPublicationProjection(aggregate, publicationEvent, { eventType: 'phase-approved' });
+        return writeFile(target, `${JSON.stringify(aggregate, null, 2)}\n`);
+      },
+      validate: () => { throw new Error("Capability ledger branch 'state' is not initialized."); },
+      rollback: () => writeFile(target, `${JSON.stringify(prior, null, 2)}\n`)
+    }
+  }), /not initialized/);
+
+  const onDisk = JSON.parse(await readFile(target, 'utf8'));
+  assert.deepEqual(onDisk.publicationProjections, [],
+    'no recipe for an event that never happened survives on disk');
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '',
+    'and nothing is left staged or modified for a later repair to commit');
+});
+
+test('a stray copy of a work-item directory cannot shadow the real one', async () => {
+  // loadWorkflow reads the location the index chose; saveWorkflow always writes the id-derived path.
+  // Two working-tree locations for one id were settled by readdir order, so a copy taken before an
+  // experiment could be loaded, approved, and written back over the live file — destroying every
+  // approval recorded since the copy was made.
+  const root = await repository();
+  const live = path.join(root, 'singularity/work-items/KERNEL-1/workflow.json');
+  const liveState = JSON.parse(await readFile(live, 'utf8'));
+  liveState.history.push({ at: new Date(0).toISOString(), event: 'only-in-the-live-file', actor: 'tester' });
+  await writeFile(live, `${JSON.stringify(liveState, null, 2)}\n`);
+
+  // The copy a person makes before trying something, still naming the same Story inside. Named so
+  // it is scanned *before* the canonical directory: "first seen wins" is precisely the behaviour
+  // being ruled out, and a copy that sorts later would pass by luck.
+  const copy = path.join(root, 'singularity/work-items/AAA-backup-of-KERNEL-1');
+  await mkdir(copy, { recursive: true });
+  const stale = JSON.parse(await readFile(live, 'utf8'));
+  stale.history = stale.history.filter((item) => item.event !== 'only-in-the-live-file');
+  await writeFile(path.join(copy, 'workflow.json'), `${JSON.stringify(stale, null, 2)}\n`);
+
+  const { buildRepositorySubjectIndex } = await import('../src/repository-subject-index.mjs');
+  const index = await buildRepositorySubjectIndex(root, { definition: await loadDefinition(root) });
+  const subject = index.list('story').find((entry) => entry.id === 'KERNEL-1');
+  assert.equal(subject.location.path, 'singularity/work-items/KERNEL-1/workflow.json',
+    'the directory named for the Story is its canonical home');
+  assert.equal(subject.state.history.some((item) => item.event === 'only-in-the-live-file'), true,
+    'and the state the index carries is the live one, not the copy');
+});
+
+test('a state file that cannot be read is reported, not treated as absent', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'singularity/work-items/KERNEL-1/workflow.json'),
+    '<<<<<<< HEAD\n{"workItem":{"id":"KERNEL-1"}}\n=======\n');
+
+  const { buildRepositorySubjectIndex } = await import('../src/repository-subject-index.mjs');
+  const index = await buildRepositorySubjectIndex(root, { definition: await loadDefinition(root) });
+  assert.equal(index.list('story').length, 0);
+  assert.equal(index.unreadable.length, 1);
+  assert.match(index.unreadable[0].path, /KERNEL-1\/workflow\.json$/);
+
+  // And doctor calls it a failure rather than reporting no work item on this branch.
+  const report = run(process.execPath, [bin, 'doctor', '--json'], root, { allowFailure: true });
+  const workflowState = JSON.parse(report.stdout).checks.find((entry) => entry.id === 'workflow-state');
+  assert.equal(workflowState.status, 'fail');
+  assert.match(workflowState.message, /could not be read/);
+});
+
+test('a snapshot does not migrate the file it is reading', async () => {
+  // fullRepositorySnapshot includes the doctor report, whose pending-publication read used to
+  // migrate the pre-kernel marker — deleting a tracked file mid-capture. The coordinator then saw
+  // the working tree change underneath it and failed, blaming a concurrent writer that never
+  // existed, on the first snapshot after every upgrade.
+  const root = await repository();
+  const legacy = path.join(root, 'singularity/work-items/KERNEL-1/publication-pending.json');
+  await writeFile(legacy, `${JSON.stringify({ schemaVersion: 2, commit: 'a'.repeat(40) }, null, 2)}\n`);
+  run('git', ['add', '-A'], root);
+  run('git', ['commit', '-m', 'legacy marker'], root);
+
+  const snapshot = run(process.execPath, [bin, 'snapshot', '--json'], root, { allowFailure: true });
+  assert.equal(snapshot.status, 0, `snapshot failed: ${snapshot.stderr}`);
+  assert.doesNotMatch(snapshot.stderr, /changed while the snapshot was being assembled/);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '',
+    'reading the repository left it exactly as it was');
+
+  // The marker is still reported, and a mutation still migrates it.
+  const planes = JSON.parse(run(process.execPath, [bin, 'state', 'planes', 'KERNEL-1', '--json'], root).stdout);
+  assert.equal(planes.publicationRecovery.pending, true,
+    'state planes agrees with the commands that refuse while a publication is pending');
 });

@@ -106,14 +106,24 @@ export function renderArtifactTemplate(draft: ArtifactDraft): string {
   return `${heading}\n\n${purpose}\n${sections}`.trimEnd() + '\n';
 }
 
+/** A relative `.md` path that stays where it was put: no absolute root, no segment that climbs. */
+export function safeRelativeMarkdownPath(value: string): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(value)) return false;
+  return !value.split('/').includes('..');
+}
+
 export function validateArtifactDraft(draft: ArtifactDraft): string[] {
   const errors: string[] = [];
   const id = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
   if (!id.test(draft.phaseId)) errors.push('Choose the phase this artifact belongs to.');
   if (!id.test(draft.outputId)) errors.push('Output ID must be lower-case kebab-case.');
   if (!draft.outputLabel.trim()) errors.push('Give the artifact a reader-facing label.');
-  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(draft.fileName)) errors.push('Template file must be a safe .md path.');
-  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(draft.outputPath)) errors.push('Generated artifact path must be a safe .md path.');
+  // The character class allows `.` and `/`, so `a/../../b.md` passed as a "safe .md path". The
+  // engine refuses anything that resolves outside the repository, so this never escaped — but a
+  // within-repo hop did, writing into a sibling root instead of the one the form names. A path
+  // that climbs is not what this claims to be checking for.
+  if (!safeRelativeMarkdownPath(draft.fileName)) errors.push('Template file must be a safe .md path without "..".');
+  if (!safeRelativeMarkdownPath(draft.outputPath)) errors.push('Generated artifact path must be a safe .md path without "..".');
   if (!draft.sections.length) errors.push('Add at least one section.');
   if (new Set(draft.sections.map((section) => section.title.trim().toLowerCase())).size !== draft.sections.length) {
     errors.push('Section headings must be unique.');

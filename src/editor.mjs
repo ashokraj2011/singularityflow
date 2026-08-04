@@ -1033,7 +1033,9 @@ export async function publishEditorConfiguration(root, message = 'Configure Sing
   const staged = run('git', ['diff', '--name-only', '--cached'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
   if (staged.some((file) => !configurationChanges.includes(file))) throw new SingularityFlowError('Publish is blocked because unrelated files are already staged.');
   add(root, configurationChanges);
-  const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow');
+  // Bounded by the same set the guards above checked, so the commit cannot exceed what was approved
+  // even if those guards are ever loosened.
+  const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow', configurationChanges);
   if ((definition.git?.publish ?? 'required') === 'off') return { sha, pushed: false, files: configurationChanges };
   const remote = definition.git?.remote ?? 'origin';
   const result = pushBranch(root, remote, branch(root));

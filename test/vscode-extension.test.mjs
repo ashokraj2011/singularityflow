@@ -2584,3 +2584,22 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(html, /Phase contract/);
   assert.match(html, /Repository world-model views/);
 });
+
+test('every prompt pack is listed, including the ones that ship with the product', () => {
+  // Restored. The snapshot has carried `flowSkills` all along and this view read only
+  // `repositorySkills`, so a repository that had written none of its own was told it had none while
+  // eighty-two packaged packs sat unlisted beside it. The fix survived a later refactor; the test
+  // that pins it did not, which is how a fix that has already shipped once quietly ships again.
+  const withPacks = structuredClone(snapshot);
+  withPacks.repositorySkills = [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }];
+  withPacks.flowSkills = [
+    { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md', description: 'Approve a phase.' },
+    { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }
+  ];
+  const packs = find(buildConfigurationTree(withPacks), 'config:skills');
+  assert.equal(packs.description, '3');
+  assert.deepEqual(packs.children.map((child) => child.label), ['ours', 'sflow-approve', 'sflow-doctor']);
+  // Which ones this team wrote, and which came with the product: editing a packaged one is a change
+  // an upgrade takes back.
+  assert.deepEqual(packs.children.map((child) => child.description), ['repository', 'packaged', 'packaged']);
+});

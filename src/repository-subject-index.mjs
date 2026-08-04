@@ -52,6 +52,22 @@ function parseEntry(relative, content, location) {
 
 function preferredLocation(entry, location) {
   if (!entry.location) return location;
+  /*
+   * The directory named for the subject is its canonical home, whatever any other directory's
+   * contents claim. Two working-tree locations for one id used to be settled by `readdir` order,
+   * because neither branch clause can match when both have `branch: null` and both are
+   * working-tree — so "first seen" won.
+   *
+   * That is a read/modify/write across two different files: `loadWorkflow` reads the location the
+   * index chose while `saveWorkflow` always writes the id-derived path. Copy a work-item directory
+   * aside before an experiment — the copy still says `"id": "STORY-1"` — and an approval could load
+   * the stale copy and write the result over the live one, destroying every approval recorded since
+   * the copy was taken.
+   */
+  const canonical = (candidate) => candidate.directory != null && candidate.directory === entry.id;
+  if (canonical(location) !== canonical(entry.location)) {
+    return canonical(location) ? location : entry.location;
+  }
   if (location.branch === entry.canonicalBranch && entry.location.branch !== entry.canonicalBranch) return location;
   if (location.source === 'working-tree' && entry.location.source !== 'working-tree') return location;
   return entry.location;
@@ -60,6 +76,8 @@ function preferredLocation(entry, location) {
 export class RepositorySubjectIndex {
   constructor() {
     this.subjects = [];
+    /** State files that exist but could not be read, so a lookup miss can say why. */
+    this.unreadable = [];
   }
 
   add(candidate) {
@@ -95,14 +113,28 @@ export class RepositorySubjectIndex {
 
 async function scanDirectory(index, root, base, suffix, parser) {
   if (!(await exists(base))) return;
-  for (const entry of await readdir(base, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+  // Sorted, so which of two candidates is seen first is never the filesystem's decision to make.
+  const entries = (await readdir(base, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
     const absolute = path.join(base, entry.name, suffix);
     if (!(await exists(absolute))) continue;
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
     try {
-      const relative = path.relative(root, absolute).split(path.sep).join('/');
-      index.add(parser(await readJson(absolute), { source: 'working-tree', path: relative, branch: null, ref: null, commit: null }));
-    } catch { /* Invalid state is reported by governance; it cannot become a selectable subject. */ }
+      index.add(parser(await readJson(absolute), {
+        source: 'working-tree', path: relative, directory: entry.name, branch: null, ref: null, commit: null
+      }));
+    } catch (error) {
+      /*
+       * Recorded rather than discarded. The comment here said governance reports invalid state, and
+       * it does not — this index is the only lookup path, so a `workflow.json` left holding conflict
+       * markers made the Story disappear: `resume` said no such Story existed, and `doctor` reported
+       * "skip" because it could not associate the branch with any work item. The one command written
+       * to find broken state silently declined to look at it.
+       */
+      index.unreadable.push({ path: relative, reason: error.message });
+    }
   }
 }
 
@@ -167,13 +199,23 @@ export function resolveContext(index, {
     throw new SingularityFlowError(`No governed ${kind ?? 'subject'} matches '${requested}'.`);
   }
   const resolved = candidates[0];
-  if (mutation && resolved.readOnly) {
-    throw new SingularityFlowError(`${resolved.kind} '${resolved.id}' was resolved from evidence only and cannot be mutated until its lifecycle branch is available.`);
-  }
   const selectedBranch = resolved.branches.includes(requested) ? requested : resolved.canonicalBranch;
   const selectedLocation = resolved.locations.find((location) => location.branch === selectedBranch)
     ?? resolved.locations.find((location) => location.branch === resolved.canonicalBranch)
     ?? resolved.location;
+  /*
+   * Evidence-only state cannot be mutated.
+   *
+   * Note that no index entry sets `readOnly` — neither entry builder nor `add` produces the field —
+   * so today this only fires for the ledger-fallback subject that sets it explicitly, and never for
+   * an index resolution. Widening it to every `source: 'ref'` location is *not* the fix: `resume`
+   * legitimately resolves an Initiative from its branch and then checks that branch out, so it is a
+   * mutation of exactly the state this would refuse. Which ref resolutions are evidence-only is a
+   * per-caller decision, and until callers make it the guard stays as narrow as it reads.
+   */
+  if (mutation && resolved.readOnly) {
+    throw new SingularityFlowError(`${resolved.kind} '${resolved.id}' was resolved from evidence only and cannot be mutated until its lifecycle branch is available.`);
+  }
   return {
     ...resolved,
     location: selectedLocation,

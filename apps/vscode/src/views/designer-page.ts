@@ -160,7 +160,7 @@ function templateInventory(templates: TemplateUsage[], filter: string): string {
   return `
   <section class="template-inventory">
     <div class="toolbar-row"><h2>${icon('document')}Template library</h2><span class="grow"></span><select data-template-filter><option value="all"${filter === 'all' ? ' selected' : ''}>All (${templates.length})</option><option value="pinned"${filter === 'pinned' ? ' selected' : ''}>Pinned (${templates.filter((entry) => entry.standing.length).length})</option><option value="unused"${filter === 'unused' ? ' selected' : ''}>Unused (${templates.filter((entry) => !entry.usedBy.length).length})</option></select></div>
-    <div class="template-grid">${shown.length ? shown.map((template) => `<button class="template-tile" data-open-file="${escape(template.path)}"><strong>${escape(template.name)}</strong><span>${template.usedBy.length ? `${template.usedBy.length} uses` : 'Unused'}${template.standing.length ? ` · pinned by ${template.standing.map((entry) => entry.id).join(', ')}` : ''}</span></button>`).join('') : '<p class="empty-state">No templates match this filter.</p>'}</div>
+    <div class="template-grid">${shown.length ? shown.map((template) => `<button class="template-tile" data-open-file="${escape(template.path)}"><strong>${escape(template.name)}</strong><span>${template.usedBy.length ? `${template.usedBy.length} uses` : 'Unused'}${template.standing.length ? ` · pinned by ${escape(template.standing.map((entry) => entry.id).join(', '))}` : ''}</span></button>`).join('') : '<p class="empty-state">No templates match this filter.</p>'}</div>
   </section>`;
 }
 

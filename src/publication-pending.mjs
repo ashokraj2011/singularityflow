@@ -11,14 +11,26 @@ export function localPendingPublicationPath(root, kind, id) {
   return path.join(gitDir(root), 'singularity-flow', 'pending-publication', `${kind}--${safeId(id)}.json`);
 }
 
-export function defaultLegacyPendingPublicationPath(root, kind, id) {
-  const directory = kind === 'initiative' ? 'initiatives' : 'work-items';
-  return path.join(root, 'singularity', directory, String(id), 'publication-pending.json');
+/**
+ * Where a pre-kernel release would have left the marker.
+ *
+ * `workItemRoot` and `initiativeRoot` are configurable, and this hard-coded `singularity/…`, so a
+ * repository that keeps its work items anywhere else had markers that no lookup here could see —
+ * while every mutation path, which passes its own `legacyPath`, refused to run because of them.
+ */
+export function defaultLegacyPendingPublicationPath(root, kind, id, roots = {}) {
+  const directory = kind === 'initiative'
+    ? (roots.initiativeRoot ?? 'singularity/initiatives')
+    : (roots.workItemRoot ?? 'singularity/work-items');
+  return path.join(root, directory, String(id), 'publication-pending.json');
 }
 
-function legacyCandidates(root, { kind, id, legacyPath = null } = {}) {
+function legacyCandidates(root, { kind, id, legacyPath = null, roots = {} } = {}) {
   return [...new Set([
     legacyPath,
+    defaultLegacyPendingPublicationPath(root, kind, id, roots),
+    // The stock location too, so a repository that moved its roots still finds what an older
+    // release left behind before the move.
     defaultLegacyPendingPublicationPath(root, kind, id)
   ].filter(Boolean).map((candidate) => path.resolve(candidate)))];
 }
@@ -29,12 +41,16 @@ function legacyCandidates(root, { kind, id, legacyPath = null } = {}) {
  * change, not permission to forget an unpublished commit created by an older
  * release.
  */
-export async function readPendingPublication(root, { kind, id, legacyPath = null } = {}) {
+export async function readPendingPublication(root, { kind, id, legacyPath = null, roots = {}, migrate = true } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
   if (await exists(local)) return { path: local, record: await readJson(local), migrated: false };
-  for (const legacy of legacyCandidates(root, { kind, id, legacyPath })) {
+  for (const legacy of legacyCandidates(root, { kind, id, legacyPath, roots })) {
     if (!(await exists(legacy))) continue;
     const record = await readJson(legacy);
+    // `migrate: false` for read-only callers. Migration deletes a tracked file, and a snapshot that
+    // mutates the working tree while capturing it fails its own did-anything-change check — so the
+    // first snapshot after an upgrade hard-errored, blaming a concurrent writer that did not exist.
+    if (!migrate) return { path: legacy, record, migrated: false, pendingMigrationFrom: legacy };
     await writeJson(local, record);
     await unlink(legacy);
     return { path: local, record, migrated: true, migratedFrom: legacy };
@@ -61,9 +77,16 @@ export async function clearPendingPublication(root, { kind, id, legacyPath = nul
 }
 
 /** Find legacy markers that no active subject read has migrated. */
-export async function findLegacyPendingPublications(root) {
-  const singularity = path.join(root, 'singularity');
-  if (!(await exists(singularity))) return [];
+export async function findLegacyPendingPublications(root, roots = {}) {
+  // Every configured root, not just `singularity/`. A marker for a Story that has since been
+  // deleted is never migrated by a subject read, so this scan is the only thing that can surface
+  // it — and it was blind to exactly the repositories that had moved their roots.
+  const bases = [...new Set([
+    path.join(root, 'singularity'),
+    path.join(root, roots.workItemRoot ?? 'singularity/work-items'),
+    path.join(root, roots.initiativeRoot ?? 'singularity/initiatives')
+  ].map((base) => path.resolve(base)))]
+    .filter((base, _index, all) => !all.some((other) => other !== base && base.startsWith(`${other}${path.sep}`)));
   const found = [];
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -73,6 +96,6 @@ export async function findLegacyPendingPublications(root) {
       else if (entry.isFile() && entry.name === 'publication-pending.json') found.push(absolute);
     }
   }
-  await visit(singularity);
+  for (const base of bases) if (await exists(base)) await visit(base);
   return found.sort();
 }

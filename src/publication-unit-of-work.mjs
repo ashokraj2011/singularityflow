@@ -50,24 +50,59 @@ export class GitPublicationUnitOfWork {
         );
       }
     }
-    if (state?.write) await state.write(envelope);
-    if (fault) await fault('after-state-write', { envelope });
-    if (state?.validate) await state.validate(envelope);
-    if (beforeCommit) await beforeCommit(envelope);
+    /*
+     * Everything from the state write to the commit is one step or none.
+     *
+     * `state.write` persists the aggregate — including a `publicationProjections` entry carrying the
+     * whole ledger-intent recipe — and every step after it can throw. Nothing put it back, so a
+     * failed publication left a durable, committable record of an event that never happened. The
+     * repair the tool itself recommends then commits the projection, and the next sync appends it
+     * to the append-only capability ledger: an approval nobody gave, in the record that exists to
+     * be trusted.
+     */
+    let wroteState = false;
+    const unwind = async (error) => {
+      if (wroteState && state?.rollback) {
+        try { await state.rollback(); } catch (failure) {
+          throw new SingularityFlowError(
+            `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${failure.message}. `
+            + `The original failure was: ${error.message}`
+          );
+        }
+      }
+      throw error;
+    };
+
+    try {
+      if (state?.write) { await state.write(envelope); wroteState = true; }
+      if (fault) await fault('after-state-write', { envelope });
+      if (state?.validate) await state.validate(envelope);
+      if (beforeCommit) await beforeCommit(envelope);
+    } catch (error) { await unwind(error); }
+
     let ledgerIntentPath = null;
     if (ledger?.config?.enabled && ledger.intent) {
-      ledgerIntentPath = await persistLedgerIntent(root, ledger.intentDirectory, ledger.intent);
+      // The event is attached before the intent is written, so the file and any entry appended from
+      // it carry the same payload. It is deliberately the unbound event: the commit it belongs to
+      // cannot exist yet, and the entry records it as `transport.publishedCommit` regardless. When
+      // this was attached afterwards and only in memory, a direct append and a later reconcile of
+      // the same intent produced two different entry bodies — and therefore two different chain
+      // hashes — decided by whether the network happened to be up.
+      ledger.intent.payload = { ...(ledger.intent.payload ?? {}), lifecycleEvent: envelope };
+      try {
+        ledgerIntentPath = await persistLedgerIntent(root, ledger.intentDirectory, ledger.intent);
+      } catch (error) { await unwind(error); }
     }
-    add(root, [...new Set([...allowedPaths, ledgerIntentPath].filter(Boolean))]);
-    const sourceCommit = commit(root, commitSpec.message);
+    // The commit is bounded by the same set that was staged. `allowedPaths` named a containment the
+    // bare commit never delivered: it staged these and then committed the whole index, so anything
+    // the person at the keyboard had staged rode into the governed commit and was pushed, pinned and
+    // attested to.
+    const staged = [...new Set([...allowedPaths, ledgerIntentPath].filter(Boolean))];
+    add(root, staged);
+    const sourceCommit = commit(root, commitSpec.message, staged);
+    // The envelope this function returns is bound to the commit; the intent's payload deliberately
+    // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);
-    if (ledger?.intent) {
-      ledger.intent.eventId = envelope.eventId;
-      ledger.intent.payload = {
-        ...(ledger.intent.payload ?? {}),
-        lifecycleEvent: envelope
-      };
-    }
     if (fault) await fault('after-commit', { envelope, sourceCommit });
     let pushed = false;
     let replayed = false;
@@ -104,15 +139,9 @@ export class GitPublicationUnitOfWork {
       pushed = true;
     }
     // Append-only replay can replace the original commit. Event identity always
-    // follows the commit that actually became the lifecycle branch head.
+    // follows the commit that actually became the lifecycle branch head. The intent's payload is
+    // left as committed — the entry records where it landed in `transport.publishedCommit`.
     envelope = bindLifecycleEvent(envelope, publishedCommit);
-    if (ledger?.intent) {
-      ledger.intent.eventId = envelope.eventId;
-      ledger.intent.payload = {
-        ...(ledger.intent.payload ?? {}),
-        lifecycleEvent: envelope
-      };
-    }
     if (fault) await fault('after-push', { envelope, sourceCommit, publishedCommit, pushed });
     let ledgerResult = null;
     if (ledger?.config?.enabled && ledger.intent) {

@@ -231,7 +231,7 @@ Usage:
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
-  singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY"] [--json]
+  singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
     [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
@@ -600,8 +600,9 @@ function renderFactoryResetPlan(plan) {
   for (const item of plan.replace) console.log(`- ${item}`);
   console.log('\nPreserve:');
   for (const item of plan.preserve) console.log(`- ${item}`);
-  if (plan.uncommittedResetPaths.length) {
-    console.log('\nWARNING: these uncommitted reset-scope changes will be discarded:');
+  if (plan.uncommittedResetPaths.length && !plan.completed) {
+    console.log('\nThese uncommitted reset-scope changes would be discarded, so the reset will refuse');
+    console.log('to run until they are committed, stashed, or --allow-dirty is passed:');
     for (const item of plan.uncommittedResetPaths) console.log(`- ${item}`);
   }
   if (!plan.completed) {
@@ -621,7 +622,8 @@ async function factoryResetCommand(options) {
     ? await factoryResetPlan(root, { packageVersion: VERSION })
     : await factoryResetRepository(root, {
       confirmation: optionString(options, 'confirm'),
-      packageVersion: VERSION
+      packageVersion: VERSION,
+      allowDirty: optionBoolean(options, 'allow-dirty')
     });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else renderFactoryResetPlan(result);
@@ -2547,7 +2549,7 @@ async function initiativeChoicesCommand(root, config, portfolio, positionals, op
 function commitKnowledge(root, message) {
   add(root, [KNOWLEDGE_ROOT]);
   if (!changes(root).length) return null;
-  return commit(root, message);
+  return commit(root, message, [KNOWLEDGE_ROOT]);
 }
 
 /**

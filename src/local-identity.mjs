@@ -223,7 +223,7 @@ export async function reserveLocalEpicBranch(root, portfolio, {
       reservedBy: actor ?? null
     });
     add(root, [relative]);
-    const reservationCommit = commit(root, `[${id}][identity:reserve] Reserve local Epic ID`);
+    const reservationCommit = commit(root, `[${id}][identity:reserve] Reserve local Epic ID`, [relative]);
     if (portfolio.git?.publish === 'off') {
       return { id, reservationCommit, pushed: false, attempt };
     }

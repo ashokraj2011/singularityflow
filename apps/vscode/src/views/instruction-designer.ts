@@ -59,7 +59,14 @@ export class InstructionDesignerPanel {
     }
     const panel = vscode.window.createWebviewPanel(
       'singularityFlow.instructionDesigner', 'Agents, prompts & skills', vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true }
+      // Pinned like every other panel. Omitting it falls back to the extension root plus every
+      // workspace folder, which widens what `webview.cspSource` can address — one copy of the
+      // posture, not one copy per panel that remembers.
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+      }
     );
     InstructionDesignerPanel.current = new InstructionDesignerPanel(panel, store, onMessage);
     return InstructionDesignerPanel.current;

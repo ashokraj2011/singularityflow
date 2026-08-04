@@ -62,8 +62,19 @@ export function approvalPath(root, config, id, phase) { return path.join(workDir
 export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
 export function pendingPublicationPath(root, _config, id) { return localPendingPublicationPath(root, 'story', id); }
 function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
-export async function storyPublicationPending(root, config, id) {
-  return hasPendingPublication(root, { kind: 'story', id, legacyPath: legacyPendingPublicationPath(root, config, id) });
+/**
+ * @param migrate `false` for read-only callers. Migration deletes a tracked file, and the snapshot
+ *   coordinator's did-anything-change check fails when a capture mutates the working tree — which
+ *   made the first snapshot after an upgrade error out blaming a concurrent writer that never existed.
+ */
+export async function storyPublicationPending(root, config, id, { migrate = true } = {}) {
+  return hasPendingPublication(root, {
+    kind: 'story',
+    id,
+    legacyPath: legacyPendingPublicationPath(root, config, id),
+    roots: { workItemRoot: config?.workItemRoot },
+    migrate
+  });
 }
 
 function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
@@ -405,7 +416,15 @@ export async function loadWorkflow(root, config, id = undefined) {
   }
   if (!selected) {
     const requested = id ?? branch(root);
-    throw new SingularityFlowError(`No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`);
+    // A state file that exists but will not parse is the likeliest reason a Story "does not exist",
+    // and saying so is the difference between fixing a file and hunting for a missing directory.
+    const unreadable = index.unreadable ?? [];
+    throw new SingularityFlowError(
+      `No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`
+      + (unreadable.length
+        ? ` These state files exist but could not be read: ${unreadable.map((entry) => `${entry.path} (${entry.reason})`).join('; ')}.`
+        : '')
+    );
   }
   const file = path.join(root, selected.location.path);
   const workflow = normalizeCurrentWorkflow(await readJson(file));
@@ -980,6 +999,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     });
   }
   const targetBranch = workflowPublicationBranch(root, workflow);
+  const priorWorkflow = structuredClone(workflow);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -991,6 +1011,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
         return saveWorkflow(root, config, workflow);
       },
+      // Captured before the projection mutates it in place, so a publication that fails after the
+      // write leaves no record of an event that never happened.
+      rollback: () => saveWorkflow(root, config, priorWorkflow),
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {
@@ -1057,7 +1080,8 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
   else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
-  if (await storyPublicationPending(root, config, workflow.workItem.id)) errors.push('Publication is pending; run singularity-flow sync.');
+  // Validation reports; it does not migrate. The enforcement paths that gate a mutation still do.
+  if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) errors.push('Publication is pending; run singularity-flow sync.');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   if (ledgerConfig.enabled) {
     try {

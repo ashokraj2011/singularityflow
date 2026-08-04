@@ -45,13 +45,18 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
   await directoryState(path.join(repository, 'singularity'), 'Singularity control root');
   await directoryState(path.join(repository, '.singularity'), 'Legacy Singularity control root');
   await directoryState(localRuntime, 'Singularity local runtime root');
-  const confirmation = `RESET ${path.basename(repository)}`;
+  // The token binds to this checkout at this commit, not just to its name. `RESET <name>` alone is
+  // derivable from the directory you are standing in, so a token copied out of shell history — or
+  // computed by an agent that never showed anybody the preview — matched a different clone of the
+  // same repository just as happily as the one it was produced for.
+  const revision = head(repository);
+  const confirmation = `RESET ${path.basename(repository)} ${revision ? revision.slice(0, 7) : 'unborn'}`;
   return {
     schemaVersion: 1,
     operation: 'factory-reset',
     repository,
     branch: branch(repository),
-    head: head(repository),
+    head: revision,
     packageVersion,
     confirmation,
     remove: [
@@ -73,14 +78,34 @@ export async function factoryResetPlan(root, { packageVersion = null } = {}) {
   };
 }
 
-async function restoreDirectory(current, backup, existed) {
+/**
+ * Put back a directory this reset moved aside — and touch nothing it did not.
+ *
+ * The flag used to mean "the directory existed", which is not the same question. Anything thrown
+ * before the rename left it false while the directory was still sitting in the repository, and the
+ * unconditional `rm` below then deleted a control root that had never been copied anywhere. The
+ * engine's own `loadDefinition` throws on an incomplete install — which is precisely the state
+ * somebody runs a factory reset to repair — so the command most likely to hit this was the command
+ * people ran to fix things.
+ *
+ * Now the flag means "this reset has the only other copy", and rollback is the only caller that can
+ * remove the live path.
+ */
+async function restoreDirectory(current, backup, movedToBackup) {
+  if (!movedToBackup) return;
   await rm(current, { recursive: true, force: true });
-  if (existed) await rename(backup, current);
+  await rename(backup, current);
 }
 
+/**
+ * @param fault test seam for crash-point injection, matching the publication kernel's. Rollback is
+ *   the whole point of this command and it is unreachable from a CLI test without one.
+ */
 export async function factoryResetRepository(root, {
   confirmation,
-  packageVersion = null
+  packageVersion = null,
+  allowDirty = false,
+  fault = null
 } = {}) {
   const plan = await factoryResetPlan(root, { packageVersion });
   if (confirmation !== plan.confirmation) {
@@ -88,9 +113,31 @@ export async function factoryResetRepository(root, {
       `Factory reset requires exact confirmation '${plan.confirmation}'. Run with --dry-run first, then pass --confirm ${JSON.stringify(plan.confirmation)}.`
     );
   }
+  // Refused rather than warned about. These paths were computed, printed after the reset had
+  // already discarded them, and never checked — and "Git history is the recovery path" is exactly
+  // the claim that does not hold for them.
+  //
+  // Scoped to the control roots, which are the trees this command deletes outright. `.github/agents`
+  // is in the reported set because a customised packaged agent is overwritten, but a freshly
+  // initialised repository has that directory untracked with the packaged content already in it,
+  // and refusing there would block the reset on files identical to what it is about to write.
+  const discarded = plan.uncommittedResetPaths.filter((entry) =>
+    CONTROL_ROOTS.some((control) => entry.slice(3).startsWith(`${control}/`) || entry.slice(3) === control));
+  if (!allowDirty && discarded.length) {
+    throw new SingularityFlowError(
+      'Factory reset would discard uncommitted changes that Git cannot recover:\n'
+      + discarded.map((item) => `  ${item}`).join('\n')
+      + '\nCommit or stash them, or pass --allow-dirty to discard them deliberately.'
+    );
+  }
 
   const repository = plan.repository;
-  const staging = await mkdtemp(path.join(repository, '.sflow-factory-reset-'));
+  // Inside .git, not inside the working tree. While the reset runs, this directory holds the only
+  // other copy of the user's configuration — and in the working tree it was untracked content that
+  // no .gitignore covered, so `git clean -fdx`, the obvious thing to run after a failed reset,
+  // destroyed exactly the copy the failure made precious. Kept out of the local runtime root
+  // because a successful reset deletes that.
+  const staging = await mkdtemp(path.join(gitDir(repository), 'sflow-factory-reset-'));
   const fresh = path.join(staging, 'fresh');
   const backup = path.join(staging, 'backup');
   const control = path.join(repository, 'singularity');
@@ -101,11 +148,13 @@ export async function factoryResetRepository(root, {
   const targetAgents = path.join(repository, '.github', 'agents');
   const backupAgents = path.join(backup, 'agents');
   const localRuntime = path.join(gitDir(repository), LOCAL_RUNTIME_ROOT);
-  let controlExisted = false;
-  let legacyExisted = false;
+  // "Moved", not "existed": the only thing rollback may act on is what this reset actually took.
+  let controlMoved = false;
+  let legacyMoved = false;
   const agentBackups = [];
   let installedAgents = [];
   let completed = false;
+  let restoreFailed = false;
 
   try {
     await mkdir(fresh, { recursive: true });
@@ -113,11 +162,12 @@ export async function factoryResetRepository(root, {
     await loadDefinition(fresh);
     installedAgents = await regularFiles(freshAgents);
     await mkdir(backup, { recursive: true });
+    if (fault) await fault('after-fresh-install');
 
-    controlExisted = (await directoryState(control, 'Singularity control root')).exists;
-    legacyExisted = (await directoryState(legacy, 'Legacy Singularity control root')).exists;
-    if (controlExisted) await rename(control, backupControl);
-    if (legacyExisted) await rename(legacy, backupLegacy);
+    const controlExisted = (await directoryState(control, 'Singularity control root')).exists;
+    const legacyExisted = (await directoryState(legacy, 'Legacy Singularity control root')).exists;
+    if (controlExisted) { await rename(control, backupControl); controlMoved = true; }
+    if (legacyExisted) { await rename(legacy, backupLegacy); legacyMoved = true; }
     await cp(path.join(fresh, 'singularity'), control, { recursive: true, force: false });
 
     for (const relative of installedAgents) {
@@ -153,22 +203,37 @@ export async function factoryResetRepository(root, {
       ]
     };
   } catch (error) {
-    await restoreDirectory(control, backupControl, controlExisted).catch(() => {});
-    await restoreDirectory(legacy, backupLegacy, legacyExisted).catch(() => {});
+    // Rollback failures were swallowed and the backup was then deleted regardless, so a restore
+    // that did not happen looked exactly like one that did. They are collected instead: if any of
+    // them failed, the backup is the only remaining copy and it is kept and named.
+    const failures = [];
+    const attempt = async (label, action) => {
+      try { await action(); } catch (failure) { failures.push(`${label}: ${failure.message}`); }
+    };
+    await attempt('singularity/', () => restoreDirectory(control, backupControl, controlMoved));
+    await attempt('.singularity/', () => restoreDirectory(legacy, backupLegacy, legacyMoved));
     for (const record of agentBackups.reverse()) {
       const target = path.join(targetAgents, record.relative);
-      if (record.existed) {
+      await attempt(path.posix.join('.github/agents', record.relative), async () => {
+        if (!record.existed) return rm(target, { force: true });
         await mkdir(path.dirname(target), { recursive: true });
-        await cp(path.join(backupAgents, record.relative), target, { force: true }).catch(() => {});
-      } else await rm(target, { force: true }).catch(() => {});
+        return cp(path.join(backupAgents, record.relative), target, { force: true });
+      });
+    }
+    if (failures.length) {
+      restoreFailed = true;
+      throw new SingularityFlowError(
+        `Factory reset failed and could not be fully undone: ${failures.join('; ')}. `
+        + `Your previous configuration is still in ${staging}; move it back by hand before rerunning. `
+        + `The original failure was: ${error.message}`
+      );
     }
     throw error;
   } finally {
     // Once the replacement validates, the backup is deliberately destroyed: Git history is the
-    // recovery path and a factory reset must not leave a second local state tree behind.
-    await rm(staging, { recursive: true, force: true });
-    if (!completed) {
-      // No-op: the catch block restored every path before this cleanup.
-    }
+    // recovery path and a factory reset must not leave a second local state tree behind. The one
+    // exception is a rollback that did not fully succeed — then this directory holds the only copy
+    // of the user's configuration, and deleting it is the last thing that should happen.
+    if (!restoreFailed) await rm(staging, { recursive: true, force: true });
   }
 }

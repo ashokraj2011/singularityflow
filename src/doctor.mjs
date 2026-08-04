@@ -2,6 +2,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
@@ -85,7 +86,9 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
           : 'One or more state planes require recovery or projection repair.',
         planes.healthy ? null : `Run singularity-flow state planes ${selected.id} --json, then singularity-flow state reconcile ${selected.id} --check.`
       ));
-      const pending = await storyPublicationPending(root, definition, selected.id);
+      // Read-only: the doctor is also what the snapshot runs, and a diagnostic must not change the
+      // repository it is diagnosing.
+      const pending = await storyPublicationPending(root, definition, selected.id, { migrate: false });
       checks.push(check('publication', pending ? 'fail' : 'pass', pending ? 'A local lifecycle commit is waiting to be pushed.' : 'No lifecycle publication is pending.', pending ? 'Run singularity-flow sync.' : null));
       const active = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
       const assignmentMode = workflow.resolution?.collaboration?.assignmentMode ?? 'off';
@@ -94,8 +97,25 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     } catch (error) {
       checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, selected.id)} in Git history.`));
     }
+  } else if (subjectIndex.unreadable?.length) {
+    // A state file that exists and will not parse is a failure, not an absence. This reported
+    // "skip — no work item is associated with this branch", so the diagnostic built to find
+    // corrupted state was the one command that declined to look at it.
+    checks.push(check(
+      'workflow-state',
+      'fail',
+      `State exists for this repository but could not be read: ${subjectIndex.unreadable.map((entry) => `${entry.path} (${entry.reason})`).join('; ')}.`,
+      'Repair the file, or restore it from Git history.'
+    ));
   } else checks.push(check('workflow-state', 'skip', `No work item is associated with branch '${currentBranch}'.`, 'Run singularity-flow start <WORK-ID> or resume <WORK-ID>.'));
-  const legacyPending = await findLegacyPendingPublications(root);
+  // The configured roots, so a repository that keeps its work items or initiatives anywhere other
+  // than `singularity/` is scanned too — those are precisely the repositories whose markers this
+  // scan could not see while every mutation refused to run because of them.
+  const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
+  const legacyPending = await findLegacyPendingPublications(root, {
+    workItemRoot: definition?.workItemRoot,
+    initiativeRoot: portfolio?.initiativeRoot
+  });
   checks.push(check(
     'legacy-publication-markers',
     legacyPending.length ? 'fail' : 'pass',

@@ -199,8 +199,24 @@ export function add(root, paths) {
   if (paths.length) git(['add', '-A', '--', ...paths], { cwd: root });
 }
 
-export function commit(root, message) {
-  git(['commit', '-m', message], { cwd: root, stdio: 'inherit' });
+/**
+ * Commit, optionally restricted to the paths the caller actually staged.
+ *
+ * Without `paths` this is `git commit -m`, which commits the whole index — everything the caller
+ * staged *and* everything the person at the keyboard had staged before running the command. Callers
+ * throughout this codebase `add()` a precise set and then commit, and read as though the commit were
+ * bounded by that set; it never was. A developer with `git add src/payments/refund.ts` outstanding
+ * got that file inside the governed approval commit, which is then pushed, pinned by the ledger and
+ * attested to by the gate. In a product whose whole claim is that the record is exact, the record
+ * quietly described a commit nobody reviewed.
+ *
+ * `--only` commits the given paths from the working tree and ignores the rest of the index, which is
+ * the semantic every caller here already assumed. It is the same idiom the world-model publisher has
+ * always used.
+ */
+export function commit(root, message, paths = null) {
+  const scope = paths?.length ? ['--only', '--', ...paths] : [];
+  git(['commit', '-m', message, ...scope], { cwd: root, stdio: 'inherit' });
   return head(root);
 }
 

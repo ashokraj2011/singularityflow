@@ -611,6 +611,48 @@ The **Singularity** workspace groups daily delivery into four focused views:
 
 See `INITIATIVE-ORCHESTRATION.md` for the complete configuration, evidence, contract, materialization, and recovery guide.
 
+## Workspaces and capabilities
+
+These two concepts answer different questions:
+
+| Concept | Question it answers | Authority | Stored where |
+| --- | --- | --- | --- |
+| Capability | What does the organisation build, and which repositories deliver it? | Shared lead Git repository | `singularity/capabilities.yml` and the state branch |
+| Workspace | Where does this person work on selected capabilities and repositories? | Local machine | `workspace.json` plus the machine workspace registry |
+
+A **capability** is a durable business or technology ownership boundary. It may
+group other capabilities, or it may map to one or more delivery repositories.
+Repository, Jira-project, team, documentation, resource, and lead-repository
+metadata belong here because they remain true when another contributor clones
+the work. A capability is not a phase, governed agent, Story, or local folder.
+
+A **workspace** is a local isolation boundary. It selects capabilities, creates
+or reuses their repository clones beneath one working directory, and records
+which lead repository owns Epic-level artifacts. Deleting or forgetting a local
+workspace does not delete the shared capability map or governed lifecycle state.
+
+In VS Code:
+
+1. Open **Configuration → Capabilities** to browse, add, edit, nest, or map a capability.
+2. Open **Workspaces → Create workspace** and select one or more mapped capabilities.
+3. Choose the local directory and review the repositories that will be cloned or reused.
+4. Select the workspace row to make it active. Its details show the working directory,
+   capability scope, lead repository, health, and local clone paths.
+5. Open **Lifecycle** to start an Initiative, Epic, or Story inside that selected scope.
+
+Useful commands:
+
+```bash
+singularity-flow capability tree --json
+singularity-flow capability show <CAPABILITY-ID> --json
+singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL>
+singularity-flow capability world-model <CAPABILITY-ID> --json
+singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID>
+singularity-flow workspace list --json
+singularity-flow workspace use <ID|NAME|DIRECTORY>
+singularity-flow workspace current --json
+```
+
 ## Workspace configuration
 
 A workspace is a local isolation boundary for one project context. It is not
@@ -727,6 +769,46 @@ singularity-flow start WORK-123 \
 ```
 
 Use `/sflow-start` in Copilot for conversational intake.
+
+## Story intake
+
+Story intake is the developer entry point. It starts one governed Story workflow;
+it does not require a Singularity Epic or Initiative. When Jira supplies a parent
+Epic, that parent is retained as lineage rather than treated as a prerequisite.
+
+### Jira Story
+
+In VS Code choose **Lifecycle → Start work → Story → Jira**. Select an assigned
+Story or enter its key or browse URL, review its description, acceptance criteria,
+attachments and repository route, then select the workflow. Singularity Flow
+creates or resumes the canonical Story branch, pins the Jira snapshot, activates
+the first configured agent, commits, and pushes before authoring begins.
+
+```bash
+singularity-flow story start MOB-123
+# Copilot
+/sf-story-start MOB-123
+```
+
+### Story without Jira
+
+Choose **Lifecycle → Start work → Story → Manual**. Supply a Work ID, title,
+description, acceptance criteria, and any files or URLs. The same immutable
+workflow selection, branch state, agents, artifacts, approvals, and final
+spec-to-code comparison apply; only the tracker snapshot is absent.
+
+```bash
+singularity-flow start WORK-123 --title "Add customer search" \
+  --description "Let service agents find a customer by email" \
+  --acceptance-criteria "Exact email returns the matching customer"
+# Copilot asks the same questions
+/sf-start WORK-123
+```
+
+After intake, use `/sf-nextsteps`, `/sf-phase`, `/sf-submit`, and `/sf-progress`.
+Generated artifacts and approvals appear in the VS Code **Inbox** and **Lifecycle**
+views. A developer finishes with `singularity-flow story finalize`; an Epic owner
+can then compare every linked Story result with the parent specification.
 
 ## Jira intake
 
@@ -1772,11 +1854,16 @@ new initiative, because the resolution is immutable by design.
 singularity-flow about
 sflow-about
 singularity-flow help [TOPIC] [--json]
-singularity-flow init
+singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
+singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
+singularity-flow choices start|resume|approve|reject ...
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]
 sflow-agent [WORK-ID]
+singularity-flow session status|attach|clear [WORK-ID] [--json]
+singularity-flow inbox [--fetch] [--json]
+singularity-flow finalize [--json]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
@@ -1816,6 +1903,8 @@ singularity-flow approve [WORK-ID] [--fetch]
 singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
+singularity-flow ledger status|verify|publish ...
+singularity-flow capabilities inspect|request|approve|revoke ...
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
 singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
@@ -1826,6 +1915,7 @@ singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
+singularity-flow configuration save <PATH>
 singularity-flow snapshot [WORK-ID] --json
 singularity-flow state planes [WORK-ID] [--json]
 singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
@@ -1833,7 +1923,12 @@ singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN
 singularity-flow logs path|level
 singularity-flow home [--json]
 singularity-flow workspace list|current|use|prompt|copilot
+singularity-flow knowledge inspect|sync ...
+singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
+singularity-flow hook install|uninstall|status
+singularity-flow bootstrap inspect|apply ...
 singularity-flow story branch create|attach|status|promote
+singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story submit
 singularity-flow initiative start|resume|phase|context|documents|checklist
 singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync

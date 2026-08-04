@@ -26,6 +26,8 @@ import { IntakePanel } from './views/intake-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
+import { HelpPanel } from './views/help.ts';
+import type { HelpDocument } from './views/help-page.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
 import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
@@ -185,6 +187,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.window.createTreeView('singularityFlow.workspaces', { treeDataProvider: workspaceTree })
   );
+
+  /**
+   * Product help is available before a repository or workspace is selected.
+   *
+   * The CLI packages the canonical manual, so the editor asks the selected/bundled CLI for it
+   * instead of carrying a second documentation copy that can drift. The small tree is navigation;
+   * the panel is the complete, searchable manual and command reference.
+   */
+  const helpTree = new NodeTreeProvider([
+    {
+      kind: 'group', id: 'help:start', label: 'Learn Singularity Flow', icon: 'book', children: [
+        { kind: 'action', id: 'help:quick-start', label: 'Quick start', description: 'first governed work', icon: 'rocket', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:workspaces-and-capabilities', label: 'Workspaces & capabilities', description: 'scope and ownership', icon: 'type-hierarchy', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:story-intake', label: 'Story intake', description: 'Jira or manual', icon: 'book', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:how-the-workflow-works', label: 'Lifecycle & approvals', description: 'state and phases', icon: 'git-branch', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:governed-agents-and-approval-authority', label: 'Agents, prompts & world model', description: 'prompt composition', icon: 'hubot', runCommand: 'singularityFlow.openHelp' }
+      ]
+    },
+    {
+      kind: 'group', id: 'help:reference', label: 'Reference', icon: 'references', children: [
+        { kind: 'action', id: 'help:copilot-commands', label: 'Copilot /sf-* commands', description: 'skills', icon: 'sparkle', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:cli-command-reference', label: 'CLI command reference', description: 'all commands', icon: 'terminal', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:configuring-workflows', label: 'Configuration reference', description: 'workflow and artifacts', icon: 'settings-gear', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:troubleshooting', label: 'Troubleshooting', description: 'doctor and recovery', icon: 'tools', runCommand: 'singularityFlow.openHelp' }
+      ]
+    },
+    { kind: 'action', id: 'help:all', label: 'Open searchable Help Center', description: 'complete offline manual', icon: 'search', runCommand: 'singularityFlow.openHelp' }
+  ]);
+  context.subscriptions.push(helpTree, vscode.window.createTreeView('singularityFlow.help', { treeDataProvider: helpTree }));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const manual = await new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      }).run<HelpDocument>(['help', '--json']);
+      const topic = node?.id.startsWith('help:') && !['help:start', 'help:reference', 'help:all'].includes(node.id)
+        ? node.id.slice('help:'.length) : null;
+      HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not open Singularity Flow Help: ${(error as Error).message}`);
+    }
+  }));
 
   const handlers = new Map<string, (...args: never[]) => unknown>();
   let unavailableReason = 'Open the repository that contains singularity/workflow.yml.';

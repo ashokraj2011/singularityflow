@@ -414,6 +414,31 @@ export const STYLE = `
   .pack-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .55rem; }
   .pack-meta span { display: grid; gap: .2rem; padding: .65rem; border: var(--sf-border); border-radius: var(--sf-radius); }
   .pack-preview { max-height: 32rem; overflow: auto; white-space: pre-wrap; padding: .9rem; border-radius: var(--sf-radius); background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: .8rem; }
+  /* Help Center: the manual is large, so navigation stays visible while the selected topic scrolls.
+     Search can expand several matching topics without making the left rail jump around. */
+  .help-header { position: sticky; top: 0; z-index: 3; padding: .4rem 0 1rem; background: var(--vscode-editor-background); border-bottom: 2px solid var(--sf-accent); }
+  .help-header h1 { margin-top: .15rem; }
+  .help-search { width: 100%; margin-top: .8rem; padding: .65rem .8rem; border: var(--sf-border); border-radius: var(--sf-radius); color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+  .help-layout { display: grid; grid-template-columns: minmax(13rem, .52fr) minmax(0, 1.7fr); gap: 1.25rem; align-items: start; }
+  .help-nav { position: sticky; top: 9.5rem; max-height: calc(100vh - 11rem); overflow: auto; padding-right: .35rem; }
+  .help-shortcuts, .help-all-topics { display: grid; gap: .3rem; }
+  button.help-topic { display: grid; justify-content: stretch; width: 100%; gap: .12rem; padding: .55rem .65rem; text-align: left; border: var(--sf-border); border-radius: 6px; background: transparent; color: var(--vscode-foreground); }
+  button.help-topic:hover, button.help-topic.selected { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  .help-topic small { color: var(--sf-dim); font-weight: 400; }
+  .help-content { min-width: 0; }
+  .help-article { display: none; padding-bottom: 3rem; }
+  .help-article.selected, .help-article.search-match { display: block; }
+  .help-article > h1 { font-size: 1.6rem; border-bottom: var(--sf-border); padding-bottom: .65rem; }
+  .help-article h3 { margin-top: 1.4rem; }
+  .help-article h4 { margin: 1.1rem 0 .35rem; }
+  .help-article ul, .help-article ol { padding-left: 1.4rem; }
+  .help-article li { margin: .3rem 0; }
+  .help-code { position: relative; margin: .7rem 0; }
+  .help-code pre { overflow: auto; padding: .9rem; padding-right: 4.6rem; border-radius: var(--sf-radius); background: var(--vscode-textCodeBlock-background); }
+  .help-code .copy-code { position: absolute; top: .45rem; right: .45rem; padding: .22rem .65rem; font-size: .72rem; }
+  .help-table-wrap { overflow-x: auto; }
+  .help-link { color: var(--sf-link); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
+  .help-no-results { margin-top: 2rem; padding: 1rem; border: var(--sf-border); border-radius: var(--sf-radius); }
   input:disabled, select:disabled { opacity: .7; }
   @media (max-width: 820px) {
     .artifact-studio { grid-template-columns: 1fr; }
@@ -422,6 +447,9 @@ export const STYLE = `
     .document-preview { position: static; }
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }
+    .help-layout { grid-template-columns: 1fr; }
+    .help-nav { position: static; max-height: 18rem; }
+    .help-header { position: static; }
   }
   `;
 

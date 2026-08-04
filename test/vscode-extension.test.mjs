@@ -1804,6 +1804,22 @@ test('a capability that ships is rendered as one whatever its kind says', () => 
 
 
 const { icon, STYLE } = await import(source('views/webview.ts'));
+const { helpCenterHtml, renderHelpMarkdown } = await import(source('views/help-page.ts'));
+
+test('the VS Code Help Center renders searchable concepts and copyable command blocks safely', () => {
+  const html = helpCenterHtml({ schemaVersion: 1, title: 'Singularity Flow Help', content: '', topics: [
+    { id: 'quick-start', title: 'Quick start', content: 'Start here.\n\n```bash\nsingularity-flow init\n```' },
+    { id: 'workspaces-and-capabilities', title: 'Workspaces and capabilities', content: 'A **workspace** selects a capability.' },
+    { id: 'story-intake', title: 'Story intake', content: 'Use `/sf-story-start`.' },
+    { id: 'cli-command-reference', title: 'CLI command reference', content: '| Command | Purpose |\n| --- | --- |\n| `singularity-flow help` | Help |' }
+  ] }, 'story-intake');
+  assert.match(html, /Help Center/);
+  assert.match(html, /Search workspace, capability, Story intake, commands/);
+  assert.match(html, /help-article selected[^>]*data-topic-id="story-intake"/);
+  assert.match(html, /copy-code/);
+  assert.match(html, /<table>/);
+  assert.doesNotMatch(renderHelpMarkdown('<script>alert(1)</script>'), /<script>/);
+});
 
 test('icons are inline paths, so no font has to be let through the CSP', () => {
   // A codicon font would need a font-src in a policy that currently allows nothing at all. These

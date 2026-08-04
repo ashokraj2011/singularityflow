@@ -417,7 +417,7 @@ singularity-flow help troubleshooting
 singularity-flow help --json
 ```
 
-In Copilot, `/sflow-help` loads the manual for general questions; `/sflow-help WORK-123` loads the selected work item's immutable workflow guide. VS Code includes the same manual through its searchable **Help** command, bundled for offline use.
+In Copilot, `/sf-help` loads the manual for general questions; `/sf-help WORK-123` loads the selected work item's immutable workflow guide. VS Code includes the same manual in the always-available **Help** view and searchable **Help Center**, bundled for offline use. It has focused entries for capabilities, workspaces, Story intake, workflow state, agents, prompts, world-model composition, troubleshooting, every `/sf-*` skill, and every top-level CLI command.
 
 Copilot start, resume, approval, rejection, and governed-agent flows use its
 interactive question facility to show the YAML-configured choices. Choose a

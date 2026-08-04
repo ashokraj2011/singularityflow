@@ -146,6 +146,11 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "singularityFlow.attachSessionToWorkspace",
+        "title": "Singularity Flow: Attach Copilot Session to Workspace",
+        "icon": "$(debug-disconnect)"
+      },
+      {
         "command": "singularityFlow.configureProfile",
         "title": "Singularity Flow: Configure User Profile",
         "icon": "$(account)"
@@ -296,6 +301,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "singularityFlow.attachSessionToWorkspace",
+          "when": "view == singularityFlow.workspaces",
+          "group": "navigation@0"
+        },
         {
           "command": "singularityFlow.startWork",
           "when": "view == singularityFlow.lifecycle",

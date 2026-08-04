@@ -1977,6 +1977,78 @@ test('the Copilot handoff switches this window to the governed repository before
   assert.match(registered.infos.at(-1), /Switching this window to that repository/);
 });
 
+test('a command-palette action attaches Copilot to any saved workspace', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registryFile = path.join(org.base, 'registry.json');
+  const selectionFile = path.join(org.base, 'active-workspace.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'commerce',
+    '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+
+  const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-session-window-'));
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: unrelated } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+  await registered.commands.get('singularityFlow.attachSessionToWorkspace')();
+
+  const open = registered.executedCommands.find((entry) => entry.id === 'vscode.openFolder');
+  assert.ok(open, 'the chosen workspace repository replaces the unrelated folder');
+  assert.equal(open.args[1], false, 'attachment stays in the same VS Code window');
+  const pending = values.get('singularityFlow.pendingCopilotHandoff');
+  assert.equal(path.resolve(pending.repository), path.resolve(open.args[0].fsPath));
+  assert.equal(pending.workspaceName, 'commerce');
+  assert.equal(pending.workId, null);
+  assert.match(registered.infos.at(-1), /commerce attached/);
+});
+
+test('a workspace-only handoff opens a fresh chat that asks for explicit Story selection', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const isolated = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-only-handoff-'));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(isolated, 'registry.json');
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(isolated, 'active.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const values = new Map([['singularityFlow.pendingCopilotHandoff', {
+    repository: root, workId: null, workspaceName: 'Commerce', requestedAt: new Date().toISOString()
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const opened = registered.executedCommands.find((entry) => entry.id === 'workbench.action.chat.open');
+  assert.ok(opened, 'the workspace handoff opens Copilot after the correct repository is active');
+  assert.match(opened.args[0].query, /Workspace: Commerce/);
+  assert.match(opened.args[0].query, /Working directory:/);
+  assert.match(opened.args[0].query, /run \/sf-session/);
+  assert.match(opened.args[0].query, /no governed Story is selected yet/);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
+});
+
 test('a pending Copilot handoff resumes in a fresh chat after the repository window reloads', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

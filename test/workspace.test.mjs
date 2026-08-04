@@ -440,6 +440,36 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   assert.equal(launch.prompt, `${created.workspace.name} / MOB-321 >`);
 });
 
+test('a session can attach to a saved workspace from outside every repository', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-workspace-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await remoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+  const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-unrelated-'));
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+  };
+
+  const result = spawnSync(process.execPath, [cli, 'session', 'workspace', created.workspace.id,
+    '--story', 'MOB-321', '--json'], { cwd: unrelated, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const attached = JSON.parse(result.stdout);
+  assert.equal(attached.attached, true);
+  assert.equal(attached.workspaceId, created.workspace.id);
+  assert.equal(attached.repositoryPath, created.status.leadRepositoryPath);
+  assert.equal(attached.storyId, 'MOB-321');
+  assert.equal(attached.hostAction, 'reopen-repository');
+  assert.match(attached.commands.openCopilot, /workspace copilot/);
+  assert.match(attached.commands.attachStory, /session attach.*MOB-321/);
+  assert.equal(JSON.parse(await readFile(selection, 'utf8')).storyId, 'MOB-321');
+});
+
 test('workspace editing updates Jira routing and metadata while archive remains recoverable', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-edit-'));
   const registry = path.join(root, 'registry.json');

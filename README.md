@@ -285,6 +285,15 @@ workspace; a governed Story branch adds the Story ID. Singularity renders labels
 such as `Payments / MOB-123 >` as a context banner because Copilot does not
 provide a supported way to replace its own native `>` input marker.
 
+If Copilot or VS Code is already open in the wrong checkout, run
+`singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]`
+from any directory, invoke `/sf-workspace-session`, or choose **Singularity Flow:
+Attach Copilot Session to Workspace** from the VS Code command palette. The
+command records the machine-local workspace context and identifies the exact
+governed repository. VS Code replaces the current window with that repository
+and opens a fresh chat; a terminal receives the exact `workspace copilot`
+command because a child process cannot change its parent process's directory.
+
 Interrupted workspace creation is resumable: selecting the same workspace ID and
 exact repository plan retries missing clones and updates the local
 materialization journal. Singularity Flow rejects configuration drift at an
@@ -1208,6 +1217,7 @@ token downloads are not supported in this delivery. See
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
+| `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]` | Attach session context to a saved workspace from any directory and return the exact governed repository/host handoff. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head and activate the current phase agent. |
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |

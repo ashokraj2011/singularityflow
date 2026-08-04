@@ -408,7 +408,7 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
 test('choosing a workspace is what scopes the rest', async () => {
   const manifest = JSON.parse(await readFile(
     new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
-  const views = manifest.contributes.views.singularityFlow.map((view) => view.id);
+  const views = manifest.contributes.views.singularityFlowNavigator.map((view) => view.id);
   assert.equal(views[0], 'singularityFlow.workspaces', 'workspaces lead');
 
   // Choosing one is an action on the row, and it is the CLI's own machine-wide selection so the
@@ -470,8 +470,8 @@ test('choosing a workspace is what scopes the rest', async () => {
 
   // Lifecycle now points up to the Workspace surface instead of duplicating its setup actions.
   const tree = await readFile(new URL('../apps/vscode/src/views/tree-model.ts', import.meta.url), 'utf8');
-  assert.match(tree, /label: repositoryUnavailable \? 'Repair the selected workspace' : 'Select a workspace above to start intake'/);
-  assert.match(tree, /description: repositoryUnavailable \? 'repository required' : 'workspace required'/);
+  assert.match(tree, /label: nothingSelected \? 'Choose a workspace to begin' : label/);
+  assert.match(tree, /description: repositoryUnavailable \? 'repository required' : 'intake and delivery'/);
 });
 
 /**

@@ -288,9 +288,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       unavailableTree(label, detail, contextValue, leadRepository));
     const inbox = new LifecycleTreeProvider(null, [{
       kind: 'action', id: 'inbox:unavailable',
-      label: repositoryUnavailable ? label : 'Choose a workspace to load the inbox',
-      description: recoveryDescription, tooltip: detail,
-      icon: repositoryUnavailable ? 'warning' : 'root-folder', runCommand: recoveryCommand
+      label: repositoryUnavailable ? label : 'Select a workspace',
+      description: repositoryUnavailable ? recoveryDescription : 'reviews and generated artifacts',
+      tooltip: detail,
+      icon: repositoryUnavailable ? 'statusWarning' : 'approval', runCommand: recoveryCommand
     }]);
     const configuration = new LifecycleTreeProvider(null, repositoryUnavailable ? [{
       kind: 'action', id: 'configuration:unavailable', label,
@@ -298,13 +299,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       icon: 'warning', runCommand: recoveryCommand
     }] : [{
       kind: 'action', id: 'configuration:create-capability',
-      label: 'Create capability', description: 'first configuration step',
+      label: 'Create first capability', description: 'start organisation setup',
       tooltip: 'Describe what the organisation builds and which repository ships it. No workspace is required.',
-      icon: 'type-hierarchy', runCommand: 'singularityFlow.mapCapability'
+      icon: 'capability', runCommand: 'singularityFlow.mapCapability'
     }, {
       kind: 'action', id: 'configuration:choose-workspace',
-      label: 'Choose or create a workspace', description: 'then load repository configuration',
-      tooltip: detail, icon: 'root-folder', runCommand: recoveryCommand
+      label: 'Choose a workspace', description: 'load its configuration',
+      tooltip: detail, icon: 'workspace', runCommand: recoveryCommand
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {

@@ -82,9 +82,14 @@ export function icon(name: IconName, { size = 16 }: { size?: 14 | 16 | 20 | 24 }
 
 /** Semantic concepts used by native trees. Unknown legacy Codicons still pass through safely. */
 export const TREE_ICONS = {
-  workspace: { id: 'root-folder' }, collection: { id: 'type-hierarchy' }, delivery: { id: 'repo' },
+  // The three entry points use the restrained brand accent. Everything beneath them stays neutral
+  // unless it communicates status, so the sidebar does not become a wall of green glyphs.
+  workspace: { id: 'root-folder', color: 'charts.green' },
+  capability: { id: 'type-hierarchy', color: 'charts.green' },
+  workflow: { id: 'list-tree', color: 'charts.green' },
+  collection: { id: 'type-hierarchy' }, delivery: { id: 'repo' },
   team: { id: 'organization' },
-  workflow: { id: 'list-tree' }, phase: { id: 'symbol-event' }, artifact: { id: 'file' },
+  phase: { id: 'symbol-event' }, artifact: { id: 'file' },
   agent: { id: 'hubot' }, prompt: { id: 'comment-discussion' }, skill: { id: 'sparkle' },
   pack: { id: 'package' }, approval: { id: 'verified' }, jira: { id: 'issues' },
   worldModel: { id: 'globe' }, story: { id: 'git-pull-request' }, initiative: { id: 'milestone' },

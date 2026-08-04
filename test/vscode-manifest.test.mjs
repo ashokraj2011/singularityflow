@@ -39,6 +39,33 @@ const views = manifest.contributes.views.singularityFlow.map((view) => view.id);
 const commands = manifest.contributes.commands.map((command) => command.command);
 const activation = manifest.activationEvents ?? [];
 
+test('the activity view opens in the compact enterprise navigation order', () => {
+  const contributed = manifest.contributes.views.singularityFlow;
+  assert.deepEqual(
+    contributed.map(({ id }) => id),
+    [
+      'singularityFlow.workspaces',
+      'singularityFlow.lifecycle',
+      'singularityFlow.inbox',
+      'singularityFlow.configuration',
+      'singularityFlow.help',
+    ],
+  );
+
+  const sizes = Object.fromEntries(contributed.map(({ id, initialSize }) => [id, initialSize]));
+  assert.deepEqual(sizes, {
+    'singularityFlow.workspaces': 2,
+    'singularityFlow.lifecycle': 3,
+    'singularityFlow.inbox': 1,
+    'singularityFlow.configuration': 1,
+    'singularityFlow.help': 7,
+  });
+  assert.ok(
+    sizes['singularityFlow.help'] > sizes['singularityFlow.lifecycle'],
+    'Help should absorb spare height rather than leaving large empty operational views',
+  );
+});
+
 test('every contributed view can wake the extension', () => {
   // VS Code fires onView only for views that are actually visible. A view without its own event
   // means a person who collapsed the others sees a sidebar of empty views and no way to fill them —

@@ -78,23 +78,28 @@
       "singularityFlow": [
         {
           "id": "singularityFlow.workspaces",
-          "name": "Workspaces"
+          "name": "Workspaces",
+          "initialSize": 2
         },
         {
           "id": "singularityFlow.lifecycle",
-          "name": "Lifecycle"
+          "name": "Lifecycle",
+          "initialSize": 3
         },
         {
           "id": "singularityFlow.inbox",
-          "name": "Inbox"
+          "name": "Inbox",
+          "initialSize": 1
         },
         {
           "id": "singularityFlow.configuration",
-          "name": "Configuration"
+          "name": "Configuration",
+          "initialSize": 1
         },
         {
           "id": "singularityFlow.help",
-          "name": "Help"
+          "name": "Help",
+          "initialSize": 7
         }
       ]
     },

@@ -10,6 +10,7 @@
     "sflow-inbox": "bin/sflow-inbox.mjs",
     "sflow-next": "bin/sflow-next.mjs",
     "sflow-agent": "bin/sflow-agent.mjs",
+    "sf-reset-all": "bin/sf-reset-all.mjs",
     "sflow-wm-minimal": "scripts/worldmodel-minimal.sh"
   },
   "files": [

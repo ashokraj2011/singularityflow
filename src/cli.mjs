@@ -182,7 +182,7 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
-import { factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
+import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import {
@@ -236,6 +236,7 @@ Usage:
   singularity-flow init --check [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
+  sflow reset-all [--yes] [--json]
   singularity-flow stack status [--epic EPIC-ID] [--json]
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
@@ -619,7 +620,9 @@ function renderFactoryResetPlan(plan) {
   }
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
-    console.log(`Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+    console.log(plan.operation === 'factory-reset-all'
+      ? 'Run: sflow reset-all --yes'
+      : `Run: singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)}`);
   } else {
     console.log('\nThe replacement is intentionally uncommitted.');
     for (const item of plan.next) console.log(`Next: ${item}`);
@@ -639,6 +642,19 @@ async function factoryResetCommand(options) {
     });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else renderFactoryResetPlan(result);
+  return result;
+}
+
+async function resetAllCommand(options) {
+  const root = repoRoot();
+  const confirmed = optionBoolean(options, 'yes');
+  const result = confirmed
+    ? await factoryResetAll(root, { confirmation: 'RESET ALL', packageVersion: VERSION })
+    : await factoryResetAllPlan(root, { packageVersion: VERSION });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else {
+    renderFactoryResetPlan(result);
+  }
   return result;
 }
 
@@ -5399,7 +5415,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (!['logs', 'factory-reset'].includes(command)) {
+  if (!['logs', 'factory-reset', 'reset-all'].includes(command)) {
     const log = await commandLogger(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
@@ -5421,6 +5437,7 @@ async function dispatch(command, positionals, options) {
     help: () => helpCommand(positionals, options),
     init: () => initCommand(options),
     'factory-reset': () => factoryResetCommand(options),
+    'reset-all': () => resetAllCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

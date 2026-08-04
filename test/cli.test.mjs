@@ -36,7 +36,16 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow inbox \[--offline\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
+    assert.match(result.stdout, /sflow reset-all \[--yes\]/);
   }
+});
+
+test('package exposes the one-shot sf-reset-all executable', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(packageJson.bin['sf-reset-all'], 'bin/sf-reset-all.mjs');
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  assert.equal(lock.packages[''].bin['sf-reset-all'], 'bin/sf-reset-all.mjs');
+  assert.match(await readFile(path.join(root, 'bin/sf-reset-all.mjs'), 'utf8'), /main\(\['reset-all'/);
 });
 
 test('package exposes the standalone sflow-inbox executable', async () => {

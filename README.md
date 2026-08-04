@@ -140,6 +140,21 @@ and custom `.github/agents` files not supplied by the package. The replacement
 is left uncommitted for review. In Copilot, `/sf-factory-reset` enforces the
 same preview and contributor-entered confirmation sequence.
 
+For a complete local restart of the current repository and this machine's
+Singularity Flow registry, use the short one-shot command:
+
+```bash
+sf-reset-all --yes
+```
+
+It reinstalls the installed npm package's `singularity/` defaults, removes the
+current repository's `.git/singularity-flow/`, and clears
+`~/.singularity-flow/` (saved workspaces, active selection, lead registry, and
+local CLI setup). It does **not** delete application source, Git history, or
+physical workspace and repository clones. VS Code keychain credentials are
+also preserved; reset Jira or Teams credentials separately in VS Code. Run
+`sf-reset-all` without `--yes` to preview the exact boundary.
+
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
 The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements

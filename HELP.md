@@ -1757,6 +1757,19 @@ without deleting their directories. Use `singularity-flow workspace prune --json
 to inspect that cleanup. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
+To reset the current repository configuration and all machine-local Singularity
+Flow registration/session state in one command:
+
+```bash
+sf-reset-all --yes
+```
+
+Run `sf-reset-all` without `--yes` for a preview. It restores `singularity/`
+from the installed npm package and clears both `.git/singularity-flow/` and
+`~/.singularity-flow/`. It forgets all saved workspaces but deliberately
+preserves their physical directories and repository clones, application source,
+Git history, and VS Code keychain credentials.
+
 ```bash
 singularity-flow recover WORK-123 --fetch
 singularity-flow recover WORK-123 --fetch --apply
@@ -1856,6 +1869,8 @@ sflow-about
 singularity-flow help [TOPIC] [--json]
 singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
 singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
+singularity-flow reset-all [--yes]
+sf-reset-all [--yes]
 singularity-flow choices start|resume|approve|reject ...
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]

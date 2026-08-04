@@ -26,6 +26,13 @@ repository agents whose filenames are not supplied by Singularity Flow remain.
    Explain that the reset is intentionally uncommitted and must be reviewed.
 
 Never supply the confirmation yourself, infer consent from the original request,
-commit, push, reset Git history, delete the repository clone, or delete the global
-workspace registry. If the preview reports uncommitted reset-scope changes, call
-them out prominently because factory reset will discard them.
+commit, push, reset Git history, or delete a repository clone. The repository-only
+flow must not delete the global workspace registry. If the preview reports
+uncommitted reset-scope changes, call them out prominently because factory reset
+will discard them.
+
+If the contributor explicitly asks to reset **all local Singularity Flow state**,
+run `sf-reset-all` without `--yes` and show its full preview. Explain that it also
+clears `~/.singularity-flow/` and forgets all saved workspaces, while preserving
+their physical clones, application source, Git history, and VS Code keychain
+credentials. After a separate explicit confirmation, run `sf-reset-all --yes`.

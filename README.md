@@ -159,10 +159,13 @@ For a genuinely fresh Singularity installation across the machine, run the
 installer from a clean Singularity Flow source checkout. Preview first:
 
 ```bash
-./install.sh --factory-reset
+singularity-flow fresh-install --checkout /path/to/singularityflow
 # Review every path. Then perform the deletion and reinstall:
-./install.sh --factory-reset --yes
+singularity-flow fresh-install --checkout /path/to/singularityflow --yes
 ```
+
+From inside the product checkout, `--checkout` may be omitted. The equivalent
+low-level entry point remains `./install.sh --factory-reset [--yes]`.
 
 This broader mode deletes **every registered workspace directory**, including
 its managed repository clones, documents, generated artifacts, and local caches.

@@ -103,8 +103,8 @@ There are three intentionally different reset boundaries:
   governed configuration and lifecycle state while preserving its source and Git.
 - `sf-reset-all` resets that repository plus the machine registry, but preserves
   every physical workspace and clone.
-- `./install.sh --factory-reset` previews a true fresh machine install. After
-  reviewing the exact paths, `./install.sh --factory-reset --yes` deletes all
+- `singularity-flow fresh-install` previews a true fresh machine install. After
+  reviewing the exact paths, `singularity-flow fresh-install --yes` deletes all
   validated registered workspace roots and clones, clears Singularity local and
   managed Copilot state, uninstalls old product copies, and reinstalls the CLI,
   VS Code extension, Copilot plugin, and `/sf-*` skills.
@@ -1892,6 +1892,7 @@ singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
 singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
+singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices start|resume|approve|reject ...
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]

@@ -37,6 +37,7 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow phase show \[PHASE\] \[--json\]/);
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
     assert.match(result.stdout, /sflow reset-all \[--yes\]/);
+    assert.match(result.stdout, /singularity-flow fresh-install \[--checkout DIRECTORY\]/);
   }
 });
 

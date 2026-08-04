@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -368,4 +368,36 @@ test('fresh install reset still refuses unrelated installer checkout changes', a
     /changes outside generated reset state[\s\S]*product\.txt/
   );
   assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'uncommitted source edit\n');
+});
+
+test('fresh-install CLI delegates preview and confirmed reinstall to a validated product checkout', async () => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-checkout-'));
+  git(checkout, 'init', '-b', 'main');
+  git(checkout, 'config', 'user.name', 'Fresh Install CLI Tester');
+  git(checkout, 'config', 'user.email', 'fresh-install-cli@example.com');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> invocation.log\n');
+  await chmod(path.join(checkout, 'install.sh'), 0o755);
+  git(checkout, 'add', 'package.json', 'install.sh');
+  git(checkout, 'commit', '-m', 'product checkout');
+
+  command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot);
+  command(process.execPath, [
+    cli, 'fresh-install', '--checkout', checkout, '--yes', '--registry', 'https://npm.example.com/',
+    '--cli-only', '--no-copilot-telemetry'
+  ], packageRoot);
+  assert.equal(await readFile(path.join(checkout, 'invocation.log'), 'utf8'), [
+    '--factory-reset',
+    '--factory-reset --yes --registry https://npm.example.com/ --cli-only --no-copilot-telemetry',
+    ''
+  ].join('\n'));
+});
+
+test('fresh-install CLI refuses an arbitrary checkout or untracked installer', async () => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-cli-refuse-'));
+  git(checkout, 'init', '-b', 'main');
+  await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
+  await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  assert.match(result.stderr, /Refusing to run an untracked installer/);
 });

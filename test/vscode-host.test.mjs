@@ -45,6 +45,7 @@ const machineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-host-machine-'));
 process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machineState, 'active-workspace.json');
 process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= path.join(machineState, 'registry.json');
 process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.json');
+process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vscode-fresh-reset-pending.json');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');

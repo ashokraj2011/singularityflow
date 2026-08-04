@@ -160,10 +160,13 @@ workspace:
 ```bash
 cd ~/src/singularityflow
 git status --short
-./install.sh --factory-reset
+singularity-flow fresh-install
 # Inspect every workspace and additional reset target printed above.
-./install.sh --factory-reset --yes
+singularity-flow fresh-install --yes
 ```
+
+From another directory, add `--checkout ~/src/singularityflow` to either command.
+`./install.sh --factory-reset [--yes]` remains the low-level equivalent.
 
 The first command is a read-only preview. The second requires the explicit
 `--yes`, deletes only registry entries proven by a matching `workspace.json`,

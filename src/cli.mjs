@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import {
   addPhase, defineWorkflow, editPhase, editWorkflow, listProfiles, listWorkflows, upsertPhaseOutput
 } from './workflow-authoring.mjs';
-import { mkdir, readFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
   SingularityFlowError,
@@ -237,6 +237,7 @@ Usage:
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
   sflow reset-all [--yes] [--json]
+  singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
   singularity-flow stack status [--epic EPIC-ID] [--json]
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
@@ -656,6 +657,51 @@ async function resetAllCommand(options) {
     renderFactoryResetPlan(result);
   }
   return result;
+}
+
+async function freshInstallCommand(options) {
+  if (optionBoolean(options, 'json')) {
+    throw new SingularityFlowError('fresh-install streams the installer output and does not support --json. Run it without --json.');
+  }
+  const requestedCheckout = path.resolve(optionString(options, 'checkout', process.cwd()));
+  const checkout = await realpath(requestedCheckout).catch(() => requestedCheckout);
+  const resolved = run('git', ['rev-parse', '--show-toplevel'], { cwd: checkout, allowFailure: true });
+  if (resolved.status !== 0 || path.resolve(resolved.stdout.trim()) !== checkout) {
+    throw new SingularityFlowError(
+      `Fresh install requires the root of a Singularity Flow source checkout. Use --checkout <directory>: ${checkout}`
+    );
+  }
+  const packageFile = path.join(checkout, 'package.json');
+  const installer = path.join(checkout, 'install.sh');
+  const packageInfo = await lstat(packageFile).catch(() => null);
+  const installerInfo = await lstat(installer).catch(() => null);
+  if (!packageInfo?.isFile() || packageInfo.isSymbolicLink() || !installerInfo?.isFile() || installerInfo.isSymbolicLink()) {
+    throw new SingularityFlowError(`The selected checkout does not contain regular package.json and install.sh files: ${checkout}`);
+  }
+  let manifest;
+  try { manifest = JSON.parse(await readFile(packageFile, 'utf8')); }
+  catch (error) { throw new SingularityFlowError(`Unable to read ${packageFile}: ${error.message}`); }
+  if (manifest.name !== 'singularity-flow') {
+    throw new SingularityFlowError(`The selected checkout is not the Singularity Flow product repository: ${checkout}`);
+  }
+  const trackedInstaller = run('git', ['ls-files', '--error-unmatch', '--', 'install.sh'], {
+    cwd: checkout,
+    allowFailure: true
+  });
+  if (trackedInstaller.status !== 0) {
+    throw new SingularityFlowError(`Refusing to run an untracked installer: ${installer}`);
+  }
+  const installerArgs = [installer, '--factory-reset'];
+  if (optionBoolean(options, 'yes')) installerArgs.push('--yes');
+  const registry = optionString(options, 'registry');
+  if (registry) installerArgs.push('--registry', registry);
+  if (optionBoolean(options, 'cli-only')) installerArgs.push('--cli-only');
+  if (options['copilot-telemetry'] === false) installerArgs.push('--no-copilot-telemetry');
+  const result = run('bash', installerArgs, { cwd: checkout, stdio: 'inherit', allowFailure: true });
+  if (result.status !== 0) {
+    throw new SingularityFlowError(`Fresh install failed with exit code ${result.status}. Review the installer output above.`);
+  }
+  return { checkout, applied: optionBoolean(options, 'yes') };
 }
 
 async function helpCommand(positionals, options) {
@@ -5415,7 +5461,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (!['logs', 'factory-reset', 'reset-all'].includes(command)) {
+  if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
     const log = await commandLogger(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
@@ -5438,6 +5484,7 @@ async function dispatch(command, positionals, options) {
     init: () => initCommand(options),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
+    'fresh-install': () => freshInstallCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

@@ -2893,3 +2893,19 @@ test('every prompt pack is listed, including the ones that ship with the product
   // an upgrade takes back.
   assert.deepEqual(packs.children.map((child) => child.description), ['repository', 'packaged', 'packaged']);
 });
+
+test('VS Code exposes workspace prompt auditing and records the governed Copilot handoff', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openPromptAudit'));
+  const configuration = buildConfigurationTree(snapshot);
+  const audit = find(configuration, 'config:prompt-audit');
+  assert.equal(audit.runCommand, 'singularityFlow.openPromptAudit');
+  assert.match(audit.description, /off by default/);
+
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /\['wm', 'show-prompt', '--record-audit'\]/,
+    'the exact governed prompt rendered for native Copilot is captured only at handoff');
+  const panel = await readFile(source('views/prompt-audit.ts'), 'utf8');
+  assert.match(panel, /\['prompt-log', 'list', '--include-prompt'/);
+  assert.match(panel, /\['prompt-log', this\.snapshot\?\.enabled \? 'off' : 'on'/);
+});

@@ -691,6 +691,9 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
         }, {
           kind: 'action', id: 'config:copilot', label: 'Continue active Story in Copilot',
           description: 'open its repository + governed phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+        }, {
+          kind: 'action', id: 'config:prompt-audit', label: 'Prompt audit',
+          description: 'off by default · workspace local', icon: 'prompt', runCommand: 'singularityFlow.openPromptAudit'
         }]
       },
       worldModelNode(snapshot),

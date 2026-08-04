@@ -98,6 +98,15 @@ test('plugin provides a read-only effective prompt inspection skill', async () =
   assert.match(content, /Never shorten the skill, world-model sections/);
 });
 
+test('plugin provides opt-in governed prompt audit controls', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-prompt-log', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-prompt-log/);
+  assert.match(content, /singularity-flow prompt-log/);
+  assert.match(content, /off by default/i);
+  assert.match(content, /hidden system prompt/i);
+  assert.match(content, /workspace/i);
+});
+
 test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {
   const expectations = {
     'sflow-refresh-branch': /singularity-flow refresh-branch --json/,

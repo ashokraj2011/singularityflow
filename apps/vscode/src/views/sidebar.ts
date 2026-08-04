@@ -40,7 +40,8 @@ const SECTION_META: Record<SidebarSection, {
     label: 'Configuration', icon: 'workflow', actions: [
       { id: 'capability-map', label: 'Map capability', icon: 'capability' },
       { id: 'workflow-design', label: 'Design workflow', icon: 'workflow' },
-      { id: 'instruction-design', label: 'Design agents and prompts', icon: 'agent' }
+      { id: 'instruction-design', label: 'Design agents and prompts', icon: 'agent' },
+      { id: 'prompt-audit', label: 'Open prompt audit', icon: 'prompt' }
     ]
   },
   help: {
@@ -59,6 +60,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'capability-map': 'singularityFlow.mapCapability',
   'workflow-design': 'singularityFlow.openDesigner',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
+  'prompt-audit': 'singularityFlow.openPromptAudit',
   'help-open': 'singularityFlow.openHelp'
 };
 

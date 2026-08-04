@@ -340,6 +340,17 @@ export const STYLE = `
   details { margin-top: 1rem; }
   summary { cursor: pointer; color: var(--sf-link); }
   .markdown-preview { max-height: 20rem; overflow: auto; white-space: pre-wrap; padding: .75rem; background: var(--vscode-textCodeBlock-background); border-radius: var(--sf-radius); }
+  .split-layout { display:grid; grid-template-columns:minmax(18rem,30%) 1fr; gap:1rem; align-items:start; }
+  .audit-list { display:grid; gap:.4rem; }
+  .audit-record { display:grid; gap:.2rem; width:100%; padding:.75rem; text-align:left; color:var(--vscode-foreground); background:var(--sf-surface); border:var(--sf-border); border-radius:var(--sf-radius); }
+  .audit-record:hover, .audit-record.selected { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
+  .audit-record span, .audit-record small { color:var(--sf-dim); }
+  .audit-meta { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
+  .audit-meta div { padding:.6rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+  .audit-meta dt { color:var(--sf-dim); font-size:.72rem; }
+  .audit-meta dd { margin:.2rem 0 0; font-weight:650; }
+  .prompt-content { max-height:62vh; overflow:auto; white-space:pre-wrap; word-break:break-word; border:var(--sf-border); border-radius:var(--sf-radius); padding:1rem; background:var(--vscode-textCodeBlock-background); }
+  @media(max-width:800px) { .split-layout { grid-template-columns:1fr; } .audit-meta { grid-template-columns:repeat(2,1fr); } }
 
   /* Instruction designer: a compact library at left and a generous visual canvas at right. */
   .instruction-tabs { display: flex; gap: .45rem; margin: 1rem 0; overflow-x: auto; }

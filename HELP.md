@@ -1400,6 +1400,27 @@ singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
 ```
 
+### Audit governed prompts sent to Copilot
+
+Prompt capture is opt-in and off by default:
+
+```bash
+singularity-flow prompt-log on
+singularity-flow prompt-log status
+singularity-flow prompt-log list --agent developer
+singularity-flow prompt-log view latest
+singularity-flow prompt-log off
+```
+
+`/sf-prompt-log` exposes the same controls in Copilot. Each record identifies the governed agent,
+Story, phase, generation, timestamp, prompt hash, and secret-redaction count. The append-only JSONL
+file lives under `<workspace>/.singularity-flow/prompt-audit/prompts.jsonl`; when no active workspace
+matches the repository, it falls back to `.git/singularity-flow/prompt-audit/prompts.jsonl`.
+
+Only prompts produced by `wm compose` for an actual handoff are captured. Read-only
+`wm show-prompt` previews, Copilot's hidden system prompt, provider messages, and chat history are
+not captured. Open **Configuration → Prompt audit** in VS Code to toggle capture and review records.
+
 The low-level `wm init`, `wm light`, `wm build`, `wm check`, and `wm context` commands remain
 repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sflow-story-start` lifecycle, however, generation is deliberately deferred
@@ -1940,6 +1961,7 @@ singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]
 singularity-flow documents list [WORK-ID] [--json]

@@ -163,7 +163,7 @@ import {
   workspaceStatus
 } from './workspace.mjs';
 import {
-  activateWorkspaceContext, activeWorkspaceFile, discardUnsupportedWorkflowWorkspaces,
+  activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
 import {
@@ -4301,8 +4301,9 @@ async function workspaceCommand(positionals, options) {
   }
   if (subcommand === 'forget') {
     const workspaces = await forgetWorkspace(registry, workspacePath);
+    const clearedSelection = await clearActiveWorkspaceContext(selectionFile, workspacePath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workspaces, null, 2));
-    return console.log('Workspace forgotten. No repository or document files were deleted.');
+    return console.log(`Workspace forgotten${clearedSelection ? ' and active selection cleared' : ''}. No repository or document files were deleted.`);
   }
   throw new SingularityFlowError(`Unknown workspace subcommand '${subcommand}'.`);
 }

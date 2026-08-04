@@ -94,6 +94,20 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
   assert.match(restored.stdout, /Restored/);
 });
 
+test('forgetting the active workspace also clears the active selection', async () => {
+  const { base, source, env } = await environment();
+  const workspaces = path.join(base, 'workspaces');
+  const directory = path.join(workspaces, 'throwaway');
+  cli(['workspace', 'create', '--local', '--id', 'throwaway', '--base', workspaces,
+    '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'throwaway'], env);
+  cli(['workspace', 'use', directory], env);
+
+  const forgotten = cli(['workspace', 'forget', directory], env);
+  assert.match(forgotten.stdout, /active selection cleared/);
+  const current = JSON.parse(cli(['workspace', 'current', '--json'], env).stdout);
+  assert.deepEqual(current, { active: false });
+});
+
 test('a repository describes itself, so a workspace never has to be told its URL', async () => {
   // Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing
   // at the wrong fork, or at a branch nobody uses. These rules belong in the engine, where

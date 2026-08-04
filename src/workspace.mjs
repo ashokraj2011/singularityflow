@@ -782,6 +782,49 @@ function materializationOperation(root, repository) {
   };
 }
 
+/**
+ * Turn Git's multi-line clone transcript into one safe, actionable sentence.
+ *
+ * VS Code notifications show the first line prominently. Git writes the useless progress line
+ * "Cloning into …" first and the diagnosis last, so passing stderr through verbatim made a missing
+ * branch look like an unexplained clone. Remote credentials are also removed before a URL is shown.
+ */
+function cloneTargetLabel(value) {
+  const remote = String(value ?? '').trim();
+  try {
+    const parsed = new URL(remote);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return remote;
+  }
+}
+
+function cloneFailure(operation, result) {
+  const output = [result.stderr, result.stdout, result.error?.message]
+    .filter(Boolean).join('\n');
+  const lines = output.split('\n').map((line) => line.trim()).filter(Boolean);
+  const diagnosis = [...lines].reverse().find((line) => /^(fatal|error):/i.test(line))
+    ?? [...lines].reverse().find((line) => !/^Cloning into\b/i.test(line))
+    ?? `Git exited with status ${result.status}`;
+  const remote = cloneTargetLabel(operation.url);
+  if (/Remote branch .* not found in upstream origin/i.test(diagnosis)) {
+    return `Repository '${operation.repository}' cannot clone branch '${operation.branch}' from '${remote}': `
+      + `the remote does not have that branch. Configure a valid default branch or create '${operation.branch}', then repair again.`;
+  }
+  if (/Authentication failed|could not read Username|Permission denied \(publickey\)|terminal prompts disabled/i.test(diagnosis)) {
+    return `Repository '${operation.repository}' cannot authenticate to '${remote}'. Sign in to Git or configure its credential helper, then repair again.`;
+  }
+  if (/repository .* not found|does not appear to be a git repository|No such file or directory/i.test(diagnosis)) {
+    return `Repository '${operation.repository}' cannot reach '${remote}'. Correct its clone URL or restore the remote, then repair again.`;
+  }
+  return `Repository '${operation.repository}' could not clone branch '${operation.branch}' from '${remote}': `
+    + `${diagnosis.replace(/^(fatal|error):\s*/i, '')}. Correct the repository configuration or Git access, then repair again.`;
+}
+
 async function cloneIntoWorkspace(root, operation) {
   await assertInside(root, operation.target);
   const existing = await lstat(operation.target).catch(() => null);
@@ -805,7 +848,7 @@ async function cloneIntoWorkspace(root, operation) {
   });
   if (result.status !== 0) {
     await rm(stagingRoot, { recursive: true, force: true });
-    return { status: result.status, error: (result.stderr || result.stdout).trim() };
+    return { status: result.status, error: cloneFailure(operation, result) };
   }
   try {
     // A user may pre-create the repository folder while setting up a workspace. Claim it only

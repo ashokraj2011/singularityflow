@@ -2191,6 +2191,19 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /reproduction/);
 });
 
+test('Story workflow phases render as a horizontal rail beneath the workflow name', () => {
+  const html = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry a failed charge',
+    description: 'One retry with backoff'
+  }));
+  assert.match(html, /class="choice workflow-choice chosen"/);
+  assert.match(html, /class="workflow-copy"[\s\S]*Feature[\s\S]*class="workflow-phases"/);
+  assert.match(html, /class="workflow-step"[\s\S]*<code>intake<\/code>/);
+  assert.match(html, /class="workflow-connector"[\s\S]*<code>requirements<\/code>/);
+  assert.match(STYLE, /\.choice\.workflow-choice > \.workflow-phases \{[\s\S]*display: flex; flex-wrap: wrap;/);
+  assert.match(STYLE, /\.choice\.workflow-choice \.workflow-step \{[\s\S]*display: inline-flex;/);
+});
+
 test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);

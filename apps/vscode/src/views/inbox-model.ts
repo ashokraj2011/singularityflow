@@ -107,13 +107,16 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
 
   const phaseLabels = new Map((initiative?.state.resolution.phases ?? [])
     .map((phase) => [phase.id, phase.label] as const));
+  for (const phase of Object.values(snapshot.workflow?.phases ?? {})) {
+    phaseLabels.set(phase.id, phase.label);
+  }
   const grouped = new Map<string, InboxArtifact[]>();
   for (const artifact of artifacts) {
     const current = grouped.get(artifact.phase) ?? [];
     current.push(artifact);
     grouped.set(artifact.phase, current);
   }
-  const order = initiative?.state.phaseOrder ?? [];
+  const order = initiative?.state.phaseOrder ?? snapshot.workflow?.phaseOrder ?? [];
   const groups = [...grouped.entries()]
     .sort(([left], [right]) => {
       const leftOrder = order.indexOf(left); const rightOrder = order.indexOf(right);
@@ -123,8 +126,9 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
     })
     .map(([phase, entries]) => ({ phase, label: phaseLabels.get(phase) ?? phase, artifacts: entries }));
 
-  const subjectId = initiative?.state.initiative.id ?? snapshot.selectedWorkId ?? '';
-  const subjectLabel = initiative?.state.initiative.title ?? snapshot.workItems
+  const subjectId = initiative?.state.initiative.id ?? snapshot.workflow?.workItem.id
+    ?? snapshot.selectedWorkId ?? '';
+  const subjectLabel = initiative?.state.initiative.title ?? snapshot.workflow?.workItem.title ?? snapshot.workItems
     .find((item) => item.id === snapshot.selectedWorkId)?.title ?? subjectId;
   return {
     subjectId,

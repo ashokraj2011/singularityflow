@@ -295,6 +295,47 @@ function flatten(nodes) {
 }
 const find = (nodes, id) => flatten(nodes).find((node) => node.id === id);
 
+function storySnapshot({ status = 'in_progress', generation = 0 } = {}) {
+  const artifact = {
+    id: 'PHASE-DESIGN', label: 'Design', kind: 'markdown', phase: 'design',
+    path: 'singularity/work-items/STORY-42/artifacts/design/design.md',
+    status: generation ? 'published' : 'draft', generation,
+    sha256: generation ? 'd'.repeat(64) : null
+  };
+  return {
+    initiative: null, initiatives: [], selectedInitiativeId: null,
+    selectedWorkId: 'STORY-42', workItems: [{ id: 'STORY-42', title: 'Make checkout safer' }],
+    identities: { git: { email: 'reviewer@example.com' } },
+    definition: {
+      approvalAuthorities: {
+        'architecture-reviewers': { members: [{ email: 'reviewer@example.com' }] }
+      }
+    },
+    workflow: {
+      workItem: { id: 'STORY-42', title: 'Make checkout safer', branch: 'STORY-42', workType: 'feature' },
+      currentPhase: 'design', phaseOrder: ['intake', 'design'], status: 'in_progress',
+      resolution: {
+        approvalAuthorities: {
+          'architecture-reviewers': { members: [{ email: 'reviewer@example.com' }] }
+        }
+      },
+      phases: {
+        intake: {
+          id: 'intake', label: 'Intake', status: 'approved', generation: 1,
+          artifacts: [], approvals: []
+        },
+        design: {
+          id: 'design', label: 'Design', status, generation,
+          generatedBy: { email: 'author@example.com' }, requiredArtifact: { path: artifact.path },
+          artifacts: [artifact], approvals: [],
+          approvalPolicy: { authorities: ['architecture-reviewers'], minimum: 1 }
+        }
+      }
+    },
+    documents: [artifact]
+  };
+}
+
 test('an unreadable repository shows the CLI error rather than an empty tree', () => {
   // An empty tree in a governance tool reads as "nothing to do", which is the most expensive thing
   // it could wrongly say.
@@ -366,6 +407,18 @@ test('a repository with nothing started at all offers the command that starts so
   assert.match(node.label, /No work has been started/);
   assert.equal(start.contextValue, 'sflow.start');
   assert.equal(start.label, 'Start intake');
+});
+
+test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
+  const tree = buildTree(storySnapshot({ generation: 1 }));
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42']);
+  assert.equal(find(tree, 'story:phase-rail').description, '1/2 approved');
+  assert.equal(find(tree, 'story-phase:design').description, 'in progress · current');
+  assert.equal(find(tree, 'story:design:prepare').runCommand, 'singularityFlow.prepareStoryPhase');
+  assert.equal(find(tree, 'story:design:publish').runCommand, 'singularityFlow.publishStoryPhase');
+  assert.equal(find(tree, 'story:design:submit').runCommand, 'singularityFlow.submitStoryPhase');
+  assert.equal(find(tree, 'story-document:design:PHASE-DESIGN').path,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
 });
 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
@@ -1128,6 +1181,26 @@ test('governed configuration is recognised, and nothing else is', () => {
 
 const { buildApprovals } = await import(source('views/approvals-model.ts'));
 const { buildInbox, buildInboxTree } = await import(source('views/inbox-model.ts'));
+
+test('a submitted Story phase appears in the same approval inbox with its exact artifact', () => {
+  const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  const approvals = buildApprovals(shot);
+  assert.equal(approvals.initiativeId, 'STORY-42');
+  assert.equal(approvals.pending.length, 1);
+  assert.deepEqual({
+    source: approvals.pending[0].source,
+    phase: approvals.pending[0].phase,
+    expected: approvals.pending[0].expected,
+    standing: approvals.pending[0].standing
+  }, { source: 'story', phase: 'design', expected: 'design', standing: 'yours' });
+  assert.equal(approvals.pending[0].artifactPath,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
+
+  const inbox = buildInbox(shot);
+  assert.equal(inbox.subjectId, 'STORY-42');
+  assert.equal(inbox.approvals.pending[0].source, 'story');
+  assert.deepEqual(inbox.groups.map((group) => group.phase), ['design']);
+});
 
 /** A snapshot with one artifact awaiting a decision under a named authority. */
 function awaiting({ authorities = ['product-approvers'], members = ['me@example.com'], actor = 'me@example.com', generatedBy = null, chain = null, gateErrors = [] } = {}) {

@@ -36,7 +36,8 @@ function decisionCards(inbox: Inbox): string {
       ${approval.sha256 ? `<code>${escape(approval.sha256.slice(0, 16))}</code>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
       <div class="card-foot">
-        ${approval.kind === 'output' ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
+        ${approval.kind === 'output' || approval.artifactPath
+    ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
         <button data-approve="${escape(approval.id)}">Review & approve</button>
         <button class="secondary" data-reject="${escape(approval.id)}">Reject</button>
       </div>

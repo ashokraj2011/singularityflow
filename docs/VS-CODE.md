@@ -42,6 +42,24 @@ Lifecycle answers **what governed work is active, and what happens next?**
 Lifecycle is intentionally not a configuration editor. It uses the immutable
 workflow resolution pinned when the work started.
 
+### Lifecycle analytics
+
+Lifecycle Analytics answers **how is this Story moving, and where is time or model
+usage accumulating?** It is a read-only view over the engine's deterministic
+workflow report:
+
+- approved phases and overall completion percentage;
+- wall-clock elapsed, active phase time, and approval waiting time;
+- the phase with the largest approval-latency bottleneck;
+- generations, rework cycles, rejections, self-approvals, and sequence overrides;
+- exact or partial token usage by phase and provider/model; and
+- provider cost or configured model pricing, with incomplete coverage called out.
+
+Missing provider telemetry and missing pricing are shown as **Unavailable**, never
+as a misleading zero. Durations include nights and weekends and are not productivity
+estimates. The view refreshes from the coherent repository snapshot and stores no
+analytics state of its own.
+
 ### Inbox
 
 Inbox answers **what needs attention?**

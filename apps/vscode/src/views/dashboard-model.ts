@@ -9,7 +9,9 @@
  * The ordering is deliberate: what is broken, then what is waiting on a person, then what is merely
  * true. A dashboard that leads with counts trains people to skim past the one line that mattered.
  */
-import type { RepositorySnapshot, InitiativeSnapshot } from '../cli/snapshot.ts';
+import type {
+  RepositorySnapshot, InitiativeSnapshot, StoryWorkflowReport, StoryPhaseReport, StoryModelUsage
+} from '../cli/snapshot.ts';
 import { phasesInOrder } from '../cli/snapshot.ts';
 
 export type Health = 'pass' | 'warn' | 'fail' | 'skip' | (string & {});
@@ -32,8 +34,45 @@ export interface Dashboard {
   failing: Check[];
   passing: number;
   sections: DashboardSection[];
+  analytics: LifecycleAnalytics | null;
   /** True when nothing is broken and nothing is waiting. */
   quiet: boolean;
+}
+
+export type UsageStatus = 'none' | 'unavailable' | 'partial' | 'exact';
+
+export interface LifecyclePhaseMetric extends StoryPhaseReport {
+  elapsedShare: number;
+  activeShare: number;
+  waitingShare: number;
+}
+
+export interface LifecycleAnalytics {
+  id: string;
+  title: string | null;
+  workType: string | null;
+  status: string;
+  completedPhases: number;
+  totalPhases: number;
+  completionPercent: number;
+  currentPhase: string | null;
+  elapsedMs: number | null;
+  activeMs: number | null;
+  waitingMs: number;
+  reworkCycles: number;
+  selfApprovals: number;
+  rejections: number;
+  sequenceOverrides: number;
+  totalTokens: number;
+  usageStatus: UsageStatus;
+  usageRecords: number;
+  exactUsageRecords: number;
+  pendingTelemetry: number;
+  cost: number | null;
+  costStatus: string;
+  models: StoryModelUsage[];
+  bottleneck: { phase: string; waitingMs: number; share: number | null } | null;
+  phases: LifecyclePhaseMetric[];
 }
 
 const RANK: Record<string, number> = { fail: 0, warn: 1, skip: 2, pass: 3 };
@@ -129,6 +168,65 @@ function governanceSection(snapshot: RepositorySnapshot): DashboardSection {
   };
 }
 
+function usageStatus(report: StoryWorkflowReport): UsageStatus {
+  const coverage = report.costCoverage;
+  if (!coverage.usageRecords && !coverage.pendingRecords) return 'none';
+  if (!coverage.exactUsageRecords) return 'unavailable';
+  return coverage.pendingRecords || coverage.exactUsageRecords !== coverage.usageRecords ? 'partial' : 'exact';
+}
+
+/** A display-oriented view over the engine's report. It never derives lifecycle facts itself. */
+export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | undefined): LifecycleAnalytics | null {
+  if (!report) return null;
+  const maximumElapsed = Math.max(...report.phases.map((phase) => phase.elapsedMs ?? 0), 1);
+  const completedPhases = report.phases.filter((phase) => phase.status === 'approved').length;
+  const current = report.phases.find((phase) => ['in_progress', 'awaiting_approval', 'rejected', 'stale'].includes(phase.status));
+  const share = (value: number | null): number => Math.max(0, Math.min(100, Math.round(((value ?? 0) / maximumElapsed) * 100)));
+  return {
+    id: report.workItem.id,
+    title: report.workItem.title,
+    workType: report.workItem.workType,
+    status: report.workItem.status ?? (report.completedAt ? 'complete' : 'in_progress'),
+    completedPhases,
+    totalPhases: report.phases.length,
+    completionPercent: report.phases.length ? Math.round((completedPhases / report.phases.length) * 100) : 0,
+    currentPhase: current?.id ?? null,
+    elapsedMs: report.elapsedMs,
+    activeMs: report.activeMs,
+    waitingMs: report.waitingMs,
+    reworkCycles: report.reworkCycles,
+    selfApprovals: report.selfApprovals,
+    rejections: report.rejections.length,
+    sequenceOverrides: report.sequenceOverrides.length,
+    totalTokens: report.tokens.total,
+    usageStatus: usageStatus(report),
+    usageRecords: report.costCoverage.usageRecords,
+    exactUsageRecords: report.costCoverage.exactUsageRecords,
+    pendingTelemetry: report.costCoverage.pendingRecords,
+    cost: report.cost,
+    costStatus: report.costStatus,
+    models: report.tokens.byModel,
+    bottleneck: report.bottleneck,
+    phases: report.phases.map((phase) => ({
+      ...phase,
+      elapsedShare: share(phase.elapsedMs),
+      activeShare: share(phase.activeMs),
+      waitingShare: share(phase.waitingMs)
+    }))
+  };
+}
+
+export function humanizeDuration(milliseconds: number | null | undefined): string {
+  if (milliseconds == null || !Number.isFinite(milliseconds) || milliseconds < 0) return 'Unavailable';
+  const seconds = milliseconds / 1000;
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  const minutes = seconds / 60;
+  if (minutes < 90) return `${Math.round(minutes)}m`;
+  const hours = minutes / 60;
+  if (hours < 36) return `${(Math.round(hours * 10) / 10).toFixed(1)}h`;
+  return `${(Math.round((hours / 24) * 10) / 10).toFixed(1)}d`;
+}
+
 export function buildDashboard(snapshot: RepositorySnapshot | null): Dashboard | null {
   if (!snapshot) return null;
   const diagnostics = snapshot.diagnostics;
@@ -150,6 +248,7 @@ export function buildDashboard(snapshot: RepositorySnapshot | null): Dashboard |
     failing,
     passing: checks.filter((check) => check.status === 'pass').length,
     sections,
+    analytics: buildLifecycleAnalytics(snapshot.report),
     quiet: !failing.some((check) => check.status === 'fail')
       && sections.every((section) => section.status !== 'warn')
   };

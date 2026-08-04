@@ -618,10 +618,13 @@ launch and monitor. It can run against any selected repository branch without
 requiring an Epic or Story, and records its prompt, generation timestamp, source
 commit, manifest, and views in Git.
 
-The VS Code **Lifecycle**, **Approvals**, **Dashboard**, and **Journey** views display
-phase flow, generated documents, review state, story progress, elapsed time, model,
-tokens, and provider cost when available. **Configuration** edits validated workflow,
-agent, prompt, skill, template, integration, and world-model policy files.
+The VS Code **Lifecycle**, **Approvals**, **Lifecycle Analytics**, and **Journey** views display
+phase flow, generated documents, review state, Story progress, elapsed/active/waiting
+time, generation and rework counts, approval latency, model and token usage, and
+provider cost when available. Analytics explicitly labels missing usage or pricing
+as unavailable; it never turns absent Copilot telemetry into a zero. **Configuration**
+edits validated workflow, agent, prompt, skill, template, integration, and
+world-model policy files.
 
 The **Singularity** workspace groups daily delivery into four focused views:
 
@@ -1303,6 +1306,12 @@ singularity-flow report WORK-123 --format html --out workflow-report.html
 ```
 
 Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
+
+In VS Code, open **Singularity Flow: Lifecycle Analytics** for the same governed
+report as an operational dashboard. It includes a phase rail, completion percentage,
+active-versus-waiting charts, per-phase and per-model token tables, cost coverage,
+and governance/rework indicators. The dashboard refreshes from the repository
+snapshot; it does not maintain a second analytics database.
 
 Durations are wall-clock time and include nights and weekends. They are not business-hours or productivity estimates. Token counts are exact only when the provider supplied them. Reports prefer exact provider cost captured by Copilot telemetry and fall back to configured model pricing; incomplete coverage is marked partial.
 

@@ -367,6 +367,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
     icon: 'story',
     contextValue: 'sflow.story.active',
     children: [{
+      kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
+      description: 'phases · time · tokens · cost', icon: 'impact',
+      runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
       description: `${approved}/${phases.length} approved`, icon: 'list-ordered',
       children: phases.map((phase) => ({

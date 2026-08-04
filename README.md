@@ -1349,6 +1349,11 @@ The supported visual surface is the VS Code extension:
   packets, and pending decisions into one business-friendly view. Its portfolio
   dashboard summarizes capabilities, repositories, Jira routes, open work,
   approvals, diagnostics, and world-model health.
+- **Lifecycle Analytics** turns the committed Story report into a phase rail and
+  business-readable dashboards for completion, elapsed/active/waiting time,
+  approval bottlenecks, generations and rework, models, exact-or-unavailable token
+  usage, and provider/configured cost. It is a read-only projection, not another
+  state store.
 - **Configuration** contains the Workflow and Artifact Designers; governed Agent,
   Prompt, Skill, and Prompt Pack Designers; capability mapping; integrations;
   approval policy; and world-model rules. Configuration affects future work;

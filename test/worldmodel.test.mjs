@@ -726,7 +726,10 @@ test('enforced workflows block generation until the governed prompt is composed'
   assert.notEqual(blocked.status, 0);
   assert.match(`${blocked.stdout}${blocked.stderr}`, /grounding composition is missing/);
 
-  flow(['wm', 'compose', '--phase', 'intake', '--task', task], root);
+  const composed = flow(['wm', 'compose', '--phase', 'intake', '--task', task], root);
+  assert.match(composed.stdout, /Human clarification checkpoint/);
+  assert.match(composed.stdout, /clarification mode `required`/);
+  assert.match(composed.stdout, /interactive `ask_user` tool/);
   flow(['phase', 'publish', 'intake'], root);
   const published = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(published.phases.intake.generation, 1);

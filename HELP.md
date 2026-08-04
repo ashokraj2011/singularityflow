@@ -1056,6 +1056,23 @@ singularity-flow inputs design
 
 Normal execution updates the marker-delimited managed input block and writes `context/inputs-<phase>-gen<n>.json`. Repeating preparation replaces only that managed block. Publication recollects the approved artifacts so editing the rendered block cannot bypass enforcement. Use `/sflow-inputs` in Copilot.
 
+## Ask for clarification before authoring
+
+Each Story phase can declare a Copilot clarification checkpoint:
+
+```yaml
+phases:
+  requirements:
+    clarification:
+      mode: required       # off | when-needed | required
+      maxQuestions: 5      # 1 through 10
+      topics: [scope, acceptance criteria, dependencies, constraints, risks]
+```
+
+`off` adds no checkpoint. `when-needed` asks only for material ambiguities that remain after pinned sources, approved inputs, and world-model evidence have been read. `required` always pauses for a human response; when nothing appears ambiguous, Copilot asks the contributor to confirm its concise interpretation of outcome, boundaries, and acceptance criteria.
+
+The checkpoint is included in the immutable phase resolution and exact recorded prompt. The bundled `/sflow-phase`, `/sflow-next`, and `/sflow-requirements` skills use `ask_user`, wait for the response, and incorporate accepted answers into the governed artifact. A client without `ask_user` must display the questions and stop before authoring or publication. It must not convert missing interactivity into silent assumptions. Work types may replace the phase policy through `phaseOverrides.<phase>.clarification`.
+
 ## governed agents and approval authority
 
 Governed agents combine role instructions and additive world-model views. Starter agents include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.

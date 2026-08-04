@@ -25,6 +25,7 @@ import {
 } from './grounding.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
+import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1125,6 +1126,11 @@ async function compose(root, options) {
   const rulePaths = new Set(injection.sections.map((section) => section.path));
   const requiredText = groundingSectionsText(mandatory, rulePaths);
   const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
+  const pinnedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === signals.phase);
+  const clarificationPolicy = normalizeClarificationPolicy(
+    pinnedPhase?.clarification ?? definition.phases?.[signals.phase]?.clarification
+  );
+  const clarification = renderClarificationProtocol(clarificationPolicy, signals.phase);
   const capability = workflow
     ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
       views: phase?.worldModel?.views ?? []
@@ -1134,6 +1140,7 @@ async function compose(root, options) {
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
   const pieces = [
     governed.contract,
+    clarification,
     text.trimEnd(),
     requiredText,
     capability.text,
@@ -1164,7 +1171,7 @@ async function compose(root, options) {
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;

@@ -589,7 +589,7 @@ normal build and installation steps begin.
 
 - `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, input, and approval policy.
 - `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
-- `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, quality commands, and approval rules.
+- `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, clarification checkpoints, quality commands, and approval rules.
 - `agents`: prompt-only governed agents, suggested phases, and additional world-model views.
 - `approvalAuthorities`: real-human approval groups matched by Git email or authenticated GitHub login.
 - `documents`: allowed upload phases, maximum file size, and text-preview limit; work types may override this policy.
@@ -898,6 +898,25 @@ phases:
 ```
 
 Use `singularity-flow inputs design --dry-run` to inspect provenance without writing, or `/sflow-inputs` in Copilot. Normal preparation writes a managed artifact block and `context/inputs-design-gen<n>.json`; publication recollects inputs and the gate verifies approved hashes and rendered-block freshness.
+
+## Human clarification checkpoints
+
+Copilot clarification is configured per phase and is pinned with the work item. It is part of the exact prompt produced by `wm compose`, after the active phase contract and before agent/world-model evidence:
+
+```yaml
+phases:
+  requirements:
+    clarification:
+      mode: required       # off | when-needed | required
+      maxQuestions: 5
+      topics: [scope, acceptance criteria, dependencies, constraints, risks]
+```
+
+- `off` adds no interactive checkpoint.
+- `when-needed` asks only when governed sources, approved inputs, and the world model leave a material ambiguity.
+- `required` always pauses for at least one human response. If the evidence appears complete, Copilot asks the contributor to confirm its concise interpretation instead of silently continuing.
+
+The bundled intake, requirements, reproduction, and design-intake phases use `required`. Copilot asks one concise batch through `ask_user`, waits, incorporates confirmed answers as artifact decisions, and leaves only explicitly deferred items under Open questions. If the client does not expose `ask_user`, the skill prints the numbered questions and stops before authoring or publication. The CLI never guesses an answer.
 
 ## Token usage
 

@@ -39,6 +39,13 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
   assert.deepEqual(feature.phases.find((item) => item.id === 'design').inputs, [{ phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }]);
+  assert.deepEqual(feature.phases.find((item) => item.id === 'intake').clarification, {
+    mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints']
+  });
+  assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'required');
+  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'off');
+  assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'required');
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'design-intake').clarification.mode, 'required');
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
   assert.deepEqual(figmaMobile.phases.map((item) => item.id), ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance']);
   assert.deepEqual(figmaMobile.documents.allowedPhases, ['design-intake', 'design-inventory']);

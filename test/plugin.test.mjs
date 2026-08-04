@@ -107,6 +107,21 @@ test('plugin provides opt-in governed prompt audit controls', async () => {
   assert.match(content, /workspace/i);
 });
 
+test('initial phase skills require interactive clarification instead of silently collecting open questions', async () => {
+  const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
+  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
+  const requirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
+  const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  const epicRequirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-requirements', 'SKILL.md'), 'utf8');
+  for (const content of [workflowAgent, phase, requirements, next, epicRequirements]) {
+    assert.match(content, /ask_user/);
+    assert.match(content, /wait/i);
+    assert.match(content, /stop before (?:authoring|preparation)/i);
+  }
+  assert.match(requirements, /required.*evidence looks complete/is);
+  assert.match(epicRequirements, /epic sources answer/);
+});
+
 test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {
   const expectations = {
     'sflow-refresh-branch': /singularity-flow refresh-branch --json/,

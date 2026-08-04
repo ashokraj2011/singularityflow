@@ -511,6 +511,18 @@ SINGULARITY_FLOW_NPM_REGISTRY="https://artifacts.company.com/artifactory/api/npm
   ./install.sh
 ```
 
+The standard npm environment variable works as well, which is useful when an
+enterprise launcher already provides it:
+
+```bash
+NPM_CONFIG_REGISTRY="https://artifacts.company.com/artifactory/api/npm/npm-virtual/" \
+  ./install.sh
+```
+
+Registry precedence is `--registry`, `SINGULARITY_FLOW_NPM_REGISTRY`,
+`NPM_CONFIG_REGISTRY`, then `npm config get registry` (including user and project
+`.npmrc` files).
+
 For an interactive installation, run `./install.sh`, choose **Custom company registry / Artifactory**, and enter the registry URL. The `--registry` option takes precedence over the environment variable and interactive selection.
 
 Keep Artifactory authentication in your user or company `.npmrc`; do not put credentials in the registry URL. For example:
@@ -529,7 +541,11 @@ export NPM_TOKEN="your-artifactory-token"
   --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
 ```
 
-The selected registry is used for both `npm ci` and the global tarball installation. The script rejects credentials embedded in a URL, never prints tokens, and does not modify npm configuration.
+The selected registry is exported as `NPM_CONFIG_REGISTRY` for the complete installer
+process. It therefore reaches every `npm ci`, `npm run`, lifecycle subprocess,
+packaging helper, and global installation—not only the first dependency install.
+The script rejects credentials embedded in a URL, never prints tokens, and does not
+modify persistent npm configuration.
 
 By default, the installer loads the Copilot plugin bundled inside the installed
 package. To use a company-managed Copilot marketplace instead, provide its

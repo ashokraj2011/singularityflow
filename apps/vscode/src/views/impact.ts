@@ -71,11 +71,11 @@ function findingsHtml(report: ImpactReport): string {
 
 function bodyHtml(report: ImpactReport | null, error: string | null): string {
   if (error) {
-    return `<header><h1>Planning and impact</h1></header>
+    return `<header><h1>${icon('impact', { size: 20 })}Planning and impact</h1></header>
       <div class="empty"><p>${escape(error)}</p></div>`;
   }
   if (!report) {
-    return `<header><h1>Planning and impact</h1></header>
+    return `<header><h1>${icon('impact', { size: 20 })}Planning and impact</h1></header>
       <div class="empty"><p>Computing impact…</p></div>`;
   }
 

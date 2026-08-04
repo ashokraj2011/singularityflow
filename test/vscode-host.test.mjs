@@ -151,7 +151,8 @@ function stubVscode() {
     EventEmitter,
     TreeItem,
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
-    ThemeIcon: class { constructor(id) { this.id = id; } },
+    ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
+    ThemeColor: class { constructor(id) { this.id = id; } },
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { Notification: 15 },
     Uri: { file: (value) => ({ fsPath: value, scheme: 'file' }) },
@@ -569,7 +570,7 @@ test('a selected workspace with a missing lead repository offers repair instead 
   const workspaceProvider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
   const selected = await until(() => workspaceProvider.getChildren()[0]?.description ? workspaceProvider.getChildren()[0] : null);
   assert.equal(selected.description, 'selected · repository missing');
-  assert.equal(selected.icon, 'warning');
+  assert.equal(selected.icon, 'statusWarning');
   assert.ok(registered.commands.has('singularityFlow.repairWorkspace'));
 });
 
@@ -1147,7 +1148,7 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
   });
   assert.match(await shows(/Checkout API/), /Checkout API/);
   assert.match(await readFile(capabilitiesFile, 'utf8'), /name: Checkout API/);
-  assert.match(panel.webview.html, /delivers/);
+  assert.match(panel.webview.html, /delivery/);
   assert.match(panel.webview.html, /Ships from/);
   assert.doesNotMatch(panel.webview.html, /New capability/, 'the form closed once the edit landed');
 

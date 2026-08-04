@@ -80,7 +80,7 @@ function bodyHtml(journey: Journey): string {
 
   return `
     <header>
-      <h1>${icon('epic', { size: 20 })}${escape(journey.title)}</h1>
+      <h1>${icon('initiative', { size: 20 })}${escape(journey.title)}</h1>
       <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} · branch ${escape(journey.branch ?? 'unknown')} · ${escape(journey.status)}</p>
     </header>
 

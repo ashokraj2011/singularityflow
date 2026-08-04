@@ -63,7 +63,7 @@ function storyHtml(story: StoryView): string {
 
 function bodyHtml(stories: Stories): string {
   if (stories.empty) {
-    return `<header><h1>Stories</h1>${stories.initiativeId ? `<p class="meta">${escape(stories.initiativeId)}</p>` : ''}</header>
+    return `<header><h1>${icon('story', { size: 20 })}Stories</h1>${stories.initiativeId ? `<p class="meta">${escape(stories.initiativeId)}</p>` : ''}</header>
       <div class="empty"><p>${escape(stories.empty)}</p></div>`;
   }
 

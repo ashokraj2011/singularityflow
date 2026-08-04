@@ -8,19 +8,20 @@
 import * as vscode from 'vscode';
 import { buildReconciliation, type MergePlan, type Reconciliation, type ReconciliationLevel } from './reconciliation-model.ts';
 import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import type { IconName } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 
-const VERDICT_PILL: Record<string, { className: string; label: string }> = {
-  aligned: { className: 'ok', label: 'aligned' },
-  drifted: { className: 'bad', label: 'drifted' },
-  'not-applicable': { className: '', label: 'nothing to compare' }
+const VERDICT_PILL: Record<string, { className: string; label: string; icon: IconName }> = {
+  aligned: { className: 'ok', label: 'aligned', icon: 'ok' },
+  drifted: { className: 'bad', label: 'drifted', icon: 'bad' },
+  'not-applicable': { className: '', label: 'nothing to compare', icon: 'wait' }
 };
 
 function levelHtml(level: ReconciliationLevel): string {
   const pill = VERDICT_PILL[level.verdict] ?? VERDICT_PILL['not-applicable'];
   const head = `
-    <h2>${icon('merge')}${escape(level.label)}&nbsp;<span class="pill ${pill?.className ?? ''}">${icon(pill?.className || 'wait')}${escape(pill?.label ?? '')}</span></h2>
+    <h2>${icon('merge')}${escape(level.label)}&nbsp;<span class="pill ${pill?.className ?? ''}">${icon(pill?.icon ?? 'wait')}${escape(pill?.label ?? '')}</span></h2>
     <p class="question">${escape(level.question)}</p>`;
 
   if (level.verdict === 'not-applicable') {

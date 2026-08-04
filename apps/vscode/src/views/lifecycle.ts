@@ -4,6 +4,7 @@
  */
 import * as vscode from 'vscode';
 import { buildLifecycleTree, type TreeNode } from './tree-model.ts';
+import { treeIcon } from './icons.ts';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -67,7 +68,11 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
     item.id = node.id;
     if (node.description) item.description = node.description;
     if (node.tooltip) item.tooltip = node.tooltip;
-    if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon);
+    if (node.icon) {
+      const resolved = treeIcon(node.icon);
+      item.iconPath = new vscode.ThemeIcon(resolved.id,
+        resolved.color ? new vscode.ThemeColor(resolved.color) : undefined);
+    }
     if (node.contextValue) item.contextValue = node.contextValue;
     if (node.runCommand) {
       item.command = { command: node.runCommand, title: node.label, arguments: [node] };

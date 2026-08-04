@@ -69,12 +69,12 @@ export interface TreeNode {
 }
 
 const PHASE_ICON: Record<string, string> = {
-  approved: 'pass-filled',
-  awaiting_approval: 'clock',
-  in_progress: 'circle-large-outline',
-  rejected: 'error',
-  stale: 'warning',
-  not_started: 'circle-outline'
+  approved: 'statusSuccess',
+  awaiting_approval: 'statusWaiting',
+  in_progress: 'statusCurrent',
+  rejected: 'statusBlocked',
+  stale: 'statusWarning',
+  not_started: 'statusIdle'
 };
 
 const PHASE_DESCRIPTION: Record<string, string> = {
@@ -92,7 +92,7 @@ const PHASE_DESCRIPTION: Record<string, string> = {
  * A status this file has not seen becomes a readable label rather than a blank: the engine may add
  * one, and a phase with no icon and no description reads as a phase with nothing happening in it.
  */
-const phaseIcon = (status: PhaseStatus): string => PHASE_ICON[status] ?? 'circle-outline';
+const phaseIcon = (status: PhaseStatus): string => PHASE_ICON[status] ?? 'statusIdle';
 const phaseDescription = (status: PhaseStatus): string =>
   PHASE_DESCRIPTION[status] ?? String(status).replace(/_/g, ' ');
 
@@ -116,9 +116,7 @@ function packTerminalPhase(phaseOrder: string[], members: Array<{ phase: string 
 
 function artifactNode(output: InitiativeOutput, phaseId: string, initiativeId: string): TreeNode {
   const pinned = output.status === 'approved' && Boolean(output.sha256);
-  const icon = output.status === 'approved' ? 'lock-small'
-    : output.sha256 ? 'file'
-      : 'file-code';
+  const icon = output.status === 'approved' ? 'statusSuccess' : 'artifact';
   return {
     kind: 'artifact',
     id: `artifact:${phaseId}/${output.id}`,
@@ -177,7 +175,7 @@ function storyNode(story: BreakdownStory): TreeNode {
     tooltip: dependencies.length
       ? `${story.title}\nDepends on ${dependencies.join(', ')}`
       : story.title,
-    icon: story.blocking ? 'git-pull-request' : 'git-pull-request-draft',
+    icon: 'story',
     contextValue: 'sflow.story'
   };
 }
@@ -380,7 +378,7 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
     label: workflow.workItem.id,
     description: workflow.workItem.title ?? workflow.workItem.workType ?? 'Story',
     tooltip: `${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
-    icon: 'git-pull-request',
+    icon: 'story',
     contextValue: 'sflow.story.active',
     children: [{
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
@@ -480,7 +478,7 @@ function workflowsNode(snapshot: RepositorySnapshot): TreeNode {
         // description rather than something to open the file to discover.
         description: `${row.governs} · ${row.phases.join(' → ')}`,
         tooltip: `${row.id}\nDefined in ${row.path}. Edit it in the Designer or in the file.`,
-        icon: row.governs === 'initiative' ? 'rocket' : 'git-branch',
+        icon: row.governs === 'initiative' ? 'initiative' : 'story',
         // Lifecycle presents the available choice. Editing its definition belongs in Configuration.
         contextValue: 'sflow.workflow.choice'
       }))
@@ -537,7 +535,7 @@ function worldModelNode(snapshot: RepositorySnapshot): TreeNode {
     id: `wm:view:${view.id}`,
     label: view.id,
     description: view.references.length ? `${view.references.length} references` : 'no references',
-    icon: 'milestone',
+    icon: 'initiative',
     path: `${model?.root ?? 'singularity/world-model'}/views/${view.id}.md`,
     contextValue: 'sflow.config'
   })));
@@ -549,7 +547,7 @@ function worldModelNode(snapshot: RepositorySnapshot): TreeNode {
     description: built
       ? `${views.length} ${views.length === 1 ? 'view' : 'views'}`
       : 'not built',
-    icon: 'book',
+    icon: 'worldModel',
     tooltip: built
       ? `Generated ${model?.generatedAt}. Every governed prompt is grounded against these views.`
       : 'Nothing has been generated. Governed prompts have no repository knowledge to draw on.',
@@ -598,12 +596,12 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
       path: string; packagePath?: string; name: string; scope?: string; description?: string;
     }>;
   }> = [
-    { id: 'templates', label: 'Artifact templates', icon: 'file-code', files: snapshot.templates ?? [] },
+    { id: 'templates', label: 'Artifact templates', icon: 'artifact', files: snapshot.templates ?? [] },
     {
-      id: 'prompts', label: 'Repository prompts', icon: 'comment-discussion',
+      id: 'prompts', label: 'Repository prompts', icon: 'prompt',
       files: snapshot.prompts ?? snapshot.agentPrompts ?? snapshot.personaPrompts ?? []
     },
-    { id: 'skills', label: 'Skills and prompt packs', icon: 'book', files: packs }
+    { id: 'skills', label: 'Skills and prompt packs', icon: 'skill', files: packs }
   ];
 
   const nodes: TreeNode[] = sets.map((set) => ({
@@ -639,7 +637,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
     id: 'config:agents',
     label: 'Agents and prompts',
     description: agents.length ? `${agents.length}` : 'none',
-    icon: 'hubot',
+    icon: 'agent',
     children: [
       ...agents.map((agent) => ({
         kind: 'artifact' as const,
@@ -647,7 +645,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
         label: agent.id,
         description: agent.scope,
         tooltip: agent.path,
-        icon: 'hubot',
+        icon: 'agent',
         path: agent.path,
         packagePath: agent.packagePath ?? undefined,
         // A packaged agent is read-only; only a repository one is the team's to change.
@@ -714,7 +712,7 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           description: 'visual editor', icon: 'layout', runCommand: 'singularityFlow.openDesigner'
         }, {
           kind: 'action', id: 'config:instruction-designer', label: 'Open Agent, Prompt & Skill Designer',
-          description: 'agents · prompts · skills · prompt packs', icon: 'hubot',
+        description: 'agents · prompts · skills · prompt packs', icon: 'agent',
           runCommand: 'singularityFlow.openInstructionDesigner'
         }, {
           kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',

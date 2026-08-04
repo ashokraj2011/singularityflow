@@ -69,7 +69,7 @@
       "activitybar": [
         {
           "id": "singularityFlow",
-          "title": "🟢 SINGULARITY FLOW",
+          "title": "SINGULARITY FLOW",
           "icon": "media/activity.svg"
         }
       ]

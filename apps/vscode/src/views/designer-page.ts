@@ -99,9 +99,9 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
       ${draft.phases.length ? draft.phases.map((phase, index) => `
         <div class="sequence-row" data-workflow-phase="${escape(phase.id)}">
           <span class="step-number">${index + 1}</span><strong>${escape(phase.label)}</strong><code>${escape(phase.id)}</code><span class="grow"></span>
-          <button class="icon-button" title="Move earlier" data-workflow-phase-action="up" data-index="${index}"${index === 0 ? ' disabled' : ''}>↑</button>
-          <button class="icon-button" title="Move later" data-workflow-phase-action="down" data-index="${index}"${index === draft.phases.length - 1 ? ' disabled' : ''}>↓</button>
-          <button class="icon-button danger" title="Remove" data-workflow-phase-action="remove" data-index="${index}">×</button>
+          <button class="icon-button" title="Move earlier" aria-label="Move ${escape(phase.label)} earlier" data-workflow-phase-action="up" data-index="${index}"${index === 0 ? ' disabled' : ''}>${icon('up')}</button>
+          <button class="icon-button" title="Move later" aria-label="Move ${escape(phase.label)} later" data-workflow-phase-action="down" data-index="${index}"${index === draft.phases.length - 1 ? ' disabled' : ''}>${icon('down')}</button>
+          <button class="icon-button danger" title="Remove phase" aria-label="Remove ${escape(phase.label)}" data-workflow-phase-action="remove" data-index="${index}">${icon('remove')}</button>
         </div>`).join('') : '<p class="empty-state">Add at least one phase to make this workflow runnable.</p>'}
     </div>
     <div class="add-row">
@@ -147,7 +147,7 @@ function phasesHtml(
   ${profile && !draft && !phaseDraft ? `
     <section class="workflow-summary">
       <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3><p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
-      <div class="workflow-rail">${profile.phases.map((phase, index) => `<span class="rail-node"><b>${index + 1}</b>${escape(phase.label)}</span>${index < profile.phases.length - 1 ? '<span class="rail-arrow">→</span>' : ''}`).join('')}</div>
+      <div class="workflow-rail">${profile.phases.map((phase, index) => `<span class="rail-node"><b>${index + 1}</b>${escape(phase.label)}</span>${index < profile.phases.length - 1 ? `<span class="rail-arrow">${icon('next')}</span>` : ''}`).join('')}</div>
       <p class="${standing.length ? 'blockers' : 'muted'}">${escape(consequence(standing, profile.governs === 'initiative' ? portfolioPath : 'singularity/workflow.yml'))}</p>
     </section>
     ${profile.phases.map((phase) => phaseHtml(phase, profile.id)).join('')}` : ''}
@@ -190,9 +190,9 @@ function artifactBuilder(draft: ArtifactDraft, profiles: Profile[], errors: stri
       <div class="toolbar-row"><h2>${icon('document')}Document sections</h2><span class="grow"></span><select data-section-kind>${SECTION_CATALOG.map((entry) => `<option value="${entry.kind}">${escape(entry.label)} — ${escape(entry.description)}</option>`).join('')}</select><button class="secondary" data-add-section="1">Add section</button></div>
       <div class="section-canvas" data-section-canvas>${draft.sections.map((section, index) => `
         <div class="section-block" draggable="true" data-section-index="${index}" data-section-kind="${section.kind}">
-          <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+          <span class="drag-handle" title="Drag to reorder" role="img" aria-label="Drag ${escape(section.title)} to reorder">${icon('drag')}</span>
           <div class="section-fields"><input data-section-title value="${escape(section.title)}" aria-label="Section heading"><textarea data-section-guidance rows="2" aria-label="Section guidance">${escape(section.guidance)}</textarea><span class="muted">${escape(SECTION_CATALOG.find((entry) => entry.kind === section.kind)?.label ?? section.kind)}</span></div>
-          <div class="section-actions"><button class="icon-button" data-section-action="up" data-index="${index}"${index === 0 ? ' disabled' : ''}>↑</button><button class="icon-button" data-section-action="down" data-index="${index}"${index === draft.sections.length - 1 ? ' disabled' : ''}>↓</button><button class="icon-button danger" data-section-action="remove" data-index="${index}">×</button></div>
+          <div class="section-actions"><button class="icon-button" title="Move section earlier" aria-label="Move ${escape(section.title)} earlier" data-section-action="up" data-index="${index}"${index === 0 ? ' disabled' : ''}>${icon('up')}</button><button class="icon-button" title="Move section later" aria-label="Move ${escape(section.title)} later" data-section-action="down" data-index="${index}"${index === draft.sections.length - 1 ? ' disabled' : ''}>${icon('down')}</button><button class="icon-button danger" title="Remove section" aria-label="Remove ${escape(section.title)}" data-section-action="remove" data-index="${index}">${icon('remove')}</button></div>
         </div>`).join('')}</div>
       <details><summary>Markdown that will be committed</summary><pre class="markdown-preview">${escape(renderArtifactTemplate(draft))}</pre></details>
       <div class="form-actions"><button data-save-artifact="1">Save template and wire artifact</button><button class="secondary" data-reset-artifact="1">Reset</button></div>
@@ -208,9 +208,9 @@ export function designerHtml(
   artifactDraft: ArtifactDraft = newArtifactDraft(), artifactErrors: string[] = [], phaseChoices: PhaseChoice[] = []
 ): string {
   return `
-  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('gate', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated by the same engine used by the CLI.</p></header>
+  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated by the same engine used by the CLI.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
-  <nav class="designer-tabs"><button class="${tab === 'phases' ? '' : 'secondary'}" data-tab="phases">Workflow builder</button><button class="${tab === 'templates' ? '' : 'secondary'}" data-tab="templates">Artifact designer</button></nav>
+  <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
     ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices)
     : `${artifactBuilder(artifactDraft, profiles, artifactErrors)}${templateInventory(templates, filter)}`}`;

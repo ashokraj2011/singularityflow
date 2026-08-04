@@ -617,9 +617,19 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
   assert.ok(navigation, 'the visible webview provider is registered');
   assert.match(navigation.webview.html, /<small>Singularity<\/small><strong>Flow<\/strong>/);
-  for (const section of ['workspaces', 'lifecycle', 'inbox', 'configuration', 'help']) {
+  for (const [section, label] of Object.entries({
+    workspaces: 'Workspaces', lifecycle: 'Lifecycle', inbox: 'Inbox',
+    configuration: 'Configuration', help: 'Help'
+  })) {
     assert.match(navigation.webview.html, new RegExp(`data-section="${section}"`));
+    assert.match(navigation.webview.html, new RegExp(`<span>${label}<\\/span>`),
+      `${label} is rendered in readable title case`);
   }
+  const sectionTitleRule = navigation.webview.html.match(/\.section-title \{[^}]+\}/)?.[0] ?? '';
+  assert.match(sectionTitleRule, /font-weight:500/,
+    'section names use a restrained medium weight rather than full bold');
+  assert.doesNotMatch(sectionTitleRule, /text-transform:uppercase/,
+    'section names are not forced to all caps');
   assert.match(navigation.webview.html, /default-src 'none'/);
   assert.doesNotMatch(navigation.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(navigation.webview.html, /prefers-reduced-motion/);

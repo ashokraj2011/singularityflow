@@ -201,7 +201,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           background:var(--vscode-sideBarSectionHeader-background,var(--vscode-sideBar-background)); }
         .section-heading:before { content:''; width:6px; height:6px; margin:0 9px 0 2px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .14s ease; opacity:.72; }
         .section[open]>.section-heading:before { transform:rotate(45deg) translate(-1px,-1px); }
-        .section-title { display:flex; align-items:center; gap:7px; min-width:0; color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-sideBar-foreground)); font-size:11px; font-weight:700; letter-spacing:.055em; text-transform:uppercase; }
+        .section-title { display:flex; align-items:center; gap:7px; min-width:0; color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-sideBar-foreground)); font-size:12px; font-weight:500; letter-spacing:.005em; }
         .section-title .ico { color:var(--accent); }
         .section-actions { display:flex; gap:1px; margin-left:auto; }
         .icon-button { display:grid; place-items:center; width:29px; height:29px; padding:0; border:0; border-radius:5px;

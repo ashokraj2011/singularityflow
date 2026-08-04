@@ -142,7 +142,7 @@
       },
       {
         "command": "singularityFlow.openCopilot",
-        "title": "Singularity Flow: Open Governed Context in Copilot",
+        "title": "Singularity Flow: Continue Active Story in Copilot",
         "icon": "$(sparkle)"
       },
       {

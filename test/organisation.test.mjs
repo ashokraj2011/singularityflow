@@ -470,7 +470,8 @@ test('choosing a workspace is what scopes the rest', async () => {
 
   // Lifecycle now points up to the Workspace surface instead of duplicating its setup actions.
   const tree = await readFile(new URL('../apps/vscode/src/views/tree-model.ts', import.meta.url), 'utf8');
-  assert.match(tree, /label: 'Select a workspace above to start intake', description: 'workspace required'/);
+  assert.match(tree, /label: repositoryUnavailable \? 'Repair the selected workspace' : 'Select a workspace above to start intake'/);
+  assert.match(tree, /description: repositoryUnavailable \? 'repository required' : 'workspace required'/);
 });
 
 /**
@@ -494,7 +495,7 @@ test('the active workspace is matched on identifier and path, not identifier alo
   const trees = await readFile(
     new URL('../apps/vscode/src/views/navigation-trees.ts', import.meta.url), 'utf8');
   assert.match(trees, /shares the id \$\{row\.id\}/);
-  assert.match(trees, /row\.collides \|\| row\.sharesId \? 'warning'/);
+  assert.match(trees, /row\.collides \|\| row\.sharesId \|\| unavailable \? 'warning'/);
 });
 
 /**

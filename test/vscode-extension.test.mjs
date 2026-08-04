@@ -2176,6 +2176,16 @@ test('a workspace sharing a directory with another is marked in the tree', () =>
   assert.match(shared[0].tooltip, /Another workspace occupies this directory/);
 });
 
+test('the selected workspace warns when its lead repository is unavailable', () => {
+  const [selected] = buildWorkspaceTree([{
+    ...REGISTRY[0], active: 'yes', repositoryState: 'missing'
+  }]);
+  assert.equal(selected.description, 'selected · repository missing');
+  assert.equal(selected.icon, 'warning');
+  assert.equal(selected.contextValue, 'sflow.workspace.active.unavailable');
+  assert.match(selected.tooltip, /Repair the workspace/);
+});
+
 test('an empty registry offers the one thing to do about it', () => {
   const [empty] = buildWorkspaceTree([]);
   assert.equal(empty.contextValue, 'sflow.workspaces.empty');

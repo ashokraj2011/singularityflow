@@ -110,6 +110,11 @@
         "icon": "$(root-folder)"
       },
       {
+        "command": "singularityFlow.repairWorkspace",
+        "title": "Singularity Flow: Repair Selected Workspace",
+        "icon": "$(tools)"
+      },
+      {
         "command": "singularityFlow.init",
         "title": "Singularity Flow: Initialize This Repository",
         "icon": "$(add)"
@@ -404,8 +409,13 @@
         },
         {
           "command": "singularityFlow.openWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active)?$/",
+          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active(\\.unavailable)?)?$/",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.repairWorkspace",
+          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace.active.unavailable",
+          "group": "inline@0"
         },
         {
           "command": "singularityFlow.runAction",

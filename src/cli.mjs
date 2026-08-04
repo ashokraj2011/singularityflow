@@ -3853,16 +3853,21 @@ async function workspaceCommand(positionals, options) {
   if (subcommand === 'list') {
     const workspaces = await readWorkspaceRegistry(registry);
     const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false }).catch(() => null);
-    const result = workspaces.map((workspace) => ({
-      ...workspace,
+    const result = workspaces.map((workspace) => {
       // Matched on both, because the registry de-duplicates by path and two workspaces created with
       // the same --id in different directories therefore both keep that id. Matching on the id
       // alone marked every one of them as the one being worked in, which is the one question this
       // column exists to answer.
-      active: workspace.id === active?.workspaceId
-        && (!active?.workspacePath || path.resolve(workspace.path) === path.resolve(active.workspacePath))
-        ? 'yes' : ''
-    }));
+      const selected = workspace.id === active?.workspaceId
+        && (!active?.workspacePath || path.resolve(workspace.path) === path.resolve(active.workspacePath));
+      return {
+        ...workspace,
+        active: selected ? 'yes' : '',
+        // Selection and readiness are different facts. Surfaces need both or a missing clone gets a
+        // green "working here" badge while every repository-backed view is necessarily empty.
+        repositoryState: selected ? active?.repositoryState ?? null : null
+      };
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(table(result, [
       { key: 'active', label: 'ACTIVE' },

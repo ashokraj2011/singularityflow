@@ -288,6 +288,10 @@ test('only approval-pinned artifacts are treated as read-only', () => {
 });
 
 const { buildTree, buildConfigurationTree } = await import(source('views/tree-model.ts'));
+// Capability tests start well before the workspace-navigation section below. Keep this import beside
+// the other tree builders so Node versions that begin registered tests during later top-level awaits
+// never observe buildCapabilityTree in its temporal dead zone.
+const { buildCapabilityTree } = await import(source('views/navigation-trees.ts'));
 
 /** Every node in the tree, depth-first, so a test can assert about the whole shape. */
 function flatten(nodes) {
@@ -2324,7 +2328,7 @@ test('the page carries the directories it needs to answer without a round trip',
   assert.doesNotMatch(html, /<script/);
 });
 
-const { buildCapabilityTree, buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
+const { buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
 test('workspace rows open their details while selection remains a separate action', () => {

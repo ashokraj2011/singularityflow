@@ -193,6 +193,7 @@ export function unavailableTree(
   /** A lead repository to offer, when this folder turns out to be a workspace directory. */
   leadRepository?: string | null
 ): TreeNode[] {
+  const repositoryUnavailable = contextValue === 'sflow.workspace.repositoryUnavailable';
   return [{
     kind: 'message',
     id: 'unavailable',
@@ -207,10 +208,14 @@ export function unavailableTree(
       // selected. Repeating create/map actions here made the three concepts look interchangeable.
       {
         kind: 'action', id: 'unavailable:workspaces',
-        label: 'Select a workspace above to start intake', description: 'workspace required',
-        tooltip: 'Workspace selection establishes the local directory and capability scope. '
-          + 'Lifecycle then starts intake and asks which workflow to use.',
-        icon: 'root-folder', runCommand: 'singularityFlow.openWorkspaces'
+        label: repositoryUnavailable ? 'Repair the selected workspace' : 'Select a workspace above to start intake',
+        description: repositoryUnavailable ? 'repository required' : 'workspace required',
+        tooltip: repositoryUnavailable
+          ? 'Materialize the missing repository from the URL and branch saved in workspace.json.'
+          : 'Workspace selection establishes the local directory and capability scope. '
+            + 'Lifecycle then starts intake and asks which workflow to use.',
+        icon: repositoryUnavailable ? 'tools' : 'root-folder',
+        runCommand: repositoryUnavailable ? 'singularityFlow.repairWorkspace' : 'singularityFlow.openWorkspaces'
       },
       // Creating, opening, initializing and capability-mapping are all workspace concerns and are
       // intentionally offered by the Workspaces view instead of being repeated here.

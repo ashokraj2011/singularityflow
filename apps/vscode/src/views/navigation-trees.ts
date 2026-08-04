@@ -36,29 +36,36 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     }];
   }
 
-  return rows.map((row) => ({
-    kind: 'action' as const,
-    id: `workspace:${row.path}`,
-    label: row.name,
-    // "working here" rather than "active": it says what the state means for the reader rather than
-    // naming the flag that holds it.
-    description: row.collides ? 'shares a directory'
-      : row.sharesId ? `shares the id ${row.id}`
-        : row.active ? 'working here' : undefined,
-    tooltip: row.collides
-      ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
-      : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
-        ? 'Every screen is scoped to this workspace. Click to inspect its full details.'
-        : 'Click to inspect this workspace. Use the check action to work in it.'}`,
-    icon: row.collides || row.sharesId ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
-    contextValue: row.active ? 'sflow.workspace.active' : 'sflow.workspace',
-    // Carried so the commands acting on this row never have to re-read the registry to find out
-    // which one was clicked. Opening a workspace means opening its lead repository: that is where
-    // the map, the governed state and every command's configuration live.
-    path: row.directory,
-    openPath: row.leadRepositoryPath || row.directory,
-    runCommand: 'singularityFlow.openWorkspaces'
-  }));
+  return rows.map((row) => {
+    const unavailable = Boolean(row.active && row.repositoryState && row.repositoryState !== 'ready');
+    return {
+      kind: 'action' as const,
+      id: `workspace:${row.path}`,
+      label: row.name,
+      // "working here" rather than "active": it says what the state means for the reader rather than
+      // naming the flag that holds it.
+      description: row.collides ? 'shares a directory'
+        : row.sharesId ? `shares the id ${row.id}`
+          : unavailable ? `selected · repository ${row.repositoryState}`
+            : row.active ? 'working here' : undefined,
+      tooltip: row.collides
+        ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
+        : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
+          ? unavailable
+            ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
+            : 'Every screen is scoped to this workspace. Click to inspect its full details.'
+          : 'Click to inspect this workspace. Use the check action to work in it.'}`,
+      icon: row.collides || row.sharesId || unavailable ? 'warning' : row.active ? 'pass-filled' : 'root-folder',
+      contextValue: unavailable ? 'sflow.workspace.active.unavailable'
+        : row.active ? 'sflow.workspace.active' : 'sflow.workspace',
+      // Carried so the commands acting on this row never have to re-read the registry to find out
+      // which one was clicked. Opening a workspace means opening its lead repository: that is where
+      // the map, the governed state and every command's configuration live.
+      path: row.directory,
+      openPath: row.leadRepositoryPath || row.directory,
+      runCommand: 'singularityFlow.openWorkspaces'
+    };
+  });
 }
 
 /**

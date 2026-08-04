@@ -21,6 +21,8 @@ export interface WorkspaceEntry {
   archivedAt?: string | null;
   /** Non-empty when this is the workspace commands currently act on. */
   active?: string;
+  /** Readiness of the selected repository; present only for the active workspace. */
+  repositoryState?: string | null;
 }
 
 /** The richer result of `workspace open <DIRECTORY> --json`. */

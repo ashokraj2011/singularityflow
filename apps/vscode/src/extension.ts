@@ -210,17 +210,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // there is nothing to act on.
     unavailableReason = detail;
     drawWorkspaces();
+    const repositoryUnavailable = contextValue === 'sflow.workspace.repositoryUnavailable';
+    const recoveryCommand = repositoryUnavailable
+      ? 'singularityFlow.repairWorkspace' : 'singularityFlow.openWorkspaces';
+    const recoveryDescription = repositoryUnavailable
+      ? 'repair selected workspace' : 'select a saved workspace';
     const provider = new LifecycleTreeProvider(null,
       unavailableTree(label, detail, contextValue, leadRepository));
     const inbox = new LifecycleTreeProvider(null, [{
-      kind: 'action', id: 'inbox:unavailable', label: 'Choose a workspace to load the inbox',
-      description: 'select a saved workspace', tooltip: detail, icon: 'root-folder',
-      runCommand: 'singularityFlow.openWorkspaces'
+      kind: 'action', id: 'inbox:unavailable',
+      label: repositoryUnavailable ? label : 'Choose a workspace to load the inbox',
+      description: recoveryDescription, tooltip: detail,
+      icon: repositoryUnavailable ? 'warning' : 'root-folder', runCommand: recoveryCommand
     }]);
     const configuration = new LifecycleTreeProvider(null, [{
-      kind: 'action', id: 'configuration:unavailable', label: 'Choose a workspace to load configuration',
-      description: 'select a saved workspace', tooltip: detail, icon: 'root-folder',
-      runCommand: 'singularityFlow.openWorkspaces'
+      kind: 'action', id: 'configuration:unavailable',
+      label: repositoryUnavailable ? label : 'Choose a workspace to load configuration',
+      description: recoveryDescription, tooltip: detail,
+      icon: repositoryUnavailable ? 'warning' : 'root-folder', runCommand: recoveryCommand
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
@@ -492,6 +499,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // second window. `false` means replace this window everywhere.
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(chosen.lead), false);
     }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.repairWorkspace', async () => {
+    try {
+      const client = new SingularityFlowClient({
+        location: resolveCli({ extensionPath: context.extensionPath }),
+        repository: process.cwd(), onOutput: (text) => output.append(text)
+      });
+      const current = await client.run<{
+        active?: boolean; workspacePath?: string; workspaceName?: string;
+      }>(['workspace', 'current', '--json']);
+      if (!current.active || !current.workspacePath) {
+        return void vscode.window.showWarningMessage('Select a workspace before repairing it.');
+      }
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Repairing ${current.workspaceName ?? 'workspace'}` },
+        () => client.run(['workspace', 'repair', current.workspacePath as string, '--json'])
+      );
+      // Refresh the persisted context so the next activation sees the repaired repository as ready.
+      await client.run(['workspace', 'use', current.workspacePath, '--json']);
+      void vscode.window.showInformationMessage(
+        `${current.workspaceName ?? 'Workspace'} repaired. Reloading Lifecycle, Inbox, and Configuration.`);
+      await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not repair workspace: ${(error as Error).message}`);
+    }
+  }));
 
   void refreshWorkspaceTree();
 
@@ -1173,7 +1206,11 @@ async function resolveGovernedRepository(
 async function activeWorkspaceLead(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
-): Promise<{ repository: string; origin: string } | null> {
+): Promise<Resolved | null> {
+  let current: {
+    active?: boolean; workspaceName?: string; workspacePath?: string; repositoryPath?: string;
+    repositoryState?: string;
+  };
   try {
     const client = new SingularityFlowClient({
       location: resolveCli({ extensionPath: context.extensionPath }),
@@ -1186,23 +1223,50 @@ async function activeWorkspaceLead(
     // Whichever folder happened to be open won, always, including when somebody had just chosen a
     // workspace. The test that covered this asserted the order of two lines in this file rather
     // than what the function returns, so it passed throughout.
-    const current = await client.run<{
-      active?: boolean; workspaceName?: string; workspacePath?: string; repositoryPath?: string;
-    }>(['workspace', 'current', '--json']);
-    if (current.active === false) return null;
-    const directory = current.workspacePath;
-    if (!directory) return null;
-    // The recorded lead if there is one, and the workspace's own lead as the fallback for a registry
-    // entry written before the field existed.
-    const lead = current.repositoryPath ?? await workspaceLeadDirectory(directory);
-    if (!lead) return null;
+    current = await client.run(['workspace', 'current', '--json']);
+  } catch (error) {
+    output.appendLine(`Could not read the active workspace: ${(error as Error).message}`);
+    return null;
+  }
+  if (current.active === false) return null;
+  const directory = current.workspacePath;
+  if (!directory) {
+    return {
+      label: 'Active workspace selection is incomplete',
+      reason: 'Select the workspace again so its working directory and lead repository can be resolved.'
+    };
+  }
+  // The recorded lead if there is one, and the workspace's own lead as the fallback for a registry
+  // entry written before the field existed.
+  const lead = current.repositoryPath ?? await workspaceLeadDirectory(directory);
+  if (!lead) {
+    return {
+      label: 'Workspace lead repository is not configured',
+      reason: `${current.workspaceName ?? directory} is selected, but it has no resolvable lead repository. Edit the workspace details.`,
+      contextValue: 'sflow.workspace.repositoryUnavailable'
+    };
+  }
+  if (current.repositoryState && current.repositoryState !== 'ready') {
+    return {
+      label: `Workspace repository is ${current.repositoryState}`,
+      reason: `${current.workspaceName ?? directory} is selected, but its lead repository at ${lead} is ${current.repositoryState}. Repair the selected workspace to materialize it from workspace.json.`,
+      contextValue: 'sflow.workspace.repositoryUnavailable',
+      lead
+    };
+  }
+  try {
     return {
       repository: await validateRepositoryDirectory(lead),
       origin: `the lead repository of your active workspace, ${current.workspaceName ?? directory}`
     };
   } catch (error) {
-    output.appendLine(`No active workspace to fall back to: ${(error as Error).message}`);
-    return null;
+    output.appendLine(`Active workspace lead is unavailable: ${(error as Error).message}`);
+    return {
+      label: 'Workspace lead repository is not ready',
+      reason: `${current.workspaceName ?? directory} is selected, but ${lead} cannot load Singularity Flow: ${(error as Error).message}`,
+      contextValue: 'sflow.workspace.repositoryUnavailable',
+      lead
+    };
   }
 }
 

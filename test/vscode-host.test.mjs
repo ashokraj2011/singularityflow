@@ -515,6 +515,63 @@ test('a window with nothing open and no active workspace says which of the two t
     .getTreeItem(configuration).command.command, 'singularityFlow.openWorkspaces');
 });
 
+test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-lead-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selectionFile
+  };
+  const create = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'missing-lead',
+    '--base', path.join(base, 'workspaces'), '--lead', 'platform',
+    '--repository', `platform=${org.lead}`, '--confirm', 'missing-lead', '--no-clone'], {
+    encoding: 'utf8', env
+  });
+  assert.equal(create.status, 0, create.stderr);
+  const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'use', 'missing-lead', '--json'], { encoding: 'utf8', env });
+  assert.equal(use.status, 0, use.stderr);
+
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const [problem] = lifecycle.getChildren();
+  assert.match(problem.label, /Workspace repository is missing/);
+  assert.doesNotMatch(problem.label, /No workspace is active/);
+  assert.match(problem.tooltip, /missing-lead/);
+  assert.ok(lifecycle.getChildren(problem).some((node) => node.runCommand === 'singularityFlow.repairWorkspace'));
+
+  const [configuration] = registered.trees.get('singularityFlow.configuration').treeDataProvider.getChildren();
+  assert.match(configuration.label, /Workspace repository is missing/);
+  assert.equal(registered.trees.get('singularityFlow.configuration').treeDataProvider
+    .getTreeItem(configuration).command.command, 'singularityFlow.repairWorkspace');
+
+  const workspaceProvider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const selected = await until(() => workspaceProvider.getChildren()[0]?.description ? workspaceProvider.getChildren()[0] : null);
+  assert.equal(selected.description, 'selected · repository missing');
+  assert.equal(selected.icon, 'warning');
+  assert.ok(registered.commands.has('singularityFlow.repairWorkspace'));
+});
+
 test('the view activates on being opened, not only when a workflow file happens to exist', async (t) => {
   if (!requireBundle(t)) return;
   // Without onView, opening the view in any other folder never activates the extension at all, and
@@ -1733,13 +1790,23 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   // one string. Somebody comparing two workspaces paid for the comparison twice.
   const org = await organisation();
   const registryFile = path.join(org.base, 'registry.json');
+  const selectionFile = path.join(org.base, 'active-workspace.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
   spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', path.join(org.base, 'workspaces'), '--lead', 'platform',
-    '--repository', `platform=${org.lead}`, '--confirm', 'commerce', '--no-clone'], {
-    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile }
+    '--repository', `platform=${org.lead}`, '--confirm', 'commerce'], {
+    encoding: 'utf8', env: process.env
   });
-  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;

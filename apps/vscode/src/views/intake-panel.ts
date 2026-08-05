@@ -178,17 +178,20 @@ export class IntakePanel {
       // The phase is the useful half of "in progress", so it is said when there is one.
       const where = (status?: string, phase?: string | null): string =>
         (phase ? `${status ?? 'in progress'} · ${phase}` : status ?? 'in progress');
+      const completed = (status?: string): boolean => ['complete', 'completed'].includes(status?.toLowerCase() ?? '');
       const initiatives = (snapshot.initiatives ?? []).filter((entry) => entry.id).map((entry) => ({
         shape: 'initiative' as Shape,
         id: entry.id!,
         title: entry.title ?? entry.id!,
-        status: where(entry.status, entry.currentPhaseLabel)
+        status: where(entry.status, entry.currentPhaseLabel),
+        completed: completed(entry.status)
       }));
       const items = (snapshot.workItems ?? []).filter((entry) => entry.id).map((entry) => ({
         shape: (entry.workType === 'epic' ? 'epic' : 'story') as Shape,
         id: entry.id!,
         title: entry.title ?? entry.id!,
-        status: where(entry.status, entry.currentPhase)
+        status: where(entry.status, entry.currentPhase),
+        completed: completed(entry.status)
       }));
       return [...initiatives, ...items];
     } catch {

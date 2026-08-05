@@ -7,9 +7,10 @@
  * could be edited. Cloning is a workspace's job, and a workspace is created for doing work, not for
  * describing what exists.
  *
- * So this clones into a temporary directory, edits, pushes a review branch, and discards. The lead
- * repository is the durable record; the checkout was never the point. The default branch is never
- * written by this path: an organisation's ordinary review and merge controls remain authoritative.
+ * So this clones the approved `sflow/config` branch into a temporary directory, edits, pushes a
+ * review branch, and discards. The lead repository is the durable record; the checkout was never
+ * the point. Application branches are never written by this path: ordinary review controls still
+ * decide which proposal becomes the next approved configuration revision.
  *
  * The one thing kept on the machine is a pointer: which repositories hold a map. Reading a map
  * requires knowing where it is, and asking for the same URL on every screen is a worse answer than
@@ -29,6 +30,9 @@ import { identity } from './git.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
 import { describeRepository, enableLedger, repositoryIdFromUrl } from './bootstrap.mjs';
 import { initializeLedger, publishToStateBranch } from './ledger.mjs';
+import {
+  CONFIGURATION_BRANCH, ensureConfigurationBranch, remoteHasConfigurationBranch
+} from './configuration-branch.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 
@@ -75,10 +79,8 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
 
-  const baseBranch = remoteDefaultBranch(
-    remote,
-    run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
-  );
+  await ensureConfigurationBranch(remote);
+  const baseBranch = CONFIGURATION_BRANCH;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
   try {
     const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch, remote, scratch],
@@ -105,7 +107,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
     // new branch name. The prefix is supplied by the operation and contains only a capability ID.
     const safePrefix = String(reviewBranchPrefix ?? 'capability-change')
       .toLowerCase().replace(/[^a-z0-9._/-]+/g, '-').replace(/^-+|-+$/g, '');
-    const reviewBranch = `sflow/${safePrefix}-${baseCommit.slice(0, 8)}`;
+    const reviewBranch = `sflow/config-change/${safePrefix}-${baseCommit.slice(0, 8)}`;
     const exists = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`], {
       cwd: scratch, allowFailure: true
     }).stdout.trim();
@@ -123,7 +125,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
 
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
     // commit that is not pushed is a commit that never existed. This deliberately targets only a
-    // new review branch. The default branch and orphan state branch remain unchanged until review.
+    // new review branch. The approved configuration and orphan state branches remain unchanged.
     const pushed = run('git', ['push', '--set-upstream', 'origin',
       `HEAD:refs/heads/${reviewBranch}`], { cwd: scratch, allowFailure: true });
     if (pushed.status !== 0) {
@@ -143,10 +145,10 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
 export async function readOrganisation(url) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
-  const branch = remoteDefaultBranch(
-    remote,
-    run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
-  );
+  const branch = CONFIGURATION_BRANCH;
+  if (!remoteHasConfigurationBranch(remote)) {
+    return { url: remote, branch, capabilities: [], repositories: {}, governed: false };
+  }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
   try {
     const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--no-checkout',
@@ -321,7 +323,7 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
 }
 
 /**
- * Refresh the orphan capability projection from the reviewed default branch of a remote lead.
+ * Refresh the orphan capability projection from the reviewed configuration branch of a remote lead.
  *
  * This is intentionally separate from map/edit. Those operations only propose a review branch;
  * publishing before merge would make unreviewed configuration visible as governed state.
@@ -329,10 +331,11 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
 export async function publishOrganisationCapabilityMap(url) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
-  const baseBranch = remoteDefaultBranch(
-    remote,
-    run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
-  );
+  const baseBranch = CONFIGURATION_BRANCH;
+  if (!remoteHasConfigurationBranch(remote)) {
+    throw new SingularityFlowError(
+      `Cannot publish capabilities because '${remote}' has no '${CONFIGURATION_BRANCH}' branch.`);
+  }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
     const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch,

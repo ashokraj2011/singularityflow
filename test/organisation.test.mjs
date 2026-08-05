@@ -84,17 +84,17 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
     cwd: org.platform, allowFailure: true
   }).status, 1, 'unreviewed configuration is not copied to the state branch');
-  assert.match(first.branch, /^sflow\/capability\/map-commerce-[0-9a-f]{8}$/);
-  assert.equal(first.baseBranch, 'main');
+  assert.match(first.branch, /^sflow\/config-change\/capability\/map-commerce-[0-9a-f]{8}$/);
+  assert.equal(first.baseBranch, 'sflow/config');
   assert.match(run('git', ['show', `${first.branch}:singularity/capabilities.yml`], {
     cwd: org.platform
   }).stdout, /commerce:/, 'the complete proposal is available for review');
 
   await mergeProposal(org.platform, first);
 
-  const governed = run('git', ['show', 'main:singularity/workflow.yml'], { cwd: org.platform }).stdout;
+  const governed = run('git', ['show', 'sflow/config:singularity/workflow.yml'], { cwd: org.platform }).stdout;
   assert.match(governed, /branch: state/, 'the orphan branch is named for a workspace to create');
-  const map = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
+  const map = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(map, /commerce:/);
   // The placeholder root `init` writes gives way to the capability actually being mapped, rather
   // than colliding with it — a tree may have exactly one root.
@@ -104,7 +104,7 @@ test('the first capability governs the repository it is mapped into', async () =
   await mapAndMerge(org.platform, {
     capabilityId: 'payments', name: 'Payments', kind: 'collection', parent: 'commerce'
   });
-  const both = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
+  const both = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(both, /parent: commerce/);
 });
 
@@ -786,8 +786,9 @@ test('only reviewed capability configuration can be published to the state branc
   assert.doesNotMatch(
     run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
+  run('git', ['fetch', '-q', 'origin', '+refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: lead });
   assert.doesNotMatch(
-    run('git', ['show', 'origin/main:singularity/capabilities.yml'], { cwd: lead }).stdout,
+    run('git', ['show', 'origin/sflow/config:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
 
   await mergeProposal(org.platform, edited);
@@ -800,9 +801,9 @@ test('only reviewed capability configuration can be published to the state branc
   const published = run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout;
   assert.match(published, /Commerce platform/);
 
-  // And the reviewed default branch has it: the state branch is the projection, not a bypass.
-  run('git', ['fetch', '-q', 'origin'], { cwd: lead });
-  assert.match(run('git', ['show', 'origin/main:singularity/capabilities.yml'], { cwd: lead }).stdout,
+  // And the reviewed configuration branch has it: the state branch is the projection, not a bypass.
+  run('git', ['fetch', '-q', 'origin', '+refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: lead });
+  assert.match(run('git', ['show', 'origin/sflow/config:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
 });
 

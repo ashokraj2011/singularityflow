@@ -193,8 +193,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     <div data-map-ready${problems.length ? ' hidden' : ''}>
       <h2>${icon('ok')}Ready for review</h2>
       <p class="ok-text">Creates and pushes a dedicated capability review branch in ${escape(form.lead)}.</p>
-      <p class="muted">The repository's default branch and capability state projection are not changed.
-        Merge the proposal through the repository's normal review process, then publish the reviewed projection.</p>
+      <p class="muted">The proposal targets the dedicated <code>sflow/config</code> authority branch.
+        Application branches and the capability state projection are not changed. Review and merge the proposal,
+        then publish the reviewed projection.</p>
     </div>
     ${form.notice ? `<p class="warning-text">${icon('warning')}${escape(form.notice)}</p>` : ''}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}

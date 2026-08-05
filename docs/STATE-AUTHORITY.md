@@ -6,6 +6,8 @@ The lifecycle branch owns operational state; local context selects it; the state
 
 | Plane | Stored at | Role | May select work? | May authorize a mutation? | Recovery rule |
 |---|---|---|---:|---:|---|
+| Shared configuration | `sflow/config` in the lead repository | Approved workflows, capabilities, agents, prompts, skills, templates, policy, and repository registry for future work | No | Defines, but does not itself perform, lifecycle mutations | Fetch the reviewed branch; never infer configuration from application `main` or the proof ledger |
+| Lifecycle configuration snapshot | Configuration files plus `singularity/configuration-source.json` on a Story branch | Immutable configuration used by one Story | No | Constrains every Story mutation | Verify the recorded full commit and per-file SHA-256; recreate an unstarted branch rather than silently upgrading it |
 | Story lifecycle | `singularity/work-items/<ID>/workflow.json` on the Story lifecycle branch | Operational authority for Story phase, artifacts, decisions, and revision | Yes | Yes | Fetch and fast-forward the registered canonical or child branch; never reconstruct it from session state or the ledger |
 | Initiative lifecycle | `singularity/initiatives/<ID>/state.json` on the Initiative lifecycle branch | Operational authority for Initiative phase, evidence, approvals, and breakdown | Yes | Yes | Fetch and fast-forward the registered lifecycle branch; append-only retry is a conflict strategy, not a second authority |
 | Local context | `.git/singularity-flow/session.json` and the workspace selection under the user profile | Selects a lifecycle subject and governed agent for this checkout | Yes | No | Recreate it from a selected lifecycle branch; deleting it loses no governed state |

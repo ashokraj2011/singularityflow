@@ -129,15 +129,15 @@ async function until(read, { attempts = 600, everyMs = 50, what = '' } = {}) {
   throw new Error(`Timed out after ${Math.round((attempts * everyMs) / 1000)}s waiting for: ${described}`);
 }
 
-/** Accept the one capability review proposal currently based on a remote's default branch. */
+/** Accept the one capability review proposal currently based on sflow/config. */
 function mergeCapabilityProposal(remote, branchPrefix) {
   const branches = run('git', ['for-each-ref', '--format=%(refname:short)',
-    `refs/heads/sflow/capability/${branchPrefix}*`], { cwd: remote }).stdout.trim().split('\n').filter(Boolean);
+    `refs/heads/sflow/config-change/capability/${branchPrefix}*`], { cwd: remote }).stdout.trim().split('\n').filter(Boolean);
   assert.equal(branches.length, 1, `one ${branchPrefix} review branch is available`);
   const baseCommit = run('git', ['rev-parse', `${branches[0]}^`], { cwd: remote }).stdout.trim();
   const baseBranches = run('git', ['for-each-ref', '--format=%(refname:short)',
     '--points-at', baseCommit, 'refs/heads'], { cwd: remote }).stdout.trim().split('\n')
-    .filter((branch) => branch && !branch.startsWith('sflow/capability/'));
+    .filter((branch) => branch && !branch.startsWith('sflow/config-change/'));
   assert.equal(baseBranches.length, 1, 'the proposal has one unchanged base branch');
   const [defaultBranch] = baseBranches;
   const checkout = path.join(mkdtempSync(path.join(os.tmpdir(), 'sflow-review-')), 'checkout');
@@ -1350,6 +1350,7 @@ async function organisation() {
   run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
     'commit', '-qm', 'Capability map'], { cwd: lead.seed });
   run('git', ['push', '-q', lead.dir, 'main:main'], { cwd: lead.seed });
+  run('git', ['push', '-q', lead.dir, 'HEAD:sflow/config'], { cwd: lead.seed });
 
   // Remembered the way `capability map` remembers it: the workspace form offers the organisations
   // already mapped rather than asking for a URL, so a fixture that is not in the registry is an
@@ -1509,9 +1510,9 @@ test('an organisation that has not described what it builds says so, and where t
   await capabilityPanel.post({ type: 'map' });
 
   // Mapping is a review proposal: the retained workspace form must not see it until the proposal
-  // reaches the remote's default branch through normal review controls.
+  // reaches the remote's approved configuration branch through normal review controls.
   await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/capability/map-payments-api-*'], { cwd: origin }).stdout.trim() || null,
+    'refs/heads/sflow/config-change/capability/map-payments-api-*'], { cwd: origin }).stdout.trim() || null,
   { attempts: 200 });
   mergeCapabilityProposal(origin, 'map-payments-api');
   await registered.commands.get('singularityFlow.createWorkspace')();
@@ -2271,22 +2272,22 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await panel.post({ type: 'field', field: 'kind', value: 'collection' });
   await panel.post({ type: 'map' });
 
-  // The map reaches a review branch. The default branch remains untouched until the repository's
-  // normal approval controls merge that proposal.
+  // The map reaches a review branch. Approved configuration remains untouched until normal review
+  // controls merge that proposal into sflow/config.
   await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/capability/map-commerce-*'], { cwd: bare }).stdout.trim() || null,
+    'refs/heads/sflow/config-change/capability/map-commerce-*'], { cwd: bare }).stdout.trim() || null,
   { attempts: 200 });
   const firstReview = mergeCapabilityProposal(bare, 'map-commerce-');
-  assert.match(firstReview, /^sflow\/capability\/map-commerce-/);
+  assert.match(firstReview, /^sflow\/config-change\/capability\/map-commerce-/);
 
   // Once reviewed, the first capability governs the repository it was mapped into: the whole
   // singularity/ folder is there, which is the circular dependency this breaks.
-  assert.ok(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout.includes('phases'));
-  assert.match(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout,
+  assert.ok(run('git', ['show', 'sflow/config:singularity/workflow.yml'], { cwd: bare }).stdout.includes('phases'));
+  assert.match(run('git', ['show', 'sflow/config:singularity/workflow.yml'], { cwd: bare }).stdout,
     /branch: state/, 'the orphan branch is named, and made when a workspace is initialised');
   // A grouping ships from nothing, so it names no repository. Giving one to a capability that does
   // not have one is how a portfolio fills up with repositories nobody clones.
-  assert.doesNotMatch(run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare }).stdout,
+  assert.doesNotMatch(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: bare }).stdout,
     /repository:/);
 
   // A capability that ships names its repository, and that is what puts one in the portfolio. The
@@ -2311,12 +2312,12 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await panel2.post({ type: 'map' });
 
   await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
-    'refs/heads/sflow/capability/map-platform-api-*'], { cwd: bare }).stdout.trim() || null,
+    'refs/heads/sflow/config-change/capability/map-platform-api-*'], { cwd: bare }).stdout.trim() || null,
   { attempts: 200 });
   mergeCapabilityProposal(bare, 'map-platform-api-');
-  const map = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare }).stdout;
+  const map = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: bare }).stdout;
   assert.ok(map, 'the second capability reached the remote');
-  const portfolio = run('git', ['show', 'main:singularity/portfolio.yml'], { cwd: bare }).stdout;
+  const portfolio = run('git', ['show', 'sflow/config:singularity/portfolio.yml'], { cwd: bare }).stdout;
   assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });

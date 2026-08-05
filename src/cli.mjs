@@ -162,9 +162,13 @@ import {
   duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, workspaceRemoteCapabilities,
   workspaceRemoteDefaults,
+  remoteDefaultBranch,
   workspaceRepositoryDefaults,
   workspaceArchiveReadiness, workspaceStatus
 } from './workspace.mjs';
+import {
+  materializeConfigurationSnapshot, resolveConfigurationRemote
+} from './configuration-branch.mjs';
 import {
   analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact,
   promoteWorkspaceImpact, workspaceImpactStatus
@@ -479,7 +483,7 @@ Usage:
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds governed state when there are several. Remote mapping
-     pushes a review branch and never writes the default branch directly.)
+     pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
@@ -756,10 +760,10 @@ async function helpCommand(positionals, options) {
 async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
-  let config = await loadConfig(root);
-  validateId(config, id);
+  let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
+  if (config) validateId(config, id);
   const receiptToken = optionString(options, 'selection-receipt');
-  const receipt = receiptToken ? await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id }) : null;
+  let receipt = null;
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const jira = optionBoolean(options, 'jira');
   const storyFile = optionString(options, 'story-file');
@@ -771,12 +775,23 @@ async function startCommand(positionals, options) {
   const explicitUrls = optionStrings(options, 'document-url');
   const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
   const declaredSource = jira ? 'jira' : hasManualInput ? 'manual' : null;
-  const receiptSource = receipt?.answers['intake-source'] ?? null;
-  if (declaredSource && receiptSource && declaredSource !== receiptSource) throw new SingularityFlowError(`Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
   const explicitBase = optionString(options, 'base');
   const canonicalBranch = optionString(options, 'ref', id);
-  const baseAtStart = explicitBase ?? config.defaultBaseBranch;
-  const remote = config.git?.remote ?? 'origin';
+  const remote = config?.git?.remote ?? 'origin';
+  const applicationRemote = run('git', ['remote', 'get-url', remote], {
+    cwd: root, allowFailure: true
+  }).stdout.trim();
+  const applicationDefault = applicationRemote
+    ? remoteDefaultBranch(applicationRemote,
+      run('git', ['ls-remote', '--symref', applicationRemote, 'HEAD'], { allowFailure: true }).stdout)
+    : 'main';
+  const baseAtStart = explicitBase ?? config?.defaultBaseBranch ?? applicationDefault;
+  const configurationRemote = await resolveConfigurationRemote(root, remote);
+  if (!config && !configurationRemote) {
+    throw new SingularityFlowError(
+      `Missing ${WORKFLOW_PATH}. This repository is not inside an active workspace whose lead `
+      + `repository has the approved sflow/config branch. Map and approve the workspace capability first.`);
+  }
   const originalBranch = branch(root);
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
@@ -786,12 +801,30 @@ async function startCommand(positionals, options) {
     remote
   });
   const createdBranch = checkoutResult.startsWith('created-from-');
+  let configurationSnapshot = null;
   try {
+  // Application branches do not own shared configuration. A new Story receives the exact approved
+  // configuration revision here, before any selection or generation happens, and the initial Story
+  // commit publishes the copied files together with their provenance record.
+  if (createdBranch && configurationRemote) {
+    configurationSnapshot = await materializeConfigurationSnapshot(root, {
+      remote: configurationRemote,
+      remoteName: remote
+    });
+  }
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
   // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
   // template, or world-model policy is what gets pinned into the Story.
   config = await loadConfig(root);
   validateId(config, id);
+  receipt = receiptToken
+    ? await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id })
+    : null;
+  const receiptSource = receipt?.answers['intake-source'] ?? null;
+  if (declaredSource && receiptSource && declaredSource !== receiptSource) {
+    throw new SingularityFlowError(
+      `Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
+  }
   // A materialized Story arrives on a branch carrying its own governed seed — the requirements, the
   // specification and the traceability are already pinned there. Asking where the work came from is
   // asking a question the branch has already answered, and asking it interactively made starting a
@@ -873,7 +906,17 @@ async function startCommand(positionals, options) {
     capabilityId: optionString(options, 'capability')
   });
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
-  await commitAndPublish(root, config, workflow, { type: 'binding' }, `[${id}][init] start ${workType} workflow`);
+  await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'binding', payload: configurationSnapshot ? {
+      configurationBranch: configurationSnapshot.branch,
+      configurationCommit: configurationSnapshot.commit
+    } : {} },
+    `[${id}][init] start ${workType} workflow`,
+    configurationSnapshot?.paths ?? []
+  );
   for (const document of supportingDocuments) {
     const records = await addDocuments(root, config, workflow, {
       files: document.type === 'file' ? [document.path] : [],
@@ -894,7 +937,7 @@ async function startCommand(positionals, options) {
     // workflow definition and any governed Story seed. If those preflight steps fail before state
     // exists, restore the caller's branch and remove only the branch this invocation created.
     // Existing remote/local Story branches and partially-created workflow state are never deleted.
-    const workflowCreated = existsSync(workflowPath(root, config, id));
+    const workflowCreated = config ? existsSync(workflowPath(root, config, id)) : false;
     if (!workflowCreated) {
       await restoreAgentSession(root, originalSession);
       await restoreCopilotSession(root, originalCopilotSession);
@@ -3235,7 +3278,8 @@ async function capabilityCommand(positionals, options) {
       console.log(`  review branch: ${mapped.branch}`);
       console.log(`  base: ${mapped.baseBranch}@${mapped.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${mapped.commit.slice(0, 8)}`);
-      console.log(`  ${mapped.baseBranch} was not changed; review and merge the branch through normal repository controls.`);
+      console.log(`  approved ${mapped.baseBranch} was not changed; review and merge the proposal into that branch.`);
+      console.log('  the application default branch is not part of this configuration change.');
       console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
     }
     return;
@@ -3263,7 +3307,8 @@ async function capabilityCommand(positionals, options) {
       console.log(`  review branch: ${edited.branch}`);
       console.log(`  base: ${edited.baseBranch}@${edited.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${edited.commit.slice(0, 8)}`);
-      console.log(`  ${edited.baseBranch} was not changed; review and merge the branch through normal repository controls.`);
+      console.log(`  approved ${edited.baseBranch} was not changed; review and merge the proposal into that branch.`);
+      console.log('  the application default branch is not part of this configuration change.');
       console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
     }
     return;

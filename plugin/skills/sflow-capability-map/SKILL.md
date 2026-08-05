@@ -12,7 +12,7 @@ disable-model-invocation: true
 
 Capabilities form a tree. A `delivery` ships from repositories; a `collection` groups capabilities. The tree has one root and any depth.
 
-The lead repository owns `singularity/capabilities.yml`; its `portfolio.yml` declares repositories. Flow edits it in a temporary clone, so this also works outside Git.
+The lead repository owns `singularity/capabilities.yml`; `portfolio.yml` declares repositories. Flow edits a temporary clone, so this works outside Git.
 
 1. Run `singularity-flow capability leads --json` for the lead repositories this
    machine knows. If exactly one is returned, use it. If several are,
@@ -25,9 +25,9 @@ The lead repository owns `singularity/capabilities.yml`; its `portfolio.yml` dec
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
 
-5. Report the review branch, base branch, and commit. State explicitly that the
-   default branch and state projection were not changed. Do not report the new
-   capability as active yet.
+5. Report the review branch, base, and commit. State that the proposal targets
+   `sflow/config`; application branches and state were not changed. It is not
+   active yet.
 6. Ask the contributor to review and merge the branch through the repository's
    normal controls. After they confirm the merge, run:
 
@@ -37,12 +37,11 @@ The lead repository owns `singularity/capabilities.yml`; its `portfolio.yml` dec
 
 ## Starting from nothing
 
-A lead repository that has never been governed is the ordinary starting point,
-not an error. The first `capability map` writes the proposed `singularity/`
-configuration, repository declaration, and state-branch setting to a review
-branch. It never pushes the default or state branch directly. If `singularity/`
-already exists, the proposal preserves it and adds only missing starter files
-and the requested capability changes. Do not run `bootstrap` separately first.
+An ungoverned lead repository is a normal starting point. The first map writes
+the proposed `singularity/` configuration to a review branch based on
+`sflow/config`; it never pushes an application or state branch. Existing
+configuration is preserved and only missing starter files and the capability
+change are added. Do not run `bootstrap` first.
 
 ## Boundaries
 
@@ -53,8 +52,9 @@ and the requested capability changes. Do not run `bootstrap` separately first.
 - Do not edit `singularity/capabilities.yml` or `singularity/portfolio.yml` by
   hand. Both are validated on every write, and a hand edit skips that.
 - Do not merge, force-push, or delete the review branch. The contributor's
-  repository controls own that decision. Do not run `capability publish` before
-  the contributor confirms the review branch was merged.
+  repository controls decide what reaches `sflow/config`. Do not run
+  `capability publish` before the contributor confirms the review branch was
+  merged there.
 - Policy is inherited from the root toward each child and every fold is
   monotonic: a child may tighten what an ancestor set and can never loosen it.
   Use `/sf-capabilities` to explain the effect rather than reasoning about it

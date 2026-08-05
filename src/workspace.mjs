@@ -495,7 +495,8 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
  */
 export async function workspaceRemoteCapabilities(url, {
   capabilitiesPath = 'singularity/capabilities.yml',
-  portfolioPath = 'singularity/portfolio.yml'
+  portfolioPath = 'singularity/portfolio.yml',
+  configurationBranch = 'sflow/config'
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
@@ -503,10 +504,21 @@ export async function workspaceRemoteCapabilities(url, {
   try {
     // Partial clones are refused by some servers and by older Git; without the filter this still
     // works, it just fetches one commit's blobs.
-    // Named explicitly rather than left to HEAD: a remote whose HEAD points at a branch that never
-    // existed clones with nothing to resolve, and `git show HEAD:` then reports the map as absent
-    // when it is right there on the only branch the repository has.
-    const branch = remoteDefaultBranch(remote, run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout);
+    // Organisation configuration is intentionally independent of application `main`. Workspaces
+    // must therefore read the approved configuration branch, never whichever application branch
+    // the remote happens to advertise as HEAD.
+    const configured = run('git', ['ls-remote', '--heads', remote,
+      `refs/heads/${configurationBranch}`], { allowFailure: true });
+    if (configured.status !== 0 || !configured.stdout.trim()) {
+      return {
+        capabilities: null,
+        deliveries: [],
+        reason: `${remote} has no approved ${configurationBranch} configuration branch.`,
+        path: capabilitiesPath,
+        branch: configurationBranch
+      };
+    }
+    const branch = configurationBranch;
     const clone = (extra) => run('git', [
       'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra, remote, scratch
     ], { allowFailure: true });

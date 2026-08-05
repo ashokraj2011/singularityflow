@@ -20,8 +20,9 @@ flowchart TB
   H --> T["sflow CLI"]
   V --> T
   C --> T
-  T --> X["Configuration + immutable resolution"]
-  X --> P["Prompt composition"]
+  T --> X["Approved sflow/config revision"]
+  X --> Y["Pinned Story configuration snapshot"]
+  Y --> P["Prompt composition"]
   P --> AI["Native GitHub Copilot authoring"]
   T --> U["Publication unit of work"]
   U --> G["Lifecycle Git branch"]
@@ -111,7 +112,8 @@ publication.
 
 | Plane | Examples | Authority |
 |---|---|---|
-| Repository definition | `workflow.yml`, `portfolio.yml`, `capabilities.yml`, `.github/agents/`, prompts, templates | Defines future work |
+| Configuration authority | `sflow/config`: `workflow.yml`, `portfolio.yml`, `capabilities.yml`, `.github/agents/`, prompts, skills, templates | Approved definition for future work; independent of application history |
+| Lifecycle configuration snapshot | Copied configuration plus `configuration-source.json` on the Story branch | Immutable definition for that Story, pinned to one full configuration commit and per-file hashes |
 | Lifecycle branch | Story `workflow.json`; Initiative `state.json`; artifacts and approvals | Operational source of truth for active work |
 | Local context | workspace registry, session, locks, caches, pending-publication marker | Selects or protects work; never shared authority |
 | External observation | Jira, GitHub checks/PRs, storage providers | Timestamped evidence; Git records what was observed |
@@ -125,7 +127,17 @@ writes recovery state below `.git/singularity-flow/pending-publication/`.
 
 ## Repository definition and immutable resolution
 
-`singularity/workflow.yml` is the editable definition for new work. It declares work types, phases, templates, world-model routing, approval policies, Git publication, and protected paths. Governed execution roles live only in `.github/agents/*.agent.md`.
+`singularity/workflow.yml` on `sflow/config` is the editable definition for new
+work. It declares work types, phases, templates, world-model routing, approval
+policies, Git publication, and protected paths. Governed agents live in
+`.github/agents/*.agent.md` on the same branch. Capability edits are reviewed
+against `sflow/config`; application branches are not configuration authorities.
+
+At Story creation the engine copies the approved configuration revision into the
+new lifecycle branch and writes `singularity/configuration-source.json`. That
+provenance record contains the configuration remote, branch, full commit SHA, and
+SHA-256 for every copied configuration asset. The Story remains reproducible even
+after `sflow/config` changes.
 
 At work-item creation the CLI resolves:
 

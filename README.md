@@ -205,27 +205,37 @@ capabilities. The tree has exactly one root and may go to any depth. Jira projec
 and team names belong to a capability, not to a repository or workspace. Optional
 `type: tech|business` is a separate domain classification; it is not capability kind.
 
-The map lives in `singularity/capabilities.yml` in the **lead repository**, with
-the repositories it refers to declared in that repository's
-`singularity/portfolio.yml`. Editing it checks nothing out: the lead is cloned to
-a temporary directory, edited, pushed to a new `sflow/capability/...` review
-branch and discarded. Flow never writes the lead repository's default branch
-from this path.
+The approved map lives at `singularity/capabilities.yml` on the lead repository's
+dedicated **`sflow/config` configuration branch**, with the repositories it refers
+to declared in `singularity/portfolio.yml` on that same branch. Editing checks
+nothing out permanently: Flow clones `sflow/config` into a temporary directory,
+pushes a `sflow/config-change/capability/...` review branch, and discards the
+checkout. It never writes the lead repository's application default branch.
 
 ```
 singularity-flow capability map payments-api --lead https://git.example.corp/acme/platform.git \
   --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git
 
-# After the review branch is merged through normal repository controls:
+# After the review branch is merged into sflow/config through normal controls:
 singularity-flow capability publish --lead https://git.example.corp/acme/platform.git
 ```
 
-The first capability mapped into a repository governs it — `singularity/` is
-written, the repository is declared in its own portfolio, and the orphan `state`
-branch is named on the review branch. Existing `singularity/` files are preserved;
-only missing starter files and the proposed capability/portfolio changes are added.
+The first capability mapped into a repository creates `sflow/config` if needed,
+imports any existing reusable configuration as its seed, declares the repository,
+and names the orphan `state` proof branch. Existing configuration files are
+preserved; runtime state, evidence, telemetry, and world-model output are not
+imported into shared configuration.
+
+When a Story starts, Flow copies one exact approved `sflow/config` revision onto
+the new Story branch and commits `singularity/configuration-source.json`. That
+record pins the source repository, full configuration commit, and SHA-256 of every
+copied configuration asset. Later phases therefore cannot silently change when
+shared configuration advances. Application `main` remains application code and
+never receives capability, workflow, agent, prompt, skill, or template edits from
+this path.
 After review and merge, `capability publish` refreshes the orphan state projection.
-Unreviewed configuration is never copied to `main` or the state branch.
+Unreviewed configuration is never copied to an application branch or the state
+proof branch.
 
 When a Story or Initiative starts, Flow resolves the owning capability from the
 active workspace (or accepts `--capability <ID>` when a repository participates in

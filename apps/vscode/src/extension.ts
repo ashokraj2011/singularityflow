@@ -373,8 +373,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'singularityFlow.mapCapability',
         async (mapped: Mapped) => {
           const chosen = await vscode.window.showInformationMessage(
-            `${mapped.capabilityId} is proposed on ${mapped.branch}. ${mapped.baseBranch} was not changed. `
-            + 'Merge the review branch, publish the capability projection, then reopen or refresh the workspace form.',
+            `${mapped.capabilityId} is proposed on ${mapped.branch}. Approved ${mapped.baseBranch} was not changed. `
+            + 'Merge the review branch into sflow/config, publish the capability projection, then reopen or refresh the workspace form.',
             'Copy branch');
           if (chosen === 'Copy branch') await vscode.env.clipboard.writeText(mapped.branch ?? '');
         }
@@ -424,7 +424,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       void vscode.window.showInformationMessage(
         `${mapped.capabilityId} is ready for review on ${mapped.branch}. `
-        + `${mapped.baseBranch} was not changed. Merge the proposal, then run capability publish before creating a workspace on it.`,
+        + `Approved ${mapped.baseBranch} was not changed. Merge the proposal into sflow/config, then run capability publish before creating a workspace on it.`,
         'Copy branch')
         .then((chosen) => (chosen
           ? vscode.env.clipboard.writeText(mapped.branch ?? '')

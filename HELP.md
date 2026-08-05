@@ -695,11 +695,18 @@ singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
 
+Approved organisation configuration lives on the dedicated `sflow/config` branch.
 `capability map` and remote `capability edit` create a review branch named under
-`sflow/capability/`; they do not push the default branch. Merge that proposal using
-the repository's normal review process, then run `capability publish` to refresh
-the orphan state projection. If the repository already contains `singularity/`,
-the proposal preserves it and updates only the required capability configuration.
+`sflow/config-change/capability/`; they never push an application branch. Merge
+that proposal into `sflow/config` using the repository's normal review process,
+then run `capability publish` to refresh the orphan state projection. The first
+proposal may seed `sflow/config` from reusable configuration already present in the
+repository, but excludes runtime work, evidence, telemetry, and world-model output.
+
+A newly created Story branch receives an immutable copy of the approved revision.
+`singularity/configuration-source.json` records the configuration repository,
+`sflow/config` commit, and per-file SHA-256 hashes. The workflow validates those
+hashes on later lifecycle mutations.
 
 ## Workspace configuration
 

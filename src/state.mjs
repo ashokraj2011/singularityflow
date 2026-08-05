@@ -43,6 +43,7 @@ import {
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
+import { readConfigurationSource } from './configuration-branch.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -287,6 +288,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     capability
   );
   const snapshotState = await snapshotResolution(root, config, resolution);
+  snapshotState.configurationSource = await readConfigurationSource(root, { verify: true });
   snapshotState.worldModelGrounding = capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
@@ -1256,6 +1258,17 @@ export async function syncPublication(root, config, workflow) {
 
 export async function validateWorkflow(root, config, workflow, { strict = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
+  if (workflow.resolution?.configurationSource) {
+    try {
+      const currentSource = await readConfigurationSource(root, { verify: true });
+      if (!currentSource || currentSource.commit !== workflow.resolution.configurationSource.commit
+        || currentSource.repository !== workflow.resolution.configurationSource.repository) {
+        errors.push('Configuration provenance differs from the immutable Story snapshot.');
+      }
+    } catch (error) {
+      errors.push(`Configuration provenance: ${error.message}`);
+    }
+  }
   if (workflow.schemaVersion === 2 && workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
   const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
   if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');

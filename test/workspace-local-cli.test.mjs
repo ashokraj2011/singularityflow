@@ -244,7 +244,7 @@ async function describe(base, source, { portfolio = true } = {}) {
   }
   run('git', ['add', '-A'], { cwd: seed });
   run('git', ['commit', '-qm', 'describe'], { cwd: seed });
-  run('git', ['push', '-q', source, 'main'], { cwd: seed });
+  run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
 }
 
 test('a lead repository reports what the organisation builds without being cloned', async () => {
@@ -275,7 +275,7 @@ test('a lead repository with no map says so, which is a state and not a failure'
   const { source, env } = await environment();
   const map = JSON.parse(cli(['workspace', 'capabilities', source, '--json'], env).stdout);
   assert.equal(map.capabilities, null);
-  assert.match(map.reason, /does not contain singularity\/capabilities\.yml/);
+  assert.match(map.reason, /has no approved sflow\/config configuration branch/);
   assert.deepEqual(map.deliveries, []);
 });
 

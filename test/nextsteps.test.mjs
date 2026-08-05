@@ -39,8 +39,8 @@ test('nextsteps works before initialization and without an active work item', ()
 
 test('active generation plan includes current, subsequent, alternative, and following-phase actions', () => {
   const steps = workflowNextSteps(workflow());
-  assert.deepEqual(steps.map((item) => item.skill), ['/sflow-phase', '/sflow-submit', '/sflow-approve', '/sflow-reject', '/sflow-phase']);
-  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'alternative', 'then']);
+  assert.deepEqual(steps.map((item) => item.skill), ['/sflow-phase', '/sflow-submit', '/sflow-approve', '/sflow-reject', '/sf-cancel', '/sflow-phase']);
+  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'alternative', 'alternative', 'then']);
   assert.match(steps.at(-1).reason, /Requirements/);
 });
 
@@ -73,6 +73,13 @@ test('rejection, pending publication, and completion produce safe action plans',
   const completed = workflowNextSteps(complete);
   assert.deepEqual(completed.map((item) => item.skill), ['/sflow-progress', '/sflow-report', null]);
   assert.match(completed.at(-1).command, /gate --terminal/);
+
+  const cancelled = workflow({ status: 'cancelled', currentPhase: null, phaseStatus: 'cancelled', generation: 1 });
+  cancelled.cancellation = {
+    phase: 'intake', reason: 'Priority changed', cancelledAt: '2026-01-04T00:00:00.000Z',
+    cancelledBy: { name: 'Reviewer', email: 'reviewer@example.com' }
+  };
+  assert.deepEqual(workflowNextSteps(cancelled).map((item) => item.skill), ['/sflow-documents', '/sflow-report']);
 });
 
 test('nextsteps text preserves timing, skill, reason, and CLI command', () => {

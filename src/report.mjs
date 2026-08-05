@@ -185,7 +185,11 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const startCandidates = [timestamp(history[0]?.at), ...workflow.phaseOrder.map((id) => timestamp(workflow.phases[id].startedAt))].filter((value) => value != null);
   const startedAt = startCandidates.length ? Math.min(...startCandidates) : null;
   const approvalTimes = workflow.phaseOrder.map((id) => timestamp(workflow.phases[id].approvedAt)).filter((value) => value != null);
-  const completedAt = workflow.status === 'complete' && approvalTimes.length ? Math.max(...approvalTimes) : null;
+  const completedAt = workflow.status === 'complete' && approvalTimes.length
+    ? Math.max(...approvalTimes)
+    : workflow.status === 'cancelled'
+      ? timestamp(workflow.cancellation?.cancelledAt)
+      : null;
   const effectiveEnd = completedAt ?? reportTime;
   const elapsedMs = startedAt != null && effectiveEnd != null && effectiveEnd >= startedAt ? effectiveEnd - startedAt : null;
   const waitingMs = phases.reduce((sum, phase) => sum + (phase.waitingMs ?? 0), 0);
@@ -271,7 +275,9 @@ export function renderMarkdown(report) {
   const item = report.workItem;
   const lines = [`# ${item.id}${item.title ? ` — ${item.title}` : ''}${item.workType ? ` (${item.workType})` : ''}`, ''];
   lines.push([
-    report.completedAt ? `Completed in ${humanizeDuration(report.elapsedMs)}` : `In progress for ${humanizeDuration(report.elapsedMs)}`,
+    report.completedAt
+      ? `${item.status === 'cancelled' ? 'Cancelled after' : 'Completed in'} ${humanizeDuration(report.elapsedMs)}`
+      : `In progress for ${humanizeDuration(report.elapsedMs)}`,
     `${report.phases.length} phases`,
     `${report.reworkCycles} rework cycle${report.reworkCycles === 1 ? '' : 's'}`,
     `${report.tokens.total.toLocaleString('en-US')} exact tokens${report.cost != null ? ` (~${money(report.cost)}${report.costStatus === 'partial' ? ', partial pricing' : ''})` : ''}`
@@ -369,7 +375,7 @@ footer { color: #777; font-size: 12px; margin-top: 2rem; }
 </head>
 <body>
 <h1>${escapeHtml(item.id)}${item.title ? ` — ${escapeHtml(item.title)}` : ''}</h1>
-<p>${report.completedAt ? `Completed in ${humanizeDuration(report.elapsedMs)}` : `In progress for ${humanizeDuration(report.elapsedMs)}`} · ${report.reworkCycles} rework cycle${report.reworkCycles === 1 ? '' : 's'} · ${report.tokens.total.toLocaleString('en-US')} exact tokens${report.cost != null ? ` (~${money(report.cost)}${report.costStatus === 'partial' ? ', partial pricing' : ''})` : ''}</p>
+<p>${report.completedAt ? `${item.status === 'cancelled' ? 'Cancelled after' : 'Completed in'} ${humanizeDuration(report.elapsedMs)}` : `In progress for ${humanizeDuration(report.elapsedMs)}`} · ${report.reworkCycles} rework cycle${report.reworkCycles === 1 ? '' : 's'} · ${report.tokens.total.toLocaleString('en-US')} exact tokens${report.cost != null ? ` (~${money(report.cost)}${report.costStatus === 'partial' ? ', partial pricing' : ''})` : ''}</p>
 ${bottleneck}
 ${governance}
 <h2>Phases</h2>

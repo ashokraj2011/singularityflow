@@ -248,6 +248,15 @@ export interface StoryWorkflow {
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;
   status?: string;
+  cancellation?: {
+    status: 'cancelled';
+    phase: string;
+    generation?: number;
+    reason: string;
+    cancelledAt: string;
+    cancelledBy?: { name?: string; email?: string; login?: string };
+    agent?: string | null;
+  };
   changeRequests?: Array<{
     id: string;
     status: 'open' | 'resolved';

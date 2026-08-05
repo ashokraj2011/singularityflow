@@ -1801,6 +1801,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-submit` | Submit the current generated phase |
 | `/sf-approve` | Explicitly review and approve a submitted phase |
 | `/sf-reject` | Explicitly reject to an allowed earlier phase |
+| `/sf-cancel` | Cancel active work, preserve its evidence, and move it to Archived |
 | `/sf-status` | Show detailed work-item state and warnings |
 | `/sf-progress` | Show deterministic phase completion |
 | `/sf-report` | Show timing, waiting, rework, token, and bottleneck metrics |
@@ -2074,6 +2075,7 @@ singularity-flow submit [PHASE] [--phase PHASE]
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
+singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow ledger status|verify|publish ...

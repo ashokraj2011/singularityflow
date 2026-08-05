@@ -1,7 +1,7 @@
 import { SingularityFlowError } from './util.mjs';
 
 const NOTIFIABLE = new Set([
-  'approval-requested', 'phase-approved', 'phase-rejected', 'work-completed'
+  'approval-requested', 'phase-approved', 'phase-rejected', 'work-cancelled', 'work-completed'
 ]);
 
 function teamsWebhook(environment) {
@@ -22,6 +22,7 @@ export function lifecycleNotificationText(event) {
     'approval-requested': 'Approval requested',
     'phase-approved': 'Phase approved',
     'phase-rejected': 'Phase returned',
+    'work-cancelled': 'Work cancelled and archived',
     'work-completed': 'Work completed'
   };
   return `Singularity Flow — ${labels[event.type] ?? event.type}\n${event.subject.kind} ${event.subject.id}${phase}${generation}\nBranch: ${event.subject.branch}`;

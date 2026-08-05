@@ -464,6 +464,29 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').readOnly, true);
 });
 
+test('a cancelled Story leaves the active rail and opens from Archived with its reason and artifacts', () => {
+  const cancelled = storySnapshot({ status: 'cancelled', generation: 1 });
+  cancelled.workflow.status = 'cancelled';
+  cancelled.workflow.currentPhase = null;
+  cancelled.workflow.cancellation = {
+    phase: 'design', reason: 'The customer withdrew the request.',
+    cancelledAt: '2026-08-05T09:00:00.000Z',
+    cancelledBy: { name: 'Product Owner', email: 'po@example.com' },
+    agent: 'product-owner', channel: 'vscode'
+  };
+  const tree = buildTree(cancelled);
+
+  assert.deepEqual(tree.map((node) => node.id), ['archived', 'workspace:impact']);
+  assert.equal(tree[0].label, 'Archived');
+  const story = find(tree, 'archived-story:STORY-42');
+  assert.equal(story.contextValue, 'sflow.story.archived');
+  assert.match(story.tooltip, /customer withdrew/);
+  assert.equal(find(tree, 'story:continue-safely'), undefined);
+  assert.equal(find(tree, 'archived-story-artifact:design:PHASE-DESIGN').path,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
+  assert.equal(find(tree, 'archived-story-artifact:design:PHASE-DESIGN').readOnly, true);
+});
+
 test('completed sibling Stories remain visible while another Story is active', () => {
   const active = storySnapshot({ generation: 1 });
   active.workItems.push({

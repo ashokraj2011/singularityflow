@@ -213,7 +213,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
-    'singularityFlow.reopenCompleted'
+    'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -1302,6 +1302,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': () => DashboardPanel.show(context, store),
+    'singularityFlow.cancelWork': async () => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!workflow || workflow.status !== 'in_progress') {
+        void vscode.window.showWarningMessage('Only active Story work can be cancelled.');
+        return;
+      }
+      const reason = await vscode.window.showInputBox({
+        title: `Cancel and archive ${workflow.workItem.id}`,
+        prompt: 'Explain why this work is being stopped. The reason, actor, artifacts, and approvals remain in Git.',
+        placeHolder: 'Reason for cancellation',
+        ignoreFocusOut: true,
+        validateInput: (value) => value.trim() ? null : 'A cancellation reason is required.'
+      });
+      if (!reason?.trim()) return;
+      const decision = await vscode.window.showWarningMessage(
+        `Cancel ${workflow.workItem.id}? Its lifecycle will stop and it will move to Archived. Generated artifacts are preserved.`,
+        { modal: true, detail: `Current phase: ${workflow.currentPhase ?? 'unknown'}\nReason: ${reason.trim()}` },
+        'Cancel and archive'
+      );
+      if (decision !== 'Cancel and archive') return;
+      try {
+        await client.runText(['cancel', workflow.workItem.id, '--reason', reason.trim(), '--confirm', workflow.workItem.id]);
+        await store.refresh();
+        void vscode.window.showInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not cancel ${workflow.workItem.id}: ${(error as Error).message}`);
+      }
+    },
     'singularityFlow.reopenCompleted': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!workflow || workflow.status !== 'complete') {

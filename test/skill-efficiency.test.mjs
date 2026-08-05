@@ -10,7 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 test('every public skill has a bounded class and output contract', async () => {
   const result = await auditSkillPolicy(root);
   assert.deepEqual(result.errors, []);
-  assert.equal(result.rows.length, 92);
+  assert.equal(result.rows.length, 93);
   assert.ok(result.rows.every((row) => row.class && row.bodyTokens <= 800));
 });
 

@@ -774,8 +774,8 @@ function milestoneReached(workflow, phaseId) {
   return phase?.status === 'approved';
 }
 
-const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete']);
-const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved']);
+const CHILD_WORKFLOW_STATUSES = new Set(['in_progress', 'complete', 'cancelled']);
+const CHILD_PHASE_STATUSES = new Set(['not_started', 'in_progress', 'awaiting_approval', 'approved', 'cancelled']);
 
 function parseChildWorkflow(text, story) {
   const workId = story.workId ?? story.id;
@@ -831,6 +831,11 @@ function parseChildWorkflow(text, story) {
   if (workflow.status === 'complete') {
     if (workflow.currentPhase != null || phaseOrder.some((phaseId) => workflow.phases[phaseId].status !== 'approved')) {
       throw new SingularityFlowError(`Completed child workflow '${story.id}' must have no current phase and every phase approved.`);
+    }
+  } else if (workflow.status === 'cancelled') {
+    if (workflow.currentPhase != null || !workflow.cancellation?.phase
+      || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') {
+      throw new SingularityFlowError(`Cancelled child workflow '${story.id}' must have no current phase and identify its cancelled phase.`);
     }
   } else if (!phaseOrder.includes(workflow.currentPhase) || !['in_progress', 'awaiting_approval'].includes(workflow.phases[workflow.currentPhase].status)) {
     throw new SingularityFlowError(`In-progress child workflow '${story.id}' has invalid current phase '${workflow.currentPhase ?? 'none'}'.`);

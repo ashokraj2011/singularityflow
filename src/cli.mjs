@@ -66,7 +66,7 @@ import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugi
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializationStatus, initializeDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { activateWorkItemSession, loadSession, agentSessionStatus, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
@@ -768,6 +768,8 @@ async function startCommand(positionals, options) {
   const baseAtStart = explicitBase ?? config.defaultBaseBranch;
   const remote = config.git?.remote ?? 'origin';
   const originalBranch = branch(root);
+  const originalSession = await loadSession(root, { required: false });
+  const originalCopilotSession = await loadCopilotSession(root);
   const checkoutResult = checkout(root, canonicalBranch, {
     base: baseAtStart,
     fetch: optionBoolean(options, 'fetch'),
@@ -880,7 +882,12 @@ async function startCommand(positionals, options) {
     // workflow definition and any governed Story seed. If those preflight steps fail before state
     // exists, restore the caller's branch and remove only the branch this invocation created.
     // Existing remote/local Story branches and partially-created workflow state are never deleted.
-    if (createdBranch && !existsSync(workflowPath(root, config, id))) {
+    const workflowCreated = existsSync(workflowPath(root, config, id));
+    if (!workflowCreated) {
+      await restoreAgentSession(root, originalSession);
+      await restoreCopilotSession(root, originalCopilotSession);
+    }
+    if (createdBranch && !workflowCreated) {
       const restored = run('git', ['switch', originalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
       if (restored.status === 0) {
         run('git', ['branch', '-D', canonicalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });

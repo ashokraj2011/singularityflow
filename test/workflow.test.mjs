@@ -47,6 +47,81 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', 'refs/heads/NO-SELECT'], root, { allowFailure: true }).status, 0);
 });
 
+test('failed start restores the caller branch and both previous local sessions', async () => {
+  const root = await repository();
+  const sessionFile = path.join(root, '.git/singularity-flow/session.json');
+  const copilotSessionFile = path.join(root, '.git/singularity-flow/copilot-session.json');
+  const previousSession = {
+    schemaVersion: 2,
+    agent: 'architect',
+    workId: 'EXISTING-1',
+    phaseId: 'design',
+    selectedAt: '2026-08-05T00:00:00.000Z'
+  };
+  const previousCopilotSession = {
+    schemaVersion: 1,
+    sessionId: 'copilot-before-failed-start',
+    workId: 'SESSION-ROLLBACK',
+    selectionRequired: true,
+    selectedAgent: null
+  };
+  await mkdir(path.dirname(sessionFile), { recursive: true });
+  await writeFile(sessionFile, `${JSON.stringify(previousSession, null, 2)}\n`);
+  await writeFile(copilotSessionFile, `${JSON.stringify(previousCopilotSession, null, 2)}\n`);
+
+  const workId = 'SESSION-ROLLBACK';
+  const seedFile = path.join(root, 'singularity/seeds', `${workId}.yml`);
+  await mkdir(path.dirname(seedFile), { recursive: true });
+  await writeFile(seedFile, YAML.stringify({
+    version: 1,
+    story: {
+      workId: 'DIFFERENT-STORY',
+      title: 'Reject the mismatched seed',
+      description: 'Reach governed-agent activation, then fail seed ownership validation.',
+      acceptanceCriteria: ['The failed start leaves the existing session untouched.'],
+      suggestedWorkType: 'feature'
+    }
+  }));
+  execute('git', ['add', 'singularity/seeds'], root);
+  execute('git', ['commit', '-m', 'Add mismatched Story seed fixture'], root);
+
+  const result = flow(root, ['start', workId, '--agent', 'product-owner'], { allowFailure: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /does not belong to Work ID 'SESSION-ROLLBACK'/);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', `refs/heads/${workId}`], root, { allowFailure: true }).status, 0);
+  assert.deepEqual(JSON.parse(await readFile(sessionFile, 'utf8')), previousSession);
+  assert.deepEqual(JSON.parse(await readFile(copilotSessionFile, 'utf8')), previousCopilotSession);
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+});
+
+test('failed first start leaves no local session or abandoned branch', async () => {
+  const root = await repository();
+  const workId = 'FIRST-ROLLBACK';
+  const seedFile = path.join(root, 'singularity/seeds', `${workId}.yml`);
+  await mkdir(path.dirname(seedFile), { recursive: true });
+  await writeFile(seedFile, YAML.stringify({
+    version: 1,
+    story: {
+      workId: 'SOMEONE-ELSE',
+      title: 'Reject the mismatched seed',
+      description: 'Fail after governed-agent activation without a prior local session.',
+      acceptanceCriteria: ['No failed-session state remains.'],
+      suggestedWorkType: 'feature'
+    }
+  }));
+  execute('git', ['add', 'singularity/seeds'], root);
+  execute('git', ['commit', '-m', 'Add first-start rollback fixture'], root);
+
+  const result = flow(root, ['start', workId, '--agent', 'product-owner'], { allowFailure: true });
+  assert.notEqual(result.status, 0);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', `refs/heads/${workId}`], root, { allowFailure: true }).status, 0);
+  await assert.rejects(readFile(path.join(root, '.git/singularity-flow/session.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(root, '.git/singularity-flow/copilot-session.json')), { code: 'ENOENT' });
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+});
+
 test('CLI Story start pins configuration and world model from the refreshed configured remote', async () => {
   const source = await repository();
   const configPath = path.join(source, 'singularity/workflow.yml');

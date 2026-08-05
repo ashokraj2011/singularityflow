@@ -142,9 +142,29 @@ export async function loadSession(root, { required = true } = {}) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
+export async function restoreAgentSession(root, record) {
+  const file = sessionPath(root);
+  if (record == null) {
+    try { await unlink(file); }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    return null;
+  }
+  return writeLocalJson(file, record);
+}
+
 export async function loadCopilotSession(root) {
   const file = copilotSessionPath(root);
   return await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : null;
+}
+
+export async function restoreCopilotSession(root, record) {
+  const file = copilotSessionPath(root);
+  if (record == null) {
+    try { await unlink(file); }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    return null;
+  }
+  return writeLocalJson(file, record);
 }
 
 export async function recordCopilotSession(root, record) {

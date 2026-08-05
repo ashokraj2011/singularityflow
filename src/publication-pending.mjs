@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { readdir, unlink } from 'node:fs/promises';
-import { gitDir } from './git.mjs';
+import { gitDir, head, remoteContains } from './git.mjs';
+import {
+  clearPublicationJournal,
+  publicationJournalOwnedByCurrentProcess,
+  readPublicationJournal
+} from './publication-journal.mjs';
+import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
 
 function safeId(id) {
@@ -44,6 +50,40 @@ function legacyCandidates(root, { kind, id, legacyPath = null, roots = {} } = {}
 export async function readPendingPublication(root, { kind, id, legacyPath = null, roots = {}, migrate = true } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
   if (await exists(local)) return { path: local, record: await readJson(local), migrated: false };
+  const subject = { kind, id };
+  const journal = await readPublicationJournal(root, subject);
+  if (journal) {
+    // State validation runs inside the transaction after its journal is durable. That transaction
+    // must not diagnose its own marker as a previous crash; every other process still sees it.
+    if (publicationJournalOwnedByCurrentProcess(journal.record)) return null;
+    const currentHead = head(root);
+    const advanced = currentHead !== journal.record.expectedHead;
+    if (advanced && remoteContains(root, currentHead, journal.record.remote, journal.record.branch)) {
+      if (migrate) await clearPublicationJournal(root, subject);
+      return null;
+    }
+    const record = {
+      schemaVersion: 2,
+      subject,
+      branch: journal.record.branch,
+      remote: journal.record.remote,
+      commit: advanced ? currentHead : null,
+      event: advanced ? bindLifecycleEvent(journal.record.event, currentHead) : journal.record.event,
+      createdAt: journal.record.createdAt,
+      recoveryStage: advanced
+        ? 'branch-ref-advanced-before-publication'
+        : 'interrupted-before-branch-ref-advanced',
+      error: advanced
+        ? 'The process stopped after creating the local commit and before publication completed.'
+        : 'The process stopped before the governed commit completed; inspect and repair the working tree before retrying.'
+    };
+    if (migrate && advanced) {
+      await writeJson(local, record);
+      await clearPublicationJournal(root, subject);
+      return { path: local, record, migrated: true, migratedFrom: journal.path };
+    }
+    return { path: journal.path, record, migrated: false, journal: true };
+  }
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath, roots })) {
     if (!(await exists(legacy))) continue;
     const record = await readJson(legacy);
@@ -74,6 +114,7 @@ export async function clearPendingPublication(root, { kind, id, legacyPath = nul
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath })) {
     if (await exists(legacy)) await unlink(legacy);
   }
+  await clearPublicationJournal(root, { kind, id });
 }
 
 /** Find legacy markers that no active subject read has migrated. */

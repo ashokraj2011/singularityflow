@@ -1309,6 +1309,12 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
     return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
   }
   const record = pending.record;
+  if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+    throw new SingularityFlowError(
+      `Initiative '${initiative.initiative.id}' was interrupted before its governed commit completed. `
+      + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
+    );
+  }
   const result = pushBranch(root, record.remote, record.branch);
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
   await clearPendingPublication(root, {

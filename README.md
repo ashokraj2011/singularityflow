@@ -494,8 +494,10 @@ Use `/sflow-nextsteps [WORK-ID]` whenever you need a compact ordered plan. Its C
 
 For an executable, revision-bound plan use `/sf-continue` or **Lifecycle → Continue safely** in VS
 Code. The underlying commands are `singularity-flow action plan --json` and
-`singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --confirm <KERNEL-VALUE>`. The plan expires and becomes stale
-whenever the branch, HEAD, worktree, or lifecycle snapshot changes. See
+`singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` followed by
+`singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <ONE-TIME-TOKEN>`.
+The local authorization is bound to that exact plan/action and is consumed once. The plan expires
+and becomes stale whenever the branch, HEAD, staged/unstaged file bytes, or lifecycle snapshot changes. See
 [Governed execution](docs/GOVERNED-EXECUTION.md) for the action protocol, isolated Git publication,
 review-packet binding, and its explicit containment boundary.
 
@@ -1327,8 +1329,9 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
 | `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |
-| `singularity-flow action plan [ID]` | Create a short-lived action plan bound to branch, HEAD, worktree, and lifecycle hashes. |
-| `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --confirm <KERNEL-VALUE>` | Revalidate and run one reviewed action directly through the engine. Read-only actions omit confirmation. |
+| `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
+| `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |
+| `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` | Revalidate and run one reviewed action directly through the engine. The token is consumed once; read-only actions omit it. |
 | `sflow-next [--task TEXT]` | Execute exactly one next valid action; alias for `singularity-flow next`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,6 +9,7 @@ import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated } from '../src/git.mjs';
 import { readPendingPublication } from '../src/publication-pending.mjs';
+import { publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -34,6 +35,11 @@ const stages = ['after-state-write', 'after-commit', 'after-push', 'after-ledger
 const kinds = ['story', 'initiative'];
 const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-unit-of-work.mjs')).href;
 const eventModule = pathToFileURL(path.join(packageRoot, 'src/lifecycle-event.mjs')).href;
+
+async function pathExists(target) {
+  try { await access(target); return true; }
+  catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
+}
 
 test('Story and Initiative publications have the same recovery boundary at every fault stage', async (t) => {
   for (const kind of kinds) {
@@ -87,6 +93,31 @@ test('Story and Initiative publications have the same recovery boundary at every
   }
 });
 
+test('an active publication does not diagnose its own prewritten journal as pending', async () => {
+  const root = await repository('sflow-journal-owner-');
+  const subject = { kind: 'story', id: 'STORY-JOURNAL-OWNER', branch: 'main' };
+  const target = 'story-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical state'], root);
+  let pendingSeenInsideValidation = 'not-called';
+
+  await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[STORY-JOURNAL-OWNER] publish' },
+    publication: { mode: 'off', branch: 'main' },
+    allowedPaths: [target],
+    state: {
+      write: () => writeFile(path.join(root, target), '{"status":"committed"}\n'),
+      validate: async () => { pendingSeenInsideValidation = await readPendingPublication(root, subject); }
+    }
+  });
+
+  assert.equal(pendingSeenInsideValidation, null);
+  assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+});
+
 test('abrupt process death leaves the same recoverable boundary for Story and Initiative', async (t) => {
   for (const kind of kinds) {
     for (const stage of stages) {
@@ -136,6 +167,62 @@ test('abrupt process death leaves the same recoverable boundary for Story and In
         await new Promise((resolve) => setTimeout(resolve, 5));
         const owner = await acquireSubjectLock(root, subject, { ttlMs: 0 });
         assert.equal(await releaseSubjectLock(root, subject, owner), true);
+      });
+    }
+  }
+});
+
+test('prewritten journals make hard process death discoverable before and after ref advancement', async (t) => {
+  for (const kind of kinds) {
+    for (const stage of ['after-state-write', 'after-ref-update']) {
+      await t.test(`${kind}/${stage}`, async () => {
+        const root = await repository(`sflow-journal-kill-${kind}-${stage}-`);
+        const subject = { kind, id: `${kind.toUpperCase()}-JOURNAL-${stage}`, branch: 'main' };
+        const target = `${kind}-state.json`;
+        await writeFile(path.join(root, target), '{"status":"before"}\n');
+        git(['add', target], root);
+        git(['commit', '-m', 'canonical state'], root);
+        const canonical = git(['rev-parse', 'HEAD'], root);
+        const script = [
+          `import { writeFile } from 'node:fs/promises';`,
+          `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+          `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+          `const root = ${JSON.stringify(root)};`,
+          `const subject = ${JSON.stringify(subject)};`,
+          `const target = ${JSON.stringify(target)};`,
+          `await new GitPublicationUnitOfWork(root).execute({`,
+          `  subject,`,
+          `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
+          `  commit: { message: '[${subject.id}] crash journal' },`,
+          `  publication: { mode: 'required', branch: 'main', remote: 'origin' },`,
+          `  allowedPaths: [target],`,
+          `  state: { write: () => writeFile(root + '/' + target, '{"status":"interrupted"}\\n') },`,
+          `  fault: (current) => { if (current === ${JSON.stringify(stage)}) process.exit(73); }`,
+          `});`
+        ].join('\n');
+
+        const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+          cwd: packageRoot, encoding: 'utf8'
+        });
+        assert.equal(child.status, 73, child.stderr);
+        assert.equal(await pathExists(publicationJournalPath(root, kind, subject.id)), true);
+
+        const current = git(['rev-parse', 'HEAD'], root);
+        const pending = await readPendingPublication(root, subject);
+        if (stage === 'after-state-write') {
+          assert.equal(current, canonical);
+          assert.equal(pending.record.commit, null);
+          assert.equal(pending.record.recoveryStage, 'interrupted-before-branch-ref-advanced');
+          assert.equal(pending.journal, true);
+          assert.equal(await pathExists(publicationJournalPath(root, kind, subject.id)), true);
+        } else {
+          assert.notEqual(current, canonical);
+          assert.equal(pending.record.commit, current);
+          assert.equal(pending.record.recoveryStage, 'branch-ref-advanced-before-publication');
+          assert.equal(pending.record.event.sourceCommit, current);
+          assert.equal(pending.migrated, true);
+          assert.equal(await pathExists(publicationJournalPath(root, kind, subject.id)), false);
+        }
       });
     }
   }
